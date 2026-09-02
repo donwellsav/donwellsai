@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     resolve: { alias: { '@shared': resolve('src/shared') } },
     plugins: [externalizeDepsPlugin()],
-    build: { rollupOptions: { external: ['electron', 'node-pty'] } }
+    build: { rollupOptions: { external: ['electron', 'node-pty'], input: { index: resolve('src/main/index.ts'), 'terminal-daemon-entry': resolve('src/main/terminal-daemon-entry.ts') }, output: { format: 'cjs', entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' } } }
   },
   preload: {
     resolve: { alias: { '@shared': resolve('src/shared') } },

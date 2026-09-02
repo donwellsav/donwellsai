@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import type { IpcApi, MainEvents } from '@shared/types'
 import { Store, idFromPath } from './store'
 import { GitWorktrees } from './git'
-import { PtyManager } from './pty'
+import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 
 // Test seam: isolated userData dir for the smoke harness.
@@ -14,7 +14,7 @@ if (process.env['ORCA_LITE_USER_DATA']) {
 
 let store: Store
 let git: GitWorktrees
-let ptyManager: PtyManager
+let terminalBus: DaemonClient
 let mainWindow: BrowserWindow | null = null
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -155,28 +155,33 @@ function registerIpc(): void {
     return summary
   })
 
-  ipcMain.handle('openTerminal', (_e, worktreePath: string, cwd?: string) => {
+  ipcMain.handle('openTerminal', async (_e, worktreePath: string, cwd?: string) => {
     if (!existsSync(worktreePath)) throw new Error(`path does not exist: ${worktreePath}`)
-    return ptyManager.open(cwd ?? worktreePath, 100, 30)
+    return terminalBus.open(cwd ?? worktreePath, 100, 30)
   })
 
-  ipcMain.handle('closeTerminal', (_e, sessionId: string) => {
-    ptyManager.close(sessionId)
+  ipcMain.handle('attachTerminal', async (_e, sessionId: string) => {
+    // scrollback snapshot + live session state for reattach after app restart
+    return terminalBus.attach(sessionId)
+  })
+
+  ipcMain.handle('closeTerminal', async (_e, sessionId: string) => {
+    await terminalBus.close(sessionId)
     return true
   })
 
   ipcMain.handle('terminalWrite', (_e, sessionId: string, data: string) => {
-    ptyManager.write(sessionId, data)
+    terminalBus.write(sessionId, data)
     return true
   })
 
   ipcMain.handle('terminalResize', (_e, sessionId: string, cols: number, rows: number) => {
-    ptyManager.resize(sessionId, cols, rows)
+    terminalBus.resize(sessionId, cols, rows)
     return true
   })
 
   ipcMain.handle('terminalInterrupt', (_e, sessionId: string) => {
-    ptyManager.interrupt(sessionId)
+    terminalBus.interrupt(sessionId)
     return true
   })
 
@@ -233,10 +238,19 @@ app.whenReady().then(() => {
   store = new Store()
   git = new GitWorktrees(store)
   git.setTrashRoot(join(app.getPath('userData'), 'trash'))
-  ptyManager = new PtyManager({
-    data: (sessionId, data) => send('terminal:data', { sessionId, data }),
-    exit: (sessionId, exitCode) => send('terminal:exit', { sessionId, exitCode }),
-    title: (sessionId, title) => send('terminal:title', { sessionId, title })
+  // Daemon owns the PTYs: spawn-if-needed (detached), never killed on app exit —
+  // running agents survive app restarts; scrollback replays on reattach.
+  terminalBus = new DaemonClient(
+    app.getPath('userData'),
+    {
+      data: (sessionId, data) => send('terminal:data', { sessionId, data }),
+      exit: (sessionId, exitCode) => send('terminal:exit', { sessionId, exitCode }),
+      title: (sessionId, title) => send('terminal:title', { sessionId, title })
+    },
+    join(__dirname, 'terminal-daemon-entry.js')
+  )
+  void terminalBus.connect().catch((e) => {
+    console.error('terminal daemon connect failed:', e)
   })
   registerIpc()
   buildMenu()
@@ -250,14 +264,10 @@ app.whenReady().then(() => {
     })
   }
 })
-
-app.on('window-all-closed', () => {
-  app.quit()
-})
-
 app.on('before-quit', () => {
-  ptyManager?.list().forEach((s) => ptyManager.close(s.id))
+  // orcad rule: never kill the daemon or its PTYs on app exit — sessions survive
 })
+
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()

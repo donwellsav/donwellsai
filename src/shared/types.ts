@@ -130,6 +130,8 @@ export type IpcApi = {
   removeWorktree(repoId: string, worktreePath: string, force?: boolean): Promise<RepoSummary>
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
+  /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
+  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string } | null>
   closeTerminal(sessionId: string): Promise<void>
   terminalWrite(sessionId: string, data: string): Promise<void>
   terminalResize(sessionId: string, cols: number, rows: number): Promise<void>

@@ -10,6 +10,7 @@ const api: IpcApi = {
   createWorktree: (repoId, opts) => ipcRenderer.invoke('createWorktree', repoId, opts),
   removeWorktree: (repoId, worktreePath, force) => ipcRenderer.invoke('removeWorktree', repoId, worktreePath, force),
   openTerminal: (worktreePath, cwd) => ipcRenderer.invoke('openTerminal', worktreePath, cwd),
+  attachTerminal: (sessionId) => ipcRenderer.invoke('attachTerminal', sessionId),
   closeTerminal: (sessionId) => ipcRenderer.invoke('closeTerminal', sessionId),
   terminalWrite: (sessionId, data) => ipcRenderer.invoke('terminalWrite', sessionId, data),
   terminalResize: (sessionId, cols, rows) => ipcRenderer.invoke('terminalResize', sessionId, cols, rows),

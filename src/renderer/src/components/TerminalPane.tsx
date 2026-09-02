@@ -50,6 +50,10 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     fitRef.current = fit
 
     const unsubscribe = terminalBus.subscribe(sessionId, (data) => term.write(data))
+    // reattach replay: daemon-held scrollback written before any live data
+    void window.orca.attachTerminal(sessionId).then((r) => {
+      if (r?.scrollback) term.write(r.scrollback)
+    })
     term.onData((input) => {
       useAppStore.getState().writeTerminal(sessionId, input)
     })
