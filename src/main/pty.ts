@@ -99,6 +99,11 @@ export class PtyManager {
     this.sessions.delete(sessionId)
   }
 
+  /** Send Ctrl-C (SIGINT in the PTY) to interrupt a foreground process — used to stop a running agent TUI. */
+  interrupt(sessionId: string): void {
+    this.write(sessionId, '\u0003')
+  }
+
   writeCommand(sessionId: string, command: string): void {
     this.write(sessionId, command.endsWith('\n') ? command : `${command}\n`)
   }

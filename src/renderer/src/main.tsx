@@ -1,5 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import '@fontsource-variable/geist'
+import '@fontsource-variable/geist-mono'
 import '@xterm/xterm/css/xterm.css'
 import './main.css'
 import { App } from './App'

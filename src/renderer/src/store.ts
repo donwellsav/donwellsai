@@ -1,5 +1,14 @@
 import { create } from 'zustand'
-import type { AgentPreset, RepoSummary, TerminalSession } from '@shared/types'
+import type {
+  AgentPreset,
+  AppSettings,
+  FileContent,
+  FileEntry,
+  RepoSummary,
+  RunningAgent,
+  TerminalSession,
+  WorktreeStatus
+} from '@shared/types'
 
 type TerminalView = {
   session: TerminalSession
@@ -8,34 +17,84 @@ type TerminalView = {
   rows: number
 }
 
+/** A pane inside a worktree card: a terminal, the explorer, or git status. */
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview'
+export type Pane = {
+  key: string
+  kind: PaneKind
+  sessionId?: string
+  file?: string
+}
+
 type AppState = {
   repos: RepoSummary[]
   loading: boolean
   error: string | null
   activeRepoId: string | null
+  /** the worktree path a card is expanded/arrowed; null = main worktree */
   activeWorktreePath: string | null
+
+  /** live git status per worktree path (polled) */
+  statuses: Record<string, WorktreeStatus>
+  /** file explorer entries per worktree path */
+  explorer: Record<string, FileEntry[]>
+  /** open file previews per worktree path */
+  previews: Record<string, FileContent>
+  /** loading flags */
+  busy: Record<string, boolean>
+
+  /** terminals per worktree path */
   terminals: Record<string, TerminalView>
-  /** order of terminal ids per worktree path, for tabs */
-  terminalOrder: string[]
+  /** RCU order of open terminals per worktree path */
+  terminalOrder: Record<string, string[]>
+  /** per-worktree panes (terminal tabs + explorer + git) in layout order */
+  panes: Record<string, Pane[]>
+  /** which pane key is active per worktree path */
+  activePane: Record<string, string>
+  /** active terminal session id per worktree path (recipient of typed input) */
+  activeTerminal: Record<string, string>
+
+  /** agents launched into worktree terminals, session-scoped */
+  runningAgents: Record<string, RunningAgent>
+
   agents: AgentPreset[]
-  agentCommand: string
+  settings: AppSettings
+  paletteOpen: boolean
+  settingsOpen: boolean
 
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
   removeRepo(repoId: string): Promise<void>
   refresh(repoId?: string): Promise<void>
   createWorktree(name?: string, branch?: string): Promise<void>
-  removeWorktree(worktreePath: string): Promise<void>
+  removeWorktree(worktreePath: string, force?: boolean): Promise<void>
 
   openTerminal(worktreePath: string): Promise<TerminalSession | null>
-  closeTerminal(sessionId: string): void
+  closeTerminal(worktreePath: string, sessionId: string): void
   writeTerminal(sessionId: string, data: string): void
+  interruptTerminal(sessionId: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  runInSession(sessionId: string, command: string): void
+
+  togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
+  closePane(worktreePath: string, key: string): void
+  setActivePane(worktreePath: string, key: string): void
+  splitTerminal(worktreePath: string): Promise<void>
+  selectTerminal(worktreePath: string, sessionId: string): void
+
+  loadExplorer(worktreePath: string, prefix?: string): Promise<void>
+  openPreview(worktreePath: string, relPath: string): Promise<void>
+  closePreview(worktreePath: string): void
+  refreshStatuses(): Promise<void>
+
+  runAgent(worktreePath: string, command: string): Promise<void>
+  stopAgent(sessionId: string): void
+
+  setSettings(patch: Partial<AppSettings>): Promise<void>
+  setPaletteOpen(open: boolean): void
+  setSettingsOpen(open: boolean): void
 
   setActiveRepo(repoId: string | null): void
   setActiveWorktree(path: string | null): void
-  applyTerminalData(sessionId: string, data: string): void
   applyTerminalExit(sessionId: string, exitCode: number): void
   applyTerminalTitle(sessionId: string, title: string): void
   setError(err: string | null): void
@@ -43,22 +102,36 @@ type AppState = {
 
 export const useAppStore = create<AppState>((set, get) => ({
   repos: [],
-  loading: false,
+  loading: true,
   error: null,
   activeRepoId: null,
   activeWorktreePath: null,
+  statuses: {},
+  explorer: {},
+  previews: {},
+  busy: {},
   terminals: {},
-  terminalOrder: [],
+  terminalOrder: {},
+  panes: {},
+  activePane: {},
+  activeTerminal: {},
+  runningAgents: {},
   agents: [],
-  agentCommand: 'codex',
+  settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
+  paletteOpen: false,
+  settingsOpen: false,
 
   async load() {
-    set({ loading: true, error: null })
     try {
-      const [repos, agents] = await Promise.all([window.orca.listRepos(), window.orca.listAgents()])
-      const state: Partial<AppState> = { repos, agents, loading: false }
+      const [repos, agents, settings] = await Promise.all([
+        window.orca.listRepos(),
+        window.orca.listAgents(),
+        window.orca.getSettings()
+      ])
+      const state: Partial<AppState> = { repos, agents, settings, loading: false }
       if (repos.length > 0 && !get().activeRepoId) state.activeRepoId = repos[0]!.repo.id
       set(state)
+      if (repos.length > 0) void get().refreshStatuses()
     } catch (e) {
       set({ loading: false, error: String(e) })
     }
@@ -69,6 +142,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const summary = await window.orca.addRepo(dir)
       const repos = [...get().repos.filter((r) => r.repo.id !== summary.repo.id), summary]
       set({ repos, activeRepoId: summary.repo.id, error: null })
+      void get().refreshStatuses()
     } catch (e) {
       set({ error: String(e) })
     }
@@ -86,6 +160,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!id) return
       const summary = await window.orca.refreshRepo(id)
       set({ repos: get().repos.map((r) => (r.repo.id === id ? summary : r)), error: null })
+      void get().refreshStatuses()
     } catch (e) {
       set({ error: String(e) })
     }
@@ -102,12 +177,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async removeWorktree(worktreePath: string) {
+  async removeWorktree(worktreePath: string, force = false) {
     const repoId = get().activeRepoId
     if (!repoId) return
     try {
-      const summary = await window.orca.removeWorktree(repoId, worktreePath)
-      set({ repos: get().repos.map((r) => (r.repo.id === repoId ? summary : r)), error: null })
+      const summary = await window.orca.removeWorktree(repoId, worktreePath, force)
+      // drop any state bound to the deleted worktree
+      set((s) => {
+        const terminals = { ...s.terminals }
+        const panes = { ...s.panes }
+        for (const [id, t] of Object.entries(terminals)) {
+          if (t.session.worktreePath === worktreePath) {
+            delete terminals[id]
+            void window.orca.closeTerminal(id)
+          }
+        }
+        const runningAgents = { ...s.runningAgents }
+        for (const [id, a] of Object.entries(runningAgents)) {
+          if (a.worktreePath === worktreePath) {
+            delete runningAgents[id]
+            void window.orca.closeTerminal(id)
+          }
+        }
+        delete panes[worktreePath]
+        delete s.activePane[worktreePath]
+        delete s.activeTerminal[worktreePath]
+        delete s.statuses[worktreePath]
+        delete s.explorer[worktreePath]
+        delete s.previews[worktreePath]
+        if (s.activeWorktreePath === worktreePath) s.activeWorktreePath = null
+        return { repos: s.repos.map((r) => (r.repo.id === repoId ? summary : r)), terminals, panes, runningAgents, error: null }
+      })
+      void get().refreshStatuses()
     } catch (e) {
       set({ error: String(e) })
     }
@@ -116,12 +217,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   async openTerminal(worktreePath: string) {
     try {
       const session = await window.orca.openTerminal(worktreePath)
-      set((s) => ({
-        terminals: { ...s.terminals, [session.id]: { session, cols: 100, rows: 30 } },
-        terminalOrder: [...s.terminalOrder, session.id],
-        activeWorktreePath: worktreePath,
-        error: null
-      }))
+      const key = `term:${session.id}`
+      set((s) => {
+        const terminalOrder = { ...s.terminalOrder, [worktreePath]: [...(s.terminalOrder[worktreePath] ?? []), session.id] }
+        const panes = { ...s.panes }
+        const cardPanes = panes[worktreePath] ?? []
+        const pane: Pane = { key, kind: 'terminal', sessionId: session.id }
+        if (!cardPanes.some((p) => p.key === key)) cardPanes.push(pane)
+        panes[worktreePath] = cardPanes
+        return {
+          terminals: { ...s.terminals, [session.id]: { session, cols: 100, rows: 30 } },
+          terminalOrder,
+          panes,
+          activePane: { ...s.activePane, [worktreePath]: key },
+          activeTerminal: { ...s.activeTerminal, [worktreePath]: session.id },
+          activeWorktreePath: worktreePath,
+          error: null
+        }
+      })
       return session
     } catch (e) {
       set({ error: String(e) })
@@ -129,12 +242,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  closeTerminal(sessionId: string) {
+  closeTerminal(worktreePath: string, sessionId: string) {
     void window.orca.closeTerminal(sessionId)
     set((s) => {
       const terminals = { ...s.terminals }
       delete terminals[sessionId]
-      return { terminals, terminalOrder: s.terminalOrder.filter((id) => id !== sessionId) }
+      const panes = { ...s.panes }
+      const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.sessionId !== sessionId)
+      panes[worktreePath] = cardPanes
+      const activePane = { ...s.activePane }
+      const activeTerminal = { ...s.activeTerminal }
+      const terminalOrder = { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== sessionId) }
+      if (activeTerminal[worktreePath] === sessionId) {
+        const next = cardPanes.find((p) => p.kind === 'terminal')
+        activeTerminal[worktreePath] = next?.sessionId ?? ''
+        activePane[worktreePath] = next?.key ?? cardPanes[0]?.key ?? ''
+      }
+      const runningAgents = { ...s.runningAgents }
+      delete runningAgents[sessionId]
+      return { terminals, panes, activePane, activeTerminal, terminalOrder, runningAgents }
     })
   },
 
@@ -142,52 +268,242 @@ export const useAppStore = create<AppState>((set, get) => ({
     void window.orca.terminalWrite(sessionId, data)
   },
 
+  interruptTerminal(sessionId: string) {
+    void window.orca.terminalInterrupt(sessionId)
+  },
+
   resizeTerminal(sessionId: string, cols: number, rows: number) {
     set((s) => ({ terminals: { ...s.terminals, [sessionId]: { ...s.terminals[sessionId]!, cols, rows } } }))
     void window.orca.terminalResize(sessionId, cols, rows)
   },
 
-  runInSession(sessionId: string, command: string) {
-    get().writeTerminal(sessionId, command.endsWith('\n') ? command : `${command}\n`)
+  togglePane(worktreePath: string, kind: 'explorer' | 'git-status') {
+    set((s) => {
+      const panes = { ...s.panes }
+      const cardPanes = [...(panes[worktreePath] ?? [])]
+      const existing = cardPanes.findIndex((p) => p.kind === kind)
+      const activePane = { ...s.activePane }
+      const prev = activePane[worktreePath]
+      if (existing !== -1) {
+        cardPanes.splice(existing, 1)
+        panes[worktreePath] = cardPanes
+        const first = panes[worktreePath][0]
+        activePane[worktreePath] = first?.key ?? ''
+        if (kind === 'git-status') void get().refreshStatuses()
+      } else {
+        const key = `${kind}:${worktreePath}`
+        cardPanes.push({ key, kind })
+        panes[worktreePath] = cardPanes
+        activePane[worktreePath] = key
+        if (kind === 'explorer') void get().loadExplorer(worktreePath)
+        if (kind === 'git-status') void get().refreshStatuses()
+      }
+      void prev
+      return { panes, activePane }
+    })
+  },
+
+  closePane(worktreePath: string, key: string) {
+    set((s) => {
+      const panes = { ...s.panes }
+      const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.key !== key)
+      panes[worktreePath] = cardPanes
+      const activePane = { ...s.activePane }
+      if (activePane[worktreePath] === key) {
+        activePane[worktreePath] = cardPanes[0]?.key ?? ''
+      }
+      const p = s.panes[worktreePath]?.find((x) => x.key === key)
+      if (p?.sessionId) {
+        const terminals = { ...s.terminals }
+        delete terminals[p.sessionId]
+        void window.orca.closeTerminal(p.sessionId)
+        void s.terminalOrder[worktreePath]
+        const runningAgents = { ...s.runningAgents }
+        delete runningAgents[p.sessionId]
+        return { panes, activePane, terminals, runningAgents, terminalOrder: { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== p.sessionId) } }
+      }
+      return { panes, activePane }
+    })
+  },
+
+  setActivePane(worktreePath: string, key: string) {
+    set((s) => {
+      const p = s.panes[worktreePath]?.find((x) => x.key === key)
+      return {
+        activePane: { ...s.activePane, [worktreePath]: key },
+        ...(p?.sessionId ? { activeTerminal: { ...s.activeTerminal, [worktreePath]: p.sessionId } } : {})
+      }
+    })
+  },
+
+  async splitTerminal(worktreePath: string) {
+    await get().openTerminal(worktreePath)
+  },
+
+  selectTerminal(worktreePath: string, sessionId: string) {
+    if (!worktreePath || !sessionId) return
+    set((s) => {
+      const p = s.panes[worktreePath]?.find((x) => x.sessionId === sessionId)
+      return {
+        activeTerminal: { ...s.activeTerminal, [worktreePath]: sessionId },
+        ...(p ? { activePane: { ...s.activePane, [worktreePath]: p.key } } : {})
+      }
+    })
+  },
+
+  async loadExplorer(worktreePath: string, prefix = '') {
+    try {
+      const entries = await window.orca.listFiles(worktreePath, prefix)
+      set((s) => ({ explorer: { ...s.explorer, [worktreePath]: entries }, error: null }))
+    } catch (e) {
+      set({ error: String(e) })
+    }
+  },
+
+  async openPreview(worktreePath: string, relPath: string) {
+    try {
+      const content = await window.orca.readFile(worktreePath, relPath)
+      const key = `preview:${relPath}`
+      set((s) => {
+        const panes = { ...s.panes }
+        const cardPanes = [...(panes[worktreePath] ?? [])]
+        const idx = cardPanes.findIndex((p) => p.kind === 'preview')
+        if (idx !== -1) cardPanes.splice(idx, 1)
+        cardPanes.push({ key, kind: 'preview', file: relPath })
+        panes[worktreePath] = cardPanes
+        return {
+          previews: { ...s.previews, [worktreePath]: content },
+          panes,
+          activePane: { ...s.activePane, [worktreePath]: key },
+          error: null
+        }
+      })
+    } catch (e) {
+      set({ error: String(e) })
+    }
+  },
+
+  closePreview(worktreePath: string) {
+    set((s) => {
+      const panes = { ...s.panes }
+      const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.kind !== 'preview')
+      panes[worktreePath] = cardPanes
+      const previews = { ...s.previews }
+      delete previews[worktreePath]
+      const activePane = { ...s.activePane }
+      if (!cardPanes.some((p) => p.key === activePane[worktreePath])) {
+        activePane[worktreePath] = cardPanes[0]?.key ?? ''
+      }
+      return { panes, previews, activePane }
+    })
+  },
+
+  async refreshStatuses() {
+    const repos = get().repos
+    const paths = new Set<string>()
+    for (const r of repos) for (const w of r.worktrees) paths.add(w.path)
+    if (paths.size === 0) return
+    const statuses: Record<string, WorktreeStatus> = {}
+    const results = await Promise.allSettled([...paths].map((p) => window.orca.gitStatus(p)))
+    let i = 0
+    for (const p of paths) {
+      const r = results[i++]!
+      if (r.status === 'fulfilled') statuses[p] = r.value
+    }
+    set((s) => {
+      // merge poll-sourced statuses; never clear a user-facing error — the poll
+      // succeeding doesn't mean the last action's error expired
+      return { statuses: { ...s.statuses, ...statuses } }
+    })
+  },
+
+  async runAgent(worktreePath: string, command: string) {
+    const trimmed = command.trim()
+    if (!trimmed) return
+    const session = await get().openTerminal(worktreePath)
+    if (!session) return
+    const runningAgents = {
+      ...get().runningAgents,
+      [session.id]: { sessionId: session.id, worktreePath, agent: trimmed, startedAt: new Date().toISOString() }
+    }
+    set({ runningAgents })
+    get().writeTerminal(session.id, `${trimmed}\n`)
+  },
+
+  stopAgent(sessionId: string) {
+    get().interruptTerminal(sessionId)
+    // ^C kills the foreground agent; the shell (and PTY) survive, so exit may never
+    // fire — clear the chip optimistically; a still-running process re-renders nothing.
+    const runningAgents = { ...get().runningAgents }
+    delete runningAgents[sessionId]
+    set({ runningAgents })
+  },
+
+  async setSettings(patch: Partial<AppSettings>) {
+    try {
+      const settings = await window.orca.setSettings(patch)
+      set({ settings, error: null })
+    } catch (e) {
+      set({ error: String(e) })
+    }
+  },
+
+  setPaletteOpen(open: boolean) {
+    set({ paletteOpen: open })
+  },
+
+  setSettingsOpen(open: boolean) {
+    set({ settingsOpen: open })
   },
 
   setActiveRepo(repoId: string | null) {
     set({ activeRepoId: repoId, activeWorktreePath: null })
+    if (repoId) {
+      const repo = get().repos.find((r) => r.repo.id === repoId)
+      void repo
+    }
   },
 
   setActiveWorktree(path: string | null) {
     set({ activeWorktreePath: path })
+    if (path) void get().loadExplorer(path)
   },
 
-  applyTerminalData(sessionId: string, data: string) {
-    // sessions are rendered by components that subscribe to their own buffers; see TerminalPane
-    void sessionId
-    void data
-  },
-
-  applyTerminalExit(sessionId: string) {
-    set({
-      terminals: Object.fromEntries(
-        Object.entries(get().terminals).map(([id, t]) => [
-          id,
-          id === sessionId ? { ...t, session: { ...t.session, exited: true } } : t
-        ])
-      )
+  applyTerminalExit(sessionId: string, exitCode: number) {
+    set((s) => {
+      const terminals = { ...s.terminals }
+      const t = terminals[sessionId]
+      if (t) terminals[sessionId] = { ...t, session: { ...t.session, exited: true } }
+      // exit ends the agent run: drop the row so the chip/Stop bar clears
+      const runningAgents = { ...s.runningAgents }
+      delete runningAgents[sessionId]
+      return { terminals, runningAgents }
     })
   },
 
   applyTerminalTitle(sessionId: string, title: string) {
-    set({
+    set((s) => ({
       terminals: Object.fromEntries(
-        Object.entries(get().terminals).map(([id, t]) => [
+        Object.entries(s.terminals).map(([id, t]) => [
           id,
           id === sessionId ? { ...t, session: { ...t.session, title } } : t
         ])
       )
-    })
+    }))
   },
 
   setError(err: string | null) {
     set({ error: err })
   }
 }))
+
+// Dev/E2E seam (Orca's own convention, REBUILD_SPEC §9): window.__store exposes
+// the live store for driving tests and debugging — never referenced by product code.
+declare global {
+  interface Window {
+    __store?: typeof useAppStore
+  }
+}
+if (typeof window !== 'undefined') {
+  window.__store = useAppStore
+}

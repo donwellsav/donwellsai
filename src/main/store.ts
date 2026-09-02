@@ -1,9 +1,15 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { PersistedState, Repo } from '@shared/types'
+import type { AppSettings, PersistedState, Repo } from '@shared/types'
 
 const FILE = 'orca-lite-data.json'
+export const DEFAULT_SETTINGS: AppSettings = {
+  agentCommand: 'codex',
+  theme: 'dark',
+  fontSize: 13,
+  statusPollMs: 5000
+}
 const DEFAULT_STATE: PersistedState = {
   schemaVersion: 1,
   repos: [],
@@ -60,12 +66,22 @@ export class Store {
   }
 
   getAgentCommand(): string {
-    return this.state.settings.agentCommand
+    return this.getSettings().agentCommand
   }
 
   setAgentCommand(command: string): void {
     this.state.settings.agentCommand = command
     this.save()
+  }
+
+  getSettings(): AppSettings {
+    return { ...DEFAULT_SETTINGS, ...this.state.settings }
+  }
+
+  updateSettings(patch: Partial<AppSettings>): AppSettings {
+    this.state.settings = { ...this.getSettings(), ...patch }
+    this.save()
+    return this.state.settings as AppSettings
   }
 }
 

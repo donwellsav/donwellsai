@@ -17,6 +17,22 @@ export type Worktree = {
   detached?: boolean
 }
 
+/** Per-worktree git status snapshot (porcelain v1 --branch parse). */
+export type WorktreeStatus = {
+  branch: string
+  /** ahead of upstream / behind upstream, when the branch has one */
+  ahead: number
+  behind: number
+  staged: number
+  modified: number
+  untracked: number
+  conflicts: number
+  /** relative paths, one per changed file (staged/modified/conflicted/untracked) */
+  changedFiles: string[]
+  /** raw porcelain v1 lines for diff view / detail */
+  raw: string[]
+}
+
 /** Full repo view: persisted repo meta + live-discovered worktrees + git user info for branch prefixes. */
 export type RepoSummary = {
   repo: Repo
@@ -46,13 +62,43 @@ export type AppMeta = {
   userDataDir: string
 }
 
-// Persisted state (subset of orca-data.json; lite keeps only user intent, never derived state)
+/** A running agent bound to a worktree terminal. */
+export type RunningAgent = {
+  sessionId: string
+  worktreePath: string
+  agent: string
+  startedAt: string
+}
+
+/** Explorer tree built from `git ls-files -co --exclude-standard` + fs dirs. */
+export type FileEntry = {
+  /** relative path from worktree root */
+  path: string
+  name: string
+  type: 'dir' | 'file'
+}
+
+export type FileContent = {
+  path: string
+  content: string
+  truncated: boolean
+  bytes: number
+}
+
+export type AppSettings = {
+  agentCommand: string
+  /** terminal theme: dark default; future themes land here */
+  theme: 'dark'
+  fontSize: number
+  /** poll interval for per-worktree git status, ms; 0 = off */
+  statusPollMs: number
+}
+
+// Persisted state (subset of orca-data.json; lite keeps user intent + settings, never derived state)
 export type PersistedState = {
   schemaVersion: 1
   repos: Repo[]
-  settings: {
-    agentCommand: string // default command used by "launch agent" in a worktree terminal
-  }
+  settings: Partial<AppSettings>
 }
 
 // IPC events main -> renderer
@@ -62,6 +108,8 @@ export type MainEvents = {
   'terminal:title': { sessionId: string; title: string }
   'terminal:worktree-changed': { sessionId: string; worktreePath: string }
   'worktree:changed': { repoId: string }
+  /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
+  'menu:action': { action: string }
 }
 
 export type IpcApi = {
@@ -72,15 +120,25 @@ export type IpcApi = {
   refreshRepo(repoId: string): Promise<RepoSummary>
 
   createWorktree(repoId: string, opts: { name?: string; branch?: string }): Promise<RepoSummary>
-  removeWorktree(repoId: string, worktreePath: string): Promise<RepoSummary>
+  removeWorktree(repoId: string, worktreePath: string, force?: boolean): Promise<RepoSummary>
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
   closeTerminal(sessionId: string): Promise<void>
   terminalWrite(sessionId: string, data: string): Promise<void>
   terminalResize(sessionId: string, cols: number, rows: number): Promise<void>
+  /** Send Ctrl-C byte to interrupt a foreground process (Stops a running agent TUI). */
+  terminalInterrupt(sessionId: string): Promise<void>
+
+  gitStatus(worktreePath: string): Promise<WorktreeStatus>
+  listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
+  readFile(worktreePath: string, relPath: string): Promise<FileContent>
+
+  getSettings(): Promise<AppSettings>
+  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
 
   listAgents(): Promise<AgentPreset[]>
   pickDirectory(): Promise<string | null>
+  openExternal(url: string): Promise<void>
 
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 }

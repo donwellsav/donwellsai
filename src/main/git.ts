@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { RepoSummary, Worktree } from '@shared/types'
+import type { FileContent, FileEntry, RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
 import type { Store } from './store'
 import { idFromPath } from './store'
 
@@ -147,13 +147,16 @@ export class GitWorktrees {
     return this.summarize(repoPath)
   }
 
-  async removeWorktree(repoPath: string, worktreePath: string): Promise<RepoSummary> {
+  async removeWorktree(repoPath: string, worktreePath: string, force = false): Promise<RepoSummary> {
     // Safety: never remove the main worktree, never resolve to repoPath itself.
     const canonical = worktreePath.replace(/\/+$/, '')
     if (canonical === repoPath.replace(/\/+$/, '')) {
       throw new GitError('Refusing to remove the main worktree')
     }
-    await run(repoPath, ['worktree', 'remove', canonical], { timeoutMs: 30000 }).catch((e: GitError) => {
+    const args = force
+      ? ['worktree', 'remove', '--force', canonical]
+      : ['worktree', 'remove', canonical]
+    await run(repoPath, args, { timeoutMs: 30000 }).catch((e: GitError) => {
       throw new GitError(`Cannot remove worktree (dirty?): ${e.message}`)
     })
     return this.summarize(repoPath)
@@ -172,4 +175,141 @@ export class GitWorktrees {
       execFile('which', [name], (err) => resolve(!err))
     })
   }
+
+  /** Per-worktree git status: branch + ahead/behind + change counts + changed file paths. */
+  async status(worktreePath: string): Promise<WorktreeStatus> {
+    verifyWorktreePath(this.store, worktreePath)
+    const out = await runWorktree(worktreePath, ['status', '--porcelain', '--branch'])
+    return parseStatusPorcelain(out)
+  }
+
+  /** List files under a worktree (git-tracked + untracked, ignoring ignored files). */
+  async listFiles(worktreePath: string, prefix = ''): Promise<FileEntry[]> {
+    verifyWorktreePath(this.store, worktreePath)
+    const lsOut = await runWorktree(worktreePath, ['ls-files', '--others', '--exclude-standard', '--', prefix])
+    const files = new Set<string>()
+    for (const line of lsOut.split('\n')) {
+      const rel = line.trim()
+      if (rel && rel.startsWith(prefix)) files.add(rel)
+    }
+    // include untracked dirs collapsed to their top level so explorers stay shallow
+    const entries: FileEntry[] = []
+    const seenDirs = new Set<string>()
+    const base = prefix ? `${prefix}/` : ''
+    for (const rel of files) {
+      const rest = rel.slice(base.length)
+      const slash = rest.indexOf('/')
+      if (slash === -1) {
+        entries.push({ path: rel, name: rest, type: 'file' })
+      } else {
+        const dir = `${base}${rest.slice(0, slash)}`
+        if (!seenDirs.has(dir)) {
+          seenDirs.add(dir)
+          entries.push({ path: dir, name: rest.slice(0, slash), type: 'dir' })
+        }
+      }
+    }
+    // fs directories that git doesn't know (empty / ignored) still show up
+    const abs = join(worktreePath, prefix)
+    if (existsSync(abs) && statSync(abs).isDirectory()) {
+      for (const name of readdirSync(abs)) {
+        const rel = base + name
+        if (files.has(rel)) continue
+        const st = statSync(join(abs, name))
+        entries.push({ path: rel, name, type: st.isDirectory() ? 'dir' : 'file' })
+      }
+    }
+    return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+  }
+
+  /** Read one file from a worktree, capped at 512 KiB (rendering guard, not a product limit). */
+  async readFile(worktreePath: string, relPath: string): Promise<FileContent> {
+    verifyWorktreePath(this.store, worktreePath)
+    const abs = join(worktreePath, relPath)
+    if (!existsSync(abs)) throw new GitError(`No such file: ${relPath}`)
+    const st = statSync(abs)
+    if (st.isDirectory()) throw new GitError(`${relPath} is a directory`)
+    const limit = 512 * 1024
+    const buf = readFileSync(abs)
+    return {
+      path: relPath,
+      content: buf.subarray(0, limit).toString('utf8'),
+      truncated: buf.length > limit,
+      bytes: buf.length
+    }
+  }
+}
+
+/**
+ * Parse `git status --porcelain --branch` (v1) into counts + changed paths.
+ * Branch line: `## main...origin/main [ahead 1, behind 2]`; worktree lines:
+ * `XY path` where X=index, Y=worktree, `??` untracked, `U*`/`*U` conflicts.
+ */
+export function parseStatusPorcelain(output: string): WorktreeStatus {
+  let branch = ''
+  let ahead = 0
+  let behind = 0
+  let staged = 0
+  let modified = 0
+  let untracked = 0
+  let conflicts = 0
+  const changedFiles: string[] = []
+  const raw: string[] = []
+
+  for (const rawLine of output.split('\n')) {
+    const line = rawLine.trimEnd()
+    if (!line) continue
+    raw.push(line)
+    if (line.startsWith('## ')) {
+      const rest = line.slice(3)
+      const [br, upstream] = rest.split('...')
+      branch = br.split(' ')[0] ?? ''
+      const upticks = rest.match(/ahead (\d+)/)
+      const downticks = rest.match(/behind (\d+)/)
+      if (upticks) ahead = Number(upticks[1])
+      if (downticks) behind = Number(downticks[1])
+      void upstream
+      continue
+    }
+    const x = line[0] ?? ''
+    const y = line[1] ?? ''
+    const p = line.slice(3)
+    if (x === '?' && y === '?') {
+      untracked++
+      changedFiles.push(p)
+    } else {
+      if (x === 'U' || y === 'U' || line.startsWith('DD') || line.startsWith('AA')) {
+        conflicts++
+      } else if (x !== ' ' && x !== '.') {
+        staged++
+      } else if (y !== ' ' && y !== '.') {
+        modified++
+      }
+      if (p) changedFiles.push(p)
+    }
+  }
+  return { branch, ahead, behind, staged, modified, untracked, conflicts, changedFiles, raw }
+}
+
+async function verifyWorktreePath(store: Store, path: string): Promise<void> {
+  if (!existsSync(path)) throw new GitError(`Path does not exist: ${path}`)
+  const real = realpathSync(path)
+  // Accept a registered repo root itself or any worktree git lists for it —
+  // linked worktrees live OUTSIDE the repo dir (e.g. ../wt-feature/<name>).
+  for (const r of store.listRepos()) {
+    if (!existsSync(r.path)) continue
+    const rr = realpathSync(r.path)
+    if (real === rr) return
+    try {
+      const wts = await listRepoWorktrees(r.path)
+      if (wts.some((w) => realpathSync(w.path) === real)) return
+    } catch {
+      // not a repo / git unavailable — fall through to next registered repo
+    }
+  }
+  throw new GitError(`Unknown worktree: ${path}`)
+}
+
+function runWorktree(worktreePath: string, args: string[]): Promise<string> {
+  return run(worktreePath, args, { timeoutMs: 20000 })
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { IpcApi, MainEvents } from '@shared/types'
@@ -21,10 +21,102 @@ function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): v
   mainWindow?.webContents.send(channel, payload)
 }
 
+/** Route a menu/accelerator action to the renderer; the store decides what it does. */
+function menuAction(action: string): void {
+  send('menu:action', { action })
+}
+
+function buildMenu(): void {
+  const isMac = process.platform === 'darwin'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? ([
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              { type: 'separator' },
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' }
+            ]
+          }
+        ] as Electron.MenuItemConstructorOptions[])
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Add Repository…', accelerator: 'CmdOrCtrl+O', click: () => menuAction('add-repo') },
+        { label: 'New Worktree', accelerator: 'CmdOrCtrl+N', click: () => menuAction('new-worktree') },
+        { type: 'separator' },
+        { role: isMac ? 'close' : 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: () => menuAction('command-palette') },
+        { label: 'New Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: () => menuAction('new-terminal') },
+        { label: 'Split Terminal', accelerator: 'CmdOrCtrl+Shift+5', click: () => menuAction('split-terminal') },
+        { label: 'Toggle Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: () => menuAction('toggle-explorer') },
+        { label: 'Toggle Git Status', accelerator: 'CmdOrCtrl+Shift+G', click: () => menuAction('toggle-git-status') },
+        { label: 'Run Agent', accelerator: 'CmdOrCtrl+Enter', click: () => menuAction('run-agent') },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => menuAction('settings') },
+        { type: 'separator' },
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac
+          ? ([{ type: 'separator' }, { role: 'front' }] as Electron.MenuItemConstructorOptions[])
+          : ([{ role: 'close' }] as Electron.MenuItemConstructorOptions[]))
+      ]
+    },
+    ...(!isMac
+      ? ([
+          {
+            label: 'Help',
+            submenu: [{ role: 'about' }]
+          }
+        ] as Electron.MenuItemConstructorOptions[])
+      : [])
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function registerIpc(): void {
   ipcMain.handle('meta', () => ({
     version: app.getVersion(),
-    shell: ptyManager ? '' : '',
+    shell: process.env.SHELL || '',
     userDataDir: app.getPath('userData')
   }))
 
@@ -55,10 +147,10 @@ function registerIpc(): void {
     return summary
   })
 
-  ipcMain.handle('removeWorktree', async (_e, repoId: string, worktreePath: string) => {
+  ipcMain.handle('removeWorktree', async (_e, repoId: string, worktreePath: string, force = false) => {
     const repo = store.listRepos().find((r) => r.id === repoId)
     if (!repo) throw new Error(`unknown repo ${repoId}`)
-    const summary = await git.removeWorktree(repo.path, worktreePath)
+    const summary = await git.removeWorktree(repo.path, worktreePath, force)
     send('worktree:changed', { repoId })
     return summary
   })
@@ -82,6 +174,18 @@ function registerIpc(): void {
     ptyManager.resize(sessionId, cols, rows)
     return true
   })
+
+  ipcMain.handle('terminalInterrupt', (_e, sessionId: string) => {
+    ptyManager.interrupt(sessionId)
+    return true
+  })
+
+  ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
+  ipcMain.handle('listFiles', (_e, worktreePath: string, prefix = '') => git.listFiles(worktreePath, prefix))
+  ipcMain.handle('readFile', (_e, worktreePath: string, relPath: string) => git.readFile(worktreePath, relPath))
+
+  ipcMain.handle('getSettings', () => store.getSettings())
+  ipcMain.handle('setSettings', (_e, patch: Record<string, unknown>) => store.updateSettings(patch))
 
   ipcMain.handle('listAgents', () => git.detectAgents())
 
@@ -134,6 +238,7 @@ app.whenReady().then(() => {
     title: (sessionId, title) => send('terminal:title', { sessionId, title })
   })
   registerIpc()
+  buildMenu()
   createWindow()
   if (process.env['ORCA_LITE_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
@@ -146,8 +251,6 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  // Keep app running until every PTY session is gone? No: quitting closes terminals,
-  // which is the expected desktop behavior for lite. Terminate all PTYs on quit.
   app.quit()
 })
 

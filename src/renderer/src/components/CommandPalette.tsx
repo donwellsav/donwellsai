@@ -1,0 +1,133 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useAppStore } from '../store'
+import { dispatchAction } from '../App'
+
+type PaletteItem = {
+  id: string
+  label: string
+  hint?: string
+  run: () => void
+}
+
+export function CommandPalette({ open }: { open: boolean }) {
+  const setOpen = useAppStore((s) => s.setPaletteOpen)
+  const repos = useAppStore((s) => s.repos)
+  const setActiveRepo = useAppStore((s) => s.setActiveRepo)
+  const agents = useAppStore((s) => s.agents)
+  const [q, setQ] = useState('')
+  const [cursor, setCursor] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Reset query each time the palette opens, focus the input.
+  useEffect(() => {
+    if (open) {
+      setQ('')
+      setCursor(0)
+      // focus on next frame once the overlay is mounted
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
+  }, [open])
+
+  const items = useMemo<PaletteItem[]>(() => {
+    const s = useAppStore.getState()
+    const out: PaletteItem[] = []
+
+    for (const repo of repos) {
+      for (const wt of repo.worktrees) {
+        out.push({
+          id: `wt:${wt.id}`,
+          label: `${wt.branch} — ${wt.path.split('/').filter(Boolean).pop()}`,
+          hint: 'open',
+          run: () => {
+            setActiveRepo(repo.repo.id)
+            useAppStore.getState().setActiveWorktree(wt.path)
+            void useAppStore.getState().openTerminal(wt.path)
+          }
+        })
+      }
+    }
+    out.push({ id: 'act:add-repo', label: 'Add repository…', hint: '⌘O', run: () => dispatchAction('add-repo') })
+    out.push({ id: 'act:new-worktree', label: 'New worktree', hint: '⌘N', run: () => dispatchAction('new-worktree') })
+    out.push({ id: 'act:new-terminal', label: 'New terminal', hint: '⌘⇧T', run: () => dispatchAction('new-terminal') })
+    out.push({ id: 'act:split', label: 'Split terminal', hint: '⌘⇧5', run: () => dispatchAction('split-terminal') })
+    out.push({ id: 'act:explorer', label: 'Toggle explorer', hint: '⌘⇧E', run: () => dispatchAction('toggle-explorer') })
+    out.push({ id: 'act:git', label: 'Toggle git status', hint: '⌘⇧G', run: () => dispatchAction('toggle-git-status') })
+    out.push({ id: 'act:refresh', label: 'Refresh worktrees & status', run: () => void useAppStore.getState().refresh() })
+    out.push({ id: 'act:settings', label: 'Settings', hint: '⌘,', run: () => dispatchAction('settings') })
+    for (const a of agents) {
+      out.push({
+        id: `act:run:${a.name}`,
+        label: `Run ${a.name} in active worktree`,
+        hint: a.command,
+        run: () => {
+          const target = useAppStore.getState().activeWorktreePath
+          const repo = useAppStore.getState().repos.find((r) => r.repo.id === useAppStore.getState().activeRepoId)
+          const path = target ?? repo?.worktrees.find((w) => !w.isMain)?.path ?? repo?.worktrees[0]?.path
+          if (path) void useAppStore.getState().runAgent(path, a.command)
+        }
+      })
+    }
+    return out
+  }, [repos, agents, setActiveRepo])
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return items
+    return items.filter((i) => i.label.toLowerCase().includes(needle) || (i.hint ?? '').toLowerCase().includes(needle))
+  }, [items, q])
+
+  useEffect(() => {
+    setCursor(0)
+  }, [q])
+
+  if (!open) return null
+
+  const run = (item: PaletteItem | undefined): void => {
+    if (!item) return
+    setOpen(false)
+    item.run()
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      setOpen(false)
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setCursor((c) => Math.min(c + 1, filtered.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setCursor((c) => Math.max(c - 1, 0))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      run(filtered[cursor])
+    }
+  }
+
+  return (
+    <div className="palette-overlay" onClick={() => setOpen(false)}>
+      <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+        <input
+          ref={inputRef}
+          className="palette-input"
+          placeholder="Run a command — worktree, terminal, agent, settings…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className="palette-list">
+          {filtered.length === 0 && <div className="palette-empty">No matches for “{q}”</div>}
+          {filtered.map((item, i) => (
+            <button
+              key={item.id}
+              className={`palette-item ${i === cursor ? 'selected' : ''}`}
+              onMouseEnter={() => setCursor(i)}
+              onClick={() => run(item)}
+            >
+              <span className="palette-label">{item.label}</span>
+              {item.hint && <span className="palette-hint">{item.hint}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
