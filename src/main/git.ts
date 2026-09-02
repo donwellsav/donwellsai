@@ -7,6 +7,7 @@ import { readRepoWorktreeAdminFingerprint } from './worktree-fingerprint'
 import { retireWorktreeName, takenNames, uniquifyWorktreeName } from './worktree-name-retirement'
 import { idFromPath } from './store'
 import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
+import { pruneLineage, recordLineage } from './worktree-lineage'
 
 export class GitError extends Error {
   constructor(message: string) {
@@ -168,8 +169,11 @@ export class GitWorktrees {
   async summarize(repoPath: string): Promise<RepoSummary> {
     await verifyRepoIsGit(repoPath)
     const worktrees = await this.listWorktreesCached(repoPath)
+    const repoId = idFromPath(repoPath)
+    // keep lineage aligned with the live scan: drop dead branch pairs
+    this.store.setLineage(repoId, pruneLineage(this.store.getLineage(repoId), worktrees))
     return {
-      repo: { id: idFromPath(repoPath), path: repoPath, addedAt: new Date().toISOString() },
+      repo: { id: repoId, path: repoPath, addedAt: new Date().toISOString() },
       worktrees,
       ...repoSummary(repoPath, worktrees)
     }
@@ -206,7 +210,8 @@ export class GitWorktrees {
     const requested = opts.name?.trim() || (base ? basename(base) : 'feature')
     // retirement: a removed name never returns; collisions suffix -2, -3, …
     const repoId = idFromPath(repoPath)
-    const taken = takenNames(await this.listWorktreesCached(repoPath), this.store.getRetiredNames(repoId))
+    const worktreesBefore = await this.listWorktreesCached(repoPath)
+    const taken = takenNames(worktreesBefore, this.store.getRetiredNames(repoId))
     const wdName = uniquifyWorktreeName(requested, taken)
     const wtPath = join(repoPath, '..', `wt-${wdName}`)
     const args = ['worktree', 'add', '-b', wdName, wtPath]
@@ -214,6 +219,11 @@ export class GitWorktrees {
       args.push(base)
     }
     await run(repoPath, args, { timeoutMs: 120000 })
+    // lineage: branch ← base at creation. Default base = main worktree branch.
+    const baseBranch = base ?? repoSummary(repoPath, worktreesBefore).currentBranch
+    if (baseBranch) {
+      this.store.setLineage(repoId, recordLineage(this.store.getLineage(repoId), wdName, baseBranch))
+    }
     this.scanCache.invalidate(repoPath)
     return this.summarize(repoPath)
   }

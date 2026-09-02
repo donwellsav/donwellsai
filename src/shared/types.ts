@@ -104,6 +104,8 @@ export type PersistedState = {
    * same repo namespace (upstream worktree-name-retirement rule). Monotonic.
    */
   retiredNames?: Record<string, string[]>
+  /** Worktree lineage per repo id: branch → base branch at creation. */
+  worktreeLineage?: Record<string, Record<string, string>>
 }
 
 // IPC events main -> renderer

@@ -70,13 +70,23 @@ export class Store {
   getRetiredNames(repoId: string): Set<string> {
     return new Set(this.state.retiredNames?.[repoId] ?? [])
   }
-
   /** Monotonic retirement: union the given names into the repo's registry. */
   retireNames(repoId: string, names: Iterable<string>): void {
     if (!this.state.retiredNames) this.state.retiredNames = {}
     const set = new Set(this.state.retiredNames[repoId] ?? [])
     for (const n of names) set.add(n)
     this.state.retiredNames[repoId] = [...set].sort()
+    this.save()
+  }
+
+  /** Worktree lineage for a repo (branch → base at creation). */
+  getLineage(repoId: string): Record<string, string> {
+    return { ...(this.state.worktreeLineage?.[repoId] ?? {}) }
+  }
+
+  setLineage(repoId: string, lineage: Record<string, string>): void {
+    if (!this.state.worktreeLineage) this.state.worktreeLineage = {}
+    this.state.worktreeLineage[repoId] = lineage
     this.save()
   }
 
