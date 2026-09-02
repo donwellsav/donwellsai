@@ -12,6 +12,7 @@ const api: IpcApi = {
   openTerminal: (worktreePath, cwd) => ipcRenderer.invoke('openTerminal', worktreePath, cwd),
   attachTerminal: (sessionId) => ipcRenderer.invoke('attachTerminal', sessionId),
   closeTerminal: (sessionId) => ipcRenderer.invoke('closeTerminal', sessionId),
+  terminalSessions: () => ipcRenderer.invoke('terminalSessions'),
   terminalWrite: (sessionId, data) => ipcRenderer.invoke('terminalWrite', sessionId, data),
   terminalResize: (sessionId, cols, rows) => ipcRenderer.invoke('terminalResize', sessionId, cols, rows),
   terminalInterrupt: (sessionId) => ipcRenderer.invoke('terminalInterrupt', sessionId),

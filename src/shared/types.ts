@@ -133,6 +133,8 @@ export type IpcApi = {
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string } | null>
   closeTerminal(sessionId: string): Promise<void>
+  /** Live daemon-owned sessions (for reattach after app restart). */
+  terminalSessions(): Promise<TerminalSession[]>
   terminalWrite(sessionId: string, data: string): Promise<void>
   terminalResize(sessionId: string, cols: number, rows: number): Promise<void>
   /** Send Ctrl-C byte to interrupt a foreground process (Stops a running agent TUI). */

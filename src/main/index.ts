@@ -184,6 +184,7 @@ function registerIpc(): void {
     terminalBus.interrupt(sessionId)
     return true
   })
+  ipcMain.handle('terminalSessions', () => terminalBus.list())
 
   ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
   ipcMain.handle('listFiles', (_e, worktreePath: string, prefix = '') => git.listFiles(worktreePath, prefix))
