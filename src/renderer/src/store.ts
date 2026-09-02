@@ -4,6 +4,7 @@ import type {
   AppSettings,
   FileContent,
   FileEntry,
+  PersistedState,
   RepoSummary,
   RunningAgent,
   TerminalSession,
@@ -120,16 +121,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
   paletteOpen: false,
   settingsOpen: false,
-
   async load() {
     try {
-      const [repos, agents, settings] = await Promise.all([
-        window.orca.listRepos(),
-        window.orca.listAgents(),
-        window.orca.getSettings()
+      const [repos, agents, settings, wsSession] = await Promise.all([
+        window.orca.listRepos().catch(() => [] as RepoSummary[]),
+        window.orca.listAgents().catch(() => [] as AgentPreset[]),
+        window.orca.getSettings().catch(() => get().settings),
+        window.orca.getWorkspaceSession().catch(() => null)
       ])
       const state: Partial<AppState> = { repos, agents, settings, loading: false }
-      if (repos.length > 0 && !get().activeRepoId) state.activeRepoId = repos[0]!.repo.id
+      const saved = wsSession ?? undefined
+      if (saved?.activeRepoId && repos.some((r) => r.repo.id === saved.activeRepoId)) {
+        state.activeRepoId = saved.activeRepoId
+      } else if (repos.length > 0) {
+        state.activeRepoId = repos[0]!.repo.id
+      }
+      if (saved) {
+        // restore per-repo workbench: panes + active selection (terminals reattach
+        // to daemon-owned PTY sessions by id; dead session ids are pruned below)
+        const restored = { panes: {} as Record<string, Pane[]>, activePane: {} as Record<string, string>, activeTerminal: {} as Record<string, string> }
+        for (const repo of repos) {
+          const savedRepo = saved.repos[repo.repo.id]
+          if (!savedRepo) continue
+          const liveSessions = new Set((await window.orca.terminalSessions()).map((s) => s.id))
+          for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
+            const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveSessions.has(p.sessionId)))
+            if (valid.length) restored.panes[wtPath] = valid
+          }
+          restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
+          restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
+        }
+        state.panes = restored.panes
+        state.activePane = restored.activePane
+        state.activeTerminal = restored.activeTerminal
+        state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
+      }
       set(state)
       if (repos.length > 0) void get().refreshStatuses()
     } catch (e) {
@@ -301,6 +327,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       void prev
       return { panes, activePane }
     })
+    persistSessionSoon()
   },
 
   closePane(worktreePath: string, key: string) {
@@ -324,6 +351,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { panes, activePane }
     })
+    persistSessionSoon()
   },
 
   setActivePane(worktreePath: string, key: string) {
@@ -334,6 +362,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...(p?.sessionId ? { activeTerminal: { ...s.activeTerminal, [worktreePath]: p.sessionId } } : {})
       }
     })
+    persistSessionSoon()
   },
 
   async splitTerminal(worktreePath: string) {
@@ -462,11 +491,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const repo = get().repos.find((r) => r.repo.id === repoId)
       void repo
     }
+    persistSessionSoon()
   },
 
   setActiveWorktree(path: string | null) {
     set({ activeWorktreePath: path })
     if (path) void get().loadExplorer(path)
+    persistSessionSoon()
   },
 
   applyTerminalExit(sessionId: string, exitCode: number) {
@@ -496,6 +527,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ error: err })
   }
 }))
+
+/** Debounced workspace-session persist: user intent only (panes/active state). */
+let persistTimer: ReturnType<typeof setTimeout> | undefined = undefined
+type WorkspaceSession = NonNullable<PersistedState['workspaceSession']>
+export function persistSessionSoon(): void {
+  clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = undefined
+    const s = useAppStore.getState()
+    if (!s.activeRepoId) return
+    const repos: WorkspaceSession['repos'] = {}
+    for (const r of s.repos) {
+      repos[r.repo.id] = {
+        panes: s.panes,
+        activePane: s.activePane,
+        activeTerminal: s.activeTerminal,
+        activeWorktreePath: s.activeWorktreePath
+      }
+    }
+    void window.orca.saveWorkspaceSession({ activeRepoId: s.activeRepoId, repos })
+  }, 400)
+}
 
 // Dev/E2E seam (Orca's own convention, REBUILD_SPEC §9): window.__store exposes
 // the live store for driving tests and debugging — never referenced by product code.

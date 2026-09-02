@@ -193,7 +193,8 @@ function registerIpc(): void {
   ipcMain.handle('getSettings', () => store.getSettings())
   ipcMain.handle('setSettings', (_e, patch: Record<string, unknown>) => store.updateSettings(patch))
 
-  ipcMain.handle('listAgents', () => git.detectAgents())
+  ipcMain.handle('getWorkspaceSession', () => store.getWorkspaceSession())
+  ipcMain.handle('saveWorkspaceSession', (_e, ws) => store.setWorkspaceSession(ws))
 
   ipcMain.handle('pickDirectory', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -201,6 +202,8 @@ function registerIpc(): void {
     const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
   })
+
+  ipcMain.handle('listAgents', () => git.detectAgents())
 
   ipcMain.handle('openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)

@@ -106,6 +106,21 @@ export type PersistedState = {
   retiredNames?: Record<string, string[]>
   /** Worktree lineage per repo id: branch → base branch at creation. */
   worktreeLineage?: Record<string, Record<string, string>>
+  /**
+   * Workspace session (upstream workspace-session model): what the user had
+   * open, per repo — panes/worktrees/active selection. Restored on launch;
+   * terminals reattach to the same daemon-owned PTY sessions.
+   */
+  workspaceSession?: {
+    activeRepoId: string | null
+    /** per repo id: pane lists + active pane key + active terminal session */
+    repos: Record<string, {
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview'; sessionId?: string; file?: string }>>
+      activePane: Record<string, string>
+      activeTerminal: Record<string, string>
+      activeWorktreePath: string | null
+    }>
+  }
 }
 
 // IPC events main -> renderer
@@ -146,7 +161,8 @@ export type IpcApi = {
 
   getSettings(): Promise<AppSettings>
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
-
+  getWorkspaceSession(): Promise<PersistedState['workspaceSession']>
+  saveWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): Promise<void>
   listAgents(): Promise<AgentPreset[]>
   pickDirectory(): Promise<string | null>
   openExternal(url: string): Promise<void>

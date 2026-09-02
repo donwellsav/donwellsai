@@ -53,6 +53,19 @@ export class TerminalDaemon {
     }, opts.shell)
   }
 
+  /** True when any PTY session is still running (shutdown refuses while so). */
+  hasLiveSessions(): boolean {
+    return this.pty.list().some((s) => !s.exited)
+  }
+
+  /** Stop accepting connections; PTYs are left alive (sessions owned by daemon). */
+  stop(): void {
+    for (const c of this.clients) c.destroy()
+    this.clients.clear()
+    this.server?.close()
+    if (existsSync(this.runtimeFile)) rmSync(this.runtimeFile)
+  }
+
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (existsSync(this.socketPath)) rmSync(this.socketPath) // stale socket from a dead daemon
@@ -68,14 +81,6 @@ export class TerminalDaemon {
         resolve()
       })
     })
-  }
-
-  /** Stop accepting connections; PTYs are left alive (sessions owned by daemon). */
-  stop(): void {
-    for (const c of this.clients) c.destroy()
-    this.clients.clear()
-    this.server?.close()
-    if (existsSync(this.runtimeFile)) rmSync(this.runtimeFile)
   }
 
   private broadcast(frame: Record<string, unknown>): void {

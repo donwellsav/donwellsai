@@ -89,6 +89,14 @@ export class Store {
     this.state.worktreeLineage[repoId] = lineage
     this.save()
   }
+  getWorkspaceSession(): PersistedState['workspaceSession'] {
+    return this.state.workspaceSession
+  }
+
+  setWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): void {
+    this.state.workspaceSession = ws
+    this.save()
+  }
 
   getAgentCommand(): string {
     return this.getSettings().agentCommand

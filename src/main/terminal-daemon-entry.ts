@@ -19,10 +19,18 @@ const daemon = new TerminalDaemon({
 
 daemon.start().then(() => {
   console.log('terminal-daemon:ready', join(userDataDir, 'terminal.sock'))
-  // supervise: stay alive regardless of stdin (detached spawn)
-  process.on('SIGTERM', () => {
-    // graceful: stop accepting, but DO NOT kill PTYs — sessions outlive us too
+  // orcad rule: DisconnectDaemon, never ShutdownDaemon. SIGTERM/SIGHUP must not
+  // tear the socket down while sessions (agents!) are live — that strands every
+  // client. Only exit when no session would be orphaned.
+  const handleSignal = (): void => {
+    if (daemon.hasLiveSessions()) {
+      console.log('terminal-daemon:refuse-shutdown (live sessions)')
+      return
+    }
     daemon.stop()
     process.exit(0)
-  })
+  }
+  process.on('SIGTERM', handleSignal)
+  process.on('SIGINT', handleSignal)
+  process.on('SIGHUP', handleSignal)
 })
