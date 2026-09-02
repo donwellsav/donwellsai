@@ -307,7 +307,11 @@ export class GitWorktrees {
   /** List files under a worktree (git-tracked + untracked, ignoring ignored files). */
   async listFiles(worktreePath: string, prefix = ''): Promise<FileEntry[]> {
     verifyWorktreePath(this.store, worktreePath)
-    const lsOut = await runWorktree(worktreePath, ['ls-files', '--others', '--exclude-standard', '--', prefix])
+    // empty prefix must not pass `-- ''` (git rejects an empty pathspec)
+    const lsArgs = prefix
+      ? ['ls-files', '--others', '--exclude-standard', '--', prefix]
+      : ['ls-files', '--others', '--exclude-standard']
+    const lsOut = await runWorktree(worktreePath, lsArgs)
     const files = new Set<string>()
     for (const line of lsOut.split('\n')) {
       const rel = line.trim()

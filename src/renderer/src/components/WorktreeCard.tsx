@@ -1,18 +1,27 @@
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { Worktree } from '@shared/types'
-import { useAppStore, type Pane } from '../store'
+import { useAppStore, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { ExplorerPane } from './ExplorerPane'
 import { GitStatusPane } from './GitStatusPane'
 import { PreviewPane } from './PreviewPane'
 import { Icon } from './Icon'
-
 const branchShort = (b: string): string => b.replace(/^refs\/heads\//, '')
 // Stable references for selectors: zustand v5 compares snapshots by identity, so a
 // fresh `?? []` per call would re-render in an infinite loop (React error #185).
 const EMPTY_PANES: Pane[] = []
 const EMPTY_ORDER: string[] = []
 
+/** Recursive split-tree renderer (upstream TabGroupLayoutNode shape). */
+function LayoutTree({ node, render }: { node: LayoutNode; render: (paneKey: string) => ReactNode }) {
+  if (node.kind === 'leaf') return <>{render(node.pane)}</>
+  return (
+    <div className={`split split-${node.dir}`}>
+      <LayoutTree node={node.first} render={render} />
+      <LayoutTree node={node.second} render={render} />
+    </div>
+  )
+}
 export function WorktreeCard({ worktree }: { worktree: Worktree }) {
   const paneRecord = useAppStore((s) => s.panes)
   const panes = paneRecord[worktree.path] ?? EMPTY_PANES
@@ -71,12 +80,41 @@ export function WorktreeCard({ worktree }: { worktree: Worktree }) {
     void removeWorktree(worktree.path, dirty)
   }
 
+  const agentPaneKeys = panes.filter((p) => p.kind === 'terminal' && p.sessionId && runningAgents[p.sessionId])
+  const layout = useAppStore((s) => s.layouts[worktree.path])
+
+  /** Renders one pane (terminal/explorer/git/preview) by key; used by both flat and split layouts. */
+  const renderPane = (paneKey: string): ReactNode => {
+    const pane = panes.find((p) => p.key === paneKey)
+    if (!pane) return null
+    if (pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId]) {
+      return (
+        <TerminalPane
+          key={pane.key}
+          sessionId={pane.sessionId}
+          cols={terminals[pane.sessionId]!.cols}
+          rows={terminals[pane.sessionId]!.rows}
+          // split layout: every leaf is visible; flat layout hides non-active panes
+          isActive={!!layout || pane.key === activePaneKey}
+        />
+      )
+    }
+    if (pane.kind === 'explorer') {
+      return <div className="pane non-terminal"><ExplorerPane worktreePath={worktree.path} /></div>
+    }
+    if (pane.kind === 'git-status') {
+      return <div className="pane non-terminal"><GitStatusPane worktreePath={worktree.path} /></div>
+    }
+    if (pane.kind === 'preview') {
+      return <PreviewPane worktreePath={worktree.path} isActive />
+    }
+    return null
+  }
+
   const launchAgent = async (): Promise<void> => {
     focusCard()
     await runAgent(worktree.path, settings.agentCommand)
   }
-
-  const agentPaneKeys = panes.filter((p) => p.kind === 'terminal' && p.sessionId && runningAgents[p.sessionId])
 
   return (
     <div className={`worktree-card ${activeWorktreePath === worktree.path ? 'focused' : ''}`} onClick={focusCard}>
@@ -160,31 +198,44 @@ export function WorktreeCard({ worktree }: { worktree: Worktree }) {
         </div>
       )}
 
-      <div className="terminal-panes">
-        {/* terminal panes: always mounted, hidden unless active — scrollback survives */}
-        {panes.map((pane) =>
-          pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
-            <TerminalPane
-              key={pane.key}
-              sessionId={pane.sessionId}
-              cols={terminals[pane.sessionId]!.cols}
-              rows={terminals[pane.sessionId]!.rows}
-              isActive={pane.key === activePaneKey}
-            />
-          ) : null
-        )}
+      <div className={`terminal-panes ${layout ? 'split-layout' : ''}`}>
+        {layout ? (
+          <LayoutTree
+            node={layout}
+            render={(paneKey) => {
+              const pane = panes.find((p) => p.key === paneKey)
+              if (!pane) return null
+              return renderPane(paneKey)
+            }}
+          />
+        ) : (
+          <>
+            {/* terminal panes: always mounted, hidden unless active — scrollback survives */}
+            {panes.map((pane) =>
+              pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
+                <TerminalPane
+                  key={pane.key}
+                  sessionId={pane.sessionId}
+                  cols={terminals[pane.sessionId]!.cols}
+                  rows={terminals[pane.sessionId]!.rows}
+                  isActive={pane.key === activePaneKey}
+                />
+              ) : null
+            )}
 
-        {panes.some((p) => p.kind === 'explorer') && (
-          <div className={`pane non-terminal ${panes.find((p) => p.kind === 'explorer')!.key === activePaneKey ? '' : 'terminal-hidden'}`}>
-            <ExplorerPane worktreePath={worktree.path} />
-          </div>
+            {panes.some((p) => p.kind === 'explorer') && (
+              <div className={`pane non-terminal ${panes.find((p) => p.kind === 'explorer')!.key === activePaneKey ? '' : 'terminal-hidden'}`}>
+                <ExplorerPane worktreePath={worktree.path} />
+              </div>
+            )}
+            {panes.some((p) => p.kind === 'git-status') && (
+              <div className={`pane non-terminal ${panes.find((p) => p.kind === 'git-status')!.key === activePaneKey ? '' : 'terminal-hidden'}`}>
+                <GitStatusPane worktreePath={worktree.path} />
+              </div>
+            )}
+            {panes.some((p) => p.kind === 'preview') && <PreviewPane worktreePath={worktree.path} isActive={panes.find((p) => p.kind === 'preview')!.key === activePaneKey} />}
+          </>
         )}
-        {panes.some((p) => p.kind === 'git-status') && (
-          <div className={`pane non-terminal ${panes.find((p) => p.kind === 'git-status')!.key === activePaneKey ? '' : 'terminal-hidden'}`}>
-            <GitStatusPane worktreePath={worktree.path} />
-          </div>
-        )}
-        {panes.some((p) => p.kind === 'preview') && <PreviewPane worktreePath={worktree.path} isActive={panes.find((p) => p.kind === 'preview')!.key === activePaneKey} />}
       </div>
 
       <div className="agent-launch">

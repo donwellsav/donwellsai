@@ -26,6 +26,33 @@ export type Pane = {
   sessionId?: string
   file?: string
 }
+/** Binary split tree (upstream TabGroupLayoutNode): leaf = pane key. */
+export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode }
+/** Insert newKey as an immediate sibling of targetKey inside the tree (immutably). */
+function insertLeaf(node: LayoutNode, targetKey: string | undefined, newKey: string): LayoutNode | null {
+  if (node.kind === 'leaf') {
+    if (targetKey === undefined || node.pane === targetKey) {
+      return { kind: 'split', dir: 'row', first: node, second: { kind: 'leaf', pane: newKey } }
+    }
+    return null
+  }
+  const first = insertLeaf(node.first, targetKey, newKey)
+  if (first) return { ...node, first }
+  const second = insertLeaf(node.second, targetKey, newKey)
+  if (second) return { ...node, second }
+  return null
+}
+
+/** Remove a leaf by pane key; promote the surviving sibling at each collapse. */
+function removeLeaf(node: LayoutNode, paneKey: string): LayoutNode | null {
+  if (node.kind === 'leaf') return node.pane === paneKey ? null : node
+  const first = removeLeaf(node.first, paneKey)
+  const second = removeLeaf(node.second, paneKey)
+  if (!first) return second
+  if (!second) return first
+  return { ...node, first, second }
+}
+
 
 type AppState = {
   repos: RepoSummary[]
@@ -57,9 +84,10 @@ type AppState = {
 
   /** agents launched into worktree terminals, session-scoped */
   runningAgents: Record<string, RunningAgent>
-
   agents: AgentPreset[]
   settings: AppSettings
+  /** split-tree layout per worktree path; undefined = flat single active pane */
+  layouts: Record<string, LayoutNode>
   paletteOpen: boolean
   settingsOpen: boolean
 
@@ -114,6 +142,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   terminals: {},
   terminalOrder: {},
   panes: {},
+  layouts: {},
   activePane: {},
   activeTerminal: {},
   runningAgents: {},
@@ -139,14 +168,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (saved) {
         // restore per-repo workbench: panes + active selection (terminals reattach
         // to daemon-owned PTY sessions by id; dead session ids are pruned below)
-        const restored = { panes: {} as Record<string, Pane[]>, activePane: {} as Record<string, string>, activeTerminal: {} as Record<string, string> }
+        const restored = { panes: {} as Record<string, Pane[]>, activePane: {} as Record<string, string>, activeTerminal: {} as Record<string, string>, terminalOrder: {} as Record<string, string[]>, terminals: {} as Record<string, TerminalView> }
         for (const repo of repos) {
           const savedRepo = saved.repos[repo.repo.id]
           if (!savedRepo) continue
-          const liveSessions = new Set((await window.orca.terminalSessions()).map((s) => s.id))
+          const liveSessions = await window.orca.terminalSessions()
+          const liveById = new Map(liveSessions.map((s) => [s.id, s]))
           for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
-            const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveSessions.has(p.sessionId)))
-            if (valid.length) restored.panes[wtPath] = valid
+            const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveById.has(p.sessionId)))
+            if (valid.length) {
+              restored.panes[wtPath] = valid
+              restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
+              // register a TerminalView per live restored session so TerminalPane
+              // mounts and the daemon replays its scrollback (attach on mount)
+              for (const p of valid) {
+                if (p.kind === 'terminal' && p.sessionId && !restored.terminals[p.sessionId]) {
+                  const live = liveById.get(p.sessionId)!
+                  restored.terminals[p.sessionId] = { session: live, cols: 100, rows: 30 }
+                }
+              }
+            }
           }
           restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
           restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
@@ -154,6 +195,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         state.panes = restored.panes
         state.activePane = restored.activePane
         state.activeTerminal = restored.activeTerminal
+        state.terminalOrder = restored.terminalOrder
+        state.terminals = restored.terminals
         state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
       }
       set(state)
@@ -339,17 +382,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (activePane[worktreePath] === key) {
         activePane[worktreePath] = cardPanes[0]?.key ?? ''
       }
+      // layout: remove the leaf; a split collapses to its surviving child
+      const prevLayout = s.layouts[worktreePath]
+      let layouts = s.layouts
+      if (prevLayout) {
+        const next = removeLeaf(prevLayout, key)
+        layouts = { ...s.layouts }
+        if (next) layouts[worktreePath] = next
+        else delete layouts[worktreePath]
+      }
       const p = s.panes[worktreePath]?.find((x) => x.key === key)
       if (p?.sessionId) {
         const terminals = { ...s.terminals }
         delete terminals[p.sessionId]
         void window.orca.closeTerminal(p.sessionId)
-        void s.terminalOrder[worktreePath]
         const runningAgents = { ...s.runningAgents }
         delete runningAgents[p.sessionId]
-        return { panes, activePane, terminals, runningAgents, terminalOrder: { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== p.sessionId) } }
+        return { panes, activePane, terminals, runningAgents, layouts, terminalOrder: { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== p.sessionId) } }
       }
-      return { panes, activePane }
+      return { panes, activePane, layouts }
     })
     persistSessionSoon()
   },
@@ -366,7 +417,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async splitTerminal(worktreePath: string) {
-    await get().openTerminal(worktreePath)
+    const s = get()
+    const activeKey = s.activePane[worktreePath]
+    const session = await get().openTerminal(worktreePath)
+    if (!session) return
+    const newKey = `term:${session.id}`
+    // split the active pane's leaf: new terminal beside it (row = side-by-side)
+    set((st) => {
+      const prev = st.layouts[worktreePath]
+      let next: LayoutNode
+      if (!prev) {
+        next = { kind: 'split', dir: 'row', first: { kind: 'leaf', pane: activeKey ?? newKey }, second: { kind: 'leaf', pane: newKey } }
+      } else {
+        const inserted = insertLeaf(prev, activeKey, newKey)
+        next = inserted ?? { kind: 'split', dir: 'row', first: prev, second: { kind: 'leaf', pane: newKey } }
+      }
+      return { layouts: { ...st.layouts, [worktreePath]: next } }
+    })
+    if (session) get().selectTerminal(worktreePath, session.id)
+    persistSessionSoon()
   },
 
   selectTerminal(worktreePath: string, sessionId: string) {
