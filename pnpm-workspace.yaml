@@ -1,0 +1,5 @@
+onlyBuiltDependencies:
+  - esbuild
+  - node-pty
+  - electron
+  - electron-winstaller
