@@ -3,7 +3,10 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'n
 import { basename, join } from 'node:path'
 import type { FileContent, FileEntry, RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
 import type { Store } from './store'
+import { readRepoWorktreeAdminFingerprint } from './worktree-fingerprint'
+import { retireWorktreeName, takenNames, uniquifyWorktreeName } from './worktree-name-retirement'
 import { idFromPath } from './store'
+import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
 
 export class GitError extends Error {
   constructor(message: string) {
@@ -85,9 +88,72 @@ async function verifyRepoIsGit(path: string): Promise<void> {
   if (!out) throw new GitError(`Not a git repository: ${path}`)
 }
 
+
+/** Scan freshness: 30s TTL, extended by the admin fingerprint when nothing changed externally. */
+const SCAN_TTL_MS = 30_000
+type ScanEntry = { worktrees: Worktree[]; fingerprint: string | null; scannedAt: number }
+
+export class WorktreeScanCache {
+  private entries = new Map<string, ScanEntry>()
+  private inflight = new Map<string, Promise<Worktree[]>>()
+
+  invalidate(repoPath: string): void {
+    this.entries.delete(repoPath)
+  }
+
+  async get(repoPath: string, scan: () => Promise<Worktree[]>): Promise<Worktree[]> {
+    const hit = this.entries.get(repoPath)
+    const fresh = hit && Date.now() - hit.scannedAt < SCAN_TTL_MS
+    if (hit && !fresh) {
+      // TTL expired: the fingerprint decides whether a rescan is needed
+      const fp = readRepoWorktreeAdminFingerprint(repoPath)
+      if (fp !== null && fp === hit.fingerprint) {
+        hit.scannedAt = Date.now() // prove-unchanged: extend
+        return hit.worktrees
+      }
+    } else if (fresh) {
+      return hit.worktrees
+    }
+    // fingerprint captured BEFORE the scan — a mid-flight mutation leaves the
+    // stored fingerprint stale, so the next probe rescans (upstream ordering rule)
+    const fingerprint = readRepoWorktreeAdminFingerprint(repoPath)
+    const existing = this.inflight.get(repoPath)
+    if (existing) return existing
+    const p = scan().then((worktrees) => {
+      this.entries.set(repoPath, { worktrees, fingerprint, scannedAt: Date.now() })
+      this.inflight.delete(repoPath)
+      return worktrees
+    })
+    this.inflight.set(repoPath, p)
+    return p
+  }
+}
 export class GitWorktrees {
+  private scanCache = new WorktreeScanCache()
+  /** Recovery dir for removed worktrees (wired from main). */
+  private trashDir: string | null = null
+
   constructor(private store: Store) {}
 
+  /** Main wires the userData trash dir after construction. */
+  setTrashRoot(dir: string): void {
+    this.trashDir = dir
+  }
+
+  private get trashRoot(): string {
+    if (!this.trashDir) throw new GitError('Trash root not configured')
+    return this.trashDir
+  }
+
+  /** In-app mutation hook: in-app creates/removes invalidate directly (no fingerprint wait). */
+  invalidateScan(repoPath: string): void {
+    this.scanCache.invalidate(repoPath)
+  }
+
+  /** Cached worktree list — 30s TTL extended by the admin fingerprint gate. */
+  private async listWorktreesCached(repoPath: string): Promise<Worktree[]> {
+    return this.scanCache.get(repoPath, () => listRepoWorktrees(repoPath))
+  }
   async listAll(): Promise<RepoSummary[]> {
     const summaries: RepoSummary[] = []
     for (const repo of this.store.listRepos()) {
@@ -99,16 +165,16 @@ export class GitWorktrees {
     }
     return summaries
   }
-
   async summarize(repoPath: string): Promise<RepoSummary> {
     await verifyRepoIsGit(repoPath)
-    const worktrees = await listRepoWorktrees(repoPath)
+    const worktrees = await this.listWorktreesCached(repoPath)
     return {
       repo: { id: idFromPath(repoPath), path: repoPath, addedAt: new Date().toISOString() },
       worktrees,
       ...repoSummary(repoPath, worktrees)
     }
   }
+
 
   /** Ensure a repo directory is a real git repo, then record it. */
   async addRepo(dir: string): Promise<RepoSummary> {
@@ -137,30 +203,75 @@ export class GitWorktrees {
     opts: { name?: string; branch?: string }
   ): Promise<RepoSummary> {
     const base = opts.branch?.trim()
-    const wdName = opts.name?.trim() || (base ? basename(base) : 'feature')
+    const requested = opts.name?.trim() || (base ? basename(base) : 'feature')
+    // retirement: a removed name never returns; collisions suffix -2, -3, …
+    const repoId = idFromPath(repoPath)
+    const taken = takenNames(await this.listWorktreesCached(repoPath), this.store.getRetiredNames(repoId))
+    const wdName = uniquifyWorktreeName(requested, taken)
     const wtPath = join(repoPath, '..', `wt-${wdName}`)
     const args = ['worktree', 'add', '-b', wdName, wtPath]
     if (base) {
       args.push(base)
     }
     await run(repoPath, args, { timeoutMs: 120000 })
+    this.scanCache.invalidate(repoPath)
+    return this.summarize(repoPath)
+  }
+  async removeWorktree(repoPath: string, worktreePath: string, force = false): Promise<RepoSummary> {
+    fenceMainWorktree(worktreePath, repoPath)
+    // resolve the victim from the live scan (canonical path + branch to retire).
+    // compare on realpaths: git prints symlink-resolved paths (/tmp → /private/tmp)
+    const worktrees = await this.listWorktreesCached(repoPath)
+    // orphan (dir gone) can't realpath — fall back to lexical compare only
+    const realTarget = existsSync(worktreePath) ? realpathSync(worktreePath) : null
+    const canonical =
+      worktrees.find((w) => w.path === worktreePath || w.path === worktreePath.replace(/\/+$/, '')) ??
+      worktrees.find((w) => {
+        if (realTarget === null) return false
+        try {
+          return realpathSync(w.path) === realTarget
+        } catch {
+          return false
+        }
+      })
+    if (!canonical) throw new GitError(`Unknown worktree: ${worktreePath}`)
+    const victimDir = canonical.path
+    const victimBranch = canonical.branch
+
+    if (isOrphanWorktree(victimDir, repoPath)) {
+      // dir already gone (external rm -rf): prune the lingering admin entry
+      await run(repoPath, ['worktree', 'prune'], { timeoutMs: 15000 })
+    } else {
+      witnessPathExists(victimDir)
+      // TRASH-FIRST: git worktree remove deletes the directory outright, so the
+      // only recoverable order is move-to-trash BEFORE git learns of it; prune
+      // then clears the admin entry. Without force, git's dirty check still
+      // applies: probe status first — a dirty non-forced removal refuses before
+      // anything moves.
+      if (!force) {
+        const status = await run(victimDir, ['status', '--porcelain'], { timeoutMs: 15000 }).catch(() => '?? dirty-probe-failed')
+        if (status.trim()) {
+          throw new GitError(`Cannot remove worktree (dirty?): ${victimDir} has uncommitted changes — use force`)
+        }
+      }
+      try {
+        moveToTrash(victimDir, this.trashRoot)
+      } catch (e) {
+        throw new GitError(`Trashing failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+      await run(repoPath, ['worktree', 'prune'], { timeoutMs: 15000 }).catch(async () => {
+        // older git prune misses; explicit force-remove of the missing dir clears
+        await run(repoPath, ['worktree', 'remove', '--force', victimDir], { timeoutMs: 15000 }).catch(() => {})
+      })
+    }
+
+    if (this.store.listRepos().some((r) => r.id === idFromPath(repoPath))) {
+      this.store.retireNames(idFromPath(repoPath), retireWorktreeName(new Set(), victimDir, victimBranch))
+    }
+    this.scanCache.invalidate(repoPath)
     return this.summarize(repoPath)
   }
 
-  async removeWorktree(repoPath: string, worktreePath: string, force = false): Promise<RepoSummary> {
-    // Safety: never remove the main worktree, never resolve to repoPath itself.
-    const canonical = worktreePath.replace(/\/+$/, '')
-    if (canonical === repoPath.replace(/\/+$/, '')) {
-      throw new GitError('Refusing to remove the main worktree')
-    }
-    const args = force
-      ? ['worktree', 'remove', '--force', canonical]
-      : ['worktree', 'remove', canonical]
-    await run(repoPath, args, { timeoutMs: 30000 }).catch((e: GitError) => {
-      throw new GitError(`Cannot remove worktree (dirty?): ${e.message}`)
-    })
-    return this.summarize(repoPath)
-  }
 
   async detectAgents(): Promise<{ name: string; command: string; detected: boolean }[]> {
     const candidates = ['codex', 'claude', 'pi', 'opencode', 'cursor-agent', 'qwen-code', 'goose']

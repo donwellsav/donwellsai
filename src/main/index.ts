@@ -232,6 +232,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   store = new Store()
   git = new GitWorktrees(store)
+  git.setTrashRoot(join(app.getPath('userData'), 'trash'))
   ptyManager = new PtyManager({
     data: (sessionId, data) => send('terminal:data', { sessionId, data }),
     exit: (sessionId, exitCode) => send('terminal:exit', { sessionId, exitCode }),

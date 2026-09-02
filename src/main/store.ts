@@ -62,6 +62,21 @@ export class Store {
 
   removeRepo(repoId: string): void {
     this.state.repos = this.state.repos.filter((r) => r.id !== repoId)
+    delete this.state.retiredNames?.[repoId]
+    this.save()
+  }
+
+  /** Retired worktree names for a repo (empty set when none). */
+  getRetiredNames(repoId: string): Set<string> {
+    return new Set(this.state.retiredNames?.[repoId] ?? [])
+  }
+
+  /** Monotonic retirement: union the given names into the repo's registry. */
+  retireNames(repoId: string, names: Iterable<string>): void {
+    if (!this.state.retiredNames) this.state.retiredNames = {}
+    const set = new Set(this.state.retiredNames[repoId] ?? [])
+    for (const n of names) set.add(n)
+    this.state.retiredNames[repoId] = [...set].sort()
     this.save()
   }
 

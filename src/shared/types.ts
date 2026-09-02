@@ -99,6 +99,11 @@ export type PersistedState = {
   schemaVersion: 1
   repos: Repo[]
   settings: Partial<AppSettings>
+  /**
+   * Retired worktree names per repo id — a deleted name never returns in the
+   * same repo namespace (upstream worktree-name-retirement rule). Monotonic.
+   */
+  retiredNames?: Record<string, string[]>
 }
 
 // IPC events main -> renderer
