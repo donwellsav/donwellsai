@@ -2,6 +2,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { BrowserCommand } from '@shared/types'
 import type { Store } from './store'
 import type { GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
@@ -25,6 +26,8 @@ export type RpcDeps = {
   meta: () => Promise<{ version: string; shell: string; userDataDir: string }>
   /** Notify the renderer (worktree:changed) after RPC mutations it can't see. */
   onChanged: (repoId: string) => void
+  /** Forward browser control commands to the renderer's webviews. */
+  browser: { command: (cmd: BrowserCommand) => Promise<unknown> }
 }
 
 export class RuntimeRpcServer {
@@ -195,6 +198,23 @@ export class RuntimeRpcServer {
         return store.getSettings()
       case 'settings.set':
         return store.updateSettings(params as Record<string, never>)
+      case 'browser.list':
+        return { panes: await this.deps.browser.command({ op: 'list' }) }
+      case 'browser.open':
+        await this.deps.browser.command({ op: 'open', key: str('worktreePath'), url: str('url') })
+        return { snapshot: await this.deps.browser.command({ op: 'snapshot', key: str('worktreePath') }) }
+      case 'browser.navigate':
+        return this.deps.browser.command({ op: 'navigate', key: str('key'), url: str('url') })
+      case 'browser.back':
+        return this.deps.browser.command({ op: 'back', key: str('key') })
+      case 'browser.forward':
+        return this.deps.browser.command({ op: 'forward', key: str('key') })
+      case 'browser.reload':
+        return this.deps.browser.command({ op: 'reload', key: str('key') })
+      case 'browser.snapshot':
+        return { snapshot: await this.deps.browser.command({ op: 'snapshot', key: str('key') }) }
+      case 'browser.eval':
+        return { result: await this.deps.browser.command({ op: 'eval', key: str('key'), js: str('js') }) }
       default:
         throw new Error(`unknown method: ${method}`)
     }

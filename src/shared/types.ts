@@ -228,14 +228,33 @@ export type MainEvents = {
   'menu:action': { action: string }
 }
 
+/** One browser-pane control command (agent control over runtime RPC). */
+export type BrowserCommand =
+  | { op: 'navigate'; key: string; url: string }
+  | { op: 'back'; key: string }
+  | { op: 'forward'; key: string }
+  | { op: 'reload'; key: string }
+  | { op: 'snapshot'; key: string }
+  | { op: 'eval'; key: string; js: string }
+  | { op: 'list' }
+  | { op: 'open'; key: string; url: string }
+
+export type BrowserSnapshot = { key: string; url: string; title: string; text: string }
+
+export type BrowserCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
+
 export type IpcApi = {
   meta(): Promise<AppMeta>
   listRepos(): Promise<RepoSummary[]>
+  /** Browser control surface (renderer executes on its webviews). */
+  onBrowserCommand(cb: (env: { id: string; cmd: BrowserCommand }) => void): () => void
+  resolveBrowserCommand(id: string, result: BrowserCommandResult): void
+  browserRegisterPanes(keys: string[]): void
+  createWorktree(repoId: string, opts: { name?: string; branch?: string }): Promise<RepoSummary>
   addRepo(dir: string): Promise<RepoSummary>
   removeRepo(repoId: string): Promise<void>
   refreshRepo(repoId: string): Promise<RepoSummary>
 
-  createWorktree(repoId: string, opts: { name?: string; branch?: string }): Promise<RepoSummary>
   removeWorktree(repoId: string, worktreePath: string, force?: boolean): Promise<RepoSummary>
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>

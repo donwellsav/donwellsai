@@ -53,6 +53,13 @@ const api: IpcApi = {
   orchestrationStart: (name, command, paths, parallel) => ipcRenderer.invoke('orchestrationStart', name, command, paths, parallel),
   orchestrationCancel: (id) => ipcRenderer.invoke('orchestrationCancel', id),
   setAttention: (on) => ipcRenderer.send('attention', on),
+  onBrowserCommand: (cb) => {
+    const listener = (_e: unknown, env: { id: string; cmd: import('@shared/types').BrowserCommand }) => cb(env)
+    ipcRenderer.on('browser:command', listener)
+    return () => ipcRenderer.removeListener('browser:command', listener)
+  },
+  resolveBrowserCommand: (id, result) => ipcRenderer.send('browser:command:result', id, result),
+  browserRegisterPanes: (keys) => ipcRenderer.send('browser:register-panes', keys),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)
     ipcRenderer.on(channel, listener)

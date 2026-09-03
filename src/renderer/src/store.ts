@@ -32,17 +32,28 @@ export type Pane = {
 }
 /** Binary split tree (upstream TabGroupLayoutNode): leaf = pane key. */
 export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode; /** first child size in percent (drag divider; default 50) */ size?: number }
-/** Insert newKey as an immediate sibling of targetKey inside the tree (immutably). */
+/** Insert newKey as an immediate sibling of targetKey; when targetKey is absent
+ *  from the tree, fall back to splitting the first leaf (pane must render). */
 function insertLeaf(node: LayoutNode, targetKey: string | undefined, newKey: string): LayoutNode | null {
+  const matched = targetKey !== undefined ? insertAt(node, targetKey, newKey) : null
+  return matched ?? insertAt(node, undefined, newKey)
+}
+
+function layoutHasLeaf(node: LayoutNode, key: string): boolean {
+  if (node.kind === 'leaf') return node.pane === key
+  return layoutHasLeaf(node.first, key) || layoutHasLeaf(node.second, key)
+}
+
+function insertAt(node: LayoutNode, targetKey: string | undefined, newKey: string): LayoutNode | null {
   if (node.kind === 'leaf') {
     if (targetKey === undefined || node.pane === targetKey) {
       return { kind: 'split', dir: 'row', first: node, second: { kind: 'leaf', pane: newKey } }
     }
     return null
   }
-  const first = insertLeaf(node.first, targetKey, newKey)
+  const first = insertAt(node.first, targetKey, newKey)
   if (first) return { ...node, first }
-  const second = insertLeaf(node.second, targetKey, newKey)
+  const second = insertAt(node.second, targetKey, newKey)
   if (second) return { ...node, second }
   return null
 }
@@ -598,13 +609,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => {
         const panes = { ...s.panes }
         const cardPanes = [...(panes[worktreePath] ?? [])]
+        const existed = cardPanes.some((p) => p.key === key)
         const idx = cardPanes.findIndex((p) => p.kind === 'preview')
         if (idx !== -1) cardPanes.splice(idx, 1)
         cardPanes.push({ key, kind: 'preview', file: relPath })
         panes[worktreePath] = cardPanes
+        // a live split tree must include the new pane or it never renders
+        let layouts = s.layouts
+        if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
+          const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
+          if (next) layouts = { ...s.layouts, [worktreePath]: next }
+        }
         return {
           previews: { ...s.previews, [worktreePath]: content },
           panes,
+          layouts,
           activePane: { ...s.activePane, [worktreePath]: key },
           error: null
         }
@@ -622,13 +641,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       const panes = { ...s.panes }
       const cardPanes = [...(panes[worktreePath] ?? [])]
       const idx = cardPanes.findIndex((p) => p.kind === 'browser')
-      if (idx !== -1) {
+      const existed = idx !== -1
+      if (existed) {
         cardPanes[idx] = { ...cardPanes[idx]!, url: normalized }
       } else {
         cardPanes.push({ key, kind: 'browser', url: normalized })
       }
       panes[worktreePath] = cardPanes
-      return { panes, activePane: { ...s.activePane, [worktreePath]: key } }
+      let layouts = s.layouts
+      if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
+        const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
+        if (next) layouts = { ...s.layouts, [worktreePath]: next }
+      }
+      return { panes, layouts, activePane: { ...s.activePane, [worktreePath]: key } }
     })
     persistSessionSoon()
   },

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { copyFileSync, existsSync } from 'node:fs'
-import type { IpcApi, MainEvents } from '@shared/types'
+import type { BrowserCommand, IpcApi, MainEvents } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { Store, idFromPath } from './store'
 import { GitWorktrees } from './git'
@@ -156,6 +156,33 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// Browser agent-control bridge state (see registerIpc + browserControl).
+type PendingBrowser = { resolve: (v: unknown) => void; reject: (e: Error) => void }
+const browserPending = new Map<string, PendingBrowser>()
+let browserPanes: string[] = []
+let browserSeq = 0
+
+/** Forward a browser command to the renderer; resolves when the webview answers. */
+function browserControl(cmd: BrowserCommand): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const win = mainWindow
+    if (!win || win.isDestroyed()) {
+      reject(new Error('no window'))
+      return
+    }
+    const id = `browser-${++browserSeq}`
+    const timer = setTimeout(() => {
+      browserPending.delete(id)
+      reject(new Error('browser command timed out'))
+    }, 10000)
+    browserPending.set(id, {
+      resolve: (v) => { clearTimeout(timer); resolve(v) },
+      reject: (e) => { clearTimeout(timer); reject(e) }
+    })
+    win.webContents.send('browser:command', { id, cmd })
+  })
+}
+
 function registerIpc(): void {
   ipcMain.handle('meta', () => ({
     version: app.getVersion(),
@@ -263,6 +290,19 @@ function registerIpc(): void {
   ipcMain.handle('openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     return true
+  })
+
+  // Browser agent-control bridge: renderer replies with results, main matches
+  // them to pending runtime-RPC commands by correlation id.
+  ipcMain.on('browser:command:result', (_e, id: string, result: { ok: true; result: unknown } | { ok: false; error: string }) => {
+    const pending = browserPending.get(id)
+    if (!pending) return
+    browserPending.delete(id)
+    if (result.ok) pending.resolve(result.result)
+    else pending.reject(new Error(result.error))
+  })
+  ipcMain.on('browser:register-panes', (_e, keys: string[]) => {
+    browserPanes = Array.isArray(keys) ? keys.map(String) : []
   })
 }
 
@@ -409,10 +449,12 @@ app.whenReady().then(() => {
       git,
       terminals: terminalBus,
       meta: async () => ({ version: app.getVersion(), shell: process.env.SHELL ?? '', userDataDir: app.getPath('userData') }),
-      onChanged: (repoId) => send('worktree:changed', { repoId })
+      onChanged: (repoId) => send('worktree:changed', { repoId }),
+      browser: { command: (cmd) => browserControl(cmd) }
     }
   )
   rpcServer = rpc
+  void rpc.start().catch((e) => console.error('runtime rpc failed to start:', e))
   if (process.env['DONWELLS_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
       console.log('smoke:ready')

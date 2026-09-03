@@ -164,7 +164,7 @@ export function Workbench() {
           </button>
         </div>
         {pane.kind === 'browser' && pane.url ? (
-          <BrowserPane url={pane.url} onClose={() => closePane(activeWorktreePath, pane.key)} />
+          <BrowserPane worktreePath={activeWorktreePath} url={pane.url} onClose={() => closePane(activeWorktreePath, pane.key)} />
         ) : (
           <div className={`pane-body-terminal${isActive || !!layout ? '' : ' terminal-hidden'}`}>
             {pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
