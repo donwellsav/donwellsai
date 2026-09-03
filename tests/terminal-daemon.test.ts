@@ -192,6 +192,46 @@ describe('terminal daemon', () => {
     proc.kill('SIGKILL')
   })
 
+  it('strips agent hook envelopes from data and emits separate hook events', async () => {
+    const userData = mkdtempSync(join(tmpdir(), 'orca-daemon-ud4-'))
+    cleanup.push(userData)
+    const { root, path } = makeRepo()
+    cleanup.push(root)
+    const token = 'hook-token'
+    const proc = spawnDaemon(userData, token)
+    await waitDaemonReady(userData)
+    const c = await connectClient(join(userData, 'terminal.sock'), token)
+    const open = await c.request('session.open', { cwd: path, cols: 80, rows: 24 })
+    const session = open['session'] as { id: string }
+    // the shell must EMIT the envelopes (daemon scans PTY output, not input)
+    c.request('session.write', {
+      sessionId: session.id,
+      data: "printf 'BEFORE\\033]777;donwells:done\\007\\033]777;donwells:permission=stage1\\007AFTER\\n'\r"
+    }).catch(() => {})
+    const res = await new Promise<{ hook: Array<Record<string, unknown>>; clean: boolean }>((resolve) => {
+      const start = Date.now()
+      const check = (): void => {
+        const hooks = c.events.filter((e) => e['event'] === 'hook' && e['sessionId'] === session.id)
+        const datas = c.events.filter((e) => e['event'] === 'data' && e['sessionId'] === session.id).map((e) => String(e['data'])).join('')
+        if (hooks.length >= 2 && datas.includes('AFTER')) {
+          // the echoed command text contains the literal words; raw ESC envelopes must not leak
+          resolve({ hook: hooks, clean: datas.includes('BEFORE') && !datas.includes('\x1b]777') })
+          return
+        }
+        if (Date.now() - start > 6000) return resolve({ hook: hooks, clean: false })
+        setTimeout(check, 100)
+      }
+      check()
+    })
+    expect(res.hook.length).toBeGreaterThanOrEqual(2)
+    const states = res.hook.map((h) => String(h['state']))
+    expect(states).toContain('done')
+    expect(states).toContain('permission')
+    expect(res.hook.some((h) => String(h['detail']) === 'stage1')).toBe(true)
+    expect(res.clean).toBe(true)
+    c.close()
+  }, 20000)
+
   it('session.list reflects opened sessions; close clears scrollback', async () => {
     const userData = mkdtempSync(join(tmpdir(), 'orca-daemon-ud3-'))
     cleanup.push(userData)
