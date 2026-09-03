@@ -96,7 +96,11 @@ export type AppSettings = {
   /** terminal theme: dark default; future themes land here */
   theme: 'dark'
   fontSize: number
-  /** poll interval for per-worktree git status, ms; 0 = off */
+  /** terminal font family override (Orca terminalFontFamily); empty = default stack */
+  fontFamily?: string
+  /** cursor: block | bar | underline (Orca terminalCursorStyle) */
+  cursorStyle?: 'block' | 'bar' | 'underline'
+  cursorBlink?: boolean
   statusPollMs: number
 }
 

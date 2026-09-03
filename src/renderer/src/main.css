@@ -901,7 +901,7 @@ body {
   color: var(--foreground); user-select: text; white-space: pre;
 }
 
-.pane-body-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.pane-body-terminal { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: #1d1f21; }
 
 /* agent run bar */
 .agent-run-bar {
@@ -1031,3 +1031,13 @@ body {
 .sb-usage { color: var(--muted-fg); gap: 4px; font-variant-numeric: tabular-nums; }
 .sb-float-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin: 2px 0; border-radius: 4px; color: var(--muted-fg); }
 .sb-float-toggle:hover { background: var(--border); color: var(--foreground); }
+
+.terminal-init-error {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin: 16px; padding: 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--git-deleted);
+  background: var(--worktree-sidebar, #2a2a2a);
+  font-size: 12px;
+}
+.terminal-init-error p { margin: 2px 0 0; color: var(--muted-fg); word-break: break-all; }

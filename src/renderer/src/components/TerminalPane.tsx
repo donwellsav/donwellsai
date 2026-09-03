@@ -12,64 +12,108 @@ type Props = {
   sessionId: string
   cols: number
   rows: number
-  /** false = pane stays mounted but hidden (xterm keeps no DOM cost when display:none) */
   isActive: boolean
 }
 
-/**
- * Owns one xterm instance for one PTY session.
- * Data flows main → terminalBus → xterm directly; React never sees terminal output.
- * The instance mounts once and is NEVER unmounted while the session lives — switching
- * tabs hides the pane (display:none), it does not destroy it. This is the
- * "permanently-mounted workbench" rule that keeps scrollback coherent.
- */
+/** Ghostty-default (Tomorrow Night) dark palette — matches Orca's terminal theme. */
+const TERMINAL_THEME = {
+  background: '#1d1f21',
+  foreground: '#c5c8c6',
+  cursor: '#f2f2f2',
+  cursorAccent: '#1d1f21',
+  selectionBackground: '#373b41',
+  black: '#1d1f21',
+  red: '#cc6666',
+  green: '#b5bd68',
+  yellow: '#f0c674',
+  blue: '#81a2be',
+  magenta: '#b294bb',
+  cyan: '#8abeb7',
+  white: '#c5c8c6',
+  brightRed: '#d54e53',
+  brightGreen: '#b9ca4a',
+  brightYellow: '#e7c547',
+  brightBlue: '#7aa6da',
+  brightMagenta: '#c397d8',
+  brightCyan: '#70c0b1',
+  brightWhite: '#eaeaea'
+}
+
+/** Diagnostics ring-buffer for the terminal mount/fit lifecycle (window.__paneLog). */
+const paneLog: string[] = []
+function plog(msg: string): void {
+  paneLog.push(`${new Date().toISOString().slice(11, 23)} ${msg}`)
+  if (paneLog.length > 200) paneLog.shift()
+}
+declare global {
+  interface Window {
+    __paneLog?: string[]
+  }
+}
+
 export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const fontSize = useAppStore((s) => s.settings.fontSize)
   const termRef = useRef<Terminal | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const fittedRef = useRef(false)
   const resizeCols = useRef(cols)
   const resizeRows = useRef(rows)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [initError, setInitError] = useState<string | null>(null)
 
   // Mount once per sessionId; deliberately never re-runs for the session's life.
   useEffect(() => {
     const host = hostRef.current
-    if (!host || termRef.current) return
+    if (!host) return
+    if (termRef.current) return
 
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily: "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-      theme: {
-        background: '#0f1115',
-        foreground: '#e6e9ef',
-        cursor: '#4f8cff',
-        selectionBackground: '#1c4a8a'
-      },
-      scrollback: 10000
-    })
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(host)
-    termRef.current = term
-    fitRef.current = fit
+    plog(`mount ${sessionId.slice(0, 8)} hostW=${Math.round(host.getBoundingClientRect().width)}`)
+    let term: Terminal | null = null
+    try {
+      const settings = useAppStore.getState().settings
+      term = new Terminal({
+        allowProposedApi: true,
+        cursorBlink: settings.cursorBlink ?? true,
+        cursorStyle: settings.cursorStyle === 'bar' || settings.cursorStyle === 'underline' ? settings.cursorStyle : 'block',
+        fontSize: settings.fontSize || 13,
+        fontFamily: settings.fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+        theme: TERMINAL_THEME,
+        scrollback: 10000,
+        scrollOnUserInput: true,
+        rightClickSelectsWord: false
+      })
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(host)
+      termRef.current = term
+      fitRef.current = fit
+      plog('opened')
+    } catch (e) {
+      plog(`INIT THREW: ${e instanceof Error ? e.message : String(e)}`)
+      setInitError(String(e))
+      return
+    }
+    const t = term
 
-    // WebGL renderer (upstream-default perf path; atuin/Pane/vscode all run it).
-    // Fall back to the DOM renderer on context loss — gpu context death must not
-    // blank the pane (xterm#6068: dispose leaks contexts, so we REPLACE, not toggle).
+    // GPU renderer with DOM fallback. Context loss REPLACES the addon
+    // (WebglAddon.dispose leaks contexts — xterm#6068), it never toggles.
     let webgl: WebglAddon | null = null
     const loadWebgl = (): void => {
       try {
         webgl = new WebglAddon()
         webgl.onContextLoss(() => {
+          plog('webgl context loss — falling back to DOM renderer')
           try { webgl?.dispose() } catch { /* already gone */ }
           webgl = null
-          // DOM renderer takes over automatically once the addon unloads.
+          try { t.refresh(0, t.rows - 1) } catch { /* mid-dispose */ }
         })
-        term.loadAddon(webgl)
-      } catch {
-        webgl = null // no webgl (headless CI, driver blocks) — DOM renderer is fine
+        t.loadAddon(webgl)
+        plog('webgl loaded')
+      } catch (e) {
+        plog(`webgl unavailable: ${e instanceof Error ? e.message : String(e)}`)
+        webgl = null
       }
     }
     loadWebgl()
@@ -78,87 +122,96 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     // (vscode#328542): force a redraw when the window becomes visible again.
     const onVisible = (): void => {
       if (document.visibilityState === 'visible' && webgl) {
-        try { term.refresh(0, term.rows - 1) } catch { /* mid-dispose */ }
+        try { t.refresh(0, t.rows - 1) } catch { /* mid-dispose */ }
       }
     }
     document.addEventListener('visibilitychange', onVisible)
 
     const search = new SearchAddon()
-    term.loadAddon(search)
+    t.loadAddon(search)
     searchRef.current = search
+    t.loadAddon(new WebLinksAddon((_e, uri) => void window.orca.openExternal(uri)))
 
-    const unsubscribe = terminalBus.subscribe(sessionId, (data) => term.write(data))
+    const unsubscribe = terminalBus.subscribe(sessionId, (data) => t.write(data))
     // reattach replay: daemon-held scrollback written before any live data
-    void window.orca.attachTerminal(sessionId).then((r) => {
-      if (r?.scrollback) term.write(r.scrollback)
-    })
-    term.onData((input) => {
+    void window.orca
+      .attachTerminal(sessionId)
+      .then((r) => {
+        if (r?.scrollback) t.write(r.scrollback)
+      })
+      .catch(() => { /* session gone — exit event will clean up */ })
+    t.onData((input) => {
       useAppStore.getState().writeTerminal(sessionId, input)
     })
 
-    const ro = new ResizeObserver(() => {
-      // Only fit when visible; hidden panes keep stale dims until shown.
-      if (!host.isConnected || host.offsetParent === null) return
+    // Right-click to paste (Orca terminalRightClickToPaste).
+    const onContextMenu = (e: MouseEvent): void => {
+      e.preventDefault()
+      void navigator.clipboard
+        .readText()
+        .then((text) => {
+          if (text) useAppStore.getState().writeTerminal(sessionId, text)
+        })
+        .catch(() => { /* clipboard permission denied — ignore */ })
+    }
+    host.addEventListener('contextmenu', onContextMenu)
+
+    /**
+     * Fit with redundancy. The original bug: fit ran only from RO/activation
+     * callbacks, so a pane whose RO delivery was missed stayed at the open
+     * default (100×30) — canvas smaller than the host, dead black area.
+     * Now: fit immediately, next frame, on font load, on RO, on activation,
+     * and on window resize — every path idempotent.
+     */
+    const applyFit = (origin: string): void => {
+      if (!host.isConnected) return
+      // display:none panes have no geometry; their show path re-fits.
+      if (host.getBoundingClientRect().width === 0) return
       try {
-        fit.fit()
-        const c = term.cols
-        const r = term.rows
+        fitRef.current?.fit()
+        const c = t.cols
+        const r = t.rows
         if (c !== resizeCols.current || r !== resizeRows.current) {
           resizeCols.current = c
           resizeRows.current = r
           useAppStore.getState().resizeTerminal(sessionId, c, r)
+          plog(`fit(${origin}) ${c}x${r}`)
         }
-      } catch {
-        /* terminal mid-dispose */
+        fittedRef.current = true
+      } catch (e) {
+        plog(`fit(${origin}) THREW: ${e instanceof Error ? e.message : String(e)}`)
       }
+    }
+    applyFit('mount')
+
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      applyFit('raf')
+      raf2 = requestAnimationFrame(() => applyFit('raf2'))
     })
+    // web font load changes metrics — refit once fonts settle
+    void document.fonts?.ready.then(() => applyFit('fonts'))
+
+    const ro = new ResizeObserver(() => applyFit('ro'))
     ro.observe(host)
+    const onWinResize = (): void => applyFit('winresize')
+    window.addEventListener('resize', onWinResize)
 
     return () => {
       ro.disconnect()
+      window.removeEventListener('resize', onWinResize)
       unsubscribe()
+      host.removeEventListener('contextmenu', onContextMenu)
       document.removeEventListener('visibilitychange', onVisible)
-      term.dispose()
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+      t.dispose()
       webgl = null
       termRef.current = null
+      plog(`unmount ${sessionId.slice(0, 8)}`)
     }
   }, [sessionId])
 
-  // Fit once the pane becomes visible (tab switched, card remounted).
-  useEffect(() => {
-    if (!isActive) return
-    const host = hostRef.current
-    const term = termRef.current
-    const fit = fitRef.current
-    if (!host || !term || !fit) return
-    // Defer one frame so display:none -> block has taken effect.
-    requestAnimationFrame(() => {
-      if (!host.isConnected || host.offsetParent === null) return
-      try {
-        fit.fit()
-        resizeCols.current = term.cols
-        resizeRows.current = term.rows
-        useAppStore.getState().resizeTerminal(sessionId, term.cols, term.rows)
-      } catch {
-        /* ignore */
-      }
-    })
-  }, [isActive, sessionId])
-
-  // Programmatic resize requests from the store that did not originate in a fit round-trip.
-  useEffect(() => {
-    const term = termRef.current
-    if (!term || !isActive) return
-    if (cols !== resizeCols.current || rows !== resizeRows.current) {
-      try {
-        term.resize(cols, rows)
-        resizeCols.current = cols
-        resizeRows.current = rows
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [cols, rows, isActive])
   // ⌘F opens the search bar scoped to the ACTIVE pane only.
   useEffect(() => {
     if (!isActive) return
@@ -173,6 +226,65 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [isActive])
 
+  // Re-fit when the pane becomes visible (tab switch, split toggle).
+  useEffect(() => {
+    if (!isActive) return
+    const raf = requestAnimationFrame(() => {
+      const host = hostRef.current
+      const fit = fitRef.current
+      const term = termRef.current
+      if (!host || !fit || !term) return
+      if (host.getBoundingClientRect().width === 0) return
+      try {
+        fit.fit()
+        if (term.cols !== resizeCols.current || term.rows !== resizeRows.current) {
+          resizeCols.current = term.cols
+          resizeRows.current = term.rows
+          useAppStore.getState().resizeTerminal(sessionId, term.cols, term.rows)
+        }
+      } catch { /* mid-dispose */ }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [isActive, sessionId])
+
+  // Live font size: settings changes apply to open terminals and re-fit.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term || !fontSize) return
+    if (term.options.fontSize === fontSize) return
+    try {
+      term.options.fontSize = fontSize
+      fitRef.current?.fit()
+    } catch { /* mid-dispose */ }
+  }, [fontSize])
+
+  // Programmatic resize requests from the store that did not originate in a fit round-trip.
+  useEffect(() => {
+    const term = termRef.current
+    if (!term || !isActive) return
+    if (cols !== resizeCols.current || rows !== resizeRows.current) {
+      try {
+        term.resize(cols, rows)
+        resizeCols.current = cols
+        resizeRows.current = rows
+      } catch { /* mid-dispose */ }
+    }
+  }, [cols, rows, isActive])
+
+  if (initError) {
+    return (
+      <div className="terminal-host-wrap">
+        <div className="terminal-init-error" role="alert">
+          <Icon name="alert" size={14} />
+          <div>
+            <strong>Terminal failed to initialize</strong>
+            <p>{initError}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`terminal-host-wrap ${isActive ? '' : 'terminal-hidden'}`}>
       {searchOpen && isActive && (
@@ -182,6 +294,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     </div>
   )
 }
+
 /** ⌘F overlay: incremental search over the terminal buffer (official SearchAddon). */
 function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAddon | null>; onClose: () => void }) {
   const [q, setQ] = useState('')
@@ -195,8 +308,8 @@ function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAdd
     const addon = search.current
     if (!addon || !q) return
     try {
-      if (backwards) addon.findPrevious(q, { caseSensitive })
-      else addon.findNext(q, { caseSensitive })
+      if (backwards) addon.findPrevious(q, { caseSensitive, decorations: { matchOverviewRuler: '#81a2be', activeMatchColorOverviewRuler: '#e7c547' } })
+      else addon.findNext(q, { caseSensitive, decorations: { matchOverviewRuler: '#81a2be', activeMatchColorOverviewRuler: '#e7c547' } })
     } catch { /* buffer mid-write */ }
   }
 
@@ -232,4 +345,9 @@ function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAdd
       </button>
     </div>
   )
+}
+
+// expose diagnostics once per module load
+if (typeof window !== 'undefined') {
+  window.__paneLog = paneLog
 }
