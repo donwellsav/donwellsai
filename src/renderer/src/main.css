@@ -30,6 +30,13 @@
   --status-progress: #d4a300;
   --status-review: #16a34a;
   --agent-question: #fdba74;
+  --agent-question-text: #ffb96d;
+  --status-working: #fcbb00;
+  --git-added: #81b88b;
+  --git-modified: #e2c08d;
+  --git-deleted: #c74e39;
+  --git-untracked: #73c991;
+  --ai-accent: #a78bfa;
   --radius: 0.625rem;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
@@ -51,13 +58,12 @@ body {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.45;
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
   user-select: none;
 }
-
-button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
-input, select { font: inherit; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.12); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgb(255 255 255 / 0.22); }
@@ -134,69 +140,117 @@ input, select { font: inherit; }
 
 /* ── Tab strip (terminal tabs, titlebar-embedded like Orca) ── */
 
-.tab {
+/* Icon strip tabs (Orca TopActivityStrip: 36px icon buttons) */
+.strip-tab {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 220px;
-  padding: 0 8px;
-  font-size: 12px;
-  border-top: 1px solid transparent;
-  border-right: 1px solid var(--border);
-  border-bottom: none;
-  background: var(--card);
-  color: var(--muted-fg);
-  cursor: pointer;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: rgb(250 250 250 / 0.45);
+  transition: color 120ms;
   -webkit-app-region: no-drag;
 }
-.tab:hover { color: var(--foreground); }
-.tab.active {
-  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
-  color: var(--foreground);
-}
-/* Orca's active tab: 2px bottom bar color-mix(foreground 60%, card) */
-.tab.active::after {
-  content: '';
+.strip-tab:hover { color: var(--muted-fg); }
+.strip-tab.active { color: var(--foreground); }
+.strip-active-bar {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
+  bottom: 0; left: 25%; right: 25%;
   height: 2px;
-  background: color-mix(in srgb, var(--foreground) 60%, var(--card));
+  border-radius: 999px;
+  background: var(--foreground);
 }
-.tab .tab-icon { display: inline-flex; opacity: 0.7; }
-.tab .tab-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.strip-dot {
+  position: absolute;
+  top: 8px; right: 5px;
+  width: 7px; height: 7px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px var(--card);
 }
-.tab .tab-unread { position: absolute; inset: 0; background: rgb(245 158 11 / 0.1); pointer-events: none; }
-.tab .tab-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px; height: 16px;
-  border-radius: 4px;
-  color: var(--muted-fg);
-  flex-shrink: 0;
-}
-.tab .tab-close:hover { background: var(--muted); color: var(--foreground); }
-.tab:not(:hover) .tab-close { visibility: hidden; }
-
-.tab-new-button {
+.strip-dot-working { background: var(--status-working); }
+.strip-dot-permission { background: var(--agent-question); }
+.strip-dot-done { background: var(--status-success); }
+.strip-button {
   align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px; height: 26px;
-  margin: 0 6px;
+  width: 28px; height: 28px;
+  margin: 0 2px;
   border-radius: 6px;
   color: var(--muted-fg);
   -webkit-app-region: no-drag;
 }
-.tab-new-button:hover { background: rgb(255 255 255 / 0.08); color: var(--foreground); }
+.strip-button:hover { background: rgb(255 255 255 / 0.08); color: var(--foreground); }
+
+/* ── Sidebar nav rail (Orca SidebarNav) ────────────────────── */
+
+.sidebar-nav {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px 4px;
+}
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgb(250 250 250 / 0.05);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: rgb(250 250 250 / 0.6);
+  text-align: left;
+}
+.nav-search:hover { background: rgb(250 250 250 / 0.08); }
+.nav-search-icon { color: rgb(250 250 250 / 0.3); }
+.nav-search-label { flex: 1 1 auto; }
+.nav-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: rgb(250 250 250 / 0.6);
+  text-align: left;
+  transition: background-color 120ms, color 120ms;
+}
+.nav-entry:hover { background: rgb(250 250 250 / 0.08); color: var(--ws-fg); }
+.nav-entry-icon { color: rgb(250 250 250 / 0.3); flex-shrink: 0; }
+.nav-entry:hover .nav-entry-icon { color: var(--ws-fg); }
+.nav-entry-badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.sidebar-section-title {
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(250 250 250 / 0.4);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.repo-section { margin-bottom: 4px; }
+.ws-spacer { flex: 1 1 auto; }
+
 
 /* ── Body: sidebar | workbench | right sidebar ─────────────── */
 
@@ -211,7 +265,7 @@ input, select { font: inherit; }
 /* Left worktree sidebar (Orca --worktree-sidebar scale) */
 .sidebar {
   position: relative;
-  width: 240px;
+  width: 280px;
   min-width: 220px;
   max-width: 500px;
   flex-shrink: 0;
@@ -423,15 +477,31 @@ input, select { font: inherit; }
   min-height: 0;
   overflow: hidden;
 }
+.spinner {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  border: 1.5px solid rgb(250 204 21 / 0.35);
+  border-top-color: #facc15;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.split-layout { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
-.split { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
-.split-row { flex-direction: row; }
-.split-col { flex-direction: column; }
-.split > .pane, .split > .split-layout { flex: 1 1 auto; min-width: 0; min-height: 0; }
-.split > * + * { border-left: 1px solid var(--border); }
-.split-col > * + * { border-left: none; border-top: 1px solid var(--border); }
-
+/* Orca AgentStateDot language: working = yellow 12-step ring, done = emerald check, permission = orange question */
+.agent-spin {
+  display: block;
+  width: 10px; height: 10px;
+  border-radius: 999px;
+  border: 2px solid var(--status-working);
+  border-top-color: transparent;
+  animation: agent-spin 1s steps(12, end) infinite;
+}
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+.dot-agent-done { color: var(--status-success); }
+.dot-agent-question { color: var(--agent-question); }
+.dot-agent-monitor { color: #facc15; }
+@media (prefers-reduced-motion: reduce) {
+  .agent-spin { animation: none; border-top-color: var(--status-working); }
+}
 /* Terminal pane title bar (Orca terminal-pane-title) */
 .pane-title-bar {
   height: 30px;
@@ -466,7 +536,7 @@ input, select { font: inherit; }
 
 .right-sidebar {
   position: relative;
-  width: 280px;
+  width: 350px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -537,10 +607,10 @@ input, select { font: inherit; }
 .git-row:hover { background: rgb(255 255 255 / 0.05); }
 .git-row .git-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; }
 .git-status-letter { width: 12px; text-align: center; font-family: var(--font-mono); font-size: 10px; font-weight: 700; flex-shrink: 0; }
-.git-status-letter.M { color: #facc15; }
-.git-status-letter.A { color: #86efac; }
-.git-status-letter.D { color: #ff6568; }
-.git-status-letter.U { color: #fdba74; }
+.git-status-letter.M { color: var(--git-modified); }
+.git-status-letter.A { color: var(--git-added); }
+.git-status-letter.D { color: var(--git-deleted); }
+.git-status-letter.U { color: var(--git-deleted); }
 
 /* ── Landing (no worktree) ─────────────────────────────────── */
 

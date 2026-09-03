@@ -171,7 +171,7 @@ export function App() {
         <div className="titlebar-section">
           <span className="titlebar-logo"><span className="logo-dot" />donwells.ai</span>
           <button className="titlebar-icon-button" title="Toggle sidebar" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            <Icon name="dir" size={15} />
+            <Icon name="panelLeft" size={15} />
           </button>
         </div>
         <div id="titlebar-tabs">
@@ -184,7 +184,7 @@ export function App() {
             style={rightSidebarOpen ? { color: 'var(--foreground)' } : undefined}
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
           >
-            <Icon name="file" size={15} />
+            <Icon name="panelRight" size={15} />
           </button>
         </div>
       </div>
