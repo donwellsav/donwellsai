@@ -12,7 +12,9 @@
  *   status, repo-list, repo-add <dir>, repo-remove <id>,
  *   wt-create <repoId> [name] [--branch <b>], wt-remove <repoId> <path> [--force],
  *   term-open <cwd>, term-write <sessionId> <data>, term-list, term-close <id>,
- *   git-status <worktreePath>, settings-get, settings-set <json>, meta
+ *   git-status <worktreePath>, settings-get, settings-set <json>, meta,
+   browser-list, browser-open <worktreePath> <url>, browser-navigate <key> <url>,
+   browser-snapshot <key>, browser-eval <key> '<js>', browser-back|forward|reload <key>
  */
 import { createConnection } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -32,6 +34,14 @@ const METHOD_MAP = {
   'term-list': 'terminal.list',
   'term-close': 'terminal.close',
   'git-status': 'git.status',
+  'browser-list': 'browser.list',
+  'browser-open': 'browser.open',
+  'browser-navigate': 'browser.navigate',
+  'browser-snapshot': 'browser.snapshot',
+  'browser-eval': 'browser.eval',
+  'browser-back': 'browser.back',
+  'browser-forward': 'browser.forward',
+  'browser-reload': 'browser.reload',
   'settings-get': 'settings.get',
   'settings-set': 'settings.set',
   meta: 'meta.get'
@@ -71,7 +81,8 @@ function parseArgs(argv) {
 function runtimePath(flags) {
   const dir = typeof flags['user-data'] === 'string'
     ? flags['user-data']
-    : join(homedir(), 'Library', 'Application Support', 'donwells.ai')
+    : process.env.DONWELLS_USER_DATA
+      ?? join(homedir(), 'Library', 'Application Support', 'donwells.ai')
   return join(dir, 'donwells-runtime.json')
 }
 
@@ -96,6 +107,19 @@ function remapParams(method, params, flags) {
   }
   if (method === 'terminal.close' && p.a0) { p.sessionId = p.a0 }
   if (method === 'git.status' && p.a0) { p.worktreePath = p.a0 }
+  if (method === 'browser.open' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.url = p.a1
+  }
+  if (method === 'browser.navigate' && p.a0) {
+    p.key = p.a0
+    if (p.a1) p.url = p.a1
+  }
+  if (method === 'browser.eval' && p.a0) {
+    p.key = p.a0
+    if (p.a1) p.js = p.a1
+  }
+  if (['browser.snapshot', 'browser.back', 'browser.forward', 'browser.reload'].includes(method) && p.a0) { p.key = p.a0 }
   for (const k of ['a0', 'a1', 'a2']) delete p[k]
   return p
 }
