@@ -128,6 +128,7 @@ type AppState = {
 
   runAgent(worktreePath: string, command: string): Promise<void>
   stopAgent(sessionId: string): void
+  dismissAgent(sessionId: string): void
 
   setPaletteOpen(open: boolean): void
   setSettingsOpen(open: boolean): void
@@ -632,6 +633,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ runningAgents })
   },
 
+  /** Clear a finished (done/cancelled) agent chip without touching the terminal. */
+  dismissAgent(sessionId: string) {
+    const runningAgents = { ...get().runningAgents }
+    delete runningAgents[sessionId]
+    set({ runningAgents })
+  },
+
   async setSettings(patch: Partial<AppSettings>) {
     try {
       const settings = await window.orca.setSettings(patch)
@@ -711,12 +719,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   setError(err: string | null) {
     set({ error: err })
   },
-
   applyAgentHook(sessionId: string, state: string, detail: string) {
     set((s) => {
       const agent = s.runningAgents[sessionId]
       if (!agent) return {}
-      const runningAgents = { ...s.runningAgents, [sessionId]: { ...agent, state: state as 'working' | 'permission' | 'done' | 'note' } }
+      const known = ['working', 'permission', 'done', 'note'] as const
+      if (!known.includes(state as (typeof known)[number])) return {}
+      const runningAgents = { ...s.runningAgents, [sessionId]: { ...agent, state: state as (typeof known)[number], detail: detail || undefined } }
       return { runningAgents }
     })
   }

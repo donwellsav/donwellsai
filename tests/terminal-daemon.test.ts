@@ -56,7 +56,7 @@ function spawnDaemon(userData: string, token: string): ChildProcess {
   const proc = spawn(process.execPath, [daemonEntry(), userData], {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ORCA_LITE_DAEMON_TOKEN: token, ELECTRON_RUN_AS_NODE: '1' }
+    env: { ...process.env, DONWELLS_DAEMON_TOKEN: token, ELECTRON_RUN_AS_NODE: '1' }
   })
   procs.push(proc)
   return proc

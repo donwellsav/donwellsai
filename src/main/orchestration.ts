@@ -169,9 +169,10 @@ export class Orchestrator {
     const run = this.store.get(runId)
     if (!run || run.status !== 'running') return
     for (const t of run.tasks) {
-      if (t.status === 'pending') {
+      if (t.status === 'pending' || t.status === 'running') {
         t.status = 'cancelled'
         t.finishedAt = new Date().toISOString()
+        if (t.sessionId) this.sessionIndex.delete(t.sessionId)
       }
     }
     this.store.upsert({ ...run, status: 'cancelled', finishedAt: new Date().toISOString() })

@@ -1,4 +1,4 @@
-// In-app smoke probe: when ORCA_LITE_SMOKE=1, main runs this after window load.
+// In-app smoke probe: when DONWELLS_SMOKE=1, main runs this after window load.
 // It exercises the real main-side surface the IPC handlers call — GitWorktrees
 // (addRepo/createWorktree/list/removeWorktree) and PtyManager (spawn → write →
 // data round-trip → close → remove) — against a real temp git repo, then prints

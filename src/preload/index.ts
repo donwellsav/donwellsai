@@ -42,7 +42,6 @@ const api: IpcApi = {
   skillsList: () => ipcRenderer.invoke('skillsList'),
   skillsInstall: (source) => ipcRenderer.invoke('skillsInstall', source),
   skillsRemove: (name) => ipcRenderer.invoke('skillsRemove', name),
-  skillsRead: (name) => ipcRenderer.invoke('skillsRead', name),
   automationsList: () => ipcRenderer.invoke('automationsList'),
   automationSave: (a) => ipcRenderer.invoke('automationSave', a),
   automationRemove: (id) => ipcRenderer.invoke('automationRemove', id),

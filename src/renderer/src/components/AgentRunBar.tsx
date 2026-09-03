@@ -11,6 +11,7 @@ export function AgentRunBar({ worktreePath }: { worktreePath: string }) {
   const runningAgents = useAppStore((s) => s.runningAgents)
   const runAgent = useAppStore((s) => s.runAgent)
   const stopAgent = useAppStore((s) => s.stopAgent)
+  const dismissAgent = useAppStore((s) => s.dismissAgent)
   const [value, setValue] = useState(agentCommand)
 
   // follow settings changes until the user edits the field
@@ -26,11 +27,14 @@ export function AgentRunBar({ worktreePath }: { worktreePath: string }) {
       {agentForPath ? (
         <div className={`agent-chip agent-state-${agentForPath.state}`}>
           {agentForPath.state === 'working' && <span className="spinner" />}
-          {agentForPath.state === 'permission' && <span className="state-icon state-permission" title="Permission requested" />}
-          {agentForPath.state === 'done' && <span className="state-icon state-done" title="Completed" />}
-          {agentForPath.state === 'note' && <span className="state-icon state-note" title="Info" />}
+          {agentForPath.state === 'permission' && <span className="state-icon state-permission" title={agentForPath.detail ?? 'Permission requested'} />}
+          {agentForPath.state === 'done' && <span className="state-icon state-done" title={agentForPath.detail ?? 'Completed'} />}
+          {agentForPath.state === 'note' && <span className="state-icon state-note" title={agentForPath.detail ?? 'Info'} />}
           <span className="agent-cmd">{agentForPath.agent}</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => stopAgent(agentForPath.sessionId)}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => (agentForPath.state === 'done' ? dismissAgent(agentForPath.sessionId) : stopAgent(agentForPath.sessionId))}
+          >
             {agentForPath.state === 'done' ? 'Dismiss' : 'Stop'}
           </button>
         </div>

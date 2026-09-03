@@ -61,7 +61,7 @@ export class DaemonClient {
     const child = spawn(process.execPath, [this.daemonEntryPath, this.userDataDir], {
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env, ORCA_LITE_DAEMON_TOKEN: token, ELECTRON_RUN_AS_NODE: '1' }
+      env: { ...process.env, DONWELLS_DAEMON_TOKEN: token, ELECTRON_RUN_AS_NODE: '1' }
     })
     child.unref()
     // Wait for OUR daemon: the old socket file may still exist (stale), so poll

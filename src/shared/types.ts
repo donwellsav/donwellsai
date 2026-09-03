@@ -70,6 +70,8 @@ export type RunningAgent = {
   startedAt: string
   /** Agent hook state: working (default) | permission | done | note */
   state: 'working' | 'permission' | 'done' | 'note'
+  /** Free-form hook payload (e.g. permission reason). */
+  detail?: string
 }
 
 /** Explorer tree built from `git ls-files -co --exclude-standard` + fs dirs. */
@@ -191,7 +193,6 @@ export type MainEvents = {
   'terminal:data': { sessionId: string; data: string }
   'terminal:exit': { sessionId: string; exitCode: number }
   'terminal:title': { sessionId: string; title: string }
-  'terminal:worktree-changed': { sessionId: string; worktreePath: string }
   'worktree:changed': { repoId: string }
   /** Agent hook envelope: state ∈ working|permission|done|note. */
   'terminal:hook': { sessionId: string; state: string; detail: string }
@@ -253,8 +254,6 @@ export type IpcApi = {
   skillsList(): Promise<SkillMeta[]>
   skillsInstall(source: string): Promise<SkillMeta>
   skillsRemove(name: string): Promise<void>
-  skillsRead(name: string): Promise<string | null>
-
   /** Automations (scheduler + persisted runs). */
   automationsList(): Promise<Automation[]>
   automationSave(a: Automation): Promise<void>

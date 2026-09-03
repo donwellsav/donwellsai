@@ -1,5 +1,6 @@
-import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { get } from 'node:https'
 
 export type SkillMeta = {
@@ -53,40 +54,42 @@ export class SkillsManager {
     else if (existsSync(this.metaPath)) unlinkSync(this.metaPath)
   }
 
-  /** Read the raw skill body for preview. */
-  read(name: string): string | null {
-    const skillPath = join(this.dir, `${name}.md`)
-    if (!existsSync(skillPath)) return null
-    return readFileSync(skillPath, 'utf8')
-  }
 
   private nameFromSource(source: string): string {
     const base = source.split('/').pop() ?? 'skill'
     return base.replace(/\.md$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_')
   }
 
-  private fetch(url: string): Promise<string> {
+  private fetch(url: string, redirects = 0): Promise<string> {
     return new Promise((resolve, reject) => {
+      const done = setTimeout(() => reject(new Error(`skill fetch timed out: ${url}`)), 15_000)
+      const finish = (body: string): void => {
+        clearTimeout(done)
+        resolve(body)
+      }
+      const fail = (e: Error): void => {
+        clearTimeout(done)
+        reject(e)
+      }
       if (url.startsWith('http://') || url.startsWith('https://')) {
+        if (redirects > 5) return fail(new Error('too many redirects'))
         get(url, (res) => {
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            // follow redirect
-            this.fetch(res.headers.location).then(resolve).catch(reject)
+          const loc = res.headers.location
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && loc) {
+            res.resume() // drain before following
+            this.fetch(new URL(loc, url).toString(), redirects + 1).then(finish, fail)
             return
           }
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode ?? 'unknown'} fetching ${url}`))
-            return
-          }
+          if (res.statusCode !== 200) return fail(new Error(`HTTP ${res.statusCode ?? 'unknown'} fetching ${url}`))
           const chunks: Buffer[] = []
           res.on('data', (c: Buffer) => chunks.push(c))
-          res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-        }).on('error', reject)
+          res.on('end', () => finish(Buffer.concat(chunks).toString('utf8')))
+        }).on('error', fail)
       } else if (url.startsWith('file://')) {
-        resolve(readFileSync(url.slice(7), 'utf8'))
+        finish(readFileSync(fileURLToPath(url), 'utf8'))
       } else {
         // treat as a local file path
-        resolve(readFileSync(url, 'utf8'))
+        finish(readFileSync(url, 'utf8'))
       }
     })
   }

@@ -21,7 +21,7 @@ if (!userDataDir) {
 
 const daemon = new TerminalDaemon({
   socketPath: join(userDataDir, 'terminal.sock'),
-  authToken: process.env['ORCA_LITE_DAEMON_TOKEN'] ?? newAuthToken(),
+  authToken: process.env['DONWELLS_DAEMON_TOKEN'] ?? newAuthToken(),
   runtimeFile: join(userDataDir, 'terminal-runtime.json')
 })
 
