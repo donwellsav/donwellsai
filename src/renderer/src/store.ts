@@ -18,13 +18,15 @@ type TerminalView = {
   rows: number
 }
 
-/** A pane inside a worktree card: a terminal, the explorer, or git status. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview'
+/** A pane inside a worktree: terminal tab, preview, or embedded browser. */
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'
 export type Pane = {
   key: string
   kind: PaneKind
   sessionId?: string
   file?: string
+  /** browser pane start URL */
+  url?: string
 }
 /** Binary split tree (upstream TabGroupLayoutNode): leaf = pane key. */
 export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode }
@@ -119,6 +121,7 @@ type AppState = {
 
   loadExplorer(worktreePath: string, prefix?: string): Promise<void>
   openPreview(worktreePath: string, relPath: string): Promise<void>
+  openBrowser(worktreePath: string, url: string): void
   closePreview(worktreePath: string): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
@@ -526,6 +529,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) })
     }
+  },
+
+  /** Open (or retarget) the worktree's single embedded browser pane. */
+  openBrowser(worktreePath: string, url: string) {
+    const normalized = /^https?:\/\//.test(url) ? url : `https://${url}`
+    const key = 'browser:tab'
+    set((s) => {
+      const panes = { ...s.panes }
+      const cardPanes = [...(panes[worktreePath] ?? [])]
+      const idx = cardPanes.findIndex((p) => p.kind === 'browser')
+      if (idx !== -1) {
+        cardPanes[idx] = { ...cardPanes[idx]!, url: normalized }
+      } else {
+        cardPanes.push({ key, kind: 'browser', url: normalized })
+      }
+      panes[worktreePath] = cardPanes
+      return { panes, activePane: { ...s.activePane, [worktreePath]: key } }
+    })
+    persistSessionSoon()
   },
 
   closePreview(worktreePath: string) {

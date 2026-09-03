@@ -1,7 +1,7 @@
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
 import { ExplorerPane } from './ExplorerPane'
-import { GitStatusPane } from './GitStatusPane'
+import { GitPane } from './GitPane'
 
 export type RightSidebarTab = 'explorer' | 'git'
 
@@ -38,7 +38,7 @@ export function RightSidebar() {
           tab === 'explorer' ? (
             <ExplorerPane worktreePath={activeWorktreePath} />
           ) : (
-            <GitStatusPane worktreePath={activeWorktreePath} />
+            <GitPane worktreePath={activeWorktreePath} />
           )
         ) : (
           <div className="empty-note">No active worktree</div>

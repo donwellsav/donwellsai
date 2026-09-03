@@ -15,10 +15,10 @@ export function TitlebarTabs() {
   const closePane = useAppStore((s) => s.closePane)
   const openTerminal = useAppStore((s) => s.openTerminal)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
+  const openBrowser = useAppStore((s) => s.openBrowser)
 
   if (!activeWorktreePath) return null
-  const tabs = panes.filter((p) => p.kind === 'terminal' || p.kind === 'preview')
-
+  const tabs = panes.filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser')
   return (
     <>
       {tabs.map((p) => {
@@ -26,7 +26,9 @@ export function TitlebarTabs() {
         const label =
           p.kind === 'preview'
             ? (p.file?.split('/').pop() ?? 'file')
-            : (session?.title?.split(':').pop() ?? 'terminal')
+            : p.kind === 'browser'
+              ? (p.url?.replace(/^https?:\/\//, '').split('/')[0] ?? 'browser')
+              : (session?.title?.split(':').pop() ?? 'terminal')
         const running = p.sessionId ? !!runningAgents[p.sessionId] : false
         return (
           <button
@@ -36,7 +38,7 @@ export function TitlebarTabs() {
             title={p.kind === 'preview' ? p.file : label}
           >
             {running && <span className="spinner" />}
-            <Icon name={p.kind === 'preview' ? 'file' : 'terminal'} size={12} className="tab-icon" />
+            <Icon name={p.kind === 'browser' ? 'dir' : p.kind === 'preview' ? 'file' : 'terminal'} size={12} className="tab-icon" />
             <span className="tab-label">{label}</span>
             <span
               className="tab-close"
@@ -57,6 +59,16 @@ export function TitlebarTabs() {
         onClick={() => void openTerminal(activeWorktreePath)}
       >
         <Icon name="plus" size={14} />
+      </button>
+      <button
+        className="tab-new-button"
+        title="Open browser tab"
+        onClick={() => {
+          const url = prompt('Open URL:')
+          if (url) openBrowser(activeWorktreePath, url)
+        }}
+      >
+        <Icon name="search" size={13} />
       </button>
       <button
         className="tab-new-button"

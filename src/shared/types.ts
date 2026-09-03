@@ -115,7 +115,7 @@ export type PersistedState = {
     activeRepoId: string | null
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview'; sessionId?: string; file?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'; sessionId?: string; file?: string; url?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       activeWorktreePath: string | null
@@ -156,16 +156,32 @@ export type IpcApi = {
   terminalInterrupt(sessionId: string): Promise<void>
 
   gitStatus(worktreePath: string): Promise<WorktreeStatus>
-  listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
+  gitStage(worktreePath: string, paths: string[]): Promise<void>
+  gitUnstage(worktreePath: string, paths: string[]): Promise<void>
+  gitDiscard(worktreePath: string, paths: string[]): Promise<void>
+  gitCommit(worktreePath: string, message: string): Promise<string>
+  gitPush(worktreePath: string): Promise<string>
+  gitPull(worktreePath: string): Promise<string>
+  gitBranches(worktreePath: string): Promise<{ current: string; all: string[] }>
+  gitCheckout(worktreePath: string, branch: string): Promise<void>
+  gitDiff(worktreePath: string, relPath: string): Promise<string>
   readFile(worktreePath: string, relPath: string): Promise<FileContent>
+  listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
 
   getSettings(): Promise<AppSettings>
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
   getWorkspaceSession(): Promise<PersistedState['workspaceSession']>
   saveWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): Promise<void>
   listAgents(): Promise<AgentPreset[]>
-  pickDirectory(): Promise<string | null>
   openExternal(url: string): Promise<void>
+  pickDirectory(): Promise<string | null>
 
+  /** Sentinel secrets (safeStorage-backed). */
+  secretSet(key: string, value: string): Promise<void>
+  secretGet(key: string): Promise<string | null>
+  secretDelete(key: string): Promise<void>
+  secretAvailable(): Promise<boolean>
+  /** Tray/Dock attention dot: true while any agent runs. */
+  setAttention(on: boolean): void
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 }

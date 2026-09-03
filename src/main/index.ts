@@ -7,6 +7,8 @@ import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { GitWorktrees } from './git'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
+import { TrayService } from './tray-service'
+import { SecretStore } from './secret-store'
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
@@ -44,6 +46,8 @@ let store: Store
 let git: GitWorktrees
 let terminalBus: DaemonClient
 let rpcServer: RuntimeRpcServer | null = null
+let trayService: TrayService | null = null
+let secrets: SecretStore | null = null
 let mainWindow: BrowserWindow | null = null
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -217,6 +221,15 @@ function registerIpc(): void {
   ipcMain.handle('terminalSessions', () => terminalBus.list())
 
   ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
+  ipcMain.handle('gitStage', (_e, worktreePath: string, paths: string[]) => git.stage(worktreePath, paths))
+  ipcMain.handle('gitUnstage', (_e, worktreePath: string, paths: string[]) => git.unstage(worktreePath, paths))
+  ipcMain.handle('gitDiscard', (_e, worktreePath: string, paths: string[]) => git.discard(worktreePath, paths))
+  ipcMain.handle('gitCommit', (_e, worktreePath: string, message: string) => git.commit(worktreePath, message))
+  ipcMain.handle('gitPush', (_e, worktreePath: string) => git.push(worktreePath))
+  ipcMain.handle('gitPull', (_e, worktreePath: string) => git.pull(worktreePath))
+  ipcMain.handle('gitBranches', (_e, worktreePath: string) => git.branches(worktreePath))
+  ipcMain.handle('gitCheckout', (_e, worktreePath: string, branch: string) => git.checkout(worktreePath, branch))
+  ipcMain.handle('gitDiff', (_e, worktreePath: string, relPath: string) => git.diff(worktreePath, relPath))
   ipcMain.handle('listFiles', (_e, worktreePath: string, prefix = '') => git.listFiles(worktreePath, prefix))
   ipcMain.handle('readFile', (_e, worktreePath: string, relPath: string) => git.readFile(worktreePath, relPath))
 
@@ -253,7 +266,8 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       sandbox: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webviewTag: true
     }
   })
 
@@ -289,6 +303,30 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   createWindow()
+  // Tray presence + attention badge; skipped headless (smoke runs).
+  if (process.env['DONWELLS_SMOKE'] !== '1' && process.platform !== 'linux') {
+    trayService = new TrayService()
+    trayService.start(() => {
+      if (!mainWindow) createWindow()
+      else {
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    })
+  }
+  secrets = new SecretStore(app.getPath('userData'))
+  ipcMain.handle('secretSet', (_e, key: string, value: string) => {
+    secrets?.set(key, value)
+    return true
+  })
+  ipcMain.handle('secretGet', (_e, key: string) => secrets?.get(key) ?? null)
+  ipcMain.handle('secretDelete', (_e, key: string) => {
+    secrets?.delete(key)
+    return true
+  })
+  ipcMain.handle('secretAvailable', () => secrets?.available ?? false)
+  // Renderer-driven attention state (agents running → tray dot)
+  ipcMain.on('attention', (_e, on: boolean) => trayService?.setAttention(!!on))
   // Runtime RPC (upstream §6.1 local transport): unix socket + discovery file
   const rpc = new RuntimeRpcServer(
     join(app.getPath('userData'), 'donwells.sock'),
@@ -303,7 +341,7 @@ app.whenReady().then(() => {
     }
   )
   rpcServer = rpc
-  if (process.env['ORCA_LITE_SMOKE'] === '1') {
+  if (process.env['DONWELLS_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
       console.log('smoke:ready')
       void runSmokeProbe(git).then((ok) => {

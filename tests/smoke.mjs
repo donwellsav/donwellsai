@@ -1,5 +1,5 @@
 // Headless smoke test: builds are run by `pnpm smoke` (build first, then this).
-// Boots the built Electron app with temp userData + ORCA_LITE_SMOKE=1; the app
+// Boots the built Electron app with temp userData + DONWELLS_SMOKE=1; the app
 // runs the full main-side surface (git worktree lifecycle + PTY round-trip)
 // against a real temp repo, prints smoke:ready then smoke:ok/fail, exits 0/1.
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -22,7 +22,7 @@ const userData = mkdtempSync(join(tmpdir(), 'donwells-smoke-'))
 
 const exit = await new Promise((resolve) => {
   const app = spawn(electronBinary, [root], {
-    env: { ...process.env, DONWELLS_USER_DATA: userData, ORCA_LITE_SMOKE: '1' },
+    env: { ...process.env, DONWELLS_USER_DATA: userData, DONWELLS_SMOKE: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let out = ''

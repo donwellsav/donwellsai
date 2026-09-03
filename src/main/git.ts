@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { FileContent, FileEntry, RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
 import type { Store } from './store'
@@ -363,6 +363,88 @@ export class GitWorktrees {
       bytes: buf.length
     }
   }
+
+  // ── GitOps: stage/unstage/commit/push/pull/branch/diff (upstream §8 git surface, lite) ──
+
+  async stage(worktreePath: string, paths: string[]): Promise<void> {
+    verifyWorktreePath(this.store, worktreePath)
+    if (paths.length === 0) return
+    await runWorktree(worktreePath, ['add', '--', ...paths])
+  }
+
+  async unstage(worktreePath: string, paths: string[]): Promise<void> {
+    verifyWorktreePath(this.store, worktreePath)
+    if (paths.length === 0) return
+    await runWorktree(worktreePath, ['restore', '--staged', '--', ...paths])
+  }
+
+  /** Discard worktree changes for paths (destructive; the UI confirms). */
+  async discard(worktreePath: string, paths: string[]): Promise<void> {
+    verifyWorktreePath(this.store, worktreePath)
+    if (paths.length === 0) return
+    await runWorktree(worktreePath, ['checkout', '--', ...paths])
+    // untracked files are not touched by checkout — remove them explicitly
+    const st = await this.status(worktreePath)
+    const untrackedLeft = st.raw.filter((l) => l.startsWith('??') && paths.some((p) => l.slice(3) === p))
+    for (const line of untrackedLeft) {
+      const p = line.slice(3)
+      try {
+        rmSync(join(worktreePath, p))
+      } catch {
+        // already gone
+      }
+    }
+  }
+
+  async commit(worktreePath: string, message: string): Promise<string> {
+    verifyWorktreePath(this.store, worktreePath)
+    const msg = message.trim()
+    if (!msg) throw new GitError('Commit message is empty')
+    const out = await runWorktree(worktreePath, ['commit', '-m', msg])
+    const line = out.split('\n').find((l) => l.includes(']'))
+    return line?.trim() ?? 'committed'
+  }
+
+  /** Push HEAD; sets upstream when the branch has none. */
+  async push(worktreePath: string): Promise<string> {
+    verifyWorktreePath(this.store, worktreePath)
+    try {
+      return await runWorktree(worktreePath, ['push'], { timeoutMs: 60000 })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('no upstream') && !msg.includes('has no upstream')) throw e
+      return await runWorktree(worktreePath, ['push', '-u', 'origin', 'HEAD'], { timeoutMs: 60000 })
+    }
+  }
+
+  async pull(worktreePath: string): Promise<string> {
+    verifyWorktreePath(this.store, worktreePath)
+    return await runWorktree(worktreePath, ['pull', '--ff-only'], { timeoutMs: 60000 })
+  }
+
+  async branches(worktreePath: string): Promise<{ current: string; all: string[] }> {
+    verifyWorktreePath(this.store, worktreePath)
+    const out = await runWorktree(worktreePath, ['branch', '--format=%(refname:short)'])
+    const all = out.split('\n').map((l) => l.trim()).filter(Boolean)
+    const current = all.find((b) => b.startsWith('* '))?.slice(2) ?? all[0] ?? ''
+    return { current: current.replace(/^\* /, ''), all: all.map((b) => b.replace(/^\* /, '')) }
+  }
+
+  async checkout(worktreePath: string, branch: string): Promise<void> {
+    verifyWorktreePath(this.store, worktreePath)
+    if (!branch.trim()) throw new GitError('Branch is empty')
+    await runWorktree(worktreePath, ['checkout', branch.trim()])
+  }
+
+  /** Unified diff for one path (worktree vs HEAD; falls back to empty for untracked). */
+  async diff(worktreePath: string, relPath: string): Promise<string> {
+    verifyWorktreePath(this.store, worktreePath)
+    try {
+      return await runWorktree(worktreePath, ['diff', 'HEAD', '--', relPath], { timeoutMs: 20000 })
+    } catch {
+      return ''
+    }
+  }
 }
 
 /**
@@ -435,6 +517,6 @@ async function verifyWorktreePath(store: Store, path: string): Promise<void> {
   throw new GitError(`Unknown worktree: ${path}`)
 }
 
-function runWorktree(worktreePath: string, args: string[]): Promise<string> {
-  return run(worktreePath, args, { timeoutMs: 20000 })
+function runWorktree(worktreePath: string, args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
+  return run(worktreePath, args, { timeoutMs: opts.timeoutMs ?? 20000 })
 }

@@ -2,6 +2,8 @@ import { type ReactNode } from 'react'
 import { useAppStore, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { PreviewPane } from './PreviewPane'
+import { AgentRunBar } from './AgentRunBar'
+import { BrowserPane } from './BrowserPane'
 import { Icon } from './Icon'
 
 // Stable references for selectors: zustand v5 compares snapshots by identity, so a
@@ -77,29 +79,33 @@ export function Workbench() {
             <Icon name="x" size={11} />
           </button>
         </div>
-        <div className={`pane-body-terminal${isActive || !!layout ? '' : ' terminal-hidden'}`}>
-          {pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
-            <TerminalPane
-              sessionId={pane.sessionId}
-              cols={terminals[pane.sessionId]!.cols}
-              rows={terminals[pane.sessionId]!.rows}
-              isActive={!!layout || isActive}
-            />
-          ) : pane.kind === 'preview' ? (
-            <PreviewPane worktreePath={activeWorktreePath} isActive />
-          ) : null}
-        </div>
+        {pane.kind === 'browser' && pane.url ? (
+          <BrowserPane url={pane.url} onClose={() => closePane(activeWorktreePath, pane.key)} />
+        ) : (
+          <div className={`pane-body-terminal${isActive || !!layout ? '' : ' terminal-hidden'}`}>
+            {pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
+              <TerminalPane
+                sessionId={pane.sessionId}
+                cols={terminals[pane.sessionId]!.cols}
+                rows={terminals[pane.sessionId]!.rows}
+                isActive={!!layout || isActive}
+              />
+            ) : pane.kind === 'preview' ? (
+              <PreviewPane worktreePath={activeWorktreePath} isActive />
+            ) : null}
+          </div>
+        )}
       </div>
     )
   }
-
   return (
     <div className="workbench">
+      <AgentRunBar worktreePath={activeWorktreePath} />
       {layout ? (
         <LayoutTree node={layout} render={renderPane} />
       ) : (
         panes
-          .filter((p) => p.kind === 'terminal' || p.kind === 'preview')
+          .filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser')
           .map((p) => <div key={p.key} className={p.key === activePaneKey ? '' : 'terminal-hidden'}>{renderPane(p.key)}</div>)
       )}
     </div>

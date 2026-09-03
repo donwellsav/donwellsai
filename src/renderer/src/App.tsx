@@ -105,6 +105,12 @@ export function App() {
     }
   }, [load])
 
+  // Tray/Dock attention dot follows running agents (orcad attention semantics).
+  useEffect(() => {
+    const agentCount = Object.keys(useAppStore.getState().runningAgents).length
+    window.orca.setAttention(agentCount > 0)
+  }, [runningAgents])
+
   // Live status polling: every statusPollMs refresh worktree statuses for the active repo.
   useEffect(() => {
     if (settings.statusPollMs <= 0) return
