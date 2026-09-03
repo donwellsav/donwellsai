@@ -843,6 +843,30 @@ input, select { font: inherit; }
 .automation-form .input[placeholder='Name'] { width: 110px; }
 .automation-form .input[placeholder='Command'] { flex: 1 1 160px; }
 
+/* orchestration */
+.orch-run { display: flex; flex-direction: column; gap: 4px; }
+.orch-run-head { display: flex; align-items: center; gap: 8px; }
+.orch-tasks { display: flex; flex-wrap: wrap; gap: 4px; }
+.orch-task {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted-fg);
+}
+.orch-task.task-running { border-color: #facc15; color: #facc15; }
+.orch-task.task-done { border-color: var(--status-review, #16a34a); color: var(--status-review, #16a34a); }
+.orch-task.task-failed { border-color: #f87171; color: #f87171; }
+.orch-form { display: flex; gap: 6px; }
+.orch-form .input { height: 26px; font-size: 11.5px; }
+.orch-form .input[placeholder='Prompt/command to fan out'] { flex: 1 1 auto; }
+.orch-worktrees { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.orch-wt {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); cursor: pointer;
+}
+.orch-wt.on { border-color: var(--accent, #4b9eff); color: var(--accent, #4b9eff); }
+.orch-wt input { display: none; }
+
 /* Agent hook state dots */
 .state-permission {
   display: inline-block; width: 8px; height: 8px; border-radius: 999px;

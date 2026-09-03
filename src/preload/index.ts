@@ -48,6 +48,9 @@ const api: IpcApi = {
   automationRemove: (id) => ipcRenderer.invoke('automationRemove', id),
   automationRunNow: (id) => ipcRenderer.invoke('automationRunNow', id),
   automationRuns: (id) => ipcRenderer.invoke('automationRuns', id),
+  orchestrationList: () => ipcRenderer.invoke('orchestrationList'),
+  orchestrationStart: (name, command, paths, parallel) => ipcRenderer.invoke('orchestrationStart', name, command, paths, parallel),
+  orchestrationCancel: (id) => ipcRenderer.invoke('orchestrationCancel', id),
   setAttention: (on) => ipcRenderer.send('attention', on),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)

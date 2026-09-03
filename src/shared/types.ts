@@ -152,6 +152,32 @@ export type AutomationRun = {
   tail?: string
 }
 
+export type OrchestrationTaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+export type OrchestrationRunStatus = 'running' | 'done' | 'failed' | 'cancelled'
+
+export type OrchestrationTask = {
+  id: string
+  worktreePath: string
+  prompt: string
+  status: OrchestrationTaskStatus
+  sessionId?: string
+  startedAt?: string
+  finishedAt?: string
+  error?: string
+}
+
+export type OrchestrationRun = {
+  id: string
+  name: string
+  command: string
+  /** Max concurrent tasks. */
+  parallel: number
+  status: OrchestrationRunStatus
+  createdAt: string
+  finishedAt?: string
+  tasks: OrchestrationTask[]
+}
+
 /** An installed agent skill (markdown doc under userData/skills). */
 export type SkillMeta = {
   name: string
@@ -235,5 +261,10 @@ export type IpcApi = {
   automationRemove(id: string): Promise<void>
   automationRunNow(id: string): Promise<void>
   automationRuns(id: string): Promise<AutomationRun[]>
+
+  /** Orchestration (fan-out agent runs across worktrees). */
+  orchestrationList(): Promise<OrchestrationRun[]>
+  orchestrationStart(name: string, command: string, worktreePaths: string[], parallel: number): Promise<OrchestrationRun | null>
+  orchestrationCancel(id: string): Promise<void>
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 }

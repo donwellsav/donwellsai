@@ -11,6 +11,7 @@ import { TrayService } from './tray-service'
 import { SecretStore } from './secret-store'
 import { SkillsManager } from './skills'
 import { AutomationStore, SchedulerService, nextRunAfter, type Automation } from './automations'
+import { OrchestrationStore, Orchestrator } from './orchestration'
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
@@ -52,6 +53,8 @@ let trayService: TrayService | null = null
 let secrets: SecretStore | null = null
 let automationStore: AutomationStore | null = null
 let scheduler: SchedulerService | null = null
+let orchestrationStore: OrchestrationStore | null = null
+let orchestrator: Orchestrator | null = null
 let mainWindow: BrowserWindow | null = null
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -299,11 +302,13 @@ app.whenReady().then(() => {
       exit: (sessionId, exitCode) => {
         send('terminal:exit', { sessionId, exitCode })
         scheduler?.onDaemonEvent('exit', sessionId, '', exitCode)
+        orchestrator?.onDaemonEvent('exit', sessionId)
       },
       title: (sessionId, title) => send('terminal:title', { sessionId, title }),
       hook: (sessionId, state, detail) => {
         send('terminal:hook', { sessionId, state, detail })
         scheduler?.onDaemonEvent('hook', sessionId, state)
+        orchestrator?.onDaemonEvent('hook', sessionId, state)
       }
     },
     join(__dirname, 'terminal-daemon-entry.js')
@@ -349,6 +354,24 @@ app.whenReady().then(() => {
   })
   scheduler.prime()
   scheduler.start()
+
+  // Orchestration: fan a prompt across worktrees (upstream §8 model).
+  orchestrationStore = new OrchestrationStore(app.getPath('userData'))
+  orchestrator = new Orchestrator(orchestrationStore, async (worktreePath, prompt) => {
+    const s = await terminalBus.open(worktreePath)
+    terminalBus.write(s.id, `${prompt}\n`)
+    return s.id
+  })
+  ipcMain.handle('orchestrationList', () => orchestrationStore?.list() ?? [])
+  ipcMain.handle(
+    'orchestrationStart',
+    (_e, name: string, command: string, worktreePaths: string[], parallel: number) =>
+      orchestrator?.start(String(name), String(command), worktreePaths.map(String), Number(parallel) || 4) ?? null
+  )
+  ipcMain.handle('orchestrationCancel', (_e, id: string) => {
+    orchestrator?.cancel(String(id))
+    return true
+  })
   ipcMain.handle('automationsList', () => automationStore?.list() ?? [])
   ipcMain.handle('automationSave', (_e, a: Automation) => {
     automationStore?.upsert({ ...a, nextRunAt: nextRunAfter(a.schedule, new Date()) })

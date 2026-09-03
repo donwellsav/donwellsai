@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Automation, AutomationRun, SkillMeta } from '@shared/types'
+import type { Automation, AutomationRun, OrchestrationRun, SkillMeta } from '@shared/types'
 import { useAppStore } from '../store'
 
 export function SettingsModal({ open }: { open: boolean }) {
@@ -57,6 +57,7 @@ export function SettingsModal({ open }: { open: boolean }) {
           </label>
           <SkillsSection />
           <AutomationsSection />
+          <OrchestrationSection />
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={() => setOpen(false)}>
@@ -250,6 +251,95 @@ function AutomationsSection() {
           Add
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Orchestration: fan a prompt across worktrees, live task statuses. */
+function OrchestrationSection() {
+  const repos = useAppStore((s) => s.repos)
+  const [runs, setRuns] = useState<OrchestrationRun[]>([])
+  const [command, setCommand] = useState('')
+  const [selected, setSelected] = useState<Record<string, boolean>>({})
+  const [parallel, setParallel] = useState(4)
+
+  const refresh = useCallback(() => {
+    window.orca.orchestrationList().then(setRuns).catch(() => setRuns([]))
+  }, [])
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+  // poll while any run is live so task states advance in the UI
+  const anyRunning = runs.some((r) => r.status === 'running')
+  useEffect(() => {
+    if (!anyRunning) return
+    const t = setInterval(refresh, 3000)
+    return () => clearInterval(t)
+  }, [anyRunning, refresh])
+
+  const wtPaths: string[] = repos.flatMap((r) => r.worktrees.map((w) => w.path))
+  const selectedPaths = wtPaths.filter((p) => selected[p])
+
+  const start = async (): Promise<void> => {
+    if (!command.trim() || selectedPaths.length === 0) return
+    await window.orca.orchestrationStart(`Run ${new Date().toLocaleTimeString()}`, command.trim(), selectedPaths, parallel)
+    setCommand('')
+    setSelected({})
+    refresh()
+  }
+
+  return (
+    <div className="field">
+      <span>Orchestration</span>
+      <div className="skills-list">
+        {runs.slice(0, 5).map((r) => (
+          <div key={r.id} className="orch-run">
+            <div className="orch-run-head">
+              <span className={`run-status run-${r.status === 'done' ? 'ok' : r.status}`}>{r.status}</span>
+              <span className="skill-name">{r.name}</span>
+              <span className="run-time">
+                {r.tasks.filter((t) => t.status === 'done').length}/{r.tasks.length}
+              </span>
+              {r.status === 'running' && (
+                <button className="btn btn-secondary btn-sm" onClick={() => void window.orca.orchestrationCancel(r.id).then(refresh)}>
+                  Cancel
+                </button>
+              )}
+            </div>
+            <div className="orch-tasks">
+              {r.tasks.map((t) => (
+                <span key={t.id} className={`orch-task task-${t.status}`} title={`${t.worktreePath}${t.error ? ` — ${t.error}` : ''}`}>
+                  {t.worktreePath.split('/').pop()}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+        {runs.length === 0 && <span className="empty-note">No orchestration runs yet.</span>}
+      </div>
+      <div className="orch-form">
+        <input
+          className="input"
+          value={command}
+          placeholder="Prompt/command to fan out"
+          onChange={(e) => setCommand(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void start()
+          }}
+        />
+        <input className="input" type="number" min={1} max={8} value={parallel} title="Parallel tasks" onChange={(e) => setParallel(Number(e.target.value))} />
+      </div>
+      <div className="orch-worktrees">
+        {wtPaths.map((p) => (
+          <label key={p} className={`orch-wt ${selected[p] ? 'on' : ''}`}>
+            <input type="checkbox" checked={!!selected[p]} onChange={(e) => setSelected((s) => ({ ...s, [p]: e.target.checked }))} />
+            {p.split('/').pop()}
+          </label>
+        ))}
+      </div>
+      <button className="btn btn-primary btn-sm" disabled={!command.trim() || selectedPaths.length === 0} onClick={() => void start()}>
+        Fan out ({selectedPaths.length})
+      </button>
     </div>
   )
 }
