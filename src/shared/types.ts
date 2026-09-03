@@ -68,6 +68,8 @@ export type RunningAgent = {
   worktreePath: string
   agent: string
   startedAt: string
+  /** Agent hook state: working (default) | permission | done | note */
+  state: 'working' | 'permission' | 'done' | 'note'
 }
 
 /** Explorer tree built from `git ls-files -co --exclude-standard` + fs dirs. */
@@ -123,6 +125,41 @@ export type PersistedState = {
   }
 }
 
+/** An automation: a command fired into a worktree terminal on a schedule. */
+export type AutomationSchedule =
+  | { kind: 'interval'; minutes: number }
+  | { kind: 'daily'; time: string } // HH:MM local
+
+export type Automation = {
+  id: string
+  name: string
+  worktreePath: string
+  command: string
+  schedule: AutomationSchedule
+  enabled: boolean
+  createdAt: string
+  nextRunAt?: string
+  lastRunAt?: string
+  lastStatus?: 'running' | 'ok' | 'failed' | 'interrupted'
+}
+
+export type AutomationRun = {
+  id: string
+  automationId: string
+  startedAt: string
+  finishedAt?: string
+  status: 'running' | 'ok' | 'failed' | 'interrupted'
+  tail?: string
+}
+
+/** An installed agent skill (markdown doc under userData/skills). */
+export type SkillMeta = {
+  name: string
+  source: string
+  installedAt: string
+  size: number
+}
+
 // IPC events main -> renderer
 export type MainEvents = {
   'terminal:data': { sessionId: string; data: string }
@@ -130,6 +167,8 @@ export type MainEvents = {
   'terminal:title': { sessionId: string; title: string }
   'terminal:worktree-changed': { sessionId: string; worktreePath: string }
   'worktree:changed': { repoId: string }
+  /** Agent hook envelope: state ∈ working|permission|done|note. */
+  'terminal:hook': { sessionId: string; state: string; detail: string }
   /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
   'menu:action': { action: string }
 }
@@ -183,5 +222,18 @@ export type IpcApi = {
   secretAvailable(): Promise<boolean>
   /** Tray/Dock attention dot: true while any agent runs. */
   setAttention(on: boolean): void
+
+  /** Skills registry (agent-skill passthrough). */
+  skillsList(): Promise<SkillMeta[]>
+  skillsInstall(source: string): Promise<SkillMeta>
+  skillsRemove(name: string): Promise<void>
+  skillsRead(name: string): Promise<string | null>
+
+  /** Automations (scheduler + persisted runs). */
+  automationsList(): Promise<Automation[]>
+  automationSave(a: Automation): Promise<void>
+  automationRemove(id: string): Promise<void>
+  automationRunNow(id: string): Promise<void>
+  automationRuns(id: string): Promise<AutomationRun[]>
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 }

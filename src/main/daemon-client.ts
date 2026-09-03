@@ -21,6 +21,8 @@ export type DaemonEvents = {
   data: (sessionId: string, data: string) => void
   exit: (sessionId: string, exitCode: number) => void
   title: (sessionId: string, title: string) => void
+  /** Agent hook envelope: ESC]777;donwells:<state>=<detail> stripped from the stream. */
+  hook: (sessionId: string, state: string, detail: string) => void
 }
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
@@ -148,6 +150,8 @@ export class DaemonClient {
       this.events.exit(sessionId, Number(msg['exitCode'] ?? 0))
     } else if (ev === 'title') {
       this.events.title(sessionId, String(msg['title'] ?? ''))
+    } else if (ev === 'hook') {
+      this.events.hook(sessionId, String(msg['state'] ?? ''), String(msg['detail'] ?? ''))
     }
   }
 

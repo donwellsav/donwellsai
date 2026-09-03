@@ -95,6 +95,9 @@ export function App() {
       },
       (sessionId, title) => {
         useAppStore.getState().applyTerminalTitle(sessionId, title)
+      },
+      (sessionId, state, detail) => {
+        useAppStore.getState().applyAgentHook(sessionId, state, detail)
       }
     )
     // Repos/worktrees may be mutated by CLI/RPC clients behind our back — resync + prune.

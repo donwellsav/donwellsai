@@ -818,8 +818,49 @@ input, select { font: inherit; }
   border-top: 1px solid var(--border);
 }
 .agent-input { flex: 1 1 auto; height: 28px; font-family: var(--font-mono); font-size: 11.5px; }
-.agent-chip.running { display: flex; align-items: center; gap: 8px; width: 100%; }
+.agent-chip { display: flex; align-items: center; gap: 8px; width: 100%; }
 
+/* skills section */
+.skills-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; max-height: 180px; overflow: auto; }
+.skill-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skill-name { font-family: var(--font-mono); font-size: 11.5px; }
+.skill-install-row { display: flex; gap: 6px; }
+.skill-install-row .input { flex: 1 1 auto; height: 26px; font-size: 11.5px; }
+.form-error { color: #f87171; font-size: 11px; margin-top: 4px; }
+
+/* automations */
+.automation-actions { display: inline-flex; gap: 4px; }
+.automation-runs { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-left: 2px solid var(--border); }
+.automation-run-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.run-status.run-ok { color: var(--status-review, #16a34a); }
+.run-status.run-failed { color: #f87171; }
+.run-status.run-running { color: #facc15; }
+.run-status.run-interrupted { color: var(--muted-fg, #888); }
+.run-time { color: var(--muted-fg); font-family: var(--font-mono); }
+.run-tail { color: var(--muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automation-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.automation-form .input { height: 26px; font-size: 11.5px; }
+.automation-form .input[placeholder='Name'] { width: 110px; }
+.automation-form .input[placeholder='Command'] { flex: 1 1 160px; }
+
+/* Agent hook state dots */
+.state-permission {
+  display: inline-block; width: 8px; height: 8px; border-radius: 999px;
+  background: var(--agent-question, #fdba74);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+.state-done {
+  display: inline-block; width: 8px; height: 8px; border-radius: 999px;
+  background: var(--status-review, #16a34a);
+}
+.state-note {
+  display: inline-block; width: 8px; height: 8px; border-radius: 999px;
+  background: var(--muted-fg, #888);
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
 /* embedded browser pane */
 .browser-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .browser-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--card); }

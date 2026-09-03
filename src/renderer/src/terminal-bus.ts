@@ -64,11 +64,13 @@ export const terminalBus = new TerminalBus()
 /** Wire main-process events once at app start. */
 export function initTerminalEvents(
   onExit: (sessionId: string, exitCode: number) => void,
-  onTitle: (sessionId: string, title: string) => void
+  onTitle: (sessionId: string, title: string) => void,
+  onHook: (sessionId: string, state: string, detail: string) => void
 ): void {
   window.orca.on('terminal:data', ({ sessionId, data }) => terminalBus.emitData(sessionId, data))
   window.orca.on('terminal:exit', ({ sessionId, exitCode }) => onExit(sessionId, exitCode))
   window.orca.on('terminal:title', ({ sessionId, title }) => onTitle(sessionId, title))
+  window.orca.on('terminal:hook', ({ sessionId, state, detail }) => onHook(sessionId, state, detail))
 }
 
 export type { MainEvents }

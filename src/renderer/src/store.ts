@@ -142,6 +142,7 @@ type AppState = {
   applyTerminalExit(sessionId: string, exitCode: number): void
   applyTerminalTitle(sessionId: string, title: string): void
   setError(err: string | null): void
+  applyAgentHook(sessionId: string, state: string, detail: string): void
 }
 
 /** Restore persisted per-repo workbench (panes/tabs/active) into a fresh state object.
@@ -616,7 +617,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!session) return
     const runningAgents = {
       ...get().runningAgents,
-      [session.id]: { sessionId: session.id, worktreePath, agent: trimmed, startedAt: new Date().toISOString() }
+      [session.id]: { sessionId: session.id, worktreePath, agent: trimmed, startedAt: new Date().toISOString(), state: 'working' as const }
     }
     set({ runningAgents })
     get().writeTerminal(session.id, `${trimmed}\n`)
@@ -709,6 +710,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setError(err: string | null) {
     set({ error: err })
+  },
+
+  applyAgentHook(sessionId: string, state: string, detail: string) {
+    set((s) => {
+      const agent = s.runningAgents[sessionId]
+      if (!agent) return {}
+      const runningAgents = { ...s.runningAgents, [sessionId]: { ...agent, state: state as 'working' | 'permission' | 'done' | 'note' } }
+      return { runningAgents }
+    })
   }
 }))
 

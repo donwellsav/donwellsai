@@ -9,6 +9,8 @@ import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SecretStore } from './secret-store'
+import { SkillsManager } from './skills'
+import { AutomationStore, SchedulerService, nextRunAfter, type Automation } from './automations'
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
@@ -48,6 +50,8 @@ let terminalBus: DaemonClient
 let rpcServer: RuntimeRpcServer | null = null
 let trayService: TrayService | null = null
 let secrets: SecretStore | null = null
+let automationStore: AutomationStore | null = null
+let scheduler: SchedulerService | null = null
 let mainWindow: BrowserWindow | null = null
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -292,8 +296,15 @@ app.whenReady().then(() => {
     app.getPath('userData'),
     {
       data: (sessionId, data) => send('terminal:data', { sessionId, data }),
-      exit: (sessionId, exitCode) => send('terminal:exit', { sessionId, exitCode }),
-      title: (sessionId, title) => send('terminal:title', { sessionId, title })
+      exit: (sessionId, exitCode) => {
+        send('terminal:exit', { sessionId, exitCode })
+        scheduler?.onDaemonEvent('exit', sessionId, '', exitCode)
+      },
+      title: (sessionId, title) => send('terminal:title', { sessionId, title }),
+      hook: (sessionId, state, detail) => {
+        send('terminal:hook', { sessionId, state, detail })
+        scheduler?.onDaemonEvent('hook', sessionId, state)
+      }
     },
     join(__dirname, 'terminal-daemon-entry.js')
   )
@@ -327,6 +338,40 @@ app.whenReady().then(() => {
   ipcMain.handle('secretAvailable', () => secrets?.available ?? false)
   // Renderer-driven attention state (agents running → tray dot)
   ipcMain.on('attention', (_e, on: boolean) => trayService?.setAttention(!!on))
+
+  // Automations scheduler: fire due runs into worktree terminals.
+  automationStore = new AutomationStore(app.getPath('userData'))
+  scheduler = new SchedulerService(automationStore, async (a) => {
+    const s = await terminalBus.open(a.worktreePath)
+    // newline terminates the command like a human Enter
+    terminalBus.write(s.id, `${a.command}\n`)
+    return s.id
+  })
+  scheduler.prime()
+  scheduler.start()
+  ipcMain.handle('automationsList', () => automationStore?.list() ?? [])
+  ipcMain.handle('automationSave', (_e, a: Automation) => {
+    automationStore?.upsert({ ...a, nextRunAt: nextRunAfter(a.schedule, new Date()) })
+    return true
+  })
+  ipcMain.handle('automationRemove', (_e, id: string) => {
+    automationStore?.remove(String(id))
+    return true
+  })
+  ipcMain.handle('automationRunNow', (_e, id: string) => {
+    void scheduler?.runNow(String(id))
+    return true
+  })
+  ipcMain.handle('automationRuns', (_e, id: string) => automationStore?.runsFor(String(id)) ?? [])
+  // Skills registry (agent-skill passthrough)
+  const skills = new SkillsManager(app.getPath('userData'))
+  ipcMain.handle('skillsList', () => skills.list())
+  ipcMain.handle('skillsInstall', (_e, source: string) => skills.install(String(source)))
+  ipcMain.handle('skillsRemove', (_e, name: string) => {
+    skills.remove(String(name))
+    return true
+  })
+  ipcMain.handle('skillsRead', (_e, name: string) => skills.read(String(name)))
   // Runtime RPC (upstream §6.1 local transport): unix socket + discovery file
   const rpc = new RuntimeRpcServer(
     join(app.getPath('userData'), 'donwells.sock'),

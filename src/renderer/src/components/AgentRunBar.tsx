@@ -24,11 +24,14 @@ export function AgentRunBar({ worktreePath }: { worktreePath: string }) {
   return (
     <div className="agent-run-bar">
       {agentForPath ? (
-        <div className="agent-chip running">
-          <span className="spinner" />
+        <div className={`agent-chip agent-state-${agentForPath.state}`}>
+          {agentForPath.state === 'working' && <span className="spinner" />}
+          {agentForPath.state === 'permission' && <span className="state-icon state-permission" title="Permission requested" />}
+          {agentForPath.state === 'done' && <span className="state-icon state-done" title="Completed" />}
+          {agentForPath.state === 'note' && <span className="state-icon state-note" title="Info" />}
           <span className="agent-cmd">{agentForPath.agent}</span>
           <button className="btn btn-secondary btn-sm" onClick={() => stopAgent(agentForPath.sessionId)}>
-            Stop
+            {agentForPath.state === 'done' ? 'Dismiss' : 'Stop'}
           </button>
         </div>
       ) : (

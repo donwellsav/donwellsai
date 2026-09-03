@@ -41,8 +41,18 @@ export class TerminalDaemon {
     this.runtimeFile = opts.runtimeFile
     this.pty = new PtyManager({
       data: (sessionId, data) => {
-        this.appendScrollback(sessionId, data)
-        this.broadcast({ event: 'data', sessionId, data })
+        // Agent hook envelopes (upstream agent-status model): agents emit
+        // ESC]777;donwells:<state>BEL — never shown in the terminal; they drive
+        const hookRe = /\x1b\]777;donwells:([a-z-]+)(?:=([^\x07\x1b]*))?\x07/g
+        const hooks = [...data.matchAll(hookRe)]
+        for (const m of hooks) {
+          this.broadcast({ event: 'hook', sessionId, state: m[1] ?? '', detail: m[2] ?? '' })
+        }
+        const clean = hooks.length > 0 ? data.replace(hookRe, '') : data
+        if (clean.length > 0) {
+          this.appendScrollback(sessionId, clean)
+          this.broadcast({ event: 'data', sessionId, data: clean })
+        }
       },
       exit: (sessionId, exitCode) => {
         // keep scrollback for a while (reattach shows the dead session's tail);
