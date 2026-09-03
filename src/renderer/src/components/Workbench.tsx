@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useAppStore, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { PreviewPane } from './PreviewPane'
@@ -9,13 +9,46 @@ import { Icon } from './Icon'
 // fresh `?? []` per call would re-render in an infinite loop (React error #185).
 const EMPTY_PANES: Pane[] = []
 
-/** Recursive split-tree renderer (upstream TabGroupLayoutNode shape). */
-function LayoutTree({ node, render }: { node: LayoutNode; render: (paneKey: string) => ReactNode }) {
+/**
+ * Recursive split-tree renderer (upstream TabGroupLayoutNode shape). Split
+ * nodes carry a first-child percent; the divider is a live drag handle.
+ */
+function LayoutTree({ node, render, onResize }: { node: LayoutNode; render: (paneKey: string) => ReactNode; onResize: (splitId: number, pct: number) => void }) {
+  const counter = useRef({ n: 0 })
+  counter.current.n = 0
+  return <LayoutNodeView node={node} render={render} onResize={onResize} counter={counter.current} />
+}
+
+function LayoutNodeView({ node, render, onResize, counter }: { node: LayoutNode; render: (paneKey: string) => ReactNode; onResize: (splitId: number, pct: number) => void; counter: { n: number } }) {
   if (node.kind === 'leaf') return <>{render(node.pane)}</>
+  const id = counter.n++
+  const pct = node.size ?? 50
+  const startDrag = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    const container = e.currentTarget.parentElement as HTMLElement
+    const rect = container.getBoundingClientRect()
+    const move = (ev: MouseEvent): void => {
+      const raw = node.dir === 'row'
+        ? ((ev.clientX - rect.left) / rect.width) * 100
+        : ((ev.clientY - rect.top) / rect.height) * 100
+      onResize(id, raw)
+    }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
   return (
     <div className={`split split-${node.dir}`}>
-      <LayoutTree node={node.first} render={render} />
-      <LayoutTree node={node.second} render={render} />
+      <div className="split-side" style={{ flex: `0 0 ${pct}%` }}>
+        <LayoutNodeView node={node.first} render={render} onResize={onResize} counter={counter} />
+      </div>
+      <div className="split-divider" data-dir={node.dir} onMouseDown={startDrag} />
+      <div className="split-side">
+        <LayoutNodeView node={node.second} render={render} onResize={onResize} counter={counter} />
+      </div>
     </div>
   )
 }
@@ -39,6 +72,7 @@ export function Workbench() {
   const closePane = useAppStore((s) => s.closePane)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
   const openTerminal = useAppStore((s) => s.openTerminal)
+  const resizeSplit = useAppStore((s) => s.resizeSplit)
 
   if (!activeWorktreePath) return null
 
@@ -151,7 +185,7 @@ export function Workbench() {
   return (
     <div className="workbench">
       {layout ? (
-        <LayoutTree node={layout} render={renderPane} />
+        <LayoutTree node={layout} render={renderPane} onResize={(splitId, pct) => resizeSplit(activeWorktreePath, splitId, pct)} />
       ) : (
         panes
           .filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser')

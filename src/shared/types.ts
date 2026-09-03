@@ -120,7 +120,7 @@ export type AppSettings = {
 /** Binary split tree, persisted shape (mirrors the renderer's LayoutNode). */
 export type PersistedLayoutNode =
   | { kind: 'leaf'; pane: string }
-  | { kind: 'split'; dir: 'row' | 'col'; first: PersistedLayoutNode; second: PersistedLayoutNode }
+  | { kind: 'split'; dir: 'row' | 'col'; first: PersistedLayoutNode; second: PersistedLayoutNode; size?: number }
 
 
 export type PersistedState = {
@@ -141,6 +141,8 @@ export type PersistedState = {
    */
   workspaceSession?: {
     activeRepoId: string | null
+    /** persisted chrome widths (panel resizing) */
+    ui?: { sidebarWidth?: number; rightSidebarWidth?: number; floatW?: number; floatH?: number }
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
       panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'; sessionId?: string; file?: string; url?: string }>>

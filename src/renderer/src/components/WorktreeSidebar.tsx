@@ -131,9 +131,11 @@ export function WorktreeSidebar() {
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
   const runningAgents = useAppStore((s) => s.runningAgents)
   const agentCount = Object.keys(runningAgents).length
+  const sidebarWidth = useAppStore((s) => s.sidebarWidth)
+  const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
 
   return (
-    <div className="sidebar">
+    <div className="sidebar" style={{ width: sidebarWidth }}>
       <div className="sidebar-nav">
         <button className="nav-search" onClick={() => setPaletteOpen(true)}>
           <Icon name="search" size={16} className="nav-search-icon" />
@@ -174,13 +176,9 @@ export function WorktreeSidebar() {
         className="sidebar-resize"
         onMouseDown={(e) => {
           e.preventDefault()
-          const sidebar = e.currentTarget.parentElement as HTMLElement
           const startX = e.clientX
-          const startW = sidebar.offsetWidth
-          const move = (ev: MouseEvent): void => {
-            const w = Math.min(500, Math.max(220, startW + ev.clientX - startX))
-            sidebar.style.width = `${w}px`
-          }
+          const startW = sidebarWidth
+          const move = (ev: MouseEvent): void => setSidebarWidth(startW + ev.clientX - startX)
           const up = (): void => {
             window.removeEventListener('mousemove', move)
             window.removeEventListener('mouseup', up)

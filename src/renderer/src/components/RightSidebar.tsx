@@ -11,9 +11,23 @@ export function RightSidebar() {
   const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
   const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
+  const width = useAppStore((s) => s.rightSidebarWidth)
+  const setRightSidebarWidth = useAppStore((s) => s.setRightSidebarWidth)
+
+  const startResize = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    const move = (ev: MouseEvent): void => setRightSidebarWidth(window.innerWidth - ev.clientX - 20)
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
 
   return (
-    <div className="right-sidebar">
+    <div className="right-sidebar" style={{ width }}>
+      <div className="right-sidebar-resize" onMouseDown={startResize} />
       <div className="right-sidebar-header">
         <div className="rs-tabs">
           <button

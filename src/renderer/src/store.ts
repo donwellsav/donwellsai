@@ -31,7 +31,7 @@ export type Pane = {
   url?: string
 }
 /** Binary split tree (upstream TabGroupLayoutNode): leaf = pane key. */
-export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode }
+export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode; /** first child size in percent (drag divider; default 50) */ size?: number }
 /** Insert newKey as an immediate sibling of targetKey inside the tree (immutably). */
 function insertLeaf(node: LayoutNode, targetKey: string | undefined, newKey: string): LayoutNode | null {
   if (node.kind === 'leaf') {
@@ -45,6 +45,15 @@ function insertLeaf(node: LayoutNode, targetKey: string | undefined, newKey: str
   const second = insertLeaf(node.second, targetKey, newKey)
   if (second) return { ...node, second }
   return null
+}
+
+/** Set size (first-child percent) on the split node with the given pre-order id. */
+function setSplitSizeById(node: LayoutNode, targetId: number, pct: number, counter: { n: number }): LayoutNode {
+  if (node.kind === 'leaf') return node
+  const id = counter.n++
+  const first = setSplitSizeById(node.first, targetId, pct, counter)
+  const second = setSplitSizeById(node.second, targetId, pct, counter)
+  return { ...node, first, second, size: id === targetId ? pct : node.size }
 }
 
 /** Remove a leaf by pane key; promote the surviving sibling at each collapse. */
@@ -100,6 +109,9 @@ type AppState = {
   settingsSection: SettingsSection
   /** app chrome (Orca shell state) */
   sidebarOpen: boolean
+  sidebarWidth: number
+  rightSidebarWidth: number
+  floatingSize: { w: number; h: number }
   rightSidebarOpen: boolean
   rightSidebarTab: 'explorer' | 'git'
   createOpen: boolean
@@ -149,6 +161,10 @@ type AppState = {
   openSettings(section: SettingsSection): void
   setSettings(patch: Partial<AppSettings>): Promise<void>
   setSidebarOpen(open: boolean): void
+  setSidebarWidth(w: number): void
+  setRightSidebarWidth(w: number): void
+  setFloatingSize(w: number, h: number): void
+  resizeSplit(worktreePath: string, splitId: number, pct: number): void
   setRightSidebarOpen(open: boolean): void
   setRightSidebarTab(tab: 'explorer' | 'git'): void
   setCreateOpen(open: boolean): void
@@ -253,6 +269,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePane: {},
   activeTerminal: {},
   sidebarOpen: true,
+  sidebarWidth: 280,
+  rightSidebarWidth: 350,
+  floatingSize: { w: 520, h: 320 },
   rightSidebarOpen: false,
   rightSidebarTab: 'explorer',
   createOpen: false,
@@ -290,6 +309,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       set(state)
+      const ui = saved?.ui
+      if (ui) {
+        set({
+          sidebarWidth: ui.sidebarWidth ?? get().sidebarWidth,
+          rightSidebarWidth: ui.rightSidebarWidth ?? get().rightSidebarWidth,
+          floatingSize: { w: ui.floatW ?? get().floatingSize.w, h: ui.floatH ?? get().floatingSize.h }
+        })
+      }
       if (repos.length > 0) void get().refreshStatuses()
     } catch (e) {
       set({ loading: false, error: String(e) })
@@ -732,6 +759,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ rightSidebarOpen: open })
   },
 
+  setSidebarWidth(w: number) {
+    set({ sidebarWidth: Math.min(500, Math.max(220, Math.round(w))) })
+    persistSessionSoon()
+  },
+
+  setRightSidebarWidth(w: number) {
+    set({ rightSidebarWidth: Math.min(620, Math.max(240, Math.round(w))) })
+    persistSessionSoon()
+  },
+
+  setFloatingSize(w: number, h: number) {
+    set({ floatingSize: { w: Math.min(1400, Math.max(380, Math.round(w))), h: Math.min(900, Math.max(220, Math.round(h))) } })
+    persistSessionSoon()
+  },
+
+  resizeSplit(worktreePath: string, splitId: number, pct: number) {
+    const prev = get().layouts[worktreePath]
+    if (!prev) return
+    const clamped = Math.min(85, Math.max(15, pct))
+    const next = setSplitSizeById(prev, splitId, clamped, { n: 0 })
+    set((s) => ({ layouts: { ...s.layouts, [worktreePath]: next } }))
+    persistSessionSoon()
+  },
+
   setRightSidebarTab(tab: 'explorer' | 'git') {
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
   },
@@ -900,7 +951,11 @@ export function persistSessionSoon(): void {
         activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
       }
     }
-    void window.orca.saveWorkspaceSession({ activeRepoId: s.activeRepoId, repos })
+    void window.orca.saveWorkspaceSession({
+      activeRepoId: s.activeRepoId,
+      repos,
+      ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth, floatW: s.floatingSize.w, floatH: s.floatingSize.h }
+    })
   }, 400)
 }
 
