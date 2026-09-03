@@ -483,7 +483,6 @@ body {
 }
 
 .workbench > * { flex: 1 1 auto; min-height: 0; }
-.workbench > .agent-run-bar { flex: 0 0 auto; }
 /* flat-mode pane wrapper is a plain div — make it a flex column so .pane stretches */
 .workbench > div:not(.agent-run-bar):not(.split) { display: flex; flex-direction: column; }
 .workbench > .split { display: flex; }
@@ -1061,3 +1060,18 @@ body {
 
 /* Orca terminalInactivePaneOpacity: unfocused split panes recede (140ms). */
 .split .pane:not(.pane-active) { opacity: .82; }
+
+/* Browser URL popover (replaces the native prompt() demo-smell). */
+.url-popover-anchor { position: relative; align-self: center; display: inline-flex; }
+.url-popover {
+  position: absolute;
+  top: 34px; left: 0;
+  z-index: 60;
+  display: flex; gap: 6px; align-items: center;
+  padding: 8px;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-floating);
+}
+.url-popover-input { width: 300px; height: 28px; font-size: 12px; }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store'
 import { dispatchAction } from '../App'
+import { fuzzyMatch } from '../fuzzy'
 
 type PaletteItem = {
   id: string
@@ -72,9 +73,16 @@ export function CommandPalette({ open }: { open: boolean }) {
   }, [repos, agents, setActiveRepo])
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    if (!needle) return items
-    return items.filter((i) => i.label.toLowerCase().includes(needle) || (i.hint ?? '').toLowerCase().includes(needle))
+    const needle = q.trim()
+    if (!needle) return items.map((item) => ({ item, hits: [] as number[] }))
+    const scored = items
+      .map((item) => {
+        const m = fuzzyMatch(item.label, needle) ?? (item.hint ? fuzzyMatch(item.hint, needle) : null)
+        return m ? { item, hits: m.hits, score: m.score } : null
+      })
+      .filter((x): x is { item: PaletteItem; hits: number[]; score: number } => x !== null)
+      .sort((a, b) => b.score - a.score)
+    return scored
   }, [items, q])
 
   useEffect(() => {
@@ -83,10 +91,10 @@ export function CommandPalette({ open }: { open: boolean }) {
 
   if (!open) return null
 
-  const run = (item: PaletteItem | undefined): void => {
-    if (!item) return
+  const run = (entry: { item: PaletteItem } | undefined): void => {
+    if (!entry) return
     setOpen(false)
-    item.run()
+    entry.item.run()
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -104,6 +112,17 @@ export function CommandPalette({ open }: { open: boolean }) {
     }
   }
 
+  /** Render the label with fuzzy-matched characters emphasized. */
+  const Highlighted = ({ label, hits }: { label: string; hits: number[] }): React.ReactNode => {
+    if (!hits.length) return <>{label}</>
+    const set = new Set(hits)
+    return (
+      <>
+        {label.split('').map((ch, i) => (set.has(i) ? <b key={i}>{ch}</b> : <span key={i}>{ch}</span>))}
+      </>
+    )
+  }
+
   return (
     <div className="palette-overlay" onClick={() => setOpen(false)}>
       <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
@@ -116,15 +135,17 @@ export function CommandPalette({ open }: { open: boolean }) {
         />
         <div className="palette-list">
           {filtered.length === 0 && <div className="palette-empty">No matches for “{q}”</div>}
-          {filtered.map((item, i) => (
+          {filtered.map((entry, i) => (
             <button
-              key={item.id}
+              key={entry.item.id}
               className={`palette-item ${i === cursor ? 'selected' : ''}`}
               onMouseEnter={() => setCursor(i)}
-              onClick={() => run(item)}
+              onClick={() => run(entry)}
             >
-              <span className="palette-label">{item.label}</span>
-              {item.hint && <span className="palette-hint">{item.hint}</span>}
+              <span className="palette-label">
+                <Highlighted label={entry.item.label} hits={entry.hits} />
+              </span>
+              {entry.item.hint && <span className="palette-hint">{entry.item.hint}</span>}
             </button>
           ))}
         </div>

@@ -1,6 +1,6 @@
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore, type Pane } from '../store'
 import { Icon } from './Icon'
-
 // Stable references: zustand v5 compares snapshots by identity — an inline `?? []`
 // creates a fresh array per call and re-renders forever (React error #185).
 const EMPTY_PANES: Pane[] = []
@@ -20,9 +20,21 @@ export function TitlebarTabs() {
   const openTerminal = useAppStore((s) => s.openTerminal)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
   const openBrowser = useAppStore((s) => s.openBrowser)
+  const [urlOpen, setUrlOpen] = useState(false)
+  const [url, setUrl] = useState('')
+  const urlInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (urlOpen) requestAnimationFrame(() => urlInputRef.current?.focus())
+  }, [urlOpen])
 
   if (!activeWorktreePath) return null
   const tabs = panes.filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser')
+  const openUrl = (): void => {
+    const u = url.trim()
+    if (u) openBrowser(activeWorktreePath, u)
+    setUrl('')
+    setUrlOpen(false)
+  }
   return (
     <>
       {tabs.map((p) => {
@@ -57,16 +69,33 @@ export function TitlebarTabs() {
       <button className="strip-button" title="New terminal" aria-label="New terminal" onClick={() => void openTerminal(activeWorktreePath)}>
         <Icon name="plus" size={16} />
       </button>
-      <button
-        className="strip-button"
-        title="Open browser tab"
-        onClick={() => {
-          const url = prompt('Open URL:')
-          if (url) openBrowser(activeWorktreePath, url)
-        }}
-      >
-        <Icon name="globe" size={16} />
-      </button>
+      <div className="url-popover-anchor">
+        <button
+          className={`strip-button${urlOpen ? ' active' : ''}`}
+          title="Open browser tab"
+          onClick={() => setUrlOpen(!urlOpen)}
+        >
+          <Icon name="globe" size={16} />
+        </button>
+        {urlOpen && (
+          <div className="url-popover" onKeyDown={(e) => e.stopPropagation()}>
+            <input
+              ref={urlInputRef}
+              className="input url-popover-input"
+              placeholder="https://…"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') openUrl()
+                if (e.key === 'Escape') setUrlOpen(false)
+              }}
+            />
+            <button className="btn btn-primary btn-sm" disabled={!url.trim()} onClick={openUrl}>
+              Go
+            </button>
+          </div>
+        )}
+      </div>
       <button className="strip-button" title="Split terminal" onClick={() => void splitTerminal(activeWorktreePath)}>
         <Icon name="split" size={16} />
       </button>

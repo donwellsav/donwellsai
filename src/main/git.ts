@@ -9,6 +9,8 @@ import { idFromPath } from './store'
 import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
 import { pruneLineage, recordLineage } from '@shared/worktree-lineage'
 
+const HIDDEN_DIRS = new Set([`.git`, `node_modules`, `.DS_Store`])
+
 export class GitError extends Error {
   constructor(message: string) {
     super(message)
@@ -337,10 +339,12 @@ export class GitWorktrees {
         }
       }
     }
-    // fs directories that git doesn't know (empty / ignored) still show up
+    // fs directories that git doesn't know (empty / ignored) still show up —
+    // but internal plumbing (.git, node_modules) never belongs in an explorer.
     const abs = join(worktreePath, prefix)
     if (existsSync(abs) && statSync(abs).isDirectory()) {
       for (const name of readdirSync(abs)) {
+        if (HIDDEN_DIRS.has(name)) continue
         const rel = base + name
         if (files.has(rel)) continue
         const st = statSync(join(abs, name))

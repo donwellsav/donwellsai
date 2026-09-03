@@ -2,7 +2,6 @@ import { type ReactNode } from 'react'
 import { useAppStore, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { PreviewPane } from './PreviewPane'
-import { AgentRunBar } from './AgentRunBar'
 import { BrowserPane } from './BrowserPane'
 import { Icon } from './Icon'
 
@@ -33,6 +32,9 @@ export function Workbench() {
   const layout = useAppStore((s) => (activeWorktreePath ? s.layouts[activeWorktreePath] : undefined))
   const activePaneKey = useAppStore((s) => (activeWorktreePath ? s.activePane[activeWorktreePath] ?? '' : ''))
   const terminals = useAppStore((s) => s.terminals)
+  const runningAgents = useAppStore((s) => s.runningAgents)
+  const stopAgent = useAppStore((s) => s.stopAgent)
+  const dismissAgent = useAppStore((s) => s.dismissAgent)
   const setActivePane = useAppStore((s) => s.setActivePane)
   const closePane = useAppStore((s) => s.closePane)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
@@ -63,11 +65,33 @@ export function Workbench() {
               <Icon name="split" size={11} />
             </button>
           )}
-          {pane.kind === 'terminal' && (
-            <button className="icon-btn" title="New terminal" onClick={() => void openTerminal(activeWorktreePath)}>
-              <Icon name="plus" size={12} />
-            </button>
-          )}
+          {/* Agent lifecycle lives in the pane it runs in — no dedicated bar. */}
+          {pane.kind === 'terminal' && pane.sessionId && runningAgents[pane.sessionId] && (() => {
+            const agent = runningAgents[pane.sessionId]!
+            return (
+              <span
+                className={`agent-chip agent-state-${agent.state}`}
+                title={agent.detail ?? agent.state}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {agent.state === 'working' && <span className="spinner" />}
+                {agent.state === 'permission' && <span className="state-icon state-permission" />}
+                {agent.state === 'done' && <span className="state-icon state-done" />}
+                {agent.state === 'note' && <span className="state-icon state-note" />}
+                <span className="agent-cmd">{agent.agent}</span>
+                <button
+                  className="icon-btn"
+                  title={agent.state === 'done' ? 'Dismiss' : 'Stop agent'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    agent.state === 'done' ? dismissAgent(agent.sessionId) : stopAgent(agent.sessionId)
+                  }}
+                >
+                  {agent.state === 'done' ? <Icon name="check" size={10} /> : <Icon name="stop" size={10} />}
+                </button>
+              </span>
+            )
+          })()}
           <button
             className="icon-btn danger"
             title="Close pane"
@@ -100,7 +124,6 @@ export function Workbench() {
   }
   return (
     <div className="workbench">
-      <AgentRunBar worktreePath={activeWorktreePath} />
       {layout ? (
         <LayoutTree node={layout} render={renderPane} />
       ) : (
