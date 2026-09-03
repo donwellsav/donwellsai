@@ -774,9 +774,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     // A dead shell closes its pane — no zombie tabs (VS Code/Orca behavior).
     const panes: Record<string, Pane[]> = {}
+    let ownerWt: string | null = null
     for (const [wt, list] of Object.entries(s.panes)) {
       const next = list.filter((p) => p.sessionId !== sessionId)
       if (next.length) panes[wt] = next
+      if (next.length !== list.length) ownerWt = wt
+    }
+    // Prune the split tree so no leaf points at the removed pane.
+    let layouts = s.layouts
+    if (ownerWt && layouts[ownerWt]) {
+      const paneKey = `term:${sessionId}`
+      const next = removeLeaf(layouts[ownerWt], paneKey)
+      layouts = { ...layouts }
+      if (next) layouts[ownerWt] = next
+      else delete layouts[ownerWt]
     }
     const terminals = { ...s.terminals }
     delete terminals[sessionId]
@@ -812,6 +823,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       activePane,
       activeTerminal,
       runningAgents,
+      layouts,
       floatingSessionId: wasFloating ? null : s.floatingSessionId,
       floatingOpen: wasFloating ? false : s.floatingOpen
     })

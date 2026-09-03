@@ -52,7 +52,7 @@ export function Workbench() {
     const isActive = pane.key === activePaneKey
     return (
       <div
-        className="pane"
+        className={`pane${isActive ? ' pane-active' : ''}`}
         onMouseDown={() => setActivePane(activeWorktreePath, paneKey)}
       >
         <div className="pane-title-bar">

@@ -49,6 +49,7 @@
 /* UA button chrome (light buttonface bg, black text) bleeds through any
  * button that doesn't set its own background — reset globally, dark theme. */
 button {
+  transition: background-color .12s ease, color .12s ease, opacity .12s ease;
   appearance: none;
   background: transparent;
   border: none;
@@ -481,8 +482,15 @@ body {
   background: var(--background);
 }
 
+.workbench > * { flex: 1 1 auto; min-height: 0; }
+.workbench > .agent-run-bar { flex: 0 0 auto; }
+/* flat-mode pane wrapper is a plain div — make it a flex column so .pane stretches */
+.workbench > div:not(.agent-run-bar):not(.split) { display: flex; flex-direction: column; }
+.workbench > .split { display: flex; }
 .pane {
   position: relative;
+  flex: 1 1 auto;
+  transition: opacity .14s ease;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1041,3 +1049,15 @@ body {
   font-size: 12px;
 }
 .terminal-init-error p { margin: 2px 0 0; color: var(--muted-fg); word-break: break-all; }
+
+/* Split tree (Orca TabGroupSplitLayout): flex halves with a 3px divider
+ * (terminalDividerThicknessPx / terminalDividerColorDark). */
+.split { min-height: 0; min-width: 0; }
+.split-row { display: flex; flex-direction: row; }
+.split-col { display: flex; flex-direction: column; }
+.split > * { flex: 1 1 0; min-width: 0; min-height: 0; }
+.split-row > * + * { border-left: 3px solid #3f3f46; }
+.split-col > * + * { border-top: 3px solid #3f3f46; }
+
+/* Orca terminalInactivePaneOpacity: unfocused split panes recede (140ms). */
+.split .pane:not(.pane-active) { opacity: .82; }
