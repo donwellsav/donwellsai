@@ -1,41 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { monaco } from '../monaco-setup'
 import { useAppStore } from '../store'
-
-self.MonacoEnvironment = {
-  getWorker(_id: string, label: string) {
-    if (label === 'json') return new jsonWorker()
-    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
-    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
-    if (label === 'typescript' || label === 'javascript') return new tsWorker()
-    return new editorWorker()
-  }
-}
-
-monaco.editor.defineTheme('donwells-dark', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [],
-  colors: {
-    'editor.background': '#0a0a0a',
-    'editor.foreground': '#e4e4e7',
-    'editorLineNumber.foreground': '#52525b',
-    'editorLineNumber.activeForeground': '#d4d4d8',
-    'editor.lineHighlightBackground': '#18181b',
-    'editorCursor.foreground': '#e4e4e7',
-    'editor.selectionBackground': '#3f3f4680',
-    'editorWidget.background': '#18181b',
-    'editorWidget.border': '#27272a',
-    'editorIndentGuide.background1': '#27272a',
-    'scrollbarSlider.background': '#3f3f4680',
-    'scrollbarSlider.hoverBackground': '#52525bcc'
-  }
-})
 
 /** Models outlive pane remounts: undo history survives, agent writes land in place. */
 const modelCache = new Map<string, monaco.editor.ITextModel>()

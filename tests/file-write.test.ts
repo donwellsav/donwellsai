@@ -60,4 +60,12 @@ describe('GitWorktrees.writeFile', () => {
     const { git, path } = await repoContext()
     await expect(git.writeFile(path, 'nope/deep/file.ts', 'x')).rejects.toThrow('No such directory')
   })
+  // regression: unawaited verifyWorktreePath let ops run on unregistered paths
+  it('worktree verification gates every operation', async () => {
+    const { git } = await repoContext()
+    await expect(git.status('/tmp')).rejects.toThrow('Unknown worktree')
+    await expect(git.listAllFiles('/tmp')).rejects.toThrow('Unknown worktree')
+    await expect(git.commit('/tmp', 'x')).rejects.toThrow('Unknown worktree')
+    await expect(git.diff('/tmp', 'a')).rejects.toThrow('Unknown worktree')
+  })
 })

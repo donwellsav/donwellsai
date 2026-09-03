@@ -313,14 +313,14 @@ export class GitWorktrees {
 
   /** Per-worktree git status: branch + ahead/behind + change counts + changed file paths. */
   async status(worktreePath: string): Promise<WorktreeStatus> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     const out = await runWorktree(worktreePath, ['status', '--porcelain', '--branch'])
     return parseStatusPorcelain(out)
   }
 
   /** List files under a worktree (git-tracked + untracked, ignoring ignored files). */
   async listFiles(worktreePath: string, prefix = ''): Promise<FileEntry[]> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     // empty prefix must not pass `-- ''` (git rejects an empty pathspec)
     const lsArgs = prefix
       ? ['ls-files', '--others', '--exclude-standard', '--', prefix]
@@ -371,7 +371,7 @@ export class GitWorktrees {
 
   /** Raw recursive file list (QuickOpen wants every path; the explorer collapses dirs). */
   async listAllFiles(worktreePath: string): Promise<FileEntry[]> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     const out = await runWorktree(worktreePath, ['ls-files', '--others', '--exclude-standard'])
     const tracked = await runWorktree(worktreePath, ['ls-files'])
     const entries: FileEntry[] = []
@@ -386,7 +386,7 @@ export class GitWorktrees {
 
   /** Read one file from a worktree, capped at 512 KiB (rendering guard, not a product limit). */
   async readFile(worktreePath: string, relPath: string): Promise<FileContent> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     const abs = confinedPath(worktreePath, relPath)
     if (!existsSync(abs)) throw new GitError(`No such file: ${relPath}`)
     const st = statSync(abs)
@@ -403,7 +403,7 @@ export class GitWorktrees {
 
   /** Write one file inside a worktree (editor autosave + agent edits). Creates new files; refuses traversal. */
   async writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     if (content.length > 2 * 1024 * 1024) throw new GitError('File content exceeds 2 MiB write cap')
     const abs = confinedPath(worktreePath, relPath)
     const parent = dirname(abs)
@@ -416,20 +416,20 @@ export class GitWorktrees {
   // ── GitOps: stage/unstage/commit/push/pull/branch/diff (upstream §8 git surface, lite) ──
 
   async stage(worktreePath: string, paths: string[]): Promise<void> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     if (paths.length === 0) return
     await runWorktree(worktreePath, ['add', '--', ...paths])
   }
 
   async unstage(worktreePath: string, paths: string[]): Promise<void> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     if (paths.length === 0) return
     await runWorktree(worktreePath, ['restore', '--staged', '--', ...paths])
   }
 
   /** Discard worktree changes for paths (destructive; the UI confirms). */
   async discard(worktreePath: string, paths: string[]): Promise<void> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     if (paths.length === 0) return
     await runWorktree(worktreePath, ['checkout', '--', ...paths])
     // untracked files are not touched by checkout — remove them explicitly
@@ -446,7 +446,7 @@ export class GitWorktrees {
   }
 
   async commit(worktreePath: string, message: string): Promise<string> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     const msg = message.trim()
     if (!msg) throw new GitError('Commit message is empty')
     const out = await runWorktree(worktreePath, ['commit', '-m', msg])
@@ -456,7 +456,7 @@ export class GitWorktrees {
 
   /** Push HEAD; sets upstream when the branch has none. */
   async push(worktreePath: string): Promise<string> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     try {
       return await runWorktree(worktreePath, ['push'], { timeoutMs: 60000 })
     } catch (e) {
@@ -467,12 +467,12 @@ export class GitWorktrees {
   }
 
   async pull(worktreePath: string): Promise<string> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     return await runWorktree(worktreePath, ['pull', '--ff-only'], { timeoutMs: 60000 })
   }
 
   async branches(worktreePath: string): Promise<{ current: string; all: string[] }> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     const out = await runWorktree(worktreePath, ['branch', '--format=%(refname:short)'])
     const all = out.split('\n').map((l) => l.trim()).filter(Boolean)
     const current = all.find((b) => b.startsWith('* '))?.slice(2) ?? all[0] ?? ''
@@ -480,14 +480,14 @@ export class GitWorktrees {
   }
 
   async checkout(worktreePath: string, branch: string): Promise<void> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     if (!branch.trim()) throw new GitError('Branch is empty')
     await runWorktree(worktreePath, ['checkout', branch.trim()])
   }
 
   /** Unified diff for one path (worktree vs HEAD; falls back to empty for untracked). */
   async diff(worktreePath: string, relPath: string): Promise<string> {
-    verifyWorktreePath(this.store, worktreePath)
+    await verifyWorktreePath(this.store, worktreePath)
     try {
       return await runWorktree(worktreePath, ['diff', 'HEAD', '--', relPath], { timeoutMs: 20000 })
     } catch {
