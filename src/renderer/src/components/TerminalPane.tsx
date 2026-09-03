@@ -5,6 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useAppStore } from '../store'
+import { terminalThemeOf } from '../terminal-themes'
 import { terminalBus } from '../terminal-bus'
 import { Icon } from './Icon'
 
@@ -15,29 +16,6 @@ type Props = {
   isActive: boolean
 }
 
-/** Ghostty-default (Tomorrow Night) dark palette — matches Orca's terminal theme. */
-const TERMINAL_THEME = {
-  background: '#1d1f21',
-  foreground: '#c5c8c6',
-  cursor: '#f2f2f2',
-  cursorAccent: '#1d1f21',
-  selectionBackground: '#373b41',
-  black: '#1d1f21',
-  red: '#cc6666',
-  green: '#b5bd68',
-  yellow: '#f0c674',
-  blue: '#81a2be',
-  magenta: '#b294bb',
-  cyan: '#8abeb7',
-  white: '#c5c8c6',
-  brightRed: '#d54e53',
-  brightGreen: '#b9ca4a',
-  brightYellow: '#e7c547',
-  brightBlue: '#7aa6da',
-  brightMagenta: '#c397d8',
-  brightCyan: '#70c0b1',
-  brightWhite: '#eaeaea'
-}
 
 /** Diagnostics ring-buffer for the terminal mount/fit lifecycle (window.__paneLog). */
 const paneLog: string[] = []
@@ -54,6 +32,10 @@ declare global {
 export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const fontSize = useAppStore((s) => s.settings.fontSize)
+  const fontFamily = useAppStore((s) => s.settings.fontFamily)
+  const cursorStyle = useAppStore((s) => s.settings.cursorStyle)
+  const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
+  const terminalTheme = useAppStore((s) => s.settings.terminalTheme)
   const termRef = useRef<Terminal | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -79,8 +61,8 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
         cursorStyle: settings.cursorStyle === 'bar' || settings.cursorStyle === 'underline' ? settings.cursorStyle : 'block',
         fontSize: settings.fontSize || 13,
         fontFamily: settings.fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-        theme: TERMINAL_THEME,
-        scrollback: 10000,
+        theme: terminalThemeOf(settings.terminalTheme),
+        scrollback: settings.scrollback ?? 10000,
         scrollOnUserInput: true,
         rightClickSelectsWord: false
       })
@@ -131,6 +113,12 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     t.loadAddon(search)
     searchRef.current = search
     t.loadAddon(new WebLinksAddon((_e, uri) => void window.orca.openExternal(uri)))
+    // Copy-on-select reads the setting live so toggling applies without remount.
+    t.onSelectionChange(() => {
+      if (useAppStore.getState().settings.copyOnSelect && t.hasSelection()) {
+        void navigator.clipboard.writeText(t.getSelection()).catch(() => { /* clipboard denied */ })
+      }
+    })
 
     const unsubscribe = terminalBus.subscribe(sessionId, (data) => t.write(data))
     // reattach replay: daemon-held scrollback written before any live data
@@ -247,16 +235,26 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     return () => cancelAnimationFrame(raf)
   }, [isActive, sessionId])
 
-  // Live font size: settings changes apply to open terminals and re-fit.
+  // Live appearance: every visual setting mutates the running terminal in place.
   useEffect(() => {
     const term = termRef.current
-    if (!term || !fontSize) return
-    if (term.options.fontSize === fontSize) return
+    if (!term) return
     try {
-      term.options.fontSize = fontSize
-      fitRef.current?.fit()
+      if (fontSize && term.options.fontSize !== fontSize) {
+        term.options.fontSize = fontSize
+        fitRef.current?.fit()
+      }
+      term.options.fontFamily = fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+      term.options.cursorStyle = cursorStyle === 'bar' || cursorStyle === 'underline' ? cursorStyle : 'block'
+      term.options.cursorBlink = cursorBlink ?? true
+      const theme = terminalThemeOf(terminalTheme)
+      term.options.theme = theme
+      // xterm paints the overscroll viewport once at open and never refreshes it
+      // on live theme swaps — keep it in sync ourselves.
+      const viewport = hostRef.current?.querySelector<HTMLElement>('.xterm-viewport')
+      if (viewport) viewport.style.backgroundColor = theme.background
     } catch { /* mid-dispose */ }
-  }, [fontSize])
+  }, [fontSize, fontFamily, cursorStyle, cursorBlink, terminalTheme])
 
   // Programmatic resize requests from the store that did not originate in a fit round-trip.
   useEffect(() => {
@@ -271,9 +269,10 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     }
   }, [cols, rows, isActive])
 
+  const wrapStyle = { backgroundColor: terminalThemeOf(terminalTheme).background }
   if (initError) {
     return (
-      <div className="terminal-host-wrap">
+      <div className="terminal-host-wrap" style={wrapStyle}>
         <div className="terminal-init-error" role="alert">
           <Icon name="alert" size={14} />
           <div>
@@ -286,7 +285,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   }
 
   return (
-    <div className={`terminal-host-wrap ${isActive ? '' : 'terminal-hidden'}`}>
+    <div className={`terminal-host-wrap ${isActive ? '' : 'terminal-hidden'}`} style={wrapStyle}>
       {searchOpen && isActive && (
         <TerminalSearch search={searchRef} onClose={() => setSearchOpen(false)} />
       )}

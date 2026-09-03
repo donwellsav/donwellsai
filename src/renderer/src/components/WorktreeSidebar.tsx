@@ -140,8 +140,8 @@ export function WorktreeSidebar() {
           <span className="nav-search-label">Search</span>
         </button>
         <NavEntry icon="bolt" label="Tasks" onClick={() => dispatchAction('palette')} />
-        <NavEntry icon="clock" label="Automations" onClick={() => useAppStore.getState().setSettingsOpen(true)} />
-        <NavEntry icon="robot" label="Agents" badge={agentCount} onClick={() => useAppStore.getState().setSettingsOpen(true)} />
+        <NavEntry icon="clock" label="Automations" onClick={() => useAppStore.getState().openSettings('automations')} />
+        <NavEntry icon="robot" label="Agents" badge={agentCount} onClick={() => useAppStore.getState().openSettings('general')} />
       </div>
 
       <div className="sidebar-scroll">
@@ -173,7 +173,7 @@ export function WorktreeSidebar() {
             <Icon name="terminal" size={14} />
           </button>
         )}
-        <button className="ws-icon-btn" title="Settings" onClick={() => useAppStore.getState().setSettingsOpen(true)}>
+        <button className="ws-icon-btn" title="Settings" onClick={() => useAppStore.getState().openSettings('general')}>
           <Icon name="gear" size={14} />
         </button>
       </div>

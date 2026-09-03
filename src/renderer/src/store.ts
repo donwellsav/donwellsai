@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type {
+import type { SettingsSection,
+
   AgentPreset,
   AppSettings,
   FileContent,
@@ -95,6 +96,8 @@ type AppState = {
   layouts: Record<string, LayoutNode>
   paletteOpen: boolean
   settingsOpen: boolean
+  /** which settings section the modal shows (nav rail selection; deep-linkable) */
+  settingsSection: SettingsSection
   /** app chrome (Orca shell state) */
   sidebarOpen: boolean
   rightSidebarOpen: boolean
@@ -143,6 +146,7 @@ type AppState = {
 
   setPaletteOpen(open: boolean): void
   setSettingsOpen(open: boolean): void
+  openSettings(section: SettingsSection): void
   setSettings(patch: Partial<AppSettings>): Promise<void>
   setSidebarOpen(open: boolean): void
   setRightSidebarOpen(open: boolean): void
@@ -245,6 +249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteTarget: null,
   paletteOpen: false,
   settingsOpen: false,
+  settingsSection: 'general',
   runningAgents: {},
   agents: [],
 
@@ -701,6 +706,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSettingsOpen(open: boolean) {
     set({ settingsOpen: open })
+  },
+
+  openSettings(section: SettingsSection) {
+    set({ settingsOpen: true, settingsSection: section })
   },
 
   setSidebarOpen(open: boolean) {

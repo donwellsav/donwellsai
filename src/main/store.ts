@@ -8,7 +8,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentCommand: 'codex',
   theme: 'dark',
   fontSize: 13,
-  statusPollMs: 5000
+  statusPollMs: 5000,
+  scrollback: 10000,
+  copyOnSelect: false,
+  terminalTheme: 'tomorrow-night'
 }
 const DEFAULT_STATE: PersistedState = {
   schemaVersion: 1,

@@ -91,9 +91,14 @@ export type FileContent = {
   bytes: number
 }
 
+export type TerminalThemeName = 'tomorrow-night' | 'dracula' | 'solarized-dark' | 'github-dark'
+
+/** Settings modal sections (nav rail). */
+export type SettingsSection = 'general' | 'terminal' | 'skills' | 'automations' | 'orchestration'
+
 export type AppSettings = {
   agentCommand: string
-  /** terminal theme: dark default; future themes land here */
+  /** app chrome theme (dark-only UI; terminal palettes live in terminalTheme) */
   theme: 'dark'
   fontSize: number
   /** terminal font family override (Orca terminalFontFamily); empty = default stack */
@@ -101,6 +106,13 @@ export type AppSettings = {
   /** cursor: block | bar | underline (Orca terminalCursorStyle) */
   cursorStyle?: 'block' | 'bar' | 'underline'
   cursorBlink?: boolean
+  /** xterm scrollback lines for NEW terminals (live terminals keep theirs) */
+  scrollback?: number
+  /** copy selection to clipboard on mouse-up (Orca terminalCopyOnSelect) */
+  copyOnSelect?: boolean
+  /** terminal ANSI palette (Orca terminalTheme) */
+  terminalTheme?: TerminalThemeName
+  /** worktree/git status poll interval; 0 disables polling */
   statusPollMs: number
 }
 

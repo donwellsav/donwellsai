@@ -1,74 +1,240 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Automation, AutomationRun, OrchestrationRun, SkillMeta } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
+import type { Automation, AutomationRun, OrchestrationRun, SettingsSection, SkillMeta, TerminalThemeName } from '@shared/types'
 import { useAppStore } from '../store'
+import { Icon } from './Icon'
+import { TERMINAL_THEMES } from '../terminal-themes'
+
+const SECTIONS: { id: SettingsSection; label: string; icon: 'gear' | 'terminal' | 'bolt' | 'clock' | 'layers' }[] = [
+  { id: 'general', label: 'General', icon: 'gear' },
+  { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+  { id: 'skills', label: 'Skills', icon: 'bolt' },
+  { id: 'automations', label: 'Automations', icon: 'clock' },
+  { id: 'orchestration', label: 'Orchestration', icon: 'layers' }
+]
+
+/** One labeled settings row: title + hint on the left, control on the right. */
+function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row-label">
+        <span>{label}</span>
+        {hint && <span className="settings-row-hint">{hint}</span>}
+      </div>
+      <div className="settings-row-control">{children}</div>
+    </div>
+  )
+}
+
+/** Segmented control (Off/2s/5s…, Block/Bar/Underline…). */
+function Seg({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
+  return (
+    <div className="seg" role="radiogroup">
+      {options.map(([v, l]) => (
+        <button key={v} role="radio" aria-checked={v === value} className={`seg-btn ${v === value ? 'active' : ''}`} onClick={() => onChange(v)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Switch toggle. */
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button role="switch" aria-checked={checked} className={`toggle ${checked ? 'on' : ''}`} onClick={() => onChange(!checked)}>
+      <span className="toggle-knob" />
+    </button>
+  )
+}
 
 export function SettingsModal({ open }: { open: boolean }) {
   const setOpen = useAppStore((s) => s.setSettingsOpen)
-  const settings = useAppStore((s) => s.settings)
-  const setSettings = useAppStore((s) => s.setSettings)
-  const agents = useAppStore((s) => s.agents)
-  const [agentCommand, setAgentCommand] = useState(settings.agentCommand)
-  const [fontSize, setFontSize] = useState(settings.fontSize)
-  const first = useRef(true)
-
-  useEffect(() => {
-    if (open && first.current) {
-      setAgentCommand(settings.agentCommand)
-      setFontSize(settings.fontSize)
-      first.current = false
-    }
-    if (open) {
-      setAgentCommand(settings.agentCommand)
-      setFontSize(settings.fontSize)
-    }
-  }, [open, settings])
-
+  const section = useAppStore((s) => s.settingsSection)
   if (!open) return null
-
-  const save = async (): Promise<void> => {
-    await setSettings({ agentCommand: agentCommand.trim() || 'codex', fontSize: Math.max(9, Math.min(24, Number(fontSize) || 13)) })
-    setOpen(false)
-  }
-
   return (
     <div className="modal-overlay" onClick={() => setOpen(false)}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Settings</h2>
-          <button className="icon-btn" onClick={() => setOpen(false)}>
-            ×
-          </button>
-        </div>
-        <div className="modal-body">
-          <label className="field">
-            <span>Default agent command</span>
-            <input value={agentCommand} onChange={(e) => setAgentCommand(e.target.value)} placeholder="codex, claude, pi, opencode…" />
-          </label>
-          <div className="agent-chips">
-            {agents.map((a) => (
-              <button key={a.name} className="chip" onClick={() => setAgentCommand(a.command)}>
-                {a.name}
+      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-layout">
+          <nav className="settings-nav">
+            <div className="settings-nav-title">Settings</div>
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                className={`settings-nav-item ${section === s.id ? 'active' : ''}`}
+                onClick={() => useAppStore.getState().openSettings(s.id)}
+              >
+                <Icon name={s.icon} size={14} />
+                {s.label}
               </button>
             ))}
+          </nav>
+          <div className="settings-content">
+            {section === 'general' && <GeneralSection />}
+            {section === 'terminal' && <TerminalSection />}
+            {section === 'skills' && <SkillsSection />}
+            {section === 'automations' && <AutomationsSection />}
+            {section === 'orchestration' && <OrchestrationSection />}
           </div>
-          <label className="field">
-            <span>Terminal font size ({fontSize}px)</span>
-            <input type="number" min={9} max={24} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} />
-          </label>
-          <SkillsSection />
-          <AutomationsSection />
-          <OrchestrationSection />
-        </div>
-        <div className="modal-footer">
-          <button className="btn" onClick={() => setOpen(false)}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={() => void save()}>
-            Save
+          <button className="icon-btn settings-close" onClick={() => setOpen(false)}>
+            ×
           </button>
         </div>
       </div>
     </div>
+  )
+}
+
+/** General: agent command, status polling, about. */
+function GeneralSection() {
+  const settings = useAppStore((s) => s.settings)
+  const setSettings = useAppStore((s) => s.setSettings)
+  const agents = useAppStore((s) => s.agents)
+  const [cmd, setCmd] = useState(settings.agentCommand)
+  const [meta, setMeta] = useState<{ version: string; shell: string; userDataDir: string } | null>(null)
+  useEffect(() => {
+    window.orca.meta().then(setMeta).catch(() => {})
+  }, [])
+  const commitCmd = (): void => {
+    void setSettings({ agentCommand: cmd.trim() || 'codex' })
+  }
+  return (
+    <>
+      <h3 className="settings-heading">General</h3>
+      <Row label="Default agent command" hint="Used by ⌘↩ and the palette's Run agent action">
+        <div className="settings-stack">
+          <input
+            className="input"
+            style={{ width: 260 }}
+            value={cmd}
+            placeholder="codex, claude, pi, opencode…"
+            onChange={(e) => setCmd(e.target.value)}
+            onBlur={commitCmd}
+            onKeyDown={(e) => e.key === 'Enter' && commitCmd()}
+          />
+          <div className="agent-chips">
+            {agents.map((a) => (
+              <button
+                key={a.name}
+                className={`chip ${settings.agentCommand === a.command ? 'chip-active' : ''}`}
+                onClick={() => {
+                  setCmd(a.command)
+                  void setSettings({ agentCommand: a.command })
+                }}
+              >
+                {a.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Row>
+      <Row label="Status refresh" hint="Polls git status, ports and resource usage">
+        <Seg
+          value={String(settings.statusPollMs)}
+          options={[
+            ['0', 'Off'],
+            ['2000', '2s'],
+            ['5000', '5s'],
+            ['10000', '10s']
+          ]}
+          onChange={(v) => void setSettings({ statusPollMs: Number(v) })}
+        />
+      </Row>
+      <div className="settings-about">
+        <div className="settings-about-title">donwells.ai</div>
+        {meta && (
+          <>
+            <div>Version {meta.version}</div>
+            <div className="settings-about-path" title={meta.userDataDir}>
+              Shell {meta.shell || 'default'}
+            </div>
+            <div className="settings-about-path">{meta.userDataDir}</div>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+/** Terminal: live-applied appearance + behavior (scrollback applies to new terminals). */
+function TerminalSection() {
+  const settings = useAppStore((s) => s.settings)
+  const setSettings = useAppStore((s) => s.setSettings)
+  const [font, setFont] = useState(settings.fontFamily ?? '')
+  const commitFont = (): void => {
+    void setSettings({ fontFamily: font.trim() || undefined })
+  }
+  const activeTheme = settings.terminalTheme ?? 'tomorrow-night'
+  return (
+    <>
+      <h3 className="settings-heading">Terminal</h3>
+      <Row label="Theme" hint="Applies to every open terminal immediately">
+        <div className="theme-grid">
+          {(Object.entries(TERMINAL_THEMES) as [TerminalThemeName, (typeof TERMINAL_THEMES)[TerminalThemeName]][]).map(([id, t]) => (
+            <button
+              key={id}
+              className={`theme-card ${activeTheme === id ? 'active' : ''}`}
+              onClick={() => void setSettings({ terminalTheme: id })}
+            >
+              <span className="theme-preview" style={{ background: t.swatch[0] }}>
+                {t.swatch.slice(1).map((c) => (
+                  <i key={c} style={{ background: c }} />
+                ))}
+              </span>
+              <span className="theme-card-label">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </Row>
+      <Row label="Font size" hint={`${settings.fontSize}px — applies live`}>
+        <input
+          type="range"
+          min={9}
+          max={24}
+          value={settings.fontSize}
+          onChange={(e) => void setSettings({ fontSize: Number(e.target.value) })}
+        />
+      </Row>
+      <Row label="Font family" hint="Blank = default mono stack">
+        <input
+          className="input"
+          style={{ width: 260 }}
+          value={font}
+          placeholder="'SF Mono', Menlo, monospace…"
+          onChange={(e) => setFont(e.target.value)}
+          onBlur={commitFont}
+          onKeyDown={(e) => e.key === 'Enter' && commitFont()}
+        />
+      </Row>
+      <Row label="Cursor style">
+        <Seg
+          value={settings.cursorStyle ?? 'block'}
+          options={[
+            ['block', 'Block'],
+            ['bar', 'Bar'],
+            ['underline', 'Underline']
+          ]}
+          onChange={(v) => void setSettings({ cursorStyle: v as 'block' | 'bar' | 'underline' })}
+        />
+      </Row>
+      <Row label="Cursor blink">
+        <Toggle checked={settings.cursorBlink ?? true} onChange={(v) => void setSettings({ cursorBlink: v })} />
+      </Row>
+      <Row label="Copy on select" hint="Selection is copied to the clipboard on mouse-up">
+        <Toggle checked={settings.copyOnSelect ?? false} onChange={(v) => void setSettings({ copyOnSelect: v })} />
+      </Row>
+      <Row label="Scrollback" hint="Lines kept per terminal — applies to new terminals">
+        <Seg
+          value={String(settings.scrollback ?? 10000)}
+          options={[
+            ['1000', '1k'],
+            ['5000', '5k'],
+            ['10000', '10k'],
+            ['50000', '50k']
+          ]}
+          onChange={(v) => void setSettings({ scrollback: Number(v) })}
+        />
+      </Row>
+    </>
   )
 }
 

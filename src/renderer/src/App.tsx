@@ -57,7 +57,7 @@ export function dispatchAction(action: string, arg?: number): void {
       break
     }
     case 'settings':
-      s.setSettingsOpen(true)
+      s.openSettings('general')
       break
     case 'close-active-pane': {
       const target = s.activeWorktreePath
