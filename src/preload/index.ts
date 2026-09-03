@@ -28,6 +28,7 @@ const api: IpcApi = {
   gitCheckout: (worktreePath, branch) => ipcRenderer.invoke('gitCheckout', worktreePath, branch),
   gitDiff: (worktreePath, relPath) => ipcRenderer.invoke('gitDiff', worktreePath, relPath),
   listFiles: (worktreePath, prefix) => ipcRenderer.invoke('listFiles', worktreePath, prefix),
+  listAllFiles: (worktreePath) => ipcRenderer.invoke('listAllFiles', worktreePath),
   readFile: (worktreePath, relPath) => ipcRenderer.invoke('readFile', worktreePath, relPath),
   getSettings: () => ipcRenderer.invoke('getSettings'),
   getWorkspaceSession: () => ipcRenderer.invoke('getWorkspaceSession'),

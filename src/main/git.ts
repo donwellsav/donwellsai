@@ -317,8 +317,14 @@ export class GitWorktrees {
       ? ['ls-files', '--others', '--exclude-standard', '--', prefix]
       : ['ls-files', '--others', '--exclude-standard']
     const lsOut = await runWorktree(worktreePath, lsArgs)
+    // `--others` is untracked-only: union with tracked files or the explorer
+    // silently loses every committed path.
+    const trackedArgs = prefix
+      ? ['ls-files', '--', prefix]
+      : ['ls-files']
+    const trackedOut = await runWorktree(worktreePath, trackedArgs)
     const files = new Set<string>()
-    for (const line of lsOut.split('\n')) {
+    for (const line of `${lsOut}\n${trackedOut}`.split('\n')) {
       const rel = line.trim()
       if (rel && rel.startsWith(prefix)) files.add(rel)
     }
@@ -352,6 +358,21 @@ export class GitWorktrees {
       }
     }
     return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+  }
+
+  /** Raw recursive file list (QuickOpen wants every path; the explorer collapses dirs). */
+  async listAllFiles(worktreePath: string): Promise<FileEntry[]> {
+    verifyWorktreePath(this.store, worktreePath)
+    const out = await runWorktree(worktreePath, ['ls-files', '--others', '--exclude-standard'])
+    const tracked = await runWorktree(worktreePath, ['ls-files'])
+    const entries: FileEntry[] = []
+    for (const line of `${out}\n${tracked}`.split('\n')) {
+      const rel = line.trim()
+      if (!rel) continue
+      if (rel.split('/').some((seg) => HIDDEN_DIRS.has(seg))) continue
+      entries.push({ path: rel, name: rel.split('/').pop() ?? rel, type: 'file' })
+    }
+    return entries
   }
 
   /** Read one file from a worktree, capped at 512 KiB (rendering guard, not a product limit). */

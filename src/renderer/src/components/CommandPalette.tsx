@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FileEntry } from '@shared/types'
 import { useAppStore } from '../store'
 import { dispatchAction } from '../App'
 import { fuzzyMatch } from '../fuzzy'
@@ -15,10 +16,29 @@ export function CommandPalette({ open }: { open: boolean }) {
   const repos = useAppStore((s) => s.repos)
   const setActiveRepo = useAppStore((s) => s.setActiveRepo)
   const agents = useAppStore((s) => s.agents)
+  const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
   const [q, setQ] = useState('')
   const [cursor, setCursor] = useState(0)
+  const [files, setFiles] = useState<FileEntry[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Worktree file inventory for QuickOpen: one recursive git ls-files per open.
+  useEffect(() => {
+    if (!open || !activeWorktreePath) {
+      setFiles([])
+      return
+    }
+    let alive = true
+    window.orca
+      .listAllFiles(activeWorktreePath)
+      .then((f) => {
+        if (alive) setFiles(f)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [open, activeWorktreePath])
   // Reset query each time the palette opens, focus the input.
   useEffect(() => {
     if (open) {
@@ -71,7 +91,6 @@ export function CommandPalette({ open }: { open: boolean }) {
     }
     return out
   }, [repos, agents, setActiveRepo])
-
   const filtered = useMemo(() => {
     const needle = q.trim()
     if (!needle) return items.map((item) => ({ item, hits: [] as number[] }))
@@ -85,9 +104,33 @@ export function CommandPalette({ open }: { open: boolean }) {
     return scored
   }, [items, q])
 
-  useEffect(() => {
-    setCursor(0)
-  }, [q])
+  /** QuickOpen: fuzzy file hits under the command hits (query-gated, capped). */
+  const fileHits = useMemo(() => {
+    const needle = q.trim()
+    if (!needle || !activeWorktreePath) return []
+    return files
+      .map((f) => {
+        const m = fuzzyMatch(f.path, needle)
+        return m ? { f, hits: m.hits, score: m.score } : null
+      })
+      .filter((x): x is { f: FileEntry; hits: number[]; score: number } => x !== null)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map(({ f }) => ({
+        item: {
+          id: `file:${f.path}`,
+          label: f.name,
+          hint: f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : activeWorktreePath.split('/').pop(),
+          run: () => {
+            useAppStore.getState().setPaletteOpen(false)
+            void useAppStore.getState().openPreview(activeWorktreePath, f.path)
+          }
+        },
+        hits: [] as number[]
+      }))
+  }, [files, q, activeWorktreePath])
+
+  const combined = useMemo(() => [...filtered, ...fileHits], [filtered, fileHits])
 
   if (!open) return null
 
@@ -96,19 +139,18 @@ export function CommandPalette({ open }: { open: boolean }) {
     setOpen(false)
     entry.item.run()
   }
-
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Escape') {
       setOpen(false)
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setCursor((c) => Math.min(c + 1, filtered.length - 1))
+      setCursor((c) => Math.min(c + 1, combined.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setCursor((c) => Math.max(c - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      run(filtered[cursor])
+      run(combined[cursor])
     }
   }
 
@@ -134,12 +176,26 @@ export function CommandPalette({ open }: { open: boolean }) {
           onChange={(e) => setQ(e.target.value)}
         />
         <div className="palette-list">
-          {filtered.length === 0 && <div className="palette-empty">No matches for “{q}”</div>}
+          {combined.length === 0 && <div className="palette-empty">No matches for “{q}”</div>}
           {filtered.map((entry, i) => (
             <button
               key={entry.item.id}
               className={`palette-item ${i === cursor ? 'selected' : ''}`}
               onMouseEnter={() => setCursor(i)}
+              onClick={() => run(entry)}
+            >
+              <span className="palette-label">
+                <Highlighted label={entry.item.label} hits={entry.hits} />
+              </span>
+              {entry.item.hint && <span className="palette-hint">{entry.item.hint}</span>}
+            </button>
+          ))}
+          {fileHits.length > 0 && <div className="palette-group">Files</div>}
+          {fileHits.map((entry, i) => (
+            <button
+              key={entry.item.id}
+              className={`palette-item ${i + filtered.length === cursor ? 'selected' : ''}`}
+              onMouseEnter={() => setCursor(i + filtered.length)}
               onClick={() => run(entry)}
             >
               <span className="palette-label">

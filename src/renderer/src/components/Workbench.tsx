@@ -79,6 +79,32 @@ export function Workbench() {
                 {agent.state === 'done' && <span className="state-icon state-done" />}
                 {agent.state === 'note' && <span className="state-icon state-note" />}
                 <span className="agent-cmd">{agent.agent}</span>
+                {agent.state === 'permission' && (
+                  <>
+                    <button
+                      className="chip-act allow"
+                      title="Allow — sends y ⏎ to the agent terminal"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void useAppStore.getState().writeTerminal(agent.sessionId, 'y\r')
+                        setActivePane(activeWorktreePath, pane.key)
+                      }}
+                    >
+                      Allow
+                    </button>
+                    <button
+                      className="chip-act deny"
+                      title="Deny — sends Esc to the agent terminal"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void useAppStore.getState().writeTerminal(agent.sessionId, '\x1b')
+                        setActivePane(activeWorktreePath, pane.key)
+                      }}
+                    >
+                      Deny
+                    </button>
+                  </>
+                )}
                 <button
                   className="icon-btn"
                   title={agent.state === 'done' ? 'Dismiss' : 'Stop agent'}

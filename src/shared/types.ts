@@ -117,6 +117,12 @@ export type AppSettings = {
 }
 
 // Persisted state (subset of orca-data.json; lite keeps user intent + settings, never derived state)
+/** Binary split tree, persisted shape (mirrors the renderer's LayoutNode). */
+export type PersistedLayoutNode =
+  | { kind: 'leaf'; pane: string }
+  | { kind: 'split'; dir: 'row' | 'col'; first: PersistedLayoutNode; second: PersistedLayoutNode }
+
+
 export type PersistedState = {
   schemaVersion: 1
   repos: Repo[]
@@ -141,6 +147,7 @@ export type PersistedState = {
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
+      layouts: Record<string, PersistedLayoutNode>
       activeWorktreePath: string | null
     }>
   }
@@ -253,6 +260,7 @@ export type IpcApi = {
   gitDiff(worktreePath: string, relPath: string): Promise<string>
   readFile(worktreePath: string, relPath: string): Promise<FileContent>
   listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
+  listAllFiles(worktreePath: string): Promise<FileEntry[]>
 
   getSettings(): Promise<AppSettings>
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>

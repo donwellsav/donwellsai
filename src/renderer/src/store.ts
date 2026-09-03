@@ -174,7 +174,8 @@ async function restoreSession(
     activeTerminal: Record<string, string>
     terminalOrder: Record<string, string[]>
     terminals: Record<string, TerminalView>
-  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {} }
+    layouts: Record<string, LayoutNode>
+  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {} }
   const liveSessions = await window.orca.terminalSessions()
   const liveById = new Map(liveSessions.map((s) => [s.id, s]))
   for (const repo of repos) {
@@ -209,6 +210,16 @@ async function restoreSession(
       if (!valid.length) continue
       restored.panes[wtPath] = valid
       restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
+      // Restore the split tree pruned to the panes that actually survived.
+      const savedLayout = savedRepo.layouts?.[wtPath]
+      if (savedLayout) {
+        const validKeys = new Set(valid.map((p) => p.key))
+        let pruned: LayoutNode | null = savedLayout
+        for (const p of panes) {
+          if (!validKeys.has(p.key) && pruned) pruned = removeLeaf(pruned, p.key)
+        }
+        if (pruned) restored.layouts[wtPath] = pruned
+      }
     }
     restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
     restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
@@ -218,6 +229,7 @@ async function restoreSession(
   state.activeTerminal = restored.activeTerminal
   state.terminalOrder = restored.terminalOrder
   state.terminals = restored.terminals
+  state.layouts = restored.layouts
   state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
 }
 
@@ -884,6 +896,7 @@ export function persistSessionSoon(): void {
         activePane: pick(s.activePane),
         activeTerminal: pick(s.activeTerminal),
         terminalOrder: pick(s.terminalOrder),
+        layouts: pick(s.layouts),
         activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
       }
     }

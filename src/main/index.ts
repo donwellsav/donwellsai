@@ -242,6 +242,7 @@ function registerIpc(): void {
   ipcMain.handle('gitCheckout', (_e, worktreePath: string, branch: string) => git.checkout(worktreePath, branch))
   ipcMain.handle('gitDiff', (_e, worktreePath: string, relPath: string) => git.diff(worktreePath, relPath))
   ipcMain.handle('listFiles', (_e, worktreePath: string, prefix = '') => git.listFiles(worktreePath, prefix))
+  ipcMain.handle('listAllFiles', (_e, worktreePath: string) => git.listAllFiles(worktreePath))
   ipcMain.handle('readFile', (_e, worktreePath: string, relPath: string) => git.readFile(worktreePath, relPath))
 
   ipcMain.handle('getSettings', () => store.getSettings())
