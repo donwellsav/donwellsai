@@ -99,9 +99,11 @@ type AppState = {
   rightSidebarOpen: boolean
   rightSidebarTab: 'explorer' | 'git'
   createOpen: boolean
+  /** floating terminal panel (global, outside the worktree pane tree) */
+  floatingOpen: boolean
+  floatingSessionId: string | null
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
-
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
   removeRepo(repoId: string): Promise<void>
@@ -116,6 +118,8 @@ type AppState = {
   writeTerminal(sessionId: string, data: string): void
   interruptTerminal(sessionId: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
+  /** Toggle the floating terminal; spawns a session in the active worktree on first open. */
+  toggleFloatingTerminal(): Promise<void>
 
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
   closePane(worktreePath: string, key: string): void
@@ -207,6 +211,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   explorer: {},
   previews: {},
   busy: {},
+  settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
   terminals: {},
   terminalOrder: {},
   panes: {},
@@ -217,12 +222,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   rightSidebarOpen: false,
   rightSidebarTab: 'explorer',
   createOpen: false,
+  floatingOpen: false,
+  floatingSessionId: null,
   deleteTarget: null,
   paletteOpen: false,
   settingsOpen: false,
   runningAgents: {},
   agents: [],
-  settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
+
   async load() {
     try {
       const [repos, agents, settings, wsSession] = await Promise.all([
@@ -693,6 +700,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDeleteTarget(path: string | null) {
     set({ deleteTarget: path })
   },
+
   setActiveRepo(repoId: string | null) {
     set({ activeRepoId: repoId, activeWorktreePath: null })
     if (repoId) {
@@ -702,6 +710,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
+  async toggleFloatingTerminal() {
+    const s = get()
+    if (s.floatingOpen) {
+      set({ floatingOpen: false })
+      return
+    }
+    const worktree = s.activeWorktreePath
+    if (!worktree) return
+    // reuse the live floating session, else spawn one outside the pane tree
+    let sessionId = s.floatingSessionId
+    if (!sessionId || !s.terminals[sessionId]) {
+      try {
+        const session = await window.orca.openTerminal(worktree, worktree)
+        sessionId = session.id
+        set((st) => ({
+          terminals: { ...st.terminals, [session.id]: { session, cols: 80, rows: 24 } },
+          floatingSessionId: session.id,
+          floatingOpen: true,
+          error: null
+        }))
+        return
+      } catch (e) {
+        set({ error: String(e) })
+        return
+      }
+    }
+    set({ floatingOpen: true })
+  },
   setActiveWorktree(path: string | null) {
     set({ activeWorktreePath: path })
     if (path) {
