@@ -10,6 +10,7 @@ import type {
   TerminalSession,
   WorktreeStatus
 } from '@shared/types'
+import { terminalBus } from './terminal-bus'
 
 type TerminalView = {
   session: TerminalSession
@@ -176,17 +177,34 @@ async function restoreSession(
     const savedRepo = saved.repos[repo.repo.id]
     if (!savedRepo) continue
     for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
-      const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveById.has(p.sessionId)))
+      const valid: Pane[] = []
+      for (const p of panes) {
+        if (p.kind !== 'terminal' || !p.sessionId) {
+          valid.push(p)
+          continue
+        }
+        const live = liveById.get(p.sessionId)
+        if (live && !live.exited) {
+          valid.push(p)
+          if (!restored.terminals[p.sessionId]) {
+            restored.terminals[p.sessionId] = { session: live, cols: 100, rows: 30 }
+          }
+          continue
+        }
+        // Daemon lost the PTY (crash/reap): keep the tab, swap in a fresh
+        // shell (Orca's pendingReconnect, resolved immediately). Dropping the
+        // pane made every restart lose workspaces whenever the daemon cycled.
+        try {
+          const fresh = await window.orca.openTerminal(wtPath, wtPath)
+          restored.terminals[fresh.id] = { session: fresh, cols: 100, rows: 30 }
+          valid.push({ ...p, sessionId: fresh.id })
+        } catch {
+          /* worktree gone — drop this pane only */
+        }
+      }
       if (!valid.length) continue
       restored.panes[wtPath] = valid
       restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
-      // register a TerminalView per live restored session so TerminalPane mounts
-      // and the daemon replays its scrollback (attach happens on mount)
-      for (const p of valid) {
-        if (p.kind === 'terminal' && p.sessionId && !restored.terminals[p.sessionId]) {
-          restored.terminals[p.sessionId] = { session: liveById.get(p.sessionId)!, cols: 100, rows: 30 }
-        }
-      }
     }
     restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
     restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
@@ -246,10 +264,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         state.activeRepoId = repos[0]!.repo.id
       }
       if (saved) {
-        // Best-effort session restore: a daemon hiccup must never void the
-        // repos/settings hydration above.
+        // Session restore is async (daemon round-trip) — it MUST complete before
+        // the state object is committed, or the workbench boots empty every time.
         try {
-          restoreSession(saved, repos, state)
+          await restoreSession(saved, repos, state)
         } catch (restoreErr) {
           console.error('session restore failed:', restoreErr)
         }
@@ -371,6 +389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           error: null
         }
       })
+      persistSessionSoon()
       return session
     } catch (e) {
       set({ error: String(e) })
@@ -398,6 +417,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete runningAgents[sessionId]
       return { terminals, panes, activePane, activeTerminal, terminalOrder, runningAgents }
     })
+    terminalBus.dropSession(sessionId)
+    persistSessionSoon()
   },
 
   writeTerminal(sessionId: string, data: string) {
@@ -514,6 +535,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...(p ? { activePane: { ...s.activePane, [worktreePath]: p.key } } : {})
       }
     })
+    persistSessionSoon()
   },
 
   async loadExplorer(worktreePath: string, prefix = '') {
@@ -748,17 +770,52 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     persistSessionSoon()
   },
-
-  applyTerminalExit(sessionId: string, exitCode: number) {
-    set((s) => {
-      const terminals = { ...s.terminals }
-      const t = terminals[sessionId]
-      if (t) terminals[sessionId] = { ...t, session: { ...t.session, exited: true } }
-      // exit ends the agent run: drop the row so the chip/Stop bar clears
-      const runningAgents = { ...s.runningAgents }
-      delete runningAgents[sessionId]
-      return { terminals, runningAgents }
+  applyTerminalExit(sessionId: string, _exitCode: number) {
+    const s = get()
+    // A dead shell closes its pane — no zombie tabs (VS Code/Orca behavior).
+    const panes: Record<string, Pane[]> = {}
+    for (const [wt, list] of Object.entries(s.panes)) {
+      const next = list.filter((p) => p.sessionId !== sessionId)
+      if (next.length) panes[wt] = next
+    }
+    const terminals = { ...s.terminals }
+    delete terminals[sessionId]
+    const terminalOrder: Record<string, string[]> = {}
+    for (const [wt, ids] of Object.entries(s.terminalOrder)) {
+      const next = ids.filter((id) => id !== sessionId)
+      if (next.length) terminalOrder[wt] = next
+    }
+    // Fix dangling active references: fall back to the first remaining pane.
+    const activePane: Record<string, string> = {}
+    for (const [wt, key] of Object.entries(s.activePane)) {
+      const list = panes[wt]
+      if (list?.some((p) => p.key === key)) activePane[wt] = key
+      else if (list?.length) activePane[wt] = list[0]!.key
+    }
+    const activeTerminal: Record<string, string> = {}
+    for (const [wt, id] of Object.entries(s.activeTerminal)) {
+      if (id !== sessionId && terminals[id]) activeTerminal[wt] = id
+      else {
+        const fallback = terminalOrder[wt]?.[0]
+        if (fallback) activeTerminal[wt] = fallback
+      }
+    }
+    // exit ends the agent run: drop the row so the chip/Stop bar clears
+    const runningAgents = { ...s.runningAgents }
+    delete runningAgents[sessionId]
+    terminalBus.dropSession(sessionId)
+    const wasFloating = s.floatingSessionId === sessionId
+    set({
+      panes,
+      terminals,
+      terminalOrder,
+      activePane,
+      activeTerminal,
+      runningAgents,
+      floatingSessionId: wasFloating ? null : s.floatingSessionId,
+      floatingOpen: wasFloating ? false : s.floatingOpen
     })
+    persistSessionSoon()
   },
 
   applyTerminalTitle(sessionId: string, title: string) {
@@ -787,7 +844,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   }
 }))
 
-/** Debounced workspace-session persist: user intent only (panes/active state). */
+/** Debounced workspace-session persist: per-repo slice of user intent only. */
 let persistTimer: ReturnType<typeof setTimeout> | undefined = undefined
 type WorkspaceSession = NonNullable<PersistedState['workspaceSession']>
 export function persistSessionSoon(): void {
@@ -798,11 +855,15 @@ export function persistSessionSoon(): void {
     if (!s.activeRepoId) return
     const repos: WorkspaceSession['repos'] = {}
     for (const r of s.repos) {
+      const wtPaths = new Set(r.worktrees.map((w) => w.path))
+      const pick = <T,>(rec: Record<string, T>): Record<string, T> =>
+        Object.fromEntries(Object.entries(rec).filter(([p]) => wtPaths.has(p)))
       repos[r.repo.id] = {
-        panes: s.panes,
-        activePane: s.activePane,
-        activeTerminal: s.activeTerminal,
-        activeWorktreePath: s.activeWorktreePath
+        panes: pick(s.panes),
+        activePane: pick(s.activePane),
+        activeTerminal: pick(s.activeTerminal),
+        terminalOrder: pick(s.terminalOrder),
+        activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
       }
     }
     void window.orca.saveWorkspaceSession({ activeRepoId: s.activeRepoId, repos })

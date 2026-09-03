@@ -128,6 +128,7 @@ export type PersistedState = {
       panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'; sessionId?: string; file?: string; url?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
+      terminalOrder: Record<string, string[]>
       activeWorktreePath: string | null
     }>
   }

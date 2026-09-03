@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
 import type { TerminalSession } from '@shared/types'
 
+/** Exited sessions are kept this long for reattach/scrollback, then reaped. */
+export const REAP_EXITED_MS = 5 * 60_000
+
 export type PtyEvents = {
   data: (sessionId: string, data: string) => void
   exit: (sessionId: string, exitCode: number) => void
@@ -69,6 +72,12 @@ export class PtyManager {
       // waits 250ms so scrollback is complete before the UI sees `exited`.
       s.session.exited = true
       setTimeout(() => this.events.exit(id, exitCode), 250)
+      // Reattach grace: an exited session has no future scrollback. Reap it
+      // so the daemon's session list cannot grow unboundedly across restarts.
+      setTimeout(() => {
+        const cur = this.sessions.get(id)
+        if (cur && cur.session.exited) this.sessions.delete(id)
+      }, REAP_EXITED_MS)
     })
 
     return session
