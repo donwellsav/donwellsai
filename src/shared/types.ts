@@ -143,6 +143,11 @@ export type PersistedState = {
     activeRepoId: string | null
     /** persisted chrome widths (panel resizing) */
     ui?: { sidebarWidth?: number; rightSidebarWidth?: number; floatW?: number; floatH?: number }
+    /**
+     * Agent chips keyed by PTY session id. Restored only when the daemon still
+     * owns the session — a chip must never outlive the process it tracks.
+     */
+    runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
       panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'; sessionId?: string; file?: string; url?: string }>>

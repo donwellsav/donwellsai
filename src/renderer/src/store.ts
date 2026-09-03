@@ -215,7 +215,8 @@ async function restoreSession(
     terminalOrder: Record<string, string[]>
     terminals: Record<string, TerminalView>
     layouts: Record<string, LayoutNode>
-  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {} }
+    runningAgents: Record<string, RunningAgent>
+  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {}, runningAgents: {} }
   const liveSessions = await window.orca.terminalSessions()
   const liveById = new Map(liveSessions.map((s) => [s.id, s]))
   for (const repo of repos) {
@@ -267,6 +268,13 @@ async function restoreSession(
   state.activeTerminal = restored.activeTerminal
   state.terminalOrder = restored.terminalOrder
   state.terminals = restored.terminals
+  // Agent chips restore only alongside their PTY session (daemon still owns
+  // the process). Reopened panes get fresh session ids, so a dead agent's chip
+  // can never resurrect as a stale badge.
+  for (const [sid, agent] of Object.entries(saved.runningAgents ?? {})) {
+    if (restored.terminals[sid]) restored.runningAgents[sid] = agent
+  }
+  state.runningAgents = restored.runningAgents
   state.layouts = restored.layouts
   state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
 }
@@ -767,6 +775,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const runningAgents = { ...get().runningAgents }
     delete runningAgents[sessionId]
     set({ runningAgents })
+    persistSessionSoon()
   },
 
   /** Clear a finished (done/cancelled) agent chip without touching the terminal. */
@@ -774,6 +783,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const runningAgents = { ...get().runningAgents }
     delete runningAgents[sessionId]
     set({ runningAgents })
+    persistSessionSoon()
   },
 
   async setSettings(patch: Partial<AppSettings>) {
@@ -969,6 +979,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const known = ['working', 'permission', 'done', 'note'] as const
       if (!known.includes(state as (typeof known)[number])) return {}
       const runningAgents = { ...s.runningAgents, [sessionId]: { ...agent, state: state as (typeof known)[number], detail: detail || undefined } }
+      if (agent.state === state) return {}
+      persistSessionSoon()
       return { runningAgents }
     })
   }
@@ -1000,6 +1012,7 @@ export function persistSessionSoon(): void {
     void window.orca.saveWorkspaceSession({
       activeRepoId: s.activeRepoId,
       repos,
+      runningAgents: s.runningAgents,
       ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth, floatW: s.floatingSize.w, floatH: s.floatingSize.h }
     })
   }, 400)

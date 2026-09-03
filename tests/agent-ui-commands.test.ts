@@ -127,3 +127,76 @@ describe('executeUiCommand', () => {
     expect(JSON.parse(JSON.stringify(state))).toBeTruthy()
   })
 })
+
+describe('agent chip durability', () => {
+  it('running agents persist into the workspace session and restore with their live PTYs only', async () => {
+    const live = [
+      { id: 't1', worktreePath: main, title: 'zsh', createdAt: 'a', exited: false },
+      { id: 't2', worktreePath: main, title: 'zsh', createdAt: 'b', exited: false }
+    ]
+    let savedSession: unknown = null
+    vi.stubGlobal('window', {
+      orca: {
+        saveWorkspaceSession: async (ws: unknown) => { savedSession = ws },
+        closeTerminal: () => {},
+        // round-trip through the real actions so persistence is the byproduct
+        openTerminal: async (cwd: string) => ({ id: 't1', worktreePath: cwd, title: 'zsh', createdAt: 'a', exited: false }),
+        terminalWrite: async () => true
+      }
+    })
+
+    await useAppStore.getState().runAgent(main, 'codex')
+    expect(useAppStore.getState().runningAgents['t1']?.state).toBe('working')
+
+    // debounced persist
+    await new Promise((r) => setTimeout(r, 450))
+    const saved = savedSession as { runningAgents?: Record<string, unknown> } | null
+    expect(saved?.runningAgents?.['t1']).toBeTruthy()
+
+    // Restart: daemon still owns t1 and t2; the saved session also claims a
+    // chip for session "ghost" (no live PTY) and a pane for "t2".
+    useAppStore.setState({ runningAgents: {}, panes: {}, activePane: {}, terminalOrder: {}, terminals: {}, layouts: {} })
+    vi.stubGlobal('window', {
+      orca: {
+        saveWorkspaceSession: async () => {},
+        closeTerminal: () => {},
+        listRepos: async () => [repoSummary()],
+        listAgents: async () => [],
+        getSettings: async () => ({ agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 }),
+        getWorkspaceSession: async () => ({
+          activeRepoId: 'demo',
+          runningAgents: {
+            t1: { sessionId: 't1', worktreePath: main, agent: 'codex', startedAt: 'a', state: 'permission' as const },
+            ghost: { sessionId: 'ghost', worktreePath: main, agent: 'codex', startedAt: 'a', state: 'working' as const }
+          },
+          repos: {
+            demo: {
+              panes: { [main]: [{ key: 'term:t1', kind: 'terminal', sessionId: 't1' }, { key: 'term:t2', kind: 'terminal', sessionId: 't2' }] },
+              activePane: { [main]: 'term:t1' },
+              activeTerminal: { [main]: 't1' },
+              terminalOrder: { [main]: ['t1', 't2'] },
+              layouts: {},
+              activeWorktreePath: main
+            }
+          }
+        }),
+        terminalSessions: async () => live,
+        // restore-time fallback open for exited sessions — none here
+        openTerminal: async () => { throw new Error('not expected') },
+        loadExplorer: async () => {},
+        gitStatus: async () => null,
+        scanWorktree: async () => ({ ports: [], cpuPercent: 0, memMB: 0 }),
+        attachTerminal: async () => null
+      }
+    })
+
+    await useAppStore.getState().load()
+    const chips = useAppStore.getState().runningAgents
+    expect(Object.keys(chips).sort()).toEqual(['t1'])
+    // hook state survives the restart (permission chip, not just "working")
+    expect(chips['t1']?.state).toBe('permission')
+    expect(chips['ghost']).toBeUndefined()
+    // both panes restored against the live sessions
+    expect(useAppStore.getState().panes[main]?.map((p) => p.key)).toEqual(['term:t1', 'term:t2'])
+  })
+})
