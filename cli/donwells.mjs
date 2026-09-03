@@ -13,8 +13,13 @@
  *   wt-create <repoId> [name] [--branch <b>], wt-remove <repoId> <path> [--force],
  *   term-open <cwd>, term-write <sessionId> <data>, term-list, term-close <id>,
  *   git-status <worktreePath>, settings-get, settings-set <json>, meta,
-   browser-list, browser-open <worktreePath> <url>, browser-navigate <key> <url>,
-   browser-snapshot <key>, browser-eval <key> '<js>', browser-back|forward|reload <key>
+ *   browser-list, browser-open <worktreePath> <url>, browser-navigate <key> <url>,
+ *   browser-snapshot <key>, browser-eval <key> '<js>', browser-back|forward|reload <key>,
+ *   ui-state, ui-activate <worktreePath|repoId>, ui-terminal <worktreePath>, ui-split <worktreePath>,
+ *   ui-focus <worktreePath> <key>, ui-close-pane <worktreePath> <key>, ui-resize <worktreePath> <splitId> <pct>,
+ *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath>,
+ *   ui-sidebar <left|right> [open|close|toggle] [explorer|git] [width],
+ *   ui-floating [open|close|toggle], ui-palette [open|close|toggle], ui-settings [section]
  */
 import { createConnection } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -42,6 +47,19 @@ const METHOD_MAP = {
   'browser-back': 'browser.back',
   'browser-forward': 'browser.forward',
   'browser-reload': 'browser.reload',
+  'ui-state': 'ui.state',
+  'ui-activate': 'ui.activate',
+  'ui-terminal': 'ui.terminal.open',
+  'ui-split': 'ui.split',
+  'ui-focus': 'ui.pane.focus',
+  'ui-close-pane': 'ui.pane.close',
+  'ui-resize': 'ui.pane.resize',
+  'ui-preview': 'ui.preview.open',
+  'ui-preview-close': 'ui.preview.close',
+  'ui-sidebar': 'ui.sidebar',
+  'ui-floating': 'ui.floating',
+  'ui-palette': 'ui.palette',
+  'ui-settings': 'ui.settings.open',
   'settings-get': 'settings.get',
   'settings-set': 'settings.set',
   meta: 'meta.get'
@@ -74,6 +92,7 @@ function parseArgs(argv) {
     if (rest[0] !== undefined) params.a0 = rest[0]
     if (rest[1] !== undefined) params.a1 = rest[1]
     if (rest[2] !== undefined) params.a2 = rest[2]
+    if (rest[3] !== undefined) params.a3 = rest[3]
   }
   return { method, params, flags }
 }
@@ -120,7 +139,38 @@ function remapParams(method, params, flags) {
     if (p.a1) p.js = p.a1
   }
   if (['browser.snapshot', 'browser.back', 'browser.forward', 'browser.reload'].includes(method) && p.a0) { p.key = p.a0 }
-  for (const k of ['a0', 'a1', 'a2']) delete p[k]
+  if (method === 'ui.activate' && p.a0) {
+    if (String(p.a0).startsWith('/')) p.worktreePath = p.a0
+    else p.repoId = p.a0
+  }
+  if (['ui.terminal.open', 'ui.split', 'ui.preview.close'].includes(method) && p.a0) { p.worktreePath = p.a0 }
+  if (['ui.pane.focus', 'ui.pane.close'].includes(method) && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.key = p.a1
+  }
+  if (method === 'ui.pane.resize' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1 !== undefined) p.splitId = Number(p.a1)
+    if (p.a2 !== undefined) p.pct = Number(p.a2)
+  }
+  if (method === 'ui.preview.open' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.relPath = p.a1
+  }
+  if (method === 'ui.sidebar' && p.a0) {
+    p.side = p.a0
+    const openWords = { open: true, close: false, toggle: 'toggle' }
+    for (const a of [p.a1, p.a2, p.a3]) {
+      if (a === undefined) continue
+      if (a in openWords) p.open = openWords[a]
+      else if (a === 'explorer' || a === 'git') p.tab = a
+      else if (!Number.isNaN(Number(a))) p.width = Number(a)
+    }
+  }
+  if (method === 'ui.floating' && p.a0) { p.action = p.a0 }
+  if (method === 'ui.palette' && p.a0) { p.open = p.a0 }
+  if (method === 'ui.settings.open' && p.a0) { p.section = p.a0 }
+  for (const k of ['a0', 'a1', 'a2', 'a3']) delete p[k]
   return p
 }
 

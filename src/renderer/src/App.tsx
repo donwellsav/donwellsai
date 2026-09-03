@@ -12,6 +12,7 @@ import { FloatingTerminal } from './components/FloatingTerminal'
 import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
+import { executeUiCommand } from './agent-ui-commands'
 
 /** Actions reachable from the menu, ⌘K palette, and keyboard shortcuts. `arg` = tab index for select-tab. */
 export function dispatchAction(action: string, arg?: number): void {
@@ -121,12 +122,25 @@ export function App() {
     )
     // Repos/worktrees may be mutated by CLI/RPC clients behind our back — resync + prune.
     const offWt = window.orca.on('worktree:changed', () => void useAppStore.getState().syncRepos())
+    // Settings may be mutated by CLI/RPC clients — re-apply live.
+    const offSettings = window.orca.on('settings:changed', ({ settings }) => useAppStore.setState({ settings }))
     // Menu accelerators route through the same dispatch as keyboard shortcuts.
     const offMenu = window.orca.on('menu:action', ({ action }) => dispatchAction(action))
+    // Agents drive panels/settings over the runtime RPC (ui.* / settings.set).
+    const offUi = window.orca.onUiCommand(async ({ id, cmd }) => {
+      try {
+        const result = await executeUiCommand(cmd)
+        window.orca.resolveUiCommand(id, { ok: true, result })
+      } catch (e) {
+        window.orca.resolveUiCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })
     void load()
     return () => {
       offWt()
+      offSettings()
       offMenu()
+      offUi()
     }
   }, [load])
 

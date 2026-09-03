@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { copyFileSync, existsSync } from 'node:fs'
-import type { BrowserCommand, IpcApi, MainEvents } from '@shared/types'
+import type { BrowserCommand, IpcApi, MainEvents, UiCommand } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { Store, idFromPath } from './store'
 import { GitWorktrees } from './git'
@@ -156,32 +156,41 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// Browser agent-control bridge state (see registerIpc + browserControl).
-type PendingBrowser = { resolve: (v: unknown) => void; reject: (e: Error) => void }
-const browserPending = new Map<string, PendingBrowser>()
+// Agent-control bridge: forward commands to the renderer and correlate replies
+// (browser webview commands + UI/panel commands; see registerIpc).
+type PendingCall = { resolve: (v: unknown) => void; reject: (e: Error) => void }
+const pendingByChannel = new Map<string, Map<string, PendingCall>>([
+  ['browser:command', new Map()],
+  ['ui:command', new Map()]
+])
 let browserPanes: string[] = []
-let browserSeq = 0
+let callSeq = 0
 
-/** Forward a browser command to the renderer; resolves when the webview answers. */
-function browserControl(cmd: BrowserCommand): Promise<unknown> {
+/** Send a command to the renderer over `channel`; resolves on the correlated reply. */
+function rendererCall(channel: string, cmd: unknown, timeoutMs = 10000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const win = mainWindow
     if (!win || win.isDestroyed()) {
       reject(new Error('no window'))
       return
     }
-    const id = `browser-${++browserSeq}`
+    const domain = channel.split(':')[0]!
+    const id = `${domain}-${++callSeq}`
+    const pending = pendingByChannel.get(channel)!
     const timer = setTimeout(() => {
-      browserPending.delete(id)
-      reject(new Error('browser command timed out'))
-    }, 10000)
-    browserPending.set(id, {
+      pending.delete(id)
+      reject(new Error(`${domain} command timed out`))
+    }, timeoutMs)
+    pending.set(id, {
       resolve: (v) => { clearTimeout(timer); resolve(v) },
       reject: (e) => { clearTimeout(timer); reject(e) }
     })
-    win.webContents.send('browser:command', { id, cmd })
+    win.webContents.send(channel, { id, cmd })
   })
 }
+
+const browserControl = (cmd: BrowserCommand): Promise<unknown> => rendererCall('browser:command', cmd)
+const uiControl = (cmd: UiCommand): Promise<unknown> => rendererCall('ui:command', cmd)
 
 function registerIpc(): void {
   ipcMain.handle('meta', () => ({
@@ -292,15 +301,21 @@ function registerIpc(): void {
     return true
   })
 
-  // Browser agent-control bridge: renderer replies with results, main matches
-  // them to pending runtime-RPC commands by correlation id.
-  ipcMain.on('browser:command:result', (_e, id: string, result: { ok: true; result: unknown } | { ok: false; error: string }) => {
-    const pending = browserPending.get(id)
+  // Agent-control bridge: renderer replies with results, main matches them to
+  // pending runtime-RPC commands by correlation id.
+  const resolveCall = (
+    channel: string,
+    id: string,
+    result: { ok: true; result: unknown } | { ok: false; error: string }
+  ): void => {
+    const pending = pendingByChannel.get(channel)?.get(id)
     if (!pending) return
-    browserPending.delete(id)
+    pendingByChannel.get(channel)!.delete(id)
     if (result.ok) pending.resolve(result.result)
     else pending.reject(new Error(result.error))
-  })
+  }
+  ipcMain.on('browser:command:result', (_e, id: string, result) => resolveCall('browser:command', id, result))
+  ipcMain.on('ui:command:result', (_e, id: string, result) => resolveCall('ui:command', id, result))
   ipcMain.on('browser:register-panes', (_e, keys: string[]) => {
     browserPanes = Array.isArray(keys) ? keys.map(String) : []
   })
@@ -450,7 +465,9 @@ app.whenReady().then(() => {
       terminals: terminalBus,
       meta: async () => ({ version: app.getVersion(), shell: process.env.SHELL ?? '', userDataDir: app.getPath('userData') }),
       onChanged: (repoId) => send('worktree:changed', { repoId }),
-      browser: { command: (cmd) => browserControl(cmd) }
+      onSettingsChanged: (settings) => send('settings:changed', { settings }),
+      browser: { command: (cmd) => browserControl(cmd) },
+      ui: { command: (cmd) => uiControl(cmd) }
     }
   )
   rpcServer = rpc

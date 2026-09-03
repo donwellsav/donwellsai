@@ -60,6 +60,12 @@ const api: IpcApi = {
   },
   resolveBrowserCommand: (id, result) => ipcRenderer.send('browser:command:result', id, result),
   browserRegisterPanes: (keys) => ipcRenderer.send('browser:register-panes', keys),
+  onUiCommand: (cb) => {
+    const listener = (_e: unknown, env: { id: string; cmd: import('@shared/types').UiCommand }) => cb(env)
+    ipcRenderer.on('ui:command', listener)
+    return () => ipcRenderer.removeListener('ui:command', listener)
+  },
+  resolveUiCommand: (id, result) => ipcRenderer.send('ui:command:result', id, result),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)
     ipcRenderer.on(channel, listener)

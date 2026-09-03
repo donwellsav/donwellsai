@@ -226,6 +226,8 @@ export type MainEvents = {
   'terminal:hook': { sessionId: string; state: string; detail: string }
   /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
   'menu:action': { action: string }
+  /** Settings mutated by an RPC/CLI client — renderer re-applies live. */
+  'settings:changed': { settings: AppSettings }
 }
 
 /** One browser-pane control command (agent control over runtime RPC). */
@@ -243,6 +245,24 @@ export type BrowserSnapshot = { key: string; url: string; title: string; text: s
 
 export type BrowserCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
+/** One UI/panel control command (agent control over runtime RPC). */
+export type UiCommand =
+  | { op: 'state' }
+  | { op: 'activate'; worktreePath?: string; repoId?: string }
+  | { op: 'terminal.open'; worktreePath: string }
+  | { op: 'split'; worktreePath: string }
+  | { op: 'pane.focus'; worktreePath: string; key: string }
+  | { op: 'pane.close'; worktreePath: string; key: string }
+  | { op: 'pane.resize'; worktreePath: string; splitId: number; pct: number }
+  | { op: 'preview.open'; worktreePath: string; relPath: string }
+  | { op: 'preview.close'; worktreePath: string }
+  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git'; width?: number }
+  | { op: 'floating'; action?: 'open' | 'close' | 'toggle' }
+  | { op: 'palette'; open?: boolean | 'toggle' }
+  | { op: 'settings.open'; section?: SettingsSection }
+
+export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
+
 export type IpcApi = {
   meta(): Promise<AppMeta>
   listRepos(): Promise<RepoSummary[]>
@@ -250,6 +270,9 @@ export type IpcApi = {
   onBrowserCommand(cb: (env: { id: string; cmd: BrowserCommand }) => void): () => void
   resolveBrowserCommand(id: string, result: BrowserCommandResult): void
   browserRegisterPanes(keys: string[]): void
+  /** UI/panel control surface (renderer executes against its store). */
+  onUiCommand(cb: (env: { id: string; cmd: UiCommand }) => void): () => void
+  resolveUiCommand(id: string, result: UiCommandResult): void
   createWorktree(repoId: string, opts: { name?: string; branch?: string }): Promise<RepoSummary>
   addRepo(dir: string): Promise<RepoSummary>
   removeRepo(repoId: string): Promise<void>

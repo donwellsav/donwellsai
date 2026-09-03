@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { BrowserCommand } from '@shared/types'
+import type { AppSettings, BrowserCommand, SettingsSection, UiCommand } from '@shared/types'
 import type { Store } from './store'
 import type { GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
@@ -16,7 +16,10 @@ import type { DaemonClient } from './daemon-client'
  * Methods are the app surface, grouped by domain like upstream:
  *   status.get, repo.list/add/remove, worktree.create/remove,
  *   terminal.open/write/resize/interrupt/close/list, git.status/files/read,
- *   settings.get/set, meta.get
+ *   settings.get/set (live-applied), meta.get,
+ *   browser.list/open/navigate/back/forward/reload/snapshot/eval,
+ *   ui.state/activate, ui.terminal.open, ui.split, ui.pane.focus/close/resize,
+ *   ui.preview.open/close, ui.sidebar, ui.floating, ui.palette, ui.settings.open
  */
 
 export type RpcDeps = {
@@ -26,8 +29,12 @@ export type RpcDeps = {
   meta: () => Promise<{ version: string; shell: string; userDataDir: string }>
   /** Notify the renderer (worktree:changed) after RPC mutations it can't see. */
   onChanged: (repoId: string) => void
+  /** Notify the renderer (settings:changed) so RPC-driven settings apply live. */
+  onSettingsChanged: (settings: AppSettings) => void
   /** Forward browser control commands to the renderer's webviews. */
   browser: { command: (cmd: BrowserCommand) => Promise<unknown> }
+  /** Forward UI/panel control commands to the renderer's store. */
+  ui: { command: (cmd: UiCommand) => Promise<unknown> }
 }
 
 export class RuntimeRpcServer {
@@ -196,8 +203,56 @@ export class RuntimeRpcServer {
         return git.readFile(str('worktreePath'), str('relPath'))
       case 'settings.get':
         return store.getSettings()
-      case 'settings.set':
-        return store.updateSettings(params as Record<string, never>)
+      case 'settings.set': {
+        const settings = store.updateSettings(params as Record<string, never>)
+        this.deps.onSettingsChanged(settings)
+        return settings
+      }
+      case 'ui.state':
+        return this.deps.ui.command({ op: 'state' })
+      case 'ui.activate':
+        return this.deps.ui.command({
+          op: 'activate',
+          worktreePath: params['worktreePath'] as string | undefined,
+          repoId: params['repoId'] as string | undefined
+        })
+      case 'ui.terminal.open':
+        return this.deps.ui.command({ op: 'terminal.open', worktreePath: str('worktreePath') })
+      case 'ui.split':
+        return this.deps.ui.command({ op: 'split', worktreePath: str('worktreePath') })
+      case 'ui.pane.focus':
+        return this.deps.ui.command({ op: 'pane.focus', worktreePath: str('worktreePath'), key: str('key') })
+      case 'ui.pane.close':
+        return this.deps.ui.command({ op: 'pane.close', worktreePath: str('worktreePath'), key: str('key') })
+      case 'ui.pane.resize':
+        return this.deps.ui.command({
+          op: 'pane.resize',
+          worktreePath: str('worktreePath'),
+          splitId: Number(params['splitId'] ?? 0),
+          pct: Number(params['pct'] ?? 50)
+        })
+      case 'ui.preview.open':
+        return this.deps.ui.command({ op: 'preview.open', worktreePath: str('worktreePath'), relPath: str('relPath') })
+      case 'ui.preview.close':
+        return this.deps.ui.command({ op: 'preview.close', worktreePath: str('worktreePath') })
+      case 'ui.sidebar':
+        return this.deps.ui.command({
+          op: 'sidebar',
+          side: str('side') === 'right' ? 'right' : 'left',
+          open: params['open'] as boolean | 'toggle' | undefined,
+          tab: params['tab'] as 'explorer' | 'git' | undefined,
+          width: params['width'] === undefined ? undefined : Number(params['width'])
+        })
+      case 'ui.floating':
+        return this.deps.ui.command({ op: 'floating', action: (params['action'] as 'open' | 'close' | 'toggle' | undefined) ?? 'toggle' })
+      case 'ui.palette': {
+        const raw = params['open']
+        // CLI passthrough sends 'open'/'close' strings — normalize here
+        const open = raw === undefined || raw === 'toggle' ? 'toggle' : raw === 'open' ? true : raw === 'close' ? false : Boolean(raw)
+        return this.deps.ui.command({ op: 'palette', open })
+      }
+      case 'ui.settings.open':
+        return this.deps.ui.command({ op: 'settings.open', section: params['section'] as SettingsSection | undefined })
       case 'browser.list':
         return { panes: await this.deps.browser.command({ op: 'list' }) }
       case 'browser.open':

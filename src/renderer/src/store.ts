@@ -77,6 +77,19 @@ function removeLeaf(node: LayoutNode, paneKey: string): LayoutNode | null {
   return { ...node, first, second }
 }
 
+/** Invariant keeper: layout leaves ⊆ live pane keys. Drops dead leaves
+ *  (e.g. previews closed before layouts learned to prune) and collapses
+ *  splits whose side vanished. */
+function pruneLayoutTo(node: LayoutNode, validKeys: ReadonlySet<string>): LayoutNode | null {
+  if (node.kind === 'leaf') return validKeys.has(node.pane) ? node : null
+  const first = pruneLayoutTo(node.first, validKeys)
+  const second = pruneLayoutTo(node.second, validKeys)
+  if (!first) return second
+  if (!second) return first
+  if (first === node.first && second === node.second) return node
+  return { ...node, first, second }
+}
+
 
 type AppState = {
   repos: RepoSummary[]
@@ -241,10 +254,8 @@ async function restoreSession(
       const savedLayout = savedRepo.layouts?.[wtPath]
       if (savedLayout) {
         const validKeys = new Set(valid.map((p) => p.key))
-        let pruned: LayoutNode | null = savedLayout
-        for (const p of panes) {
-          if (!validKeys.has(p.key) && pruned) pruned = removeLeaf(pruned, p.key)
-        }
+        // leaves with no live pane die too — stale previews etc. survive per-pane diffs otherwise
+        const pruned = pruneLayoutTo(savedLayout, new Set(valid.map((p) => p.key)))
         if (pruned) restored.layouts[wtPath] = pruned
       }
     }
@@ -669,7 +680,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!cardPanes.some((p) => p.key === activePane[worktreePath])) {
         activePane[worktreePath] = cardPanes[0]?.key ?? ''
       }
-      return { panes, previews, activePane }
+      // preview panes leave the split tree too, or the layout dangles a dead leaf
+      let layouts = s.layouts
+      const prevLayout = s.layouts[worktreePath]
+      if (prevLayout) {
+        const pruned = pruneLayoutTo(prevLayout, new Set(cardPanes.map((p) => p.key)))
+        layouts = { ...s.layouts }
+        if (pruned) layouts[worktreePath] = pruned
+        else delete layouts[worktreePath]
+      }
+      persistSessionSoon()
+      return { panes, previews, activePane, layouts }
     })
   },
 
