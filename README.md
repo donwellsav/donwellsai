@@ -1,40 +1,28 @@
-# orca-lite
+# donwells.ai
 
 Minimal working Orca: run CLI agents side-by-side in git worktrees, each with its own terminal. A small, single-process Electron app — Orca's product core without the relay daemon, mobile/E2EE, automations, integrations, or embedded browser.
 
-## Stack
+## GUI
 
-- Electron 44 (contextIsolation + sandbox, node-pty for terminals)
-- React 19 + Zustand, xterm 6 (panes mount once, hide via CSS)
-- electron-vite 5, vitest, Node 24, pnpm 10
+Orca's shell, rebuilt from its real design tokens: 36px titlebar with embedded terminal tabs, left worktree sidebar (repo-grouped cards with status dots), center terminal workbench with split panes, right sidebar (Explorer / Git), bottom status bar. Zinc dark theme (`#0a0a0a` canvas, `#2a2a2a` sidebar), Geist type, 10px radii.
 
-## Commands
+## Architecture
 
-```sh
-pnpm install      # first time (rebuilds node-pty via onlyBuiltDependencies)
-pnpm dev          # dev mode with hot reload
-pnpm build        # production build → out/
-pnpm smoke        # build + e2e smoke: boots the real app, exercises git +
-                  # PTY surfaces against a temp repo, exits 0/1
-pnpm test         # unit tests (git porcelain parser, store persistence)
-pnpm typecheck    # tsc on both main and renderer configs
+- Electron 44 + React 19 + Zustand 5 + xterm 6 + node-pty; contextIsolation + sandbox on.
+- **Terminal daemon** (`src/main/terminal-daemon.ts`): a detached process owns the PTYs; the app is a reconnectable client (unix-socket NDJSON + auth token, 512 KiB scrollback replay). Agents survive app restarts.
+- **Runtime RPC** (`src/main/runtime-rpc.ts`): NDJSON over `donwells.sock`; discovery in `donwells-runtime.json` (socket path + auth token). The CLI drives the same surface as the UI.
+- **CLI** (`cli/donwells.mjs`): `node cli/donwells.mjs status`, `repo-add <dir>`, `wt-create <repoId> <name>`, `git-status <path>`, … `--text` for pretty output.
+- Persistence: one JSON file in userData (`donwells-data.json`) holding user intent only (repos, settings); worktree state is derived live from git.
+- Worktree engine: fingerprint-gated scan cache, name retirement, delete-to-Trash with safety fencing, lineage tracking.
+
+## Development
+
+```
+pnpm install
+pnpm dev          # dev server + electron
+pnpm smoke        # build + headless smoke test (real git repo + real PTY)
+pnpm test         # vitest
+pnpm typecheck    # both tsconfigs
 ```
 
-## How it works
-
-- **Filesystem is truth.** Worktrees are re-discovered live from `git worktree list --porcelain` on every repo refresh; the JSON store persists only user intent (repo list, agent command).
-- **Terminals never touch React.** Main owns PTY sessions (node-pty), streams via IPC; the renderer's `terminal-bus` buffers output per session (512 KB replay) so panes hidden behind other worktrees keep their scrollback.
-- **Main worktree** of a repo renders as a card too (path == repo root); branch/HEAD labels come from the porcelain output.
-
-## IPC surface
-
-`meta | listRepos | addRepo | removeRepo | refreshRepo | createWorktree | removeWorktree | openTerminal | closeTerminal | terminalWrite | terminalResize | listAgents | pickDirectory | on` — events: `terminal:data | terminal:exit | terminal:title | worktree:changed`.
-
-## Test seams
-
-- `ORCA_LITE_SMOKE=1` — main runs the in-app probe (`src/main/smoke-probe.ts`) after window load, prints `smoke:ok` / `smoke:fail`, exits.
-- `ORCA_LITE_USER_DATA=<dir>` — overrides `app.getPath('userData')` so tests never touch real settings.
-
-## Deferred (tinker later)
-
-Settings UI, split panes, SSH relay, daemon persistence across quit, agent presets, worktree auto-rescan on external git changes.
+Debug build: `pnpm build` then `npx electron --remote-debugging-port=9334 out/main/index.js` (userData lives in `~/Library/Application Support/donwells.ai`).

@@ -1,8 +1,13 @@
 import { useEffect } from 'react'
-import { Sidebar } from './components/Sidebar'
-import { WorktreeGrid } from './components/WorktreeGrid'
+import { WorktreeSidebar } from './components/WorktreeSidebar'
+import { TitlebarTabs } from './components/TitlebarTabs'
+import { Workbench } from './components/Workbench'
+import { RightSidebar } from './components/RightSidebar'
+import { Landing } from './components/Landing'
+import { CreateWorktreeModal } from './components/CreateWorktreeModal'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
+import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
 
@@ -18,31 +23,32 @@ export function dispatchAction(action: string): void {
       break
     case 'new-worktree':
       s.setPaletteOpen(false)
-      s.setActiveWorktree(null)
+      s.setCreateOpen(true)
       break
     case 'command-palette':
       s.setPaletteOpen(true)
       break
-    case 'new-terminal':
+    case 'new-terminal': {
+      const target = pinnedWorktree()
+      if (target) void s.openTerminal(target)
+      break
+    }
     case 'split-terminal': {
-      const wt = s.activeWorktreePath ?? s.activeRepoId ? null : null
-      void wt
-      // open in the focused worktree card: use the first visible worktree if none focused
-      const repo = s.repos.find((r) => r.repo.id === s.activeRepoId)
-      const target = repo?.worktrees.find((w) => w.path === s.activeWorktreePath) ?? repo?.worktrees.find((w) => !w.isMain) ?? repo?.worktrees[0]
-      if (target) void s.openTerminal(target.path)
-      break
-    }
-    case 'toggle-explorer': {
       const target = pinnedWorktree()
-      if (target) s.togglePane(target, 'explorer')
+      if (target) void s.splitTerminal(target)
       break
     }
-    case 'toggle-git-status': {
-      const target = pinnedWorktree()
-      if (target) s.togglePane(target, 'git-status')
+    case 'toggle-sidebar':
+      s.setSidebarOpen(!s.sidebarOpen)
       break
-    }
+    case 'toggle-explorer':
+      if (s.rightSidebarOpen && s.rightSidebarTab === 'explorer') s.setRightSidebarOpen(false)
+      else s.setRightSidebarTab('explorer')
+      break
+    case 'toggle-git-status':
+      if (s.rightSidebarOpen && s.rightSidebarTab === 'git') s.setRightSidebarOpen(false)
+      else s.setRightSidebarTab('git')
+      break
     case 'run-agent': {
       const target = pinnedWorktree()
       if (target) void s.runAgent(target, s.settings.agentCommand)
@@ -54,7 +60,7 @@ export function dispatchAction(action: string): void {
   }
 }
 
-/** Resolve the worktree a global action should pin to: focused card, else first non-main, else main. */
+/** Resolve the worktree a global action should pin to: focused, else first non-main, else main. */
 function pinnedWorktree(): string | null {
   const s = useAppStore.getState()
   const repo = s.repos.find((r) => r.repo.id === s.activeRepoId)
@@ -69,11 +75,17 @@ export function App() {
   const load = useAppStore((s) => s.load)
   const loading = useAppStore((s) => s.loading)
   const error = useAppStore((s) => s.error)
-  const setError = useAppStore((s) => s.setError)
-  const activeRepoId = useAppStore((s) => s.activeRepoId)
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
+  const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
+  const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
+  const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
+  const repos = useAppStore((s) => s.repos)
+  const statuses = useAppStore((s) => s.statuses)
+  const runningAgents = useAppStore((s) => s.runningAgents)
+  const settings = useAppStore((s) => s.settings)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
-  const settings = useAppStore((s) => s.settings)
 
   useEffect(() => {
     // Wire PTY event stream once; terminal data bypasses React entirely.
@@ -85,66 +97,111 @@ export function App() {
         useAppStore.getState().applyTerminalTitle(sessionId, title)
       }
     )
-    // Menu accelerators + any keyboard shortcuts route through dispatchAction.
-    const offMenu = window.orca.on('menu:action', ({ action }) => dispatchAction(action))
-    const offData = window.orca.on('terminal:data', () => {})
-    void offData
+    // Repos/worktrees may be mutated by CLI/RPC clients behind our back — resync + prune.
+    const offWt = window.orca.on('worktree:changed', () => void useAppStore.getState().syncRepos())
     void load()
     return () => {
-      offMenu()
+      offWt()
     }
   }, [load])
 
   // Live status polling: every statusPollMs refresh worktree statuses for the active repo.
   useEffect(() => {
-    if (!activeRepoId || settings.statusPollMs <= 0) return
+    if (settings.statusPollMs <= 0) return
     const timer = window.setInterval(() => {
       void useAppStore.getState().refreshStatuses()
     }, settings.statusPollMs)
     return () => window.clearInterval(timer)
-  }, [activeRepoId, settings.statusPollMs])
+  }, [settings.statusPollMs])
 
-  // Global keyboard: ⌘K palette, ⌘+Enter run agent, ⌘N new worktree focus.
+  // Global keyboard: ⌘K palette, ⌘+Enter run agent, ⌘N new worktree.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
-      if (!mod) return
-      const k = e.key.toLowerCase()
-      if (k === 'k') {
+      const meta = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey
+      if (meta && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        useAppStore.getState().setPaletteOpen(!useAppStore.getState().paletteOpen)
-      } else if (k === 'enter') {
+        dispatchAction('command-palette')
+      } else if (meta && e.key === 'Enter') {
         e.preventDefault()
         dispatchAction('run-agent')
-      } else if (k === 'n') {
+      } else if (meta && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         dispatchAction('new-worktree')
-      } else if (k === ',') {
+      } else if (meta && e.key.toLowerCase() === 'b') {
         e.preventDefault()
-        dispatchAction('settings')
+        dispatchAction('toggle-sidebar')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  return (
-    <div className="app">
-      <Sidebar />
-      <main className="main">
-        {loading ? (
-          <div className="loading">Loading Orca Lite…</div>
-        ) : (
-          <WorktreeGrid key={activeRepoId ?? 'none'} />
-        )}
-      </main>
-      {error && (
-        <div className="error-toast" onClick={() => setError(null)} title={error}>
-          {error}
+  const dirtyCount = activeWorktreePath
+    ? (statuses[activeWorktreePath]?.modified ?? 0) + (statuses[activeWorktreePath]?.staged ?? 0)
+    : 0
+  const agentCount = Object.keys(runningAgents).length
+
+  if (loading) {
+    return (
+      <div className="app-layout">
+        <div className="landing">
+          <div className="landing-inner">
+            <div className="landing-logo">O</div>
+            <p className="landing-sub">Loading donwells.ai…</p>
+          </div>
         </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app-layout">
+      {/* Titlebar strip: traffic-light pad · logo · toggles · terminal tabs · + */}
+      <div className="titlebar">
+        <div className="titlebar-left-pad" />
+        <div className="titlebar-section">
+          <span className="titlebar-logo"><span className="logo-dot" />donwells.ai</span>
+          <button className="titlebar-icon-button" title="Toggle sidebar" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <Icon name="dir" size={15} />
+          </button>
+        </div>
+        <div id="titlebar-tabs">
+          <TitlebarTabs />
+        </div>
+        <div className="titlebar-section">
+          <button
+            className="titlebar-icon-button"
+            title="Toggle right sidebar"
+            style={rightSidebarOpen ? { color: 'var(--foreground)' } : undefined}
+            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+          >
+            <Icon name="file" size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="app-body">
+        {sidebarOpen && <WorktreeSidebar />}
+        <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          {activeWorktreePath ? <Workbench /> : repos.length > 0 ? <Landing /> : <Landing />}
+        </div>
+        {rightSidebarOpen && <RightSidebar />}
+      </div>
+
+      <div className="status-bar">
+        <span className="sb-item">{repos.length} repos</span>
+        {agentCount > 0 && <span className="sb-item"><span className="spinner" /> {agentCount} agent{agentCount > 1 ? 's' : ''}</span>}
+        <span className="sb-spacer" />
+        {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
+        {dirtyCount > 0 && <span className="sb-item"><span className="dot dirty" /> {dirtyCount} changed</span>}
+      </div>
+
+      {error && (
+        <div className="toast error" onClick={() => useAppStore.getState().setError(null)}>{error}</div>
       )}
       <CommandPalette open={paletteOpen} />
       <SettingsModal open={settingsOpen} />
+      <CreateWorktreeModal />
     </div>
   )
 }

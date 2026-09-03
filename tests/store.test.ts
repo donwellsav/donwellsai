@@ -7,7 +7,7 @@ import { Store } from '../src/main/store'
 let dirs: string[] = []
 
 function tmp(): string {
-  const d = mkdtempSync(join(tmpdir(), 'orca-lite-test-'))
+  const d = mkdtempSync(join(tmpdir(), 'donwells-test-'))
   dirs.push(d)
   return d
 }
@@ -39,13 +39,13 @@ describe('Store', () => {
 
   it('falls back to defaults on corrupt file', () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'orca-lite-data.json'), '{not json')
+    writeFileSync(join(dir, 'donwells-data.json'), '{not json')
     const store = new Store(dir)
     expect(store.listRepos()).toEqual([])
     expect(store.getAgentCommand()).toBe('codex')
     // file gets healed on next save
     store.addRepo({ id: 'r9', path: '/p9', addedAt: 'a' })
-    const raw = JSON.parse(readFileSync(join(dir, 'orca-lite-data.json'), 'utf8'))
+    const raw = JSON.parse(readFileSync(join(dir, 'donwells-data.json'), 'utf8'))
     expect(raw.schemaVersion).toBe(1)
     expect(raw.repos).toHaveLength(1)
   })

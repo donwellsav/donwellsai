@@ -4,6 +4,14 @@
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { TerminalDaemon, newAuthToken } from './terminal-daemon'
+// The daemon must NEVER run as a GUI Electron app — spawned wrong (without
+// ELECTRON_RUN_AS_NODE=1) it registers a Dock icon / stray window for the user.
+if (process.type !== undefined) {
+  // process.versions.electron is still set under ELECTRON_RUN_AS_NODE; process.type
+  // is only defined when Electron's GUI/IPC environment is live.
+  console.error('terminal-daemon: refusing GUI-mode start — spawn with ELECTRON_RUN_AS_NODE=1')
+  process.exit(1)
+}
 
 const userDataDir = process.argv[2]
 if (!userDataDir) {

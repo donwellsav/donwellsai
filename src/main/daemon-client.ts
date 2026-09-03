@@ -62,14 +62,16 @@ export class DaemonClient {
       env: { ...process.env, ORCA_LITE_DAEMON_TOKEN: token, ELECTRON_RUN_AS_NODE: '1' }
     })
     child.unref()
-    // wait for the socket to appear (daemon writes runtime file after bind)
+    // Wait for OUR daemon: the old socket file may still exist (stale), so poll
+    // tryConnect with the fresh token until the new daemon binds, not existsSync.
     const socketPath = join(this.userDataDir, 'terminal.sock')
     const deadline = Date.now() + 10_000
-    while (!existsSync(socketPath)) {
-      if (Date.now() > deadline) throw new Error('terminal daemon did not start')
-      await new Promise((r) => setTimeout(r, 50))
+    let ok = false
+    while (Date.now() <= deadline) {
+      ok = await this.tryConnect(socketPath, token).catch(() => false)
+      if (ok) break
+      await new Promise((r) => setTimeout(r, 100))
     }
-    const ok = await this.tryConnect(socketPath, token).catch(() => false)
     if (!ok) throw new Error('terminal daemon connection failed')
   }
 

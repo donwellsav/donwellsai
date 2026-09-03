@@ -1,7 +1,7 @@
 {
-  "name": "orca-lite",
+  "name": "donwells.ai",
   "version": "0.1.0",
-  "description": "Minimal Orca: run CLI agents in parallel git worktrees",
+  "description": "donwells.ai: run CLI agents in parallel git worktrees",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {

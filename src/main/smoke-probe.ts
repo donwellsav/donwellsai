@@ -11,14 +11,14 @@ import type { GitWorktrees } from './git'
 import { PtyManager } from './pty'
 
 export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
-  const root = mkdtempSync(join(tmpdir(), 'orca-lite-probe-'))
+  const root = mkdtempSync(join(tmpdir(), 'donwells-probe-'))
   const repo = join(root, 'proj')
   const results: string[] = []
   try {
     mkdirSync(repo, { recursive: true })
     execFileSync('git', ['init', '-b', 'main'], { cwd: repo, stdio: 'pipe' })
-    execFileSync('git', ['config', 'user.email', 'smoke@orca-lite.local'], { cwd: repo, stdio: 'pipe' })
-    execFileSync('git', ['config', 'user.name', 'Orca Lite Smoke'], { cwd: repo, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.email', 'smoke@donwells.ai'], { cwd: repo, stdio: 'pipe' })
+    execFileSync('git', ['config', 'user.name', 'donwells.ai Smoke'], { cwd: repo, stdio: 'pipe' })
     writeFileSync(join(repo, 'readme.md'), '# probe\n')
     execFileSync('git', ['add', '.'], { cwd: repo, stdio: 'pipe' })
     execFileSync('git', ['commit', '-m', 'init'], { cwd: repo, stdio: 'pipe' })

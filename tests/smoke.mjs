@@ -18,11 +18,11 @@ const electronBinary = join(
   process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'electron.exe' : 'electron'
 )
 
-const userData = mkdtempSync(join(tmpdir(), 'orca-lite-smoke-'))
+const userData = mkdtempSync(join(tmpdir(), 'donwells-smoke-'))
 
 const exit = await new Promise((resolve) => {
   const app = spawn(electronBinary, [root], {
-    env: { ...process.env, ORCA_LITE_USER_DATA: userData, ORCA_LITE_SMOKE: '1' },
+    env: { ...process.env, DONWELLS_USER_DATA: userData, ORCA_LITE_SMOKE: '1' },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let out = ''

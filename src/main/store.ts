@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { AppSettings, PersistedState, Repo } from '@shared/types'
 
-const FILE = 'orca-lite-data.json'
+const FILE = 'donwells-data.json'
 export const DEFAULT_SETTINGS: AppSettings = {
   agentCommand: 'codex',
   theme: 'dark',

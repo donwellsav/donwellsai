@@ -1,20 +1,49 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { copyFileSync, existsSync } from 'node:fs'
 import type { IpcApi, MainEvents } from '@shared/types'
 import { Store, idFromPath } from './store'
+import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { GitWorktrees } from './git'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 
+// Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
+// lands in donwells.ai, not Electron's default dir.
+app.setName('donwells.ai')
 // Test seam: isolated userData dir for the smoke harness.
-if (process.env['ORCA_LITE_USER_DATA']) {
-  app.setPath('userData', process.env['ORCA_LITE_USER_DATA'])
+if (process.env['DONWELLS_USER_DATA']) {
+  app.setPath('userData', process.env['DONWELLS_USER_DATA'])
+} else {
+  // One-time migration from the pre-rename orca-lite dir: carry repos/settings over.
+  try {
+    const newPath = join(app.getPath('userData'), 'donwells-data.json')
+    const oldPath = join(app.getPath('appData'), 'orca-lite', 'orca-lite-data.json')
+    if (!existsSync(newPath) && existsSync(oldPath)) {
+      copyFileSync(oldPath, newPath)
+    }
+  } catch (e) {
+    console.error('data migration failed:', e)
+  }
+}
+
+// Single instance (upstream parity): a second app instance would fight the first
+// for the RPC socket path and discovery file. Focus the existing window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
 }
 
 let store: Store
 let git: GitWorktrees
 let terminalBus: DaemonClient
+let rpcServer: RuntimeRpcServer | null = null
 let mainWindow: BrowserWindow | null = null
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -130,9 +159,10 @@ function registerIpc(): void {
 
   ipcMain.handle('removeRepo', (_e, repoId: string) => {
     git.removeRepo(repoId)
+    // RPC (or any client) may remove repos behind the renderer's back — let it prune.
+    send('worktree:changed', { repoId })
     return true
   })
-
   ipcMain.handle('refreshRepo', (_e, repoId: string) => {
     const repo = store.listRepos().find((r) => r.id === repoId)
     if (!repo) throw new Error(`unknown repo ${repoId}`)
@@ -217,8 +247,8 @@ function createWindow(): void {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Orca Lite',
-    backgroundColor: '#0f1115',
+    title: 'donwells.ai',
+    backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -259,6 +289,20 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   createWindow()
+  // Runtime RPC (upstream §6.1 local transport): unix socket + discovery file
+  const rpc = new RuntimeRpcServer(
+    join(app.getPath('userData'), 'donwells.sock'),
+    join(app.getPath('userData'), 'donwells-runtime.json'),
+    newRpcToken(),
+    {
+      store,
+      git,
+      terminals: terminalBus,
+      meta: async () => ({ version: app.getVersion(), shell: process.env.SHELL ?? '', userDataDir: app.getPath('userData') }),
+      onChanged: (repoId) => send('worktree:changed', { repoId })
+    }
+  )
+  rpcServer = rpc
   if (process.env['ORCA_LITE_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
       console.log('smoke:ready')
@@ -268,10 +312,18 @@ app.whenReady().then(() => {
     })
   }
 })
+
 app.on('before-quit', () => {
-  // orcad rule: never kill the daemon or its PTYs on app exit — sessions survive
+  // orcad rule: never kill the daemon or its PTYs on app exit — sessions survive.
+  // The RPC socket is UI-adjacent: closing it is correct (CLI reconnects via discovery).
+  rpcServer?.stop()
 })
 
+
+app.on('window-all-closed', () => {
+  // macOS convention (and Orca parity): stay alive with no windows; quit elsewhere.
+  if (process.platform !== 'darwin') app.quit()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -90,10 +90,17 @@ type AppState = {
   layouts: Record<string, LayoutNode>
   paletteOpen: boolean
   settingsOpen: boolean
+  /** app chrome (Orca shell state) */
+  sidebarOpen: boolean
+  rightSidebarOpen: boolean
+  rightSidebarTab: 'explorer' | 'git'
+  createOpen: boolean
 
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
   removeRepo(repoId: string): Promise<void>
+  /** Re-pull the repo list after a CLI/RPC client mutates repos behind our back. */
+  syncRepos(): Promise<void>
   refresh(repoId?: string): Promise<void>
   createWorktree(name?: string, branch?: string): Promise<void>
   removeWorktree(worktreePath: string, force?: boolean): Promise<void>
@@ -113,14 +120,19 @@ type AppState = {
   loadExplorer(worktreePath: string, prefix?: string): Promise<void>
   openPreview(worktreePath: string, relPath: string): Promise<void>
   closePreview(worktreePath: string): void
+  pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
 
   runAgent(worktreePath: string, command: string): Promise<void>
   stopAgent(sessionId: string): void
 
-  setSettings(patch: Partial<AppSettings>): Promise<void>
   setPaletteOpen(open: boolean): void
   setSettingsOpen(open: boolean): void
+  setSettings(patch: Partial<AppSettings>): Promise<void>
+  setSidebarOpen(open: boolean): void
+  setRightSidebarOpen(open: boolean): void
+  setRightSidebarTab(tab: 'explorer' | 'git'): void
+  setCreateOpen(open: boolean): void
 
   setActiveRepo(repoId: string | null): void
   setActiveWorktree(path: string | null): void
@@ -128,6 +140,50 @@ type AppState = {
   applyTerminalTitle(sessionId: string, title: string): void
   setError(err: string | null): void
 }
+
+/** Restore persisted per-repo workbench (panes/tabs/active) into a fresh state object.
+ *  Live-session lookups may hit the daemon; callers treat failure as non-fatal. */
+async function restoreSession(
+  saved: NonNullable<Awaited<ReturnType<typeof window.orca.getWorkspaceSession>>>,
+  repos: RepoSummary[],
+  state: Partial<AppState>
+): Promise<void> {
+  const restored: {
+    panes: Record<string, Pane[]>
+    activePane: Record<string, string>
+    activeTerminal: Record<string, string>
+    terminalOrder: Record<string, string[]>
+    terminals: Record<string, TerminalView>
+  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {} }
+  const liveSessions = await window.orca.terminalSessions()
+  const liveById = new Map(liveSessions.map((s) => [s.id, s]))
+  for (const repo of repos) {
+    const savedRepo = saved.repos[repo.repo.id]
+    if (!savedRepo) continue
+    for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
+      const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveById.has(p.sessionId)))
+      if (!valid.length) continue
+      restored.panes[wtPath] = valid
+      restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
+      // register a TerminalView per live restored session so TerminalPane mounts
+      // and the daemon replays its scrollback (attach happens on mount)
+      for (const p of valid) {
+        if (p.kind === 'terminal' && p.sessionId && !restored.terminals[p.sessionId]) {
+          restored.terminals[p.sessionId] = { session: liveById.get(p.sessionId)!, cols: 100, rows: 30 }
+        }
+      }
+    }
+    restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
+    restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
+  }
+  state.panes = restored.panes
+  state.activePane = restored.activePane
+  state.activeTerminal = restored.activeTerminal
+  state.terminalOrder = restored.terminalOrder
+  state.terminals = restored.terminals
+  state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
+}
+
 
 export const useAppStore = create<AppState>((set, get) => ({
   repos: [],
@@ -145,11 +201,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   layouts: {},
   activePane: {},
   activeTerminal: {},
+  sidebarOpen: true,
+  rightSidebarOpen: false,
+  rightSidebarTab: 'explorer',
+  createOpen: false,
+  paletteOpen: false,
+  settingsOpen: false,
   runningAgents: {},
   agents: [],
   settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
-  paletteOpen: false,
-  settingsOpen: false,
   async load() {
     try {
       const [repos, agents, settings, wsSession] = await Promise.all([
@@ -166,38 +226,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         state.activeRepoId = repos[0]!.repo.id
       }
       if (saved) {
-        // restore per-repo workbench: panes + active selection (terminals reattach
-        // to daemon-owned PTY sessions by id; dead session ids are pruned below)
-        const restored = { panes: {} as Record<string, Pane[]>, activePane: {} as Record<string, string>, activeTerminal: {} as Record<string, string>, terminalOrder: {} as Record<string, string[]>, terminals: {} as Record<string, TerminalView> }
-        for (const repo of repos) {
-          const savedRepo = saved.repos[repo.repo.id]
-          if (!savedRepo) continue
-          const liveSessions = await window.orca.terminalSessions()
-          const liveById = new Map(liveSessions.map((s) => [s.id, s]))
-          for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
-            const valid = panes.filter((p) => p.kind !== 'terminal' || (p.sessionId && liveById.has(p.sessionId)))
-            if (valid.length) {
-              restored.panes[wtPath] = valid
-              restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
-              // register a TerminalView per live restored session so TerminalPane
-              // mounts and the daemon replays its scrollback (attach on mount)
-              for (const p of valid) {
-                if (p.kind === 'terminal' && p.sessionId && !restored.terminals[p.sessionId]) {
-                  const live = liveById.get(p.sessionId)!
-                  restored.terminals[p.sessionId] = { session: live, cols: 100, rows: 30 }
-                }
-              }
-            }
-          }
-          restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
-          restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
+        // Best-effort session restore: a daemon hiccup must never void the
+        // repos/settings hydration above.
+        try {
+          restoreSession(saved, repos, state)
+        } catch (restoreErr) {
+          console.error('session restore failed:', restoreErr)
         }
-        state.panes = restored.panes
-        state.activePane = restored.activePane
-        state.activeTerminal = restored.activeTerminal
-        state.terminalOrder = restored.terminalOrder
-        state.terminals = restored.terminals
-        state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
       }
       set(state)
       if (repos.length > 0) void get().refreshStatuses()
@@ -221,6 +256,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.orca.removeRepo(repoId)
     set({ repos: get().repos.filter((r) => r.repo.id !== repoId) })
     if (get().activeRepoId === repoId) set({ activeRepoId: get().repos[0]?.repo.id ?? null })
+    get().pruneRemovedRepos()
+  },
+
+  async syncRepos() {
+    try {
+      const repos = await window.orca.listRepos()
+      set({ repos, error: null })
+      if (!get().activeRepoId && repos.length > 0) set({ activeRepoId: repos[0]!.repo.id })
+      get().pruneRemovedRepos()
+    } catch (e) {
+      set({ error: String(e) })
+    }
   },
 
   async refresh(repoId?: string) {
@@ -496,6 +543,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
+  /** Drop all per-worktree UI state whose worktree no longer belongs to any repo
+   *  (repo removed via CLI/RPC behind the renderer's back, or worktree vanished). */
+  pruneRemovedRepos() {
+    const live = new Set<string>()
+    for (const r of get().repos) for (const w of r.worktrees) live.add(w.path)
+    const drop = <T,>(m: Record<string, T>): Record<string, T> => {
+      const out: Record<string, T> = {}
+      for (const k of Object.keys(m)) if (live.has(k)) out[k] = m[k]!
+      return out
+    }
+    set((s) => ({
+      panes: drop(s.panes),
+      activePane: drop(s.activePane),
+      activeTerminal: drop(s.activeTerminal),
+      terminalOrder: drop(s.terminalOrder),
+      terminals: drop(s.terminals),
+      layouts: drop(s.layouts),
+      statuses: drop(s.statuses),
+      explorer: drop(s.explorer),
+      previews: drop(s.previews),
+      busy: drop(s.busy),
+      runningAgents: drop(s.runningAgents)
+    }))
+  },
+
   async refreshStatuses() {
     const repos = get().repos
     const paths = new Set<string>()
@@ -554,6 +626,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ settingsOpen: open })
   },
 
+  setSidebarOpen(open: boolean) {
+    set({ sidebarOpen: open })
+  },
+
+  setRightSidebarOpen(open: boolean) {
+    set({ rightSidebarOpen: open })
+  },
+
+  setRightSidebarTab(tab: 'explorer' | 'git') {
+    set({ rightSidebarOpen: true, rightSidebarTab: tab })
+  },
+
+  setCreateOpen(open: boolean) {
+    set({ createOpen: open })
+  },
+
   setActiveRepo(repoId: string | null) {
     set({ activeRepoId: repoId, activeWorktreePath: null })
     if (repoId) {
@@ -565,7 +653,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setActiveWorktree(path: string | null) {
     set({ activeWorktreePath: path })
-    if (path) void get().loadExplorer(path)
+    if (path) {
+      void get().loadExplorer(path)
+      // Orca activation-terminal-prep: every worktree gets a shell ready on first visit.
+      const hasTerminal = (get().panes[path] ?? []).some((p) => p.kind === 'terminal')
+      if (!hasTerminal) void get().openTerminal(path)
+    }
     persistSessionSoon()
   },
 
