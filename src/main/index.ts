@@ -5,7 +5,7 @@ import type { IpcApi, MainEvents } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { Store, idFromPath } from './store'
 import { GitWorktrees } from './git'
-import { scanWorktreePorts } from './ports'
+import { scanWorktree } from './ports'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
@@ -231,7 +231,7 @@ function registerIpc(): void {
   ipcMain.handle('terminalSessions', () => terminalBus.list())
 
   ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
-  ipcMain.handle('scanPorts', (_e, worktreePath: string) => scanWorktreePorts(worktreePath))
+  ipcMain.handle('scanWorktree', (_e, worktreePath: string) => scanWorktree(worktreePath))
   ipcMain.handle('gitStage', (_e, worktreePath: string, paths: string[]) => git.stage(worktreePath, paths))
   ipcMain.handle('gitUnstage', (_e, worktreePath: string, paths: string[]) => git.unstage(worktreePath, paths))
   ipcMain.handle('gitDiscard', (_e, worktreePath: string, paths: string[]) => git.discard(worktreePath, paths))

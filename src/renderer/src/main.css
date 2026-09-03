@@ -1028,5 +1028,6 @@ body {
 .floating-terminal-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; color: var(--muted-fg); }
 .floating-terminal-close:hover { background: var(--border); color: var(--foreground); }
 .floating-terminal .terminal-host-wrap { flex: 1 1 auto; min-height: 0; }
+.sb-usage { color: var(--muted-fg); gap: 4px; font-variant-numeric: tabular-nums; }
 .sb-float-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin: 2px 0; border-radius: 4px; color: var(--muted-fg); }
 .sb-float-toggle:hover { background: var(--border); color: var(--foreground); }

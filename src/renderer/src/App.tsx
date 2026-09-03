@@ -93,7 +93,7 @@ export function App() {
   const load = useAppStore((s) => s.load)
   const loading = useAppStore((s) => s.loading)
   const error = useAppStore((s) => s.error)
-  const ports = useAppStore((s) => s.ports)
+  const scans = useAppStore((s) => s.scans)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
@@ -142,7 +142,7 @@ export function App() {
     const timer = window.setInterval(() => {
       const st = useAppStore.getState()
       void st.refreshStatuses()
-      if (st.activeWorktreePath) void st.refreshPorts(st.activeWorktreePath)
+      if (st.activeWorktreePath) void st.refreshScan(st.activeWorktreePath)
     }, settings.statusPollMs)
     return () => window.clearInterval(timer)
   }, [settings.statusPollMs])
@@ -248,7 +248,7 @@ export function App() {
         <span className="sb-item">{repos.length} repos</span>
         {agentCount > 0 && <span className="sb-item"><span className="spinner" /> {agentCount} agent{agentCount > 1 ? 's' : ''}</span>}
         <span className="sb-spacer" />
-        {(ports[activeWorktreePath ?? ''] ?? []).map((p) => (
+        {(scans[activeWorktreePath ?? '']?.ports ?? []).map((p) => (
           <button
             key={p.port}
             className="sb-port"
@@ -258,6 +258,14 @@ export function App() {
             <Icon name="bolt" size={11} /> {p.port}
           </button>
         ))}
+        {(() => {
+          const u = scans[activeWorktreePath ?? '']
+          return u && (u.cpuPercent > 0 || u.memMB > 0) ? (
+            <span className="sb-item sb-usage" title={`worktree processes: ${u.cpuPercent}% cpu, ${u.memMB} MB ram`}>
+              <Icon name="activity" size={11} /> {u.cpuPercent}% · {u.memMB}M
+            </span>
+          ) : null
+        })()}
         {activeWorktreePath && (
           <button className="sb-float-toggle" title="Floating terminal (⌘J)" onClick={() => void useAppStore.getState().toggleFloatingTerminal()}>
             <Icon name="terminal" size={11} />

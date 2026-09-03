@@ -1,6 +1,14 @@
 import { execFile } from 'node:child_process'
 
 export type WorktreePort = { port: number; pid: number; command: string }
+/** Orca ResourceUsageStatusSegment + ports segment data for one worktree. */
+export type WorktreeScan = {
+  ports: WorktreePort[]
+  /** summed %cpu of worktree processes (instantaneous sample) */
+  cpuPercent: number
+  /** summed resident memory in MB */
+  memMB: number
+}
 
 const MAX_PIDS = 40
 
@@ -42,23 +50,56 @@ export function parseLsofCwd(out: string): Map<number, string> {
   return map
 }
 
+/** Parse `ps -axo pid=,%cpu=,rss=` output → pid → {cpu, rssKB}. */
+export function parsePsTable(out: string): Map<number, { cpu: number; rssKB: number }> {
+  const map = new Map<number, { cpu: number; rssKB: number }>()
+  for (const line of out.split('\n')) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 3) continue
+    const pid = Number(cols[0])
+    const cpu = Number(cols[1])
+    const kb = Number(cols[2])
+    if (!Number.isInteger(pid) || pid <= 0) continue
+    map.set(pid, { cpu: Number.isFinite(cpu) ? cpu : 0, rssKB: Number.isFinite(kb) ? kb : 0 })
+  }
+  return map
+}
+
 /**
- * Listening TCP ports owned by processes whose cwd is inside the worktree
- * (Orca's port-segment behavior). Best-effort: lsof may be missing or
- * sandboxed — empty list is a valid result.
+ * Ports + resource usage for ALL processes whose cwd is inside the worktree
+ * (Orca's ports + resource status segments). Two single-pass system scans:
+ * `ps -axo pid,%cpu,rss` and `lsof -d cwd` — no per-pid fan-out. Best-effort:
+ * missing/sandboxed tools yield an empty scan.
  */
-export async function scanWorktreePorts(worktreePath: string): Promise<WorktreePort[]> {
+export async function scanWorktree(worktreePath: string): Promise<WorktreeScan> {
+  const psTable = parsePsTable(await exec('ps', ['-axo', 'pid=,%cpu=,rss='], 4000))
+  if (psTable.size === 0) return { ports: [], cpuPercent: 0, memMB: 0 }
+
+  const cwds = parseLsofCwd(await exec('lsof', ['-d', 'cwd', '-Fn', '+c0'], 6000))
+  const pids = [...cwds.entries()]
+    .filter(([pid, cwd]) => psTable.has(pid) && (cwd === worktreePath || cwd.startsWith(worktreePath + '/')))
+    .map(([pid]) => pid)
+    .slice(0, MAX_PIDS)
+
+  let cpu = 0
+  let memKB = 0
+  for (const pid of pids) {
+    const u = psTable.get(pid)!
+    cpu += u.cpu
+    memKB += u.rssKB
+  }
+
   const listeners = parseLsofListeners(await exec('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '+c0'], 4000))
-  if (listeners.length === 0) return []
-  const pids = [...new Set(listeners.map((l) => l.pid))].slice(0, MAX_PIDS)
-  const cwds = parseLsofCwd(await exec('lsof', ['-a', '-p', pids.join(','), '-d', 'cwd', '-Fn'], 4000))
   const byPort = new Map<number, WorktreePort>()
   for (const { pid, port, command } of listeners) {
-    const cwd = cwds.get(pid)
-    if (!cwd) continue
-    if (cwd !== worktreePath && !cwd.startsWith(worktreePath + '/')) continue
+    if (!pids.includes(pid)) continue
     if (byPort.has(port)) continue
     byPort.set(port, { port, pid, command })
   }
-  return [...byPort.values()].sort((a, b) => a.port - b.port)
+
+  return {
+    ports: [...byPort.values()].sort((a, b) => a.port - b.port),
+    cpuPercent: Math.round(cpu * 10) / 10,
+    memMB: Math.round(memKB / 1024)
+  }
 }

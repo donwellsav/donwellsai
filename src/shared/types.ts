@@ -222,10 +222,9 @@ export type IpcApi = {
   terminalResize(sessionId: string, cols: number, rows: number): Promise<void>
   /** Send Ctrl-C byte to interrupt a foreground process (Stops a running agent TUI). */
   terminalInterrupt(sessionId: string): Promise<void>
-
   gitStatus(worktreePath: string): Promise<WorktreeStatus>
-  /** Listening TCP ports whose owning process cwd is inside the worktree. */
-  scanPorts(worktreePath: string): Promise<Array<{ port: number; pid: number; command: string }>>
+  /** Ports + cpu/mem of processes whose cwd is inside the worktree. */
+  scanWorktree(worktreePath: string): Promise<{ ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
   gitStage(worktreePath: string, paths: string[]): Promise<void>
   gitUnstage(worktreePath: string, paths: string[]): Promise<void>
   gitDiscard(worktreePath: string, paths: string[]): Promise<void>

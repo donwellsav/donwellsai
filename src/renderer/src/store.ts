@@ -66,8 +66,8 @@ type AppState = {
 
   /** live git status per worktree path (polled) */
   statuses: Record<string, WorktreeStatus>
-  /** listening dev-server ports per worktree path (polled; Orca port-segment) */
-  ports: Record<string, Array<{ port: number; pid: number; command: string }>>
+  /** per-worktree scan: listening ports + cpu/mem usage (polled; Orca status segments) */
+  scans: Record<string, { ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
   /** file explorer entries per worktree path */
   explorer: Record<string, FileEntry[]>
   /** open file previews per worktree path */
@@ -133,8 +133,8 @@ type AppState = {
   closePreview(worktreePath: string): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
-  /** Scan listening ports for the active worktree (dev-server segment). */
-  refreshPorts(worktreePath: string): Promise<void>
+  /** Scan ports + resource usage for the active worktree (status segments). */
+  refreshScan(worktreePath: string): Promise<void>
 
   runAgent(worktreePath: string, command: string): Promise<void>
   stopAgent(sessionId: string): void
@@ -207,7 +207,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRepoId: null,
   activeWorktreePath: null,
   statuses: {},
-  ports: {},
+  scans: {},
   explorer: {},
   previews: {},
   busy: {},
@@ -626,12 +626,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
-  async refreshPorts(worktreePath: string) {
+  async refreshScan(worktreePath: string) {
     try {
-      const ports = await window.orca.scanPorts(worktreePath)
-      set((s) => ({ ports: { ...s.ports, [worktreePath]: ports } }))
+      const scan = await window.orca.scanWorktree(worktreePath)
+      set((s) => ({ scans: { ...s.scans, [worktreePath]: scan } }))
     } catch {
-      // lsof unavailable/sandboxed — leave previous scan; segment stays quiet
+      // lsof/ps unavailable or sandboxed — leave previous scan; segments stay quiet
     }
   },
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLsofListeners, parseLsofCwd } from '../src/main/ports'
+import { parseLsofListeners, parseLsofCwd, parsePsTable } from '../src/main/ports'
 
 const LISTENERS = `COMMAND   PID   USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
 node    42411 muzik   22u  IPv4  0x9f2a1c3d4e5f      0t0  TCP *:3000 (LISTEN)
@@ -48,5 +48,19 @@ describe('parseLsofCwd', () => {
 
   it('tolerates empty output', () => {
     expect(parseLsofCwd('')).toBeInstanceOf(Map)
+  })
+})
+
+describe('parsePsTable', () => {
+  it('maps pid to cpu and rss', () => {
+    const out = '  42411  12.3  102400\n  42877   0.5   51200\n'
+    const m = parsePsTable(out)
+    expect(m.get(42411)).toEqual({ cpu: 12.3, rssKB: 102400 })
+    expect(m.get(42877)).toEqual({ cpu: 0.5, rssKB: 51200 })
+  })
+
+  it('tolerates empty and malformed rows', () => {
+    expect(parsePsTable('')).toBeInstanceOf(Map)
+    expect(parsePsTable('garbage row\n').size).toBe(0)
   })
 })
