@@ -18,7 +18,6 @@ export function TitlebarTabs() {
   const setActivePane = useAppStore((s) => s.setActivePane)
   const closePane = useAppStore((s) => s.closePane)
   const openTerminal = useAppStore((s) => s.openTerminal)
-  const splitTerminal = useAppStore((s) => s.splitTerminal)
   const openBrowser = useAppStore((s) => s.openBrowser)
   const [urlOpen, setUrlOpen] = useState(false)
   const [url, setUrl] = useState('')
@@ -96,9 +95,6 @@ export function TitlebarTabs() {
           </div>
         )}
       </div>
-      <button className="strip-button" title="Split terminal" onClick={() => void splitTerminal(activeWorktreePath)}>
-        <Icon name="split" size={16} />
-      </button>
     </>
   )
 }

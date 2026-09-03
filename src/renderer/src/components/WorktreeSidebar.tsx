@@ -139,9 +139,7 @@ export function WorktreeSidebar() {
           <Icon name="search" size={16} className="nav-search-icon" />
           <span className="nav-search-label">Search</span>
         </button>
-        <NavEntry icon="bolt" label="Tasks" onClick={() => dispatchAction('palette')} />
         <NavEntry icon="clock" label="Automations" onClick={() => useAppStore.getState().openSettings('automations')} />
-        <NavEntry icon="robot" label="Agents" badge={agentCount} onClick={() => useAppStore.getState().openSettings('general')} />
       </div>
 
       <div className="sidebar-scroll">
@@ -168,11 +166,6 @@ export function WorktreeSidebar() {
           <Icon name="dir" size={14} />
         </button>
         <span className="ws-spacer" />
-        {activeWorktreePath && (
-          <button className="ws-icon-btn" title="New worktree in active repo" onClick={() => dispatchAction('new-worktree')}>
-            <Icon name="terminal" size={14} />
-          </button>
-        )}
         <button className="ws-icon-btn" title="Settings" onClick={() => useAppStore.getState().openSettings('general')}>
           <Icon name="gear" size={14} />
         </button>

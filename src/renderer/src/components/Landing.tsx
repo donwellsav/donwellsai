@@ -8,7 +8,7 @@ export function Landing() {
   return (
     <div className="landing">
       <div className="landing-inner">
-        <div className="landing-logo">O</div>
+        <div className="landing-logo">&gt;_</div>
         <h1 className="landing-title">donwells.ai</h1>
         <p className="landing-sub">
           {repos.length === 0

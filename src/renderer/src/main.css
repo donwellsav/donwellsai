@@ -167,7 +167,7 @@ body {
   -webkit-app-region: no-drag;
 }
 .strip-tab:hover { color: var(--muted-fg); }
-.strip-tab.active { color: var(--foreground); }
+.strip-tab.active { color: var(--foreground); background: rgb(255 255 255 / 0.06); }
 .strip-active-bar {
   position: absolute;
   bottom: 0; left: 25%; right: 25%;
@@ -254,12 +254,11 @@ body {
 }
 
 .sidebar-section-title {
-  padding: 10px 10px 4px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: rgb(250 250 250 / 0.4);
-  text-transform: none;
-  letter-spacing: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted-fg);
 }
 .repo-section { margin-bottom: 4px; }
 .ws-spacer { flex: 1 1 auto; }
@@ -344,15 +343,11 @@ body {
   background: var(--ws);
 }
 .section-header .section-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 13px;
+  font-size: 10px;
   font-weight: 600;
-  line-height: 1;
-  color: var(--ws-fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted-fg);
 }
 .section-header .section-icon {
   display: inline-flex;
@@ -535,6 +530,9 @@ body {
   color: var(--muted-fg);
 }
 .pane-title-bar .pane-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; }
+/* Contextual pane controls: appear on hover/active — stacked panes stop repeating the same button pair */
+.pane-title-bar .icon-btn { opacity: 0; }
+.pane:hover .pane-title-bar .icon-btn, .pane-active .pane-title-bar .icon-btn, .pane-title-bar .agent-chip .icon-btn { opacity: 1; }
 
 .icon-btn {
   display: inline-flex;
@@ -662,12 +660,16 @@ body {
 }
 .landing-inner { display: flex; flex-direction: column; align-items: center; gap: 20px; max-width: 480px; text-align: center; }
 .landing-logo {
-  width: 80px; height: 80px;
-  border-radius: 16px;
-  background: #12181e;
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ai-accent);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 64px; height: 64px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 32px; font-weight: 800; letter-spacing: -0.02em;
-  color: #fafafa;
+  letter-spacing: -0.02em;
 }
 .landing-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 .landing-sub { font-size: 13px; color: var(--muted-fg); margin: 0; }

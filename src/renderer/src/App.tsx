@@ -245,8 +245,7 @@ export function App() {
         {rightSidebarOpen && <RightSidebar />}
       </div>
       <div className="status-bar">
-        <span className="sb-item">{repos.length} repos</span>
-        {agentCount > 0 && <span className="sb-item"><span className="spinner" /> {agentCount} agent{agentCount > 1 ? 's' : ''}</span>}
+        {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
         <span className="sb-spacer" />
         {(scans[activeWorktreePath ?? '']?.ports ?? []).map((p) => (
           <button
@@ -271,7 +270,6 @@ export function App() {
             <Icon name="terminal" size={11} />
           </button>
         )}
-        {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
       </div>
 
       {error && (
