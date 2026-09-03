@@ -91,6 +91,7 @@ export function App() {
   const load = useAppStore((s) => s.load)
   const loading = useAppStore((s) => s.loading)
   const error = useAppStore((s) => s.error)
+  const ports = useAppStore((s) => s.ports)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
@@ -137,7 +138,9 @@ export function App() {
   useEffect(() => {
     if (settings.statusPollMs <= 0) return
     const timer = window.setInterval(() => {
-      void useAppStore.getState().refreshStatuses()
+      const st = useAppStore.getState()
+      void st.refreshStatuses()
+      if (st.activeWorktreePath) void st.refreshPorts(st.activeWorktreePath)
     }, settings.statusPollMs)
     return () => window.clearInterval(timer)
   }, [settings.statusPollMs])
@@ -235,11 +238,20 @@ export function App() {
         </div>
         {rightSidebarOpen && <RightSidebar />}
       </div>
-
       <div className="status-bar">
         <span className="sb-item">{repos.length} repos</span>
         {agentCount > 0 && <span className="sb-item"><span className="spinner" /> {agentCount} agent{agentCount > 1 ? 's' : ''}</span>}
         <span className="sb-spacer" />
+        {(ports[activeWorktreePath ?? ''] ?? []).map((p) => (
+          <button
+            key={p.port}
+            className="sb-port"
+            title={`${p.command} listening on :${p.port} — open in browser pane`}
+            onClick={() => void useAppStore.getState().openBrowser(activeWorktreePath!, `http://localhost:${p.port}`)}
+          >
+            <Icon name="bolt" size={11} /> {p.port}
+          </button>
+        ))}
         {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
         {dirtyCount > 0 && <span className="sb-item"><span className="dot dirty" /> {dirtyCount} changed</span>}
       </div>

@@ -2,14 +2,15 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { copyFileSync, existsSync } from 'node:fs'
 import type { IpcApi, MainEvents } from '@shared/types'
-import { Store, idFromPath } from './store'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
+import { Store, idFromPath } from './store'
 import { GitWorktrees } from './git'
+import { scanWorktreePorts } from './ports'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
-import { SecretStore } from './secret-store'
 import { SkillsManager } from './skills'
+import { SecretStore } from './secret-store'
 import { AutomationStore, SchedulerService, nextRunAfter, type Automation } from './automations'
 import { OrchestrationStore, Orchestrator } from './orchestration'
 
@@ -230,6 +231,7 @@ function registerIpc(): void {
   ipcMain.handle('terminalSessions', () => terminalBus.list())
 
   ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
+  ipcMain.handle('scanPorts', (_e, worktreePath: string) => scanWorktreePorts(worktreePath))
   ipcMain.handle('gitStage', (_e, worktreePath: string, paths: string[]) => git.stage(worktreePath, paths))
   ipcMain.handle('gitUnstage', (_e, worktreePath: string, paths: string[]) => git.unstage(worktreePath, paths))
   ipcMain.handle('gitDiscard', (_e, worktreePath: string, paths: string[]) => git.discard(worktreePath, paths))

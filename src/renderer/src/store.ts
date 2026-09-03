@@ -66,6 +66,8 @@ type AppState = {
 
   /** live git status per worktree path (polled) */
   statuses: Record<string, WorktreeStatus>
+  /** listening dev-server ports per worktree path (polled; Orca port-segment) */
+  ports: Record<string, Array<{ port: number; pid: number; command: string }>>
   /** file explorer entries per worktree path */
   explorer: Record<string, FileEntry[]>
   /** open file previews per worktree path */
@@ -125,6 +127,8 @@ type AppState = {
   closePreview(worktreePath: string): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
+  /** Scan listening ports for the active worktree (dev-server segment). */
+  refreshPorts(worktreePath: string): Promise<void>
 
   runAgent(worktreePath: string, command: string): Promise<void>
   stopAgent(sessionId: string): void
@@ -197,6 +201,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeRepoId: null,
   activeWorktreePath: null,
   statuses: {},
+  ports: {},
   explorer: {},
   previews: {},
   busy: {},
@@ -609,6 +614,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       // succeeding doesn't mean the last action's error expired
       return { statuses: { ...s.statuses, ...statuses } }
     })
+  },
+
+  async refreshPorts(worktreePath: string) {
+    try {
+      const ports = await window.orca.scanPorts(worktreePath)
+      set((s) => ({ ports: { ...s.ports, [worktreePath]: ports } }))
+    } catch {
+      // lsof unavailable/sandboxed — leave previous scan; segment stays quiet
+    }
   },
 
   async runAgent(worktreePath: string, command: string) {

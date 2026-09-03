@@ -222,6 +222,8 @@ export type IpcApi = {
   terminalInterrupt(sessionId: string): Promise<void>
 
   gitStatus(worktreePath: string): Promise<WorktreeStatus>
+  /** Listening TCP ports whose owning process cwd is inside the worktree. */
+  scanPorts(worktreePath: string): Promise<Array<{ port: number; pid: number; command: string }>>
   gitStage(worktreePath: string, paths: string[]): Promise<void>
   gitUnstage(worktreePath: string, paths: string[]): Promise<void>
   gitDiscard(worktreePath: string, paths: string[]): Promise<void>
