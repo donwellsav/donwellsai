@@ -871,6 +871,15 @@ body {
 .git-file .git-file-path { font-family: var(--font-mono); font-size: 11px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .preview-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; background: var(--background); }
+.editor-host { flex: 1 1 auto; min-height: 0; }
+.editor-save-state {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-fg);
+  margin-right: 2px;
+  min-width: 84px;
+  text-align: right;
+}
 .git-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .git-branch-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; font-size: 12px; color: var(--muted-fg); }
 .git-branch-row .git-branch { font-family: var(--font-mono); font-size: 11px; color: var(--foreground); }

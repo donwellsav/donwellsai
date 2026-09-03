@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from 'react'
 import { useAppStore, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
-import { PreviewPane } from './PreviewPane'
+import { EditorPane } from './EditorPane'
 import { BrowserPane } from './BrowserPane'
 import { Icon } from './Icon'
 
@@ -175,7 +175,7 @@ export function Workbench() {
                 isActive={!!layout || isActive}
               />
             ) : pane.kind === 'preview' ? (
-              <PreviewPane worktreePath={activeWorktreePath} isActive />
+              <EditorPane worktreePath={activeWorktreePath} isActive />
             ) : null}
           </div>
         )}

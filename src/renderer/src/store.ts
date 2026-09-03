@@ -106,7 +106,7 @@ type AppState = {
   /** file explorer entries per worktree path */
   explorer: Record<string, FileEntry[]>
   /** open file previews per worktree path */
-  previews: Record<string, FileContent>
+  previews: Record<string, FileContent & { v: number }>
   /** loading flags */
   busy: Record<string, boolean>
 
@@ -170,6 +170,9 @@ type AppState = {
   loadExplorer(worktreePath: string, prefix?: string): Promise<void>
   openPreview(worktreePath: string, relPath: string): Promise<void>
   openBrowser(worktreePath: string, url: string): void
+  writePreview(worktreePath: string, relPath: string, content: string): Promise<void>
+  /** Editor → buffer sync after a save, without re-adopting into monaco (no v bump). */
+  notePreviewContent(worktreePath: string, content: string): void
   closePreview(worktreePath: string): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
@@ -218,6 +221,7 @@ async function restoreSession(
     runningAgents: Record<string, RunningAgent>
   } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {}, runningAgents: {} }
   const liveSessions = await window.orca.terminalSessions()
+  const restoredPreviews: Record<string, FileContent & { v: number }> = {}
   const liveById = new Map(liveSessions.map((s) => [s.id, s]))
   for (const repo of repos) {
     const savedRepo = saved.repos[repo.repo.id]
@@ -226,6 +230,16 @@ async function restoreSession(
       const valid: Pane[] = []
       for (const p of panes) {
         if (p.kind !== 'terminal' || !p.sessionId) {
+          // Editor buffers repopulate from disk on restore — a pane whose file
+          // is gone drops like a dead terminal instead of rendering blank.
+          if (p.kind === 'preview' && p.file) {
+            try {
+              const content = await window.orca.readFile(wtPath, p.file)
+              restoredPreviews[wtPath] = { ...content, v: 0 }
+            } catch {
+              continue
+            }
+          }
           valid.push(p)
           continue
         }
@@ -275,6 +289,7 @@ async function restoreSession(
     if (restored.terminals[sid]) restored.runningAgents[sid] = agent
   }
   state.runningAgents = restored.runningAgents
+  state.previews = restoredPreviews
   state.layouts = restored.layouts
   state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
 }
@@ -640,16 +655,43 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (next) layouts = { ...s.layouts, [worktreePath]: next }
         }
         return {
-          previews: { ...s.previews, [worktreePath]: content },
+          previews: { ...s.previews, [worktreePath]: { ...content, v: (s.previews[worktreePath]?.v ?? 0) + 1 } },
           panes,
           layouts,
           activePane: { ...s.activePane, [worktreePath]: key },
           error: null
         }
       })
+      persistSessionSoon()
     } catch (e) {
       set({ error: String(e) })
     }
+  },
+
+  /** Agent/user write-through: replace the file in the worktree and, when the
+   *  editor pane is open on it, replace its buffer in place (v bump triggers
+   *  the pane to adopt the new content without a disk round-trip). */
+  async writePreview(worktreePath: string, relPath: string, content: string) {
+    const saved = await window.orca.writeFile(worktreePath, relPath, content)
+    const key = `preview:${relPath}`
+    set((s) => {
+      const previews = { ...s.previews, [worktreePath]: { ...saved, v: (s.previews[worktreePath]?.v ?? 0) + 1 } }
+      const panes = { ...s.panes }
+      const cardPanes = [...(panes[worktreePath] ?? [])]
+      if (!cardPanes.some((p) => p.kind === 'preview' && p.file === relPath)) {
+        const idx = cardPanes.findIndex((p) => p.kind === 'preview')
+        if (idx !== -1) cardPanes.splice(idx, 1)
+        cardPanes.push({ key, kind: 'preview', file: relPath })
+        panes[worktreePath] = cardPanes
+      }
+      let layouts = s.layouts
+      if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
+        const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
+        if (next) layouts = { ...s.layouts, [worktreePath]: next }
+      }
+      return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
+    })
+    persistSessionSoon()
   },
 
   /** Open (or retarget) the worktree's single embedded browser pane. */
@@ -675,6 +717,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { panes, layouts, activePane: { ...s.activePane, [worktreePath]: key } }
     })
     persistSessionSoon()
+  },
+
+  notePreviewContent(worktreePath: string, content: string) {
+    set((s) => {
+      const existing = s.previews[worktreePath]
+      if (!existing || existing.content === content) return s.previews
+      return { previews: { ...s.previews, [worktreePath]: { ...existing, content } } }
+    })
   },
 
   closePreview(worktreePath: string) {

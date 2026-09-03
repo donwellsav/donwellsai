@@ -261,6 +261,9 @@ export type UiCommand =
   | { op: 'pane.resize'; worktreePath: string; splitId: number; pct: number }
   | { op: 'preview.open'; worktreePath: string; relPath: string }
   | { op: 'preview.close'; worktreePath: string }
+  | { op: 'editor.open'; worktreePath: string; relPath: string }
+  | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
+  | { op: 'editor.read'; worktreePath: string; relPath?: string }
   | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git'; width?: number }
   | { op: 'floating'; action?: 'open' | 'close' | 'toggle' }
   | { op: 'palette'; open?: boolean | 'toggle' }
@@ -308,6 +311,7 @@ export type IpcApi = {
   gitCheckout(worktreePath: string, branch: string): Promise<void>
   gitDiff(worktreePath: string, relPath: string): Promise<string>
   readFile(worktreePath: string, relPath: string): Promise<FileContent>
+  writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent>
   listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
   listAllFiles(worktreePath: string): Promise<FileEntry[]>
 

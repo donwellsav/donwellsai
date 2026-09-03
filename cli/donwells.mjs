@@ -20,6 +20,8 @@
  *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath>,
  *   ui-sidebar <left|right> [open|close|toggle] [explorer|git] [width],
  *   ui-floating [open|close|toggle], ui-palette [open|close|toggle], ui-settings [section]
+ *   editor-open <worktreePath> <file>, editor-write <worktreePath> <file> <content>,
+ *   editor-read <worktreePath> [file]
  */
 import { createConnection } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -60,6 +62,9 @@ const METHOD_MAP = {
   'ui-floating': 'ui.floating',
   'ui-palette': 'ui.palette',
   'ui-settings': 'ui.settings.open',
+  'editor-open': 'ui.editor.open',
+  'editor-write': 'ui.editor.write',
+  'editor-read': 'ui.editor.read',
   'settings-get': 'settings.get',
   'settings-set': 'settings.set',
   meta: 'meta.get'
@@ -154,6 +159,19 @@ function remapParams(method, params, flags) {
     if (p.a2 !== undefined) p.pct = Number(p.a2)
   }
   if (method === 'ui.preview.open' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.relPath = p.a1
+  }
+  if (method === 'ui.editor.open' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.relPath = p.a1
+  }
+  if (method === 'ui.editor.write' && p.a0) {
+    p.worktreePath = p.a0
+    if (p.a1) p.relPath = p.a1
+    if (p.a2 !== undefined) p.content = p.a2
+  }
+  if (method === 'ui.editor.read' && p.a0) {
     p.worktreePath = p.a0
     if (p.a1) p.relPath = p.a1
   }

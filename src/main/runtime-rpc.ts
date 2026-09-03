@@ -19,7 +19,8 @@ import type { DaemonClient } from './daemon-client'
  *   settings.get/set (live-applied), meta.get,
  *   browser.list/open/navigate/back/forward/reload/snapshot/eval,
  *   ui.state/activate, ui.terminal.open, ui.split, ui.pane.focus/close/resize,
- *   ui.preview.open/close, ui.sidebar, ui.floating, ui.palette, ui.settings.open
+ *   ui.preview.open/close, ui.sidebar, ui.floating, ui.palette, ui.settings.open,
+ *   ui.editor.open/write/read
  */
 
 export type RpcDeps = {
@@ -253,6 +254,12 @@ export class RuntimeRpcServer {
       }
       case 'ui.settings.open':
         return this.deps.ui.command({ op: 'settings.open', section: params['section'] as SettingsSection | undefined })
+      case 'ui.editor.open':
+        return this.deps.ui.command({ op: 'editor.open', worktreePath: str('worktreePath'), relPath: str('relPath') })
+      case 'ui.editor.write':
+        return this.deps.ui.command({ op: 'editor.write', worktreePath: str('worktreePath'), relPath: str('relPath'), content: str('content') })
+      case 'ui.editor.read':
+        return this.deps.ui.command({ op: 'editor.read', worktreePath: str('worktreePath'), relPath: params['relPath'] as string | undefined })
       case 'browser.list':
         return { panes: await this.deps.browser.command({ op: 'list' }) }
       case 'browser.open':

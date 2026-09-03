@@ -30,6 +30,7 @@ const api: IpcApi = {
   listFiles: (worktreePath, prefix) => ipcRenderer.invoke('listFiles', worktreePath, prefix),
   listAllFiles: (worktreePath) => ipcRenderer.invoke('listAllFiles', worktreePath),
   readFile: (worktreePath, relPath) => ipcRenderer.invoke('readFile', worktreePath, relPath),
+  writeFile: (worktreePath, relPath, content) => ipcRenderer.invoke('writeFile', worktreePath, relPath, content),
   getSettings: () => ipcRenderer.invoke('getSettings'),
   getWorkspaceSession: () => ipcRenderer.invoke('getWorkspaceSession'),
   saveWorkspaceSession: (ws) => ipcRenderer.invoke('saveWorkspaceSession', ws),

@@ -70,6 +70,19 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
     case 'preview.close':
       s.closePreview(cmd.worktreePath)
       return {}
+    case 'editor.open':
+      await s.openPreview(cmd.worktreePath, cmd.relPath)
+      return {}
+    case 'editor.write': {
+      await s.writePreview(cmd.worktreePath, cmd.relPath, cmd.content)
+      return { bytes: new TextEncoder().encode(cmd.content).length }
+    }
+    case 'editor.read': {
+      const buffer = s.previews[cmd.worktreePath]
+      if (buffer && (!cmd.relPath || buffer.path === cmd.relPath)) return buffer
+      if (!cmd.relPath) throw new Error('no editor open in this worktree')
+      return window.orca.readFile(cmd.worktreePath, cmd.relPath)
+    }
     case 'sidebar': {
       if (cmd.side === 'left') {
         s.setSidebarOpen(cmd.open === 'toggle' ? !s.sidebarOpen : (cmd.open ?? true))

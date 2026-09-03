@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { FileContent, FileEntry, RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
 import type { Store } from './store'
 import { readRepoWorktreeAdminFingerprint } from './worktree-fingerprint'
@@ -16,6 +16,15 @@ export class GitError extends Error {
     super(message)
     this.name = 'GitError'
   }
+}
+
+/** Editor/file writes and reads never escape the worktree (no .. or symlink jailbreaks). */
+function confinedPath(worktreePath: string, relPath: string): string {
+  if (relPath.startsWith('/') || relPath.includes('\0')) throw new GitError(`Invalid path: ${relPath}`)
+  const abs = resolve(worktreePath, relPath)
+  const root = resolve(worktreePath)
+  if (abs !== root && !abs.startsWith(root + sep)) throw new GitError(`Path escapes worktree: ${relPath}`)
+  return abs
 }
 
 function run(repoPath: string, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): Promise<string> {
@@ -378,7 +387,7 @@ export class GitWorktrees {
   /** Read one file from a worktree, capped at 512 KiB (rendering guard, not a product limit). */
   async readFile(worktreePath: string, relPath: string): Promise<FileContent> {
     verifyWorktreePath(this.store, worktreePath)
-    const abs = join(worktreePath, relPath)
+    const abs = confinedPath(worktreePath, relPath)
     if (!existsSync(abs)) throw new GitError(`No such file: ${relPath}`)
     const st = statSync(abs)
     if (st.isDirectory()) throw new GitError(`${relPath} is a directory`)
@@ -390,6 +399,18 @@ export class GitWorktrees {
       truncated: buf.length > limit,
       bytes: buf.length
     }
+  }
+
+  /** Write one file inside a worktree (editor autosave + agent edits). Creates new files; refuses traversal. */
+  async writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent> {
+    verifyWorktreePath(this.store, worktreePath)
+    if (content.length > 2 * 1024 * 1024) throw new GitError('File content exceeds 2 MiB write cap')
+    const abs = confinedPath(worktreePath, relPath)
+    const parent = dirname(abs)
+    if (!existsSync(parent) || !statSync(parent).isDirectory()) throw new GitError(`No such directory for: ${relPath}`)
+    writeFileSync(abs, content, 'utf8')
+    const st = statSync(abs)
+    return { path: relPath, content, truncated: false, bytes: st.size }
   }
 
   // ── GitOps: stage/unstage/commit/push/pull/branch/diff (upstream §8 git surface, lite) ──
