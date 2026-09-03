@@ -48,7 +48,8 @@ export function CommandPalette({ open }: { open: boolean }) {
     }
     out.push({ id: 'act:add-repo', label: 'Add repository…', hint: '⌘O', run: () => dispatchAction('add-repo') })
     out.push({ id: 'act:new-worktree', label: 'New worktree', hint: '⌘N', run: () => dispatchAction('new-worktree') })
-    out.push({ id: 'act:new-terminal', label: 'New terminal', hint: '⌘⇧T', run: () => dispatchAction('new-terminal') })
+    out.push({ id: 'act:new-terminal', label: 'New terminal', hint: '⌘T', run: () => dispatchAction('new-terminal') })
+    out.push({ id: 'act:close-tab', label: 'Close active tab', hint: '⌘W', run: () => dispatchAction('close-active-pane') })
     out.push({ id: 'act:split', label: 'Split terminal', hint: '⌘⇧5', run: () => dispatchAction('split-terminal') })
     out.push({ id: 'act:explorer', label: 'Toggle explorer', hint: '⌘⇧E', run: () => dispatchAction('toggle-explorer') })
     out.push({ id: 'act:git', label: 'Toggle git status', hint: '⌘⇧G', run: () => dispatchAction('toggle-git-status') })

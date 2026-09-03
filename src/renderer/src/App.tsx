@@ -11,8 +11,8 @@ import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
 
-/** Actions reachable from the menu, ⌘K palette, and keyboard shortcuts. */
-export function dispatchAction(action: string): void {
+/** Actions reachable from the menu, ⌘K palette, and keyboard shortcuts. `arg` = tab index for select-tab. */
+export function dispatchAction(action: string, arg?: number): void {
   const s = useAppStore.getState()
   switch (action) {
     case 'add-repo':
@@ -57,8 +57,24 @@ export function dispatchAction(action: string): void {
     case 'settings':
       s.setSettingsOpen(true)
       break
-  }
-}
+    case 'close-active-pane': {
+      const target = s.activeWorktreePath
+      const key = target ? s.activePane[target] : ''
+      if (target && key) s.closePane(target, key)
+      break
+    }
+    case 'select-tab': {
+      const target = pinnedWorktree()
+      if (!target) break
+      const tabs = (s.panes[target] ?? []).filter(
+        (p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser'
+      )
+      const pane = arg !== undefined ? tabs[arg] : undefined
+      if (pane) s.setActivePane(target, pane.key)
+      break
+    }
+   }
+ }
 
 /** Resolve the worktree a global action should pin to: focused, else first non-main, else main. */
 function pinnedWorktree(): string | null {
@@ -102,9 +118,12 @@ export function App() {
     )
     // Repos/worktrees may be mutated by CLI/RPC clients behind our back — resync + prune.
     const offWt = window.orca.on('worktree:changed', () => void useAppStore.getState().syncRepos())
+    // Menu accelerators route through the same dispatch as keyboard shortcuts.
+    const offMenu = window.orca.on('menu:action', ({ action }) => dispatchAction(action))
     void load()
     return () => {
       offWt()
+      offMenu()
     }
   }, [load])
 
@@ -123,22 +142,42 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [settings.statusPollMs])
 
-  // Global keyboard: ⌘K palette, ⌘+Enter run agent, ⌘N new worktree.
+  // Global keyboard: ⌘K/⌘P palette, ⌘↩ run agent, ⌘N new worktree, ⌘B sidebar,
+  // ⌘T/⌘W tabs, ⌘1–9 tab switch, ⌘, settings. Tab actions are inert while a
+  // modal owns the screen so keystrokes can't hit hidden panes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const meta = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey
-      if (meta && e.key.toLowerCase() === 'k') {
+      if (!meta) return
+      const st = useAppStore.getState()
+      const modalOpen = st.paletteOpen || st.settingsOpen || st.createOpen
+      const k = e.key.toLowerCase()
+      if (k === 'k' || k === 'p') {
         e.preventDefault()
         dispatchAction('command-palette')
-      } else if (meta && e.key === 'Enter') {
+      } else if (e.key === 'Enter') {
         e.preventDefault()
         dispatchAction('run-agent')
-      } else if (meta && e.key.toLowerCase() === 'n') {
+      } else if (k === 'n') {
         e.preventDefault()
         dispatchAction('new-worktree')
-      } else if (meta && e.key.toLowerCase() === 'b') {
+      } else if (k === 'b') {
         e.preventDefault()
         dispatchAction('toggle-sidebar')
+      } else if (e.key === ',') {
+        e.preventDefault()
+        dispatchAction('settings')
+      } else if (modalOpen) {
+        return
+      } else if (k === 't') {
+        e.preventDefault()
+        dispatchAction('new-terminal')
+      } else if (k === 'w') {
+        e.preventDefault()
+        dispatchAction('close-active-pane')
+      } else if (/^[1-9]$/.test(e.key)) {
+        e.preventDefault()
+        dispatchAction('select-tab', Number(e.key) - 1)
       }
     }
     window.addEventListener('keydown', onKey)

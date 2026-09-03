@@ -93,7 +93,9 @@ function buildMenu(): void {
         { label: 'Add Repository…', accelerator: 'CmdOrCtrl+O', click: () => menuAction('add-repo') },
         { label: 'New Worktree', accelerator: 'CmdOrCtrl+N', click: () => menuAction('new-worktree') },
         { type: 'separator' },
-        { role: isMac ? 'close' : 'quit' }
+        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => menuAction('close-active-pane') },
+        { label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W', click: () => BrowserWindow.getFocusedWindow()?.close() },
+        ...(isMac ? [] : [{ type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'quit' } as Electron.MenuItemConstructorOptions])
       ]
     },
     {
@@ -111,8 +113,8 @@ function buildMenu(): void {
     {
       label: 'View',
       submenu: [
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: () => menuAction('command-palette') },
-        { label: 'New Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: () => menuAction('new-terminal') },
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+P', click: () => menuAction('command-palette') },
+        { label: 'New Terminal', accelerator: 'CmdOrCtrl+T', click: () => menuAction('new-terminal') },
         { label: 'Split Terminal', accelerator: 'CmdOrCtrl+Shift+5', click: () => menuAction('split-terminal') },
         { label: 'Toggle Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: () => menuAction('toggle-explorer') },
         { label: 'Toggle Git Status', accelerator: 'CmdOrCtrl+Shift+G', click: () => menuAction('toggle-git-status') },
