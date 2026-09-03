@@ -65,8 +65,10 @@ export class PtyManager {
     proc.onExit(({ exitCode }) => {
       const s = this.sessions.get(id)
       if (!s) return
+      // node-pty#72: data can arrive after exit fires. VS Code's fix (9464b54)
+      // waits 250ms so scrollback is complete before the UI sees `exited`.
       s.session.exited = true
-      this.events.exit(id, exitCode)
+      setTimeout(() => this.events.exit(id, exitCode), 250)
     })
 
     return session

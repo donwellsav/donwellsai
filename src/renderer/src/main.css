@@ -531,6 +531,25 @@ body {
 
 .terminal-host { flex: 1 1 auto; min-height: 0; padding: 2px 0 0 4px; }
 .terminal-hidden { display: none; }
+.terminal-host-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* ⌘F search overlay (top-right of the pane) */
+.terminal-search {
+  position: absolute;
+  top: 4px; right: 10px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-floating);
+}
+.terminal-search .terminal-search-input { width: 180px; height: 24px; font-size: 12px; }
+.terminal-search .icon-btn { font-size: 11px; }
+.search-case-on { color: var(--foreground); background: var(--accent); border-radius: 5px; }
 
 /* ── Right sidebar (explorer / git) ────────────────────────── */
 

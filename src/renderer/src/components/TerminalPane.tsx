@@ -1,8 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useAppStore } from '../store'
 import { terminalBus } from '../terminal-bus'
+import { Icon } from './Icon'
 
 type Props = {
   sessionId: string
@@ -22,9 +26,11 @@ type Props = {
 export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const resizeCols = useRef(cols)
   const resizeRows = useRef(rows)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   // Mount once per sessionId; deliberately never re-runs for the session's life.
   useEffect(() => {
@@ -48,6 +54,38 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     term.open(host)
     termRef.current = term
     fitRef.current = fit
+
+    // WebGL renderer (upstream-default perf path; atuin/Pane/vscode all run it).
+    // Fall back to the DOM renderer on context loss — gpu context death must not
+    // blank the pane (xterm#6068: dispose leaks contexts, so we REPLACE, not toggle).
+    let webgl: WebglAddon | null = null
+    const loadWebgl = (): void => {
+      try {
+        webgl = new WebglAddon()
+        webgl.onContextLoss(() => {
+          try { webgl?.dispose() } catch { /* already gone */ }
+          webgl = null
+          // DOM renderer takes over automatically once the addon unloads.
+        })
+        term.loadAddon(webgl)
+      } catch {
+        webgl = null // no webgl (headless CI, driver blocks) — DOM renderer is fine
+      }
+    }
+    loadWebgl()
+
+    // macOS space switches / display sleep leave the GPU canvas stale
+    // (vscode#328542): force a redraw when the window becomes visible again.
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible' && webgl) {
+        try { term.refresh(0, term.rows - 1) } catch { /* mid-dispose */ }
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    searchRef.current = search
 
     const unsubscribe = terminalBus.subscribe(sessionId, (data) => term.write(data))
     // reattach replay: daemon-held scrollback written before any live data
@@ -79,7 +117,9 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     return () => {
       ro.disconnect()
       unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
       term.dispose()
+      webgl = null
       termRef.current = null
     }
   }, [sessionId])
@@ -119,6 +159,77 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
       }
     }
   }, [cols, rows, isActive])
+  // ⌘F opens the search bar scoped to the ACTIVE pane only.
+  useEffect(() => {
+    if (!isActive) return
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+      if (e.key === 'Escape') setSearchOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isActive])
 
-  return <div className={`terminal-host ${isActive ? '' : 'terminal-hidden'}`} ref={hostRef} />
+  return (
+    <div className={`terminal-host-wrap ${isActive ? '' : 'terminal-hidden'}`}>
+      {searchOpen && isActive && (
+        <TerminalSearch search={searchRef} onClose={() => setSearchOpen(false)} />
+      )}
+      <div className="terminal-host" ref={hostRef} />
+    </div>
+  )
+}
+/** ⌘F overlay: incremental search over the terminal buffer (official SearchAddon). */
+function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAddon | null>; onClose: () => void }) {
+  const [q, setQ] = useState('')
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const run = (backwards = false): void => {
+    const addon = search.current
+    if (!addon || !q) return
+    try {
+      if (backwards) addon.findPrevious(q, { caseSensitive })
+      else addon.findNext(q, { caseSensitive })
+    } catch { /* buffer mid-write */ }
+  }
+
+  return (
+    <div className="terminal-search" onKeyDown={(e) => e.stopPropagation()}>
+      <input
+        ref={inputRef}
+        className="input terminal-search-input"
+        placeholder="Search terminal…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) run(false)
+          else if (e.key === 'Enter' && e.shiftKey) run(true)
+          else if (e.key === 'Escape') onClose()
+        }}
+      />
+      <button
+        className={`icon-btn ${caseSensitive ? 'search-case-on' : ''}`}
+        title="Match case"
+        onClick={() => setCaseSensitive(!caseSensitive)}
+      >
+        Aa
+      </button>
+      <button className="icon-btn" title="Previous (Shift+Enter)" onClick={() => run(true)}>
+        ↑
+      </button>
+      <button className="icon-btn" title="Next (Enter)" onClick={() => run(false)}>
+        ↓
+      </button>
+      <button className="icon-btn" title="Close (Esc)" onClick={onClose}>
+        <Icon name="x" size={11} />
+      </button>
+    </div>
+  )
 }
