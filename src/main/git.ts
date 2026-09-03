@@ -7,7 +7,7 @@ import { readRepoWorktreeAdminFingerprint } from './worktree-fingerprint'
 import { retireWorktreeName, takenNames, uniquifyWorktreeName } from './worktree-name-retirement'
 import { idFromPath } from './store'
 import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
-import { pruneLineage, recordLineage } from './worktree-lineage'
+import { pruneLineage, recordLineage } from '@shared/worktree-lineage'
 
 export class GitError extends Error {
   constructor(message: string) {
@@ -171,10 +171,12 @@ export class GitWorktrees {
     const worktrees = await this.listWorktreesCached(repoPath)
     const repoId = idFromPath(repoPath)
     // keep lineage aligned with the live scan: drop dead branch pairs
-    this.store.setLineage(repoId, pruneLineage(this.store.getLineage(repoId), worktrees))
+    const lineage = pruneLineage(this.store.getLineage(repoId), worktrees)
+    this.store.setLineage(repoId, lineage)
     return {
       repo: { id: repoId, path: repoPath, addedAt: new Date().toISOString() },
       worktrees,
+      lineage,
       ...repoSummary(repoPath, worktrees)
     }
   }
@@ -188,6 +190,7 @@ export class GitWorktrees {
     const summary = {
       repo: { id: idFromPath(normalized), path: normalized, addedAt: new Date().toISOString() },
       worktrees,
+      lineage: {} as Record<string, string>,
       ...repoSummary(normalized, worktrees)
     }
     if (!this.store.listRepos().some((r) => r.id === summary.repo.id)) {

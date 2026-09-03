@@ -25,7 +25,8 @@ const paths: Record<string, string> = {
   robot: 'M5.5 6.5h5M5.5 9.5h5M6 2.5h4M8 2.5v2M4 4.5h8a2 2 0 012 2v5a2 2 0 01-2 2H4a2 2 0 01-2-2v-5a2 2 0 012-2z',
   bolt: 'M8.5 1.5L3 9h4l-1 6L12.5 6h-4l1-4.5z',
   mobile: 'M5 1.5h6a1 1 0 011 1v11a1 1 0 01-1 1H5a1 1 0 01-1-1v-11a1 1 0 011-1zM7 12h2',
-  chevrons: 'M6 3.5L10.5 8 6 12.5'
+  chevrons: 'M6 3.5L10.5 8 6 12.5',
+  alert: 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM8 4.5V9 M8 11.5h.01'
 }
 
 type IconProps = {

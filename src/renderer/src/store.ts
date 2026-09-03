@@ -99,6 +99,8 @@ type AppState = {
   rightSidebarOpen: boolean
   rightSidebarTab: 'explorer' | 'git'
   createOpen: boolean
+  /** worktree path pending styled delete confirmation (null = closed) */
+  deleteTarget: string | null
 
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
@@ -108,7 +110,7 @@ type AppState = {
   refresh(repoId?: string): Promise<void>
   createWorktree(name?: string, branch?: string): Promise<void>
   removeWorktree(worktreePath: string, force?: boolean): Promise<void>
-
+  setDeleteTarget(path: string | null): void
   openTerminal(worktreePath: string): Promise<TerminalSession | null>
   closeTerminal(worktreePath: string, sessionId: string): void
   writeTerminal(sessionId: string, data: string): void
@@ -215,6 +217,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   rightSidebarOpen: false,
   rightSidebarTab: 'explorer',
   createOpen: false,
+  deleteTarget: null,
   paletteOpen: false,
   settingsOpen: false,
   runningAgents: {},
@@ -687,6 +690,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ createOpen: open })
   },
 
+  setDeleteTarget(path: string | null) {
+    set({ deleteTarget: path })
+  },
   setActiveRepo(repoId: string | null) {
     set({ activeRepoId: repoId, activeWorktreePath: null })
     if (repoId) {

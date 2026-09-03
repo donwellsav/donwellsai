@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
-import { ancestryOf, descendantsOf, pruneLineage, recordLineage } from '../src/main/worktree-lineage'
+import { ancestryOf, descendantsOf, pruneLineage, recordLineage } from '../src/shared/worktree-lineage'
 import type { Worktree } from '../src/shared/types'
 
 function sh(cwd: string, ...args: string[]): void {

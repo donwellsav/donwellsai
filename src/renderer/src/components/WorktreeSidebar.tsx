@@ -57,7 +57,6 @@ function StatusLane({ worktreePath }: { worktreePath: string }) {
 
 function WorktreeCardRow({ worktree, active }: { worktree: Worktree; active: boolean }) {
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
-  const removeWorktree = useAppStore((s) => s.removeWorktree)
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -80,9 +79,8 @@ function WorktreeCardRow({ worktree, active }: { worktree: Worktree; active: boo
             style={{ visibility: hover ? 'visible' : 'hidden' }}
             onClick={(e) => {
               e.stopPropagation()
-              if (confirm(`Delete worktree "${worktree.branch.split('/').pop()}"? (moves to Trash)`)) {
-                void removeWorktree(worktree.path, false)
-              }
+              e.preventDefault()
+              useAppStore.getState().setDeleteTarget(worktree.path)
             }}
           >
             <Icon name="x" size={12} />

@@ -7,6 +7,7 @@ import { Landing } from './components/Landing'
 import { CreateWorktreeModal } from './components/CreateWorktreeModal'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
+import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
 import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
@@ -262,6 +263,7 @@ export function App() {
       <CommandPalette open={paletteOpen} />
       <SettingsModal open={settingsOpen} />
       <CreateWorktreeModal />
+      <DeleteWorktreeModal />
     </div>
   )
 }

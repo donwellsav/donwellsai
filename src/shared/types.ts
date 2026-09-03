@@ -37,6 +37,8 @@ export type WorktreeStatus = {
 export type RepoSummary = {
   repo: Repo
   worktrees: Worktree[]
+  /** branch → base branch at creation (worktree lineage, for removal-impact UI) */
+  lineage?: Record<string, string>
   defaultBranch: string
   currentBranch?: string
 }

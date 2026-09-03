@@ -6,6 +6,7 @@
   --background: #0a0a0a;
   --foreground: #fafafa;
   --card: #171717;
+  --popover: #171717;
   --card-fg: #fafafa;
   --primary: #e5e5e5;
   --primary-fg: #171717;
@@ -45,7 +46,18 @@
   --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
 }
 
-* { box-sizing: border-box; }
+/* UA button chrome (light buttonface bg, black text) bleeds through any
+ * button that doesn't set its own background — reset globally, dark theme. */
+button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
 
 html, body, #root {
   height: 100%;
@@ -668,6 +680,9 @@ body {
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  background: var(--secondary);
+  color: var(--secondary-fg);
+  border: 1px solid var(--border);
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--primary); color: var(--primary-fg); }
@@ -743,9 +758,9 @@ body {
   user-select: none;
 }
 .status-bar .sb-item { display: inline-flex; align-items: center; gap: 5px; }
-.status-bar .sb-spacer
-.sb-port { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 8px; margin: 2px 0; border-radius: 9px; border: none; background: var(--worktree-sidebar); color: var(--status-success); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
-.sb-port:hover { background: var(--border); color: var(--foreground); } { flex: 1 1 auto; }
+.status-bar .sb-spacer { flex: 1 1 auto; }
+.sb-port { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 8px; margin: 2px 0; border-radius: 9px; border: none; background: var(--ws); color: var(--status-success); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.sb-port:hover { background: var(--border); color: var(--foreground); }
 
 /* toasts (kept from previous design pass) */
 .toast-stack {
@@ -970,3 +985,19 @@ body {
 .browser-bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--card); }
 .browser-url { flex: 1 1 auto; height: 26px; font-family: var(--font-mono); font-size: 11px; }
 .browser-view { flex: 1 1 auto; min-height: 0; width: 100%; border: none; background: #fff; }
+
+/* Delete-worktree confirmation (Orca DeleteWorktreeDialog parity) */
+.delete-modal { width: 380px; }
+.delete-warning, .delete-lineage {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin-top: 10px; padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--ws); font-size: 12px; line-height: 1.45;
+}
+.delete-warning { border-left: 3px solid var(--git-deleted); color: var(--foreground); }
+.delete-warning svg { margin-top: 1px; color: var(--git-deleted); flex: none; }
+.delete-warning p { margin: 2px 0 0; color: var(--muted-fg); }
+.delete-lineage { display: block; }
+.delete-lineage ul { margin: 6px 0 0 16px; padding: 0; color: var(--muted-fg); }
+.btn-danger { background: var(--git-deleted); border-color: var(--git-deleted); color: #fff; }
+.btn-danger:hover { filter: brightness(1.1); }
