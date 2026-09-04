@@ -99,15 +99,8 @@ export function BrowserPane({ worktreePath, url, onClose }: { worktreePath: stri
     }
     const unsubscribe = window.orca.onBrowserCommand(async ({ id, cmd }) => {
       try {
-        if (cmd.op === 'list') {
-          window.orca.resolveBrowserCommand(id, { ok: true, result: registered ?? [] })
-          return
-        }
-        if (cmd.op === 'open') {
-          useAppStore.getState().openBrowser(worktreePath, cmd.url)
-          window.orca.resolveBrowserCommand(id, { ok: true, result: { opened: cmd.url } })
-          return
-        }
+        // open/list answered at the app shell (a cold start has no pane mounted)
+        if (cmd.op === 'list' || cmd.op === 'open') return
         if (cmd.key !== worktreePath && cmd.key !== 'active') throw new Error(`no browser pane for ${cmd.key}`)
         const result = await run(cmd)
         window.orca.resolveBrowserCommand(id, { ok: true, result })
@@ -165,7 +158,7 @@ export function BrowserPane({ worktreePath, url, onClose }: { worktreePath: stri
 }
 
 /** Collect the worktree paths that currently have a browser pane open. */
-function collectBrowserKeys(): string[] {
+export function collectBrowserKeys(): string[] {
   const st = useAppStore.getState()
   return Object.entries(st.panes)
     .filter(([, panes]) => panes.some((p) => p.kind === 'browser'))

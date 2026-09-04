@@ -11,6 +11,7 @@ import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
 import { Icon } from './components/Icon'
 import { isMarkdownFile, useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
+import { collectBrowserKeys } from './components/BrowserPane'
 import { executeUiCommand } from './agent-ui-commands'
 
 /** Actions reachable from the menu, ⌘K palette, and keyboard shortcuts. `arg` = tab index for select-tab. */
@@ -134,12 +135,31 @@ export function App() {
         window.orca.resolveUiCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
       }
     })
+    // Open/list must live at app shell: with zero browser panes mounted nobody
+    // else is subscribed, and a cold-start `browser.open` would time out.
+    const offBrowserShell = window.orca.onBrowserCommand(({ id, cmd }) => {
+      if (cmd.op !== 'open' && cmd.op !== 'list') return // mounted panes handle the rest
+      try {
+        if (cmd.op === 'open') {
+          const st = useAppStore.getState()
+          const wt = cmd.key === 'active' ? st.activeWorktreePath : cmd.key
+          if (!wt) throw new Error('no active worktree')
+          st.openBrowser(wt, cmd.url)
+          window.orca.resolveBrowserCommand(id, { ok: true, result: { opened: cmd.url, key: wt } })
+        } else {
+          window.orca.resolveBrowserCommand(id, { ok: true, result: collectBrowserKeys() })
+        }
+      } catch (e) {
+        window.orca.resolveBrowserCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })
     void load()
     return () => {
       offWt()
       offSettings()
       offMenu()
       offUi()
+      offBrowserShell()
     }
   }, [load])
 

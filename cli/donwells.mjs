@@ -128,7 +128,8 @@ function remapParams(method, params, flags) {
   if (method === 'terminal.open' && p.a0) { p.cwd = p.a0 }
   if (method === 'terminal.write' && p.a0) {
     p.sessionId = p.a0
-    if (p.a1) p.data = p.a1
+    // --enter submits the line (PTy needs \r, just like a keyboard)
+    if (p.a1 !== undefined) p.data = p.a1 + (flags.enter ? '\r' : '')
   }
   if (method === 'terminal.close' && p.a0) { p.sessionId = p.a0 }
   if (method === 'git.status' && p.a0) { p.worktreePath = p.a0 }

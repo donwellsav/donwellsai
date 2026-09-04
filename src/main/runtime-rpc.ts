@@ -262,9 +262,21 @@ export class RuntimeRpcServer {
         return this.deps.ui.command({ op: 'editor.read', worktreePath: str('worktreePath'), relPath: params['relPath'] as string | undefined })
       case 'browser.list':
         return { panes: await this.deps.browser.command({ op: 'list' }) }
-      case 'browser.open':
+      case 'browser.open': {
         await this.deps.browser.command({ op: 'open', key: str('worktreePath'), url: str('url') })
-        return { snapshot: await this.deps.browser.command({ op: 'snapshot', key: str('worktreePath') }) }
+        // webview needs a beat to attach + dom-ready; retry through that window
+        let lastErr: unknown = null
+        for (let attempt = 0; attempt < 10; attempt++) {
+          try {
+            return { snapshot: await this.deps.browser.command({ op: 'snapshot', key: str('worktreePath') }) }
+          } catch (e) {
+            lastErr = e
+            if (!/dom-ready|attached to the DOM|timed out/.test(String(e))) throw e
+            await new Promise((r) => setTimeout(r, 400))
+          }
+        }
+        throw lastErr
+      }
       case 'browser.navigate':
         return this.deps.browser.command({ op: 'navigate', key: str('key'), url: str('url') })
       case 'browser.back':
