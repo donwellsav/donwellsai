@@ -21,6 +21,23 @@ import 'monaco-editor/editor/contrib/links/browser/links.js'
 import 'monaco-editor/editor/contrib/wordHighlighter/browser/highlightDecorations.js'
 import 'monaco-editor/editor/contrib/suggest/browser/suggestController.js'
 import 'monaco-editor/editor/contrib/parameterHints/browser/parameterHints.js'
+// premium editing: sticky headers, F2 rename, peek defs/refs, quick fixes,
+// format, inlay hints, F8 error nav, semantic tokens, snippets, confusable
+// glyph warnings, linked tag editing — entry names per upstream editor.main
+import 'monaco-editor/editor/contrib/stickyScroll/browser/stickyScrollContribution.js'
+import 'monaco-editor/editor/contrib/rename/browser/rename.js'
+import 'monaco-editor/editor/contrib/gotoSymbol/browser/goToCommands.js'
+import 'monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js'
+import 'monaco-editor/editor/contrib/format/browser/formatActions.js'
+import 'monaco-editor/editor/contrib/inlayHints/browser/inlayHintsContribution.js'
+import 'monaco-editor/editor/contrib/gotoError/browser/gotoError.js'
+import 'monaco-editor/editor/contrib/semanticTokens/browser/viewportSemanticTokens.js'
+import 'monaco-editor/editor/contrib/snippet/browser/snippetController2.js'
+import 'monaco-editor/editor/contrib/unicodeHighlighter/browser/unicodeHighlighter.js'
+import 'monaco-editor/editor/contrib/linkedEditing/browser/linkedEditing.js'
+import 'monaco-editor/editor/contrib/wordPartOperations/browser/wordPartOperations.js'
+import 'monaco-editor/editor/contrib/caretOperations/browser/caretOperations.js'
+import 'monaco-editor/editor/contrib/lineSelection/browser/lineSelection.js'
 
 import 'monaco-editor/languages/definitions/typescript/register.js'
 import 'monaco-editor/languages/definitions/javascript/register.js'

@@ -45,6 +45,13 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       automaticLayout: true,
       minimap: { enabled: editorMinimap ?? false },
       wordWrap: editorWordWrap ?? 'off',
+      stickyScroll: { enabled: true },
+      guides: { indentation: true, bracketPairs: true, highlightActiveIndentation: true },
+      bracketPairColorization: { enabled: true },
+      smoothScrolling: true,
+      cursorSmoothCaretAnimation: 'on',
+      renderWhitespace: 'selection',
+      quickSuggestions: { other: true, comments: false, strings: true },
       scrollBeyondLastLine: false,
       padding: { top: 8 },
       renderLineHighlight: 'line',
@@ -56,7 +63,6 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     model.updateOptions({ tabSize: editorTabSize ?? 4 })
     const pending = pendingRef.current
     pending.disposed = false
-
     const flush = () => {
       pending.timer = undefined
       const content = model.getValue()
