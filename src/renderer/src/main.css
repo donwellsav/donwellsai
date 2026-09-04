@@ -1071,35 +1071,7 @@ body {
 .btn-danger { background: var(--git-deleted); border-color: var(--git-deleted); color: #fff; }
 .btn-danger:hover { filter: brightness(1.1); }
 
-/* Floating terminal panel (Orca FloatingTerminalPanel parity): bottom-right
- * sheet above the status bar; ≥420×280 like orca's bounds clamp; resizable. */
-.floating-terminal {
-  position: fixed;
-  right: 16px; bottom: 40px;
-  z-index: 40;
-  width: 520px; height: 320px;
-  min-width: 420px; min-height: 280px;
-  resize: both; overflow: hidden;
-  display: flex; flex-direction: column;
-  background: var(--popover);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-floating);
-}
-.floating-terminal-head {
-  display: flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 8px;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted-fg); font-size: 11px;
-  flex: none;
-}
-.floating-terminal-title { flex: 1; }
-.floating-terminal-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 4px; color: var(--muted-fg); }
-.floating-terminal-close:hover { background: var(--border); color: var(--foreground); }
-.floating-terminal .terminal-host-wrap { flex: 1 1 auto; min-height: 0; }
 .sb-usage { color: var(--muted-fg); gap: 4px; font-variant-numeric: tabular-nums; }
-.sb-float-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin: 2px 0; border-radius: 4px; color: var(--muted-fg); }
-.sb-float-toggle:hover { background: var(--border); color: var(--foreground); }
 
 .terminal-init-error {
   display: flex; gap: 8px; align-items: flex-start;
@@ -1260,12 +1232,8 @@ input[type='range'] { accent-color: var(--accent); width: 180px; }
 }
 .palette-empty { padding: 14px; font-size: 12px; color: var(--muted-fg); }
 
-/* Panel resize handles (left sidebar, right sidebar, floating terminal). */
+/* Panel resize handles (left sidebar, right sidebar). */
 .right-sidebar-resize {
   position: absolute; top: 0; bottom: 0; left: -3px; width: 6px;
   cursor: col-resize; z-index: 30;
-}
-.floating-terminal-resize {
-  position: absolute; top: 0; bottom: 0; left: -4px; width: 8px;
-  cursor: ew-resize; z-index: 5;
 }

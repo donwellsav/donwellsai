@@ -141,13 +141,9 @@ type AppState = {
   sidebarOpen: boolean
   sidebarWidth: number
   rightSidebarWidth: number
-  floatingSize: { w: number; h: number }
   rightSidebarOpen: boolean
   rightSidebarTab: 'explorer' | 'git'
   createOpen: boolean
-  /** floating terminal panel (global, outside the worktree pane tree) */
-  floatingOpen: boolean
-  floatingSessionId: string | null
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
   load(): Promise<void>
@@ -164,9 +160,6 @@ type AppState = {
   writeTerminal(sessionId: string, data: string): void
   interruptTerminal(sessionId: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  /** Toggle the floating terminal; spawns a session in the active worktree on first open. */
-  toggleFloatingTerminal(): Promise<void>
-
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
   closePane(worktreePath: string, key: string): void
   setActivePane(worktreePath: string, key: string): void
@@ -199,7 +192,6 @@ type AppState = {
   setSidebarOpen(open: boolean): void
   setSidebarWidth(w: number): void
   setRightSidebarWidth(w: number): void
-  setFloatingSize(w: number, h: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): void
   setRightSidebarOpen(open: boolean): void
   setRightSidebarTab(tab: 'explorer' | 'git'): void
@@ -328,12 +320,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarOpen: true,
   sidebarWidth: 280,
   rightSidebarWidth: 350,
-  floatingSize: { w: 520, h: 320 },
   rightSidebarOpen: false,
   rightSidebarTab: 'explorer',
   createOpen: false,
-  floatingOpen: false,
-  floatingSessionId: null,
   deleteTarget: null,
   paletteOpen: false,
   settingsOpen: false,
@@ -371,7 +360,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({
           sidebarWidth: ui.sidebarWidth ?? get().sidebarWidth,
           rightSidebarWidth: ui.rightSidebarWidth ?? get().rightSidebarWidth,
-          floatingSize: { w: ui.floatW ?? get().floatingSize.w, h: ui.floatH ?? get().floatingSize.h }
         })
       }
       if (repos.length > 0) void get().refreshStatuses()
@@ -968,11 +956,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  setFloatingSize(w: number, h: number) {
-    set({ floatingSize: { w: Math.min(1400, Math.max(380, Math.round(w))), h: Math.min(900, Math.max(220, Math.round(h))) } })
-    persistSessionSoon()
-  },
-
   resizeSplit(worktreePath: string, splitId: number, pct: number) {
     const prev = get().layouts[worktreePath]
     if (!prev) return
@@ -1003,34 +986,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  async toggleFloatingTerminal() {
-    const s = get()
-    if (s.floatingOpen) {
-      set({ floatingOpen: false })
-      return
-    }
-    const worktree = s.activeWorktreePath
-    if (!worktree) return
-    // reuse the live floating session, else spawn one outside the pane tree
-    let sessionId = s.floatingSessionId
-    if (!sessionId || !s.terminals[sessionId]) {
-      try {
-        const session = await window.orca.openTerminal(worktree, worktree)
-        sessionId = session.id
-        set((st) => ({
-          terminals: { ...st.terminals, [session.id]: { session, cols: 80, rows: 24 } },
-          floatingSessionId: session.id,
-          floatingOpen: true,
-          error: null
-        }))
-        return
-      } catch (e) {
-        set({ error: String(e) })
-        return
-      }
-    }
-    set({ floatingOpen: true })
-  },
   setActiveWorktree(path: string | null) {
     set({ activeWorktreePath: path })
     if (path) {
@@ -1086,7 +1041,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const runningAgents = { ...s.runningAgents }
     delete runningAgents[sessionId]
     terminalBus.dropSession(sessionId)
-    const wasFloating = s.floatingSessionId === sessionId
     set({
       panes,
       terminals,
@@ -1094,9 +1048,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       activePane,
       activeTerminal,
       runningAgents,
-      layouts,
-      floatingSessionId: wasFloating ? null : s.floatingSessionId,
-      floatingOpen: wasFloating ? false : s.floatingOpen
+      layouts
     })
     persistSessionSoon()
   },
@@ -1156,7 +1108,7 @@ export function persistSessionSoon(): void {
       activeRepoId: s.activeRepoId,
       repos,
       runningAgents: s.runningAgents,
-      ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth, floatW: s.floatingSize.w, floatH: s.floatingSize.h }
+      ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth }
     })
   }, 400)
 }

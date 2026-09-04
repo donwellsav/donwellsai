@@ -8,7 +8,6 @@ import { CreateWorktreeModal } from './components/CreateWorktreeModal'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
 import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
-import { FloatingTerminal } from './components/FloatingTerminal'
 import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
@@ -162,9 +161,8 @@ export function App() {
   }, [settings.statusPollMs])
 
   // Global keyboard: ⌘K/⌘P palette, ⌘↩ run agent, ⌘N new worktree, ⌘B sidebar,
-  // ⌘T/⌘W tabs, ⌘1–9 tab switch, ⌘J floating terminal, ⌘, settings. Tab
-  // actions are inert while a modal owns the screen so keystrokes can't hit
-  // hidden panes.
+  // ⌘T/⌘W tabs, ⌘1–9 tab switch, ⌘, settings. Tab actions are inert
+  // while a modal owns the screen so keystrokes can't hit hidden panes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const meta = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey
@@ -184,9 +182,6 @@ export function App() {
       } else if (k === 'b') {
         e.preventDefault()
         dispatchAction('toggle-sidebar')
-      } else if (k === 'j') {
-        e.preventDefault()
-        void st.toggleFloatingTerminal()
       } else if (e.key === ',') {
         e.preventDefault()
         dispatchAction('settings')
@@ -279,11 +274,6 @@ export function App() {
             </span>
           ) : null
         })()}
-        {activeWorktreePath && (
-          <button className="sb-float-toggle" title="Floating terminal (⌘J)" onClick={() => void useAppStore.getState().toggleFloatingTerminal()}>
-            <Icon name="terminal" size={11} />
-          </button>
-        )}
       </div>
 
       {error && (
@@ -293,7 +283,6 @@ export function App() {
       <SettingsModal open={settingsOpen} />
       <CreateWorktreeModal />
       <DeleteWorktreeModal />
-      <FloatingTerminal />
     </div>
   )
 }

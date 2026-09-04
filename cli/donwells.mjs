@@ -19,7 +19,7 @@
  *   ui-focus <worktreePath> <key>, ui-close-pane <worktreePath> <key>, ui-resize <worktreePath> <splitId> <pct>,
  *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath> [relPath],
  *   ui-sidebar <left|right> [open|close|toggle] [explorer|git] [width],
- *   ui-floating [open|close|toggle], ui-palette [open|close|toggle], ui-settings [section]
+ *   ui-palette [open|close|toggle], ui-settings [section]
  *   editor-open <worktreePath> <file>, editor-write <worktreePath> <file> <content>,
  *   editor-read <worktreePath> [file]
  */
@@ -59,7 +59,6 @@ const METHOD_MAP = {
   'ui-preview': 'ui.preview.open',
   'ui-preview-close': 'ui.preview.close',
   'ui-sidebar': 'ui.sidebar',
-  'ui-floating': 'ui.floating',
   'ui-palette': 'ui.palette',
   'ui-settings': 'ui.settings.open',
   'editor-open': 'ui.editor.open',
@@ -186,7 +185,6 @@ function remapParams(method, params, flags) {
       else if (!Number.isNaN(Number(a))) p.width = Number(a)
     }
   }
-  if (method === 'ui.floating' && p.a0) { p.action = p.a0 }
   if (method === 'ui.palette' && p.a0) { p.open = p.a0 }
   if (method === 'ui.settings.open' && p.a0) { p.section = p.a0 }
   for (const k of ['a0', 'a1', 'a2', 'a3']) delete p[k]

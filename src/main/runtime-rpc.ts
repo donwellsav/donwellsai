@@ -19,7 +19,7 @@ import type { DaemonClient } from './daemon-client'
  *   settings.get/set (live-applied), meta.get,
  *   browser.list/open/navigate/back/forward/reload/snapshot/eval,
  *   ui.state/activate, ui.terminal.open, ui.split, ui.pane.focus/close/resize,
- *   ui.preview.open/close, ui.sidebar, ui.floating, ui.palette, ui.settings.open,
+ *   ui.preview.open/close, ui.sidebar, ui.palette, ui.settings.open,
  *   ui.editor.open/write/read
  */
 
@@ -244,8 +244,6 @@ export class RuntimeRpcServer {
           tab: params['tab'] as 'explorer' | 'git' | undefined,
           width: params['width'] === undefined ? undefined : Number(params['width'])
         })
-      case 'ui.floating':
-        return this.deps.ui.command({ op: 'floating', action: (params['action'] as 'open' | 'close' | 'toggle' | undefined) ?? 'toggle' })
       case 'ui.palette': {
         const raw = params['open']
         // CLI passthrough sends 'open'/'close' strings — normalize here

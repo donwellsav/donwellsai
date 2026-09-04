@@ -37,8 +37,6 @@ function seed(): void {
     paletteOpen: false,
     settingsOpen: false,
     settingsSection: 'general',
-    floatingOpen: false,
-    floatingSessionId: null
   })
 }
 

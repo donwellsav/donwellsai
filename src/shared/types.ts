@@ -142,7 +142,7 @@ export type PersistedState = {
   workspaceSession?: {
     activeRepoId: string | null
     /** persisted chrome widths (panel resizing) */
-    ui?: { sidebarWidth?: number; rightSidebarWidth?: number; floatW?: number; floatH?: number }
+    ui?: { sidebarWidth?: number; rightSidebarWidth?: number }
     /**
      * Agent chips keyed by PTY session id. Restored only when the daemon still
      * owns the session — a chip must never outlive the process it tracks.
@@ -265,7 +265,6 @@ export type UiCommand =
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
   | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git'; width?: number }
-  | { op: 'floating'; action?: 'open' | 'close' | 'toggle' }
   | { op: 'palette'; open?: boolean | 'toggle' }
   | { op: 'settings.open'; section?: SettingsSection }
 

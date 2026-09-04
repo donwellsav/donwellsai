@@ -20,7 +20,6 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
         runningAgents: s.runningAgents,
         sidebar: { open: s.sidebarOpen, width: s.sidebarWidth },
         rightSidebar: { open: s.rightSidebarOpen, tab: s.rightSidebarTab, width: s.rightSidebarWidth },
-        floating: { open: s.floatingOpen, sessionId: s.floatingSessionId, size: s.floatingSize },
         paletteOpen: s.paletteOpen,
         settings: s.settings,
         settingsOpen: s.settingsOpen,
@@ -95,12 +94,6 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       if (cmd.tab) s.setRightSidebarTab(cmd.tab)
       if (cmd.width !== undefined) s.setRightSidebarWidth(cmd.width)
       return { open }
-    }
-    case 'floating': {
-      if (cmd.action === 'open' && !s.floatingOpen) await s.toggleFloatingTerminal()
-      else if (cmd.action === 'close' && s.floatingOpen) await s.toggleFloatingTerminal()
-      else if (!cmd.action || cmd.action === 'toggle') await s.toggleFloatingTerminal()
-      return { open: useAppStore.getState().floatingOpen }
     }
     case 'palette': {
       const open = cmd.open === 'toggle' || cmd.open === undefined ? !s.paletteOpen : cmd.open

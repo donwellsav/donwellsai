@@ -24,8 +24,6 @@ function seed(): void {
     terminalOrder: { [wt]: ['t1'] },
     layouts: {},
     previews: {},
-    floatingOpen: false,
-    floatingSessionId: null
   })
 }
 
