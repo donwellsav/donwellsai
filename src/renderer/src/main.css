@@ -1252,7 +1252,7 @@ body {
 .diff-stat { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-fg); }
 .diff-spacer { flex: 1 1 auto; }
 .diff-head .icon-btn.active { color: var(--foreground); background: rgb(255 255 255 / 0.08); }
-.diff-host { flex: 1 1 auto; min-height: 0; }
+.diff-host { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--background); }
 
 .terminal-init-error {
   display: flex; gap: 8px; align-items: flex-start;
