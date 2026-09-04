@@ -72,6 +72,9 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
     case 'editor.open':
       await s.openPreview(cmd.worktreePath, cmd.relPath)
       return {}
+    case 'diff.open':
+      s.openDiff(cmd.worktreePath, cmd.relPath)
+      return { key: `diff:${cmd.relPath}` }
     case 'editor.write': {
       await s.writePreview(cmd.worktreePath, cmd.relPath, cmd.content)
       return { bytes: new TextEncoder().encode(cmd.content).length }

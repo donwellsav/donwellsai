@@ -69,7 +69,7 @@ export function dispatchAction(action: string, arg?: number): void {
       const target = pinnedWorktree()
       if (!target) break
       const tabs = (s.panes[target] ?? []).filter(
-        (p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser'
+        (p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser' || p.kind === 'diff'
       )
       const pane = arg !== undefined ? tabs[arg] : undefined
       if (pane) s.setActivePane(target, pane.key)

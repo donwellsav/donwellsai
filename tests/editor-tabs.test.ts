@@ -157,3 +157,37 @@ describe('editor tabs: multi-file previews', () => {
     expect(useAppStore.getState().previews[wt]?.['a.md']?.mode).toBe('preview')
   })
 })
+describe('diff panes', () => {
+  it('opens a diff pane, focuses it, and dedupes on re-open', async () => {
+    seed()
+    useAppStore.getState().openDiff(wt, 'src/notes.ts')
+    let s = useAppStore.getState()
+    expect(s.panes[wt]!.filter((p) => p.kind === 'diff')).toHaveLength(1)
+    expect(s.panes[wt]!.find((p) => p.kind === 'diff')).toMatchObject({ key: 'diff:src/notes.ts', file: 'src/notes.ts' })
+    expect(s.activePane[wt]).toBe('diff:src/notes.ts')
+    // no editor buffer is created — the diff editor loads both sides itself
+    expect(s.previews[wt]?.['src/notes.ts']).toBeUndefined()
+
+    // move focus away, re-open same file → no duplicate, focus returns
+    useAppStore.getState().setActivePane(wt, 'term:t1')
+    useAppStore.getState().openDiff(wt, 'src/notes.ts')
+    s = useAppStore.getState()
+    expect(s.panes[wt]!.filter((p) => p.kind === 'diff')).toHaveLength(1)
+    expect(s.activePane[wt]).toBe('diff:src/notes.ts')
+  })
+
+  it('coexists with an editor pane for the same file and closes independently', async () => {
+    seed()
+    await useAppStore.getState().openPreview(wt, 'src/notes.ts')
+    useAppStore.getState().openDiff(wt, 'src/notes.ts')
+    let s = useAppStore.getState()
+    expect(s.panes[wt]!.some((p) => p.kind === 'preview' && p.file === 'src/notes.ts')).toBe(true)
+    expect(s.panes[wt]!.some((p) => p.kind === 'diff')).toBe(true)
+
+    useAppStore.getState().closePane(wt, 'diff:src/notes.ts')
+    s = useAppStore.getState()
+    expect(s.panes[wt]!.filter((p) => p.kind === 'diff')).toHaveLength(0)
+    // editor buffer survives the diff pane closing
+    expect(s.previews[wt]?.['src/notes.ts']).toBeDefined()
+  })
+})

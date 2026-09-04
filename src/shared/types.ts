@@ -160,7 +160,7 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'; sessionId?: string; file?: string; url?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'; sessionId?: string; file?: string; url?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
@@ -271,6 +271,7 @@ export type UiCommand =
   | { op: 'pane.resize'; worktreePath: string; splitId: number; pct: number }
   | { op: 'preview.open'; worktreePath: string; relPath: string }
   | { op: 'preview.close'; worktreePath: string; relPath?: string }
+  | { op: 'diff.open'; worktreePath: string; relPath: string }
   | { op: 'editor.open'; worktreePath: string; relPath: string }
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
@@ -320,6 +321,8 @@ export type IpcApi = {
   gitCheckout(worktreePath: string, branch: string): Promise<void>
   gitDiff(worktreePath: string, relPath: string): Promise<string>
   readFile(worktreePath: string, relPath: string): Promise<FileContent>
+  /** Working-tree counterpart at a git ref (diff editor's left side). null = absent at ref. */
+  readFileAtRef(worktreePath: string, relPath: string, ref?: string): Promise<{ content: string | null }>
   writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent>
   listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
   listAllFiles(worktreePath: string): Promise<FileEntry[]>

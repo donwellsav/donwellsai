@@ -2,6 +2,7 @@ import { useRef, type ReactNode } from 'react'
 import { useAppStore, isMarkdownFile, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { EditorPane } from './EditorPane'
+import { DiffPane } from './DiffPane'
 import { BrowserPane } from './BrowserPane'
 import { Icon } from './Icon'
 
@@ -83,6 +84,7 @@ export function Workbench() {
 
   const labelOf = (pane: Pane): string => {
     if (pane.kind === 'preview') return pane.file?.split('/').pop() ?? 'file'
+    if (pane.kind === 'diff') return `${pane.file?.split('/').pop()} ⤨ diff`
     const session = pane.sessionId ? terminals[pane.sessionId]?.session : null
     return session?.title?.split(':').pop() ?? 'terminal'
   }
@@ -134,7 +136,7 @@ export function Workbench() {
             </div>
           ) : (
             <>
-              <Icon name={pane.kind === 'preview' ? 'file' : 'terminal'} size={11} />
+              <Icon name={pane.kind === 'preview' ? 'file' : pane.kind === 'diff' ? 'git' : 'terminal'} size={11} />
               <span className="pane-title">{labelOf(pane)}</span>
             </>
           )}
@@ -234,6 +236,8 @@ export function Workbench() {
               />
             ) : pane.kind === 'preview' && pane.file ? (
               <EditorPane worktreePath={activeWorktreePath} relPath={pane.file} />
+            ) : pane.kind === 'diff' && pane.file ? (
+              <DiffPane worktreePath={activeWorktreePath} relPath={pane.file} />
             ) : null}
           </div>
         )}
@@ -246,7 +250,7 @@ export function Workbench() {
         <LayoutTree node={layout} render={renderPane} onResize={(splitId, pct) => resizeSplit(activeWorktreePath, splitId, pct)} />
       ) : (
         panes
-          .filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser')
+          .filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser' || p.kind === 'diff')
           .map((p) => <div key={p.key} className={p.key === activePaneKey ? '' : 'terminal-hidden'}>{renderPane(p.key)}</div>)
       )}
     </div>

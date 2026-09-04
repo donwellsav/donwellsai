@@ -52,6 +52,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       cursorSmoothCaretAnimation: 'on',
       renderWhitespace: 'selection',
       quickSuggestions: { other: true, comments: false, strings: true },
+      links: true,
       scrollBeyondLastLine: false,
       padding: { top: 8 },
       renderLineHighlight: 'line',

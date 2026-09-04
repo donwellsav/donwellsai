@@ -24,8 +24,6 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   const setError = useAppStore((s) => s.setError)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [openDiff, setOpenDiff] = useState<string | null>(null)
-  const [diffText, setDiffText] = useState('')
   const [branches, setBranches] = useState<{ current: string; all: string[] } | null>(null)
 
   useEffect(() => {
@@ -61,13 +59,8 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   const unstagedRows = rows.filter((r) => (r.y !== ' ' && r.y !== '?') || r.untracked)
   const clean = rows.length === 0
 
-  const openDiffFor = async (p: string): Promise<void> => {
-    if (openDiff === p) {
-      setOpenDiff(null)
-      return
-    }
-    setOpenDiff(p)
-    setDiffText(await window.orca.gitDiff(worktreePath, p))
+  const openDiffFor = (p: string): void => {
+    useAppStore.getState().openDiff(worktreePath, p)
   }
 
   const FileLine = ({ r, stagedSection }: { r: FileRow; stagedSection: boolean }): React.JSX.Element => (
@@ -182,15 +175,6 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
         </div>
       )}
 
-      {openDiff && (
-        <div className="git-diff">
-          <div className="git-diff-head">
-            <span className="pane-title">{openDiff}</span>
-            <button className="icon-btn" onClick={() => setOpenDiff(null)}><Icon name="x" size={11} /></button>
-          </div>
-          <pre className="git-diff-code">{diffText || '(no diff — binary or untracked)'}</pre>
-        </div>
-      )}
     </div>
   )
 }

@@ -23,7 +23,7 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'browser'
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'
 export type Pane = {
   key: string
   kind: PaneKind
@@ -177,6 +177,8 @@ type AppState = {
 
   loadExplorer(worktreePath: string, prefix?: string): Promise<void>
   openPreview(worktreePath: string, relPath: string): Promise<void>
+  /** HEAD↔worktree diff editor for one file (component loads its own content). */
+  openDiff(worktreePath: string, relPath: string): void
   /** Switch an open editor pane to another file (tab switch semantics). */
   retargetPreview(worktreePath: string, paneKey: string, relPath: string): Promise<void>
   openBrowser(worktreePath: string, url: string): void
@@ -780,6 +782,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         previews: { ...s.previews, [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, mode } } }
       }
     })
+  },
+  openDiff(worktreePath: string, relPath: string) {
+    const key = `diff:${relPath}`
+    set((s) => {
+      const panes = { ...s.panes }
+      const cardPanes = [...(panes[worktreePath] ?? [])]
+      const activePane = { ...s.activePane, [worktreePath]: key }
+      // already open → focus only
+      if (cardPanes.some((p) => p.key === key)) return { activePane, error: null }
+      cardPanes.push({ key, kind: 'diff', file: relPath })
+      panes[worktreePath] = cardPanes
+      let layouts = s.layouts
+      if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
+        const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
+        if (next) layouts = { ...s.layouts, [worktreePath]: next }
+      }
+      return { panes, layouts, activePane, error: null }
+    })
+    persistSessionSoon()
   },
 
   /** Open (or retarget) the worktree's single embedded browser pane. */

@@ -38,6 +38,13 @@ import 'monaco-editor/editor/contrib/linkedEditing/browser/linkedEditing.js'
 import 'monaco-editor/editor/contrib/wordPartOperations/browser/wordPartOperations.js'
 import 'monaco-editor/editor/contrib/caretOperations/browser/caretOperations.js'
 import 'monaco-editor/editor/contrib/lineSelection/browser/lineSelection.js'
+// hover tooltips (TS docs), F1 command palette + goto-symbol/goto-line,
+// whole-document semantic colors
+import 'monaco-editor/editor/contrib/hover/browser/hoverContribution.js'
+import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneCommandsQuickAccess.js'
+import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoSymbolQuickAccess.js'
+import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js'
+import 'monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js'
 
 import 'monaco-editor/languages/definitions/typescript/register.js'
 import 'monaco-editor/languages/definitions/javascript/register.js'

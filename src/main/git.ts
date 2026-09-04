@@ -27,7 +27,7 @@ function confinedPath(worktreePath: string, relPath: string): string {
   return abs
 }
 
-function run(repoPath: string, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): Promise<string> {
+function run(repoPath: string, args: string[], opts: { cwd?: string; timeoutMs?: number; raw?: boolean } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
@@ -38,7 +38,7 @@ function run(repoPath: string, args: string[], opts: { cwd?: string; timeoutMs?:
           reject(new GitError((stderr || stdout || String(err)).trim()))
           return
         }
-        resolve(stdout.trim())
+        resolve(opts.raw ? stdout : stdout.trim())
       }
     )
   })
@@ -398,6 +398,19 @@ export class GitWorktrees {
       content: buf.subarray(0, limit).toString('utf8'),
       truncated: buf.length > limit,
       bytes: buf.length
+    }
+  }
+
+  /** File content at a git ref (diff editor). Absent at the ref → null; not "untouched by the repo" errors. */
+  async readFileAtRef(worktreePath: string, relPath: string, ref = 'HEAD'): Promise<{ content: string | null }> {
+    await verifyWorktreePath(this.store, worktreePath)
+    // ref + rel become one `<ref>:<rel>` token for `git show` — both hardened
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref)) throw new GitError(`Invalid ref: ${ref}`)
+    if (relPath.includes('..') || relPath.startsWith('/') || relPath.includes(':')) throw new GitError(`Invalid path: ${relPath}`)
+    try {
+      return { content: await run(worktreePath, ['show', `${ref}:${relPath}`], { raw: true }) }
+    } catch {
+      return { content: null }
     }
   }
 

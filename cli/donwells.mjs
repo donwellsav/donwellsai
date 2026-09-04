@@ -18,6 +18,7 @@
  *   ui-state, ui-activate <worktreePath|repoId>, ui-terminal <worktreePath>, ui-split <worktreePath>,
  *   ui-focus <worktreePath> <key>, ui-close-pane <worktreePath> <key>, ui-resize <worktreePath> <splitId> <pct>,
  *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath> [relPath],
+ *   ui-diff <worktreePath> <relPath>,
  *   ui-sidebar <left|right> [open|close|toggle] [explorer|git] [width],
  *   ui-palette [open|close|toggle], ui-settings [section]
  *   editor-open <worktreePath> <file>, editor-write <worktreePath> <file> <content>,
@@ -58,6 +59,7 @@ const METHOD_MAP = {
   'ui-resize': 'ui.pane.resize',
   'ui-preview': 'ui.preview.open',
   'ui-preview-close': 'ui.preview.close',
+  'ui-diff': 'ui.diff.open',
   'ui-sidebar': 'ui.sidebar',
   'ui-palette': 'ui.palette',
   'ui-settings': 'ui.settings.open',
@@ -158,7 +160,7 @@ function remapParams(method, params, flags) {
     if (p.a1 !== undefined) p.splitId = Number(p.a1)
     if (p.a2 !== undefined) p.pct = Number(p.a2)
   }
-  if (method === 'ui.preview.open' && p.a0) {
+  if ((method === 'ui.preview.open' || method === 'ui.diff.open') && p.a0) {
     p.worktreePath = p.a0
     if (p.a1) p.relPath = p.a1
   }

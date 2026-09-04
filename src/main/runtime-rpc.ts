@@ -254,6 +254,8 @@ export class RuntimeRpcServer {
         return this.deps.ui.command({ op: 'settings.open', section: params['section'] as SettingsSection | undefined })
       case 'ui.editor.open':
         return this.deps.ui.command({ op: 'editor.open', worktreePath: str('worktreePath'), relPath: str('relPath') })
+      case 'ui.diff.open':
+        return this.deps.ui.command({ op: 'diff.open', worktreePath: str('worktreePath'), relPath: str('relPath') })
       case 'ui.editor.write':
         return this.deps.ui.command({ op: 'editor.write', worktreePath: str('worktreePath'), relPath: str('relPath'), content: str('content') })
       case 'ui.editor.read':
