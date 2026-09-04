@@ -68,7 +68,7 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       await s.openPreview(cmd.worktreePath, cmd.relPath)
       return {}
     case 'preview.close':
-      s.closePreview(cmd.worktreePath)
+      s.closePreview(cmd.worktreePath, cmd.relPath)
       return {}
     case 'editor.open':
       await s.openPreview(cmd.worktreePath, cmd.relPath)
@@ -78,8 +78,9 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       return { bytes: new TextEncoder().encode(cmd.content).length }
     }
     case 'editor.read': {
-      const buffer = s.previews[cmd.worktreePath]
-      if (buffer && (!cmd.relPath || buffer.path === cmd.relPath)) return buffer
+      const files = s.previews[cmd.worktreePath]
+      const buffer = cmd.relPath ? files?.[cmd.relPath] : files ? Object.values(files)[0] : undefined
+      if (buffer) return buffer
       if (!cmd.relPath) throw new Error('no editor open in this worktree')
       return window.orca.readFile(cmd.worktreePath, cmd.relPath)
     }

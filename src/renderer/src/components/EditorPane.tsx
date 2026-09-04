@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { modelCache } from '../editor-models'
 import { monaco } from '../monaco-setup'
 import { useAppStore } from '../store'
 
-/** Models outlive pane remounts: undo history survives, agent writes land in place. */
-const modelCache = new Map<string, monaco.editor.ITextModel>()
-
-export function EditorPane({ worktreePath, isActive }: { worktreePath: string; isActive: boolean }) {
-  const preview = useAppStore((s) => s.previews[worktreePath])
-  const closePreview = useAppStore((s) => s.closePreview)
+/**
+ * One file, one pane: the tab strip lives in the pane title bar (Workbench);
+ * this component is pure editor surface. Model cache survives pane remounts,
+ * so undo history and agent writes land in place.
+ */
+export function EditorPane({ worktreePath, relPath }: { worktreePath: string; relPath: string }) {
+  const preview = useAppStore((s) => s.previews[worktreePath]?.[relPath])
   const fontSize = useAppStore((s) => s.settings.fontSize)
   const fontFamily = useAppStore((s) => s.settings.fontFamily)
   const notePreviewContent = useAppStore((s) => s.notePreviewContent)
@@ -44,23 +46,23 @@ export function EditorPane({ worktreePath, isActive }: { worktreePath: string; i
     })
     editorRef.current = editor
     modelRef.current = model
-    pendingRef.current.disposed = false
+    const pending = pendingRef.current
+    pending.disposed = false
 
     const flush = () => {
       pending.timer = undefined
       const content = model.getValue()
       setSaveState('saving')
       void window.orca
-        .writeFile(worktreePath, preview.path, content)
+        .writeFile(worktreePath, relPath, content)
         .then(() => {
-          notePreviewContent(worktreePath, content)
+          notePreviewContent(worktreePath, relPath, content)
           if (!pending.disposed) setSaveState(new Date().toLocaleTimeString('en-GB', { hour12: false }))
         })
         .catch(() => {
           if (!pending.disposed) setSaveState('failed')
         })
     }
-    const pending = pendingRef.current
     const sub = editor.onDidChangeModelContent(() => {
       setSaveState('saving')
       clearTimeout(pending.timer)
@@ -83,7 +85,7 @@ export function EditorPane({ worktreePath, isActive }: { worktreePath: string; i
       modelRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worktreePath, preview?.path])
+  }, [worktreePath, relPath])
 
   // adopt agent IPC writes (equality guard kills the self-write loop)
   useEffect(() => {
@@ -102,18 +104,23 @@ export function EditorPane({ worktreePath, isActive }: { worktreePath: string; i
 
   if (!preview) return null
   return (
-    <div className={`pane non-terminal preview-pane editor-pane ${isActive ? '' : 'terminal-hidden'}`}>
-      <div className="pane-toolbar">
-        <span className="pane-title">{preview.path}</span>
-        {preview.truncated && <span className="preview-truncated">(truncated at 512 KiB)</span>}
-        <span className="editor-save-state">
-          {saveState === '' ? '' : saveState === 'saving' ? 'saving…' : saveState === 'failed' ? 'save failed' : `saved ${saveState}`}
-        </span>
-        <button className="icon-btn" title="Close editor" onClick={() => closePreview(worktreePath)}>
-          ×
-        </button>
-      </div>
+    <div className="editor-pane">
       <div className="editor-host" ref={hostRef} />
+      {(saveState || preview?.truncated) && (
+        <span
+          className={`editor-status-chip${saveState === 'failed' ? ' failed' : ''}`}
+          title={saveState === 'failed' ? 'Could not write the file — see logs' : undefined}
+        >
+          {saveState === 'saving'
+            ? 'saving…'
+            : saveState === 'failed'
+              ? 'save failed'
+              : saveState
+                ? `saved ${saveState}`
+                : null}
+          {preview.truncated && saveState === '' ? 'read cap 512 KiB' : null}
+        </span>
+      )}
     </div>
   )
 }

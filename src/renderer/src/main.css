@@ -799,7 +799,7 @@ body {
 }
 
 /* legacy compat shims used by existing panes */
-.git-pane, .explorer-pane, .preview-pane {
+.git-pane, .explorer-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -870,16 +870,67 @@ body {
 .git-file:hover { background: rgb(255 255 255 / 0.05); }
 .git-file .git-file-path { font-family: var(--font-mono); font-size: 11px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.preview-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; background: var(--background); }
+/* Editor: the file tab strip lives in the workbench pane title bar; the pane itself is pure canvas. */
+.editor-pane { position: relative; display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; background: var(--background); }
 .editor-host { flex: 1 1 auto; min-height: 0; }
-.editor-save-state {
+.editor-status-chip {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  z-index: 5;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--muted-fg);
-  margin-right: 2px;
-  min-width: 84px;
-  text-align: right;
+  background: rgb(10 10 10 / 0.82);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  pointer-events: none;
 }
+.editor-status-chip.failed { color: var(--destructive); border-color: rgb(255 101 104 / 0.4); }
+
+.editor-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.editor-tabs::-webkit-scrollbar { display: none; }
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1.5px solid transparent;
+  color: var(--muted-fg);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 0;
+}
+.editor-tab:hover { color: var(--foreground); background: rgb(255 255 255 / 0.04); }
+.editor-tab.active { color: var(--foreground); border-bottom-color: var(--primary); }
+.editor-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--muted-fg);
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+}
+.editor-tab:hover .editor-tab-close, .editor-tab.active .editor-tab-close { opacity: 1; }
+.editor-tab-close:hover { background: rgb(255 255 255 / 0.09); color: var(--foreground); }
 .git-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .git-branch-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; font-size: 12px; color: var(--muted-fg); }
 .git-branch-row .git-branch { font-family: var(--font-mono); font-size: 11px; color: var(--foreground); }

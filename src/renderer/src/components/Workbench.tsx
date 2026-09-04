@@ -70,6 +70,10 @@ export function Workbench() {
   const dismissAgent = useAppStore((s) => s.dismissAgent)
   const setActivePane = useAppStore((s) => s.setActivePane)
   const closePane = useAppStore((s) => s.closePane)
+  const closePreview = useAppStore((s) => s.closePreview)
+  const retargetPreview = useAppStore((s) => s.retargetPreview)
+  const previewsForWt = useAppStore((s) => (s.activeWorktreePath ? s.previews[s.activeWorktreePath] : undefined))
+  const openFiles = Object.keys(previewsForWt ?? {})
   const splitTerminal = useAppStore((s) => s.splitTerminal)
   const openTerminal = useAppStore((s) => s.openTerminal)
   const resizeSplit = useAppStore((s) => s.resizeSplit)
@@ -92,8 +96,47 @@ export function Workbench() {
         onMouseDown={() => setActivePane(activeWorktreePath, paneKey)}
       >
         <div className="pane-title-bar">
-          <Icon name={pane.kind === 'preview' ? 'file' : 'terminal'} size={11} />
-          <span className="pane-title">{labelOf(pane)}</span>
+          {pane.kind === 'preview' && pane.file ? (
+            <div className="editor-tabs" role="tablist">
+              {openFiles.map((rel) => {
+                const name = rel.split('/').pop() ?? rel
+                const parts = rel.split('/')
+                const dup = openFiles.filter((o) => o.split('/').pop() === name).length > 1
+                const active = pane.file === rel
+                return (
+                  <button
+                    key={rel}
+                    role="tab"
+                    aria-selected={active}
+                    className={`editor-tab${active ? ' active' : ''}`}
+                    title={rel}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (!active) void retargetPreview(activeWorktreePath, pane.key, rel)
+                    }}
+                  >
+                    <span className="editor-tab-name">{dup ? parts.slice(-2).join('/') : name}</span>
+                    <span
+                      className="editor-tab-close"
+                      role="button"
+                      title={`Close ${name}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closePreview(activeWorktreePath, rel)
+                      }}
+                    >
+                      ×
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <>
+              <Icon name={pane.kind === 'preview' ? 'file' : 'terminal'} size={11} />
+              <span className="pane-title">{labelOf(pane)}</span>
+            </>
+          )}
           {pane.kind === 'terminal' && (
             <button className="icon-btn" title="Split terminal" onClick={() => void splitTerminal(activeWorktreePath)}>
               <Icon name="split" size={11} />
@@ -174,8 +217,8 @@ export function Workbench() {
                 rows={terminals[pane.sessionId]!.rows}
                 isActive={!!layout || isActive}
               />
-            ) : pane.kind === 'preview' ? (
-              <EditorPane worktreePath={activeWorktreePath} isActive />
+            ) : pane.kind === 'preview' && pane.file ? (
+              <EditorPane worktreePath={activeWorktreePath} relPath={pane.file} />
             ) : null}
           </div>
         )}

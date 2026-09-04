@@ -17,7 +17,7 @@
  *   browser-snapshot <key>, browser-eval <key> '<js>', browser-back|forward|reload <key>,
  *   ui-state, ui-activate <worktreePath|repoId>, ui-terminal <worktreePath>, ui-split <worktreePath>,
  *   ui-focus <worktreePath> <key>, ui-close-pane <worktreePath> <key>, ui-resize <worktreePath> <splitId> <pct>,
- *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath>,
+ *   ui-preview <worktreePath> <relPath>, ui-preview-close <worktreePath> [relPath],
  *   ui-sidebar <left|right> [open|close|toggle] [explorer|git] [width],
  *   ui-floating [open|close|toggle], ui-palette [open|close|toggle], ui-settings [section]
  *   editor-open <worktreePath> <file>, editor-write <worktreePath> <file> <content>,
@@ -149,6 +149,7 @@ function remapParams(method, params, flags) {
     else p.repoId = p.a0
   }
   if (['ui.terminal.open', 'ui.split', 'ui.preview.close'].includes(method) && p.a0) { p.worktreePath = p.a0 }
+  if (method === 'ui.preview.close' && p.a1) p.relPath = p.a1
   if (['ui.pane.focus', 'ui.pane.close'].includes(method) && p.a0) {
     p.worktreePath = p.a0
     if (p.a1) p.key = p.a1

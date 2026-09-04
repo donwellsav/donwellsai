@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { disposePreviewModel } from './editor-models'
 import type { SettingsSection,
 
   AgentPreset,
@@ -89,6 +90,11 @@ function pruneLayoutTo(node: LayoutNode, validKeys: ReadonlySet<string>): Layout
   if (first === node.first && second === node.second) return node
   return { ...node, first, second }
 }
+/** Rename one leaf key in place (editor retarget keeps the split geometry). */
+function replaceLayoutLeafKey(node: LayoutNode, from: string, to: string): LayoutNode {
+  if (node.kind === 'leaf') return node.pane === from ? { ...node, pane: to } : node
+  return { ...node, first: replaceLayoutLeafKey(node.first, from, to), second: replaceLayoutLeafKey(node.second, from, to) }
+}
 
 
 type AppState = {
@@ -105,8 +111,8 @@ type AppState = {
   scans: Record<string, { ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
   /** file explorer entries per worktree path */
   explorer: Record<string, FileEntry[]>
-  /** open file previews per worktree path */
-  previews: Record<string, FileContent & { v: number }>
+  /** open editor buffers: worktree path → file relPath → versioned content */
+  previews: Record<string, Record<string, FileContent & { v: number }>>
   /** loading flags */
   busy: Record<string, boolean>
 
@@ -169,11 +175,14 @@ type AppState = {
 
   loadExplorer(worktreePath: string, prefix?: string): Promise<void>
   openPreview(worktreePath: string, relPath: string): Promise<void>
+  /** Switch an open editor pane to another file (tab switch semantics). */
+  retargetPreview(worktreePath: string, paneKey: string, relPath: string): Promise<void>
   openBrowser(worktreePath: string, url: string): void
   writePreview(worktreePath: string, relPath: string, content: string): Promise<void>
   /** Editor → buffer sync after a save, without re-adopting into monaco (no v bump). */
-  notePreviewContent(worktreePath: string, content: string): void
-  closePreview(worktreePath: string): void
+  notePreviewContent(worktreePath: string, relPath: string, content: string): void
+  /** Close one file (relPath) or every editor of the worktree when omitted. */
+  closePreview(worktreePath: string, relPath?: string): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
   /** Scan ports + resource usage for the active worktree (status segments). */
@@ -221,7 +230,7 @@ async function restoreSession(
     runningAgents: Record<string, RunningAgent>
   } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {}, runningAgents: {} }
   const liveSessions = await window.orca.terminalSessions()
-  const restoredPreviews: Record<string, FileContent & { v: number }> = {}
+  const restoredPreviews: Record<string, Record<string, FileContent & { v: number }>> = {}
   const liveById = new Map(liveSessions.map((s) => [s.id, s]))
   for (const repo of repos) {
     const savedRepo = saved.repos[repo.repo.id]
@@ -234,8 +243,11 @@ async function restoreSession(
           // is gone drops like a dead terminal instead of rendering blank.
           if (p.kind === 'preview' && p.file) {
             try {
+              const files = (restoredPreviews[wtPath] ??= {})
+              if (p.file in files) { valid.push(p); continue }
+              if (Object.keys(files).length >= 12) continue
               const content = await window.orca.readFile(wtPath, p.file)
-              restoredPreviews[wtPath] = { ...content, v: 0 }
+              files[p.file] = { ...content, v: 0 }
             } catch {
               continue
             }
@@ -551,6 +563,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closePane(worktreePath: string, key: string) {
+    // closing an editor pane means closing its file: buffers, tabs, and models
+    const target = get().panes[worktreePath]?.find((p) => p.key === key)
+    if (target?.kind === 'preview' && target.file) {
+      get().closePreview(worktreePath, target.file)
+      return
+    }
     set((s) => {
       const panes = { ...s.panes }
       const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.key !== key)
@@ -641,26 +659,80 @@ export const useAppStore = create<AppState>((set, get) => ({
       const content = await window.orca.readFile(worktreePath, relPath)
       const key = `preview:${relPath}`
       set((s) => {
+        const previews = {
+          ...s.previews,
+          [worktreePath]: {
+            ...s.previews[worktreePath],
+            [relPath]: { ...content, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+          }
+        }
         const panes = { ...s.panes }
         const cardPanes = [...(panes[worktreePath] ?? [])]
-        const existed = cardPanes.some((p) => p.key === key)
-        const idx = cardPanes.findIndex((p) => p.kind === 'preview')
-        if (idx !== -1) cardPanes.splice(idx, 1)
+        const activePane = { ...s.activePane, [worktreePath]: key }
+        // already open somewhere → just focus that pane
+        if (cardPanes.some((p) => p.key === key)) return { previews, activePane, error: null }
+        // editor tabs: opening a new file retargets the ACTIVE editor pane, not a new split
+        const activeKey = s.activePane[worktreePath]
+        const active = activeKey ? cardPanes.find((p) => p.key === activeKey) : undefined
+        let layouts = s.layouts
+        if (active?.kind === 'preview') {
+          cardPanes[cardPanes.indexOf(active)] = { ...active, key, file: relPath }
+          panes[worktreePath] = cardPanes
+          const prevLayout = s.layouts[worktreePath]
+          if (prevLayout) layouts = { ...s.layouts, [worktreePath]: replaceLayoutLeafKey(prevLayout, activeKey, key) }
+          return { previews, panes, layouts, activePane, error: null }
+        }
         cardPanes.push({ key, kind: 'preview', file: relPath })
         panes[worktreePath] = cardPanes
         // a live split tree must include the new pane or it never renders
-        let layouts = s.layouts
         if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
           const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
           if (next) layouts = { ...s.layouts, [worktreePath]: next }
         }
-        return {
-          previews: { ...s.previews, [worktreePath]: { ...content, v: (s.previews[worktreePath]?.v ?? 0) + 1 } },
-          panes,
-          layouts,
-          activePane: { ...s.activePane, [worktreePath]: key },
-          error: null
+        return { previews, panes, layouts, activePane, error: null }
+      })
+      persistSessionSoon()
+    } catch (e) {
+      set({ error: String(e) })
+    }
+  },
+
+  async retargetPreview(worktreePath: string, paneKey: string, relPath: string) {
+    try {
+      const content = await window.orca.readFile(worktreePath, relPath)
+      const key = `preview:${relPath}`
+      set((s) => {
+        const previews = {
+          ...s.previews,
+          [worktreePath]: {
+            ...s.previews[worktreePath],
+            [relPath]: { ...content, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+          }
         }
+        const panes = { ...s.panes }
+        const cardPanes = [...(panes[worktreePath] ?? [])]
+        const idx = cardPanes.findIndex((p) => p.key === paneKey)
+        if (idx === -1 || cardPanes[idx]!.kind !== 'preview') return { error: null }
+        // a pane for that file exists elsewhere already: close ours, focus theirs
+        const other = cardPanes.findIndex((p) => p.key === key && p.file === relPath)
+        let layouts = s.layouts
+        if (other !== -1) {
+          cardPanes.splice(idx, 1)
+          panes[worktreePath] = cardPanes
+          const prevLayout = s.layouts[worktreePath]
+          if (prevLayout) {
+            const pruned = pruneLayoutTo(prevLayout, new Set(cardPanes.map((p) => p.key)))
+            layouts = { ...s.layouts }
+            if (pruned) layouts[worktreePath] = pruned
+            else delete layouts[worktreePath]
+          }
+          return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
+        }
+        cardPanes[idx] = { ...cardPanes[idx]!, key, file: relPath }
+        panes[worktreePath] = cardPanes
+        const prevLayout = s.layouts[worktreePath]
+        if (prevLayout) layouts = { ...s.layouts, [worktreePath]: replaceLayoutLeafKey(prevLayout, paneKey, key) }
+        return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
       })
       persistSessionSoon()
     } catch (e) {
@@ -675,12 +747,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const saved = await window.orca.writeFile(worktreePath, relPath, content)
     const key = `preview:${relPath}`
     set((s) => {
-      const previews = { ...s.previews, [worktreePath]: { ...saved, v: (s.previews[worktreePath]?.v ?? 0) + 1 } }
+      const previews = {
+        ...s.previews,
+        [worktreePath]: {
+          ...s.previews[worktreePath],
+          [relPath]: { ...saved, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+        }
+      }
       const panes = { ...s.panes }
       const cardPanes = [...(panes[worktreePath] ?? [])]
       if (!cardPanes.some((p) => p.kind === 'preview' && p.file === relPath)) {
-        const idx = cardPanes.findIndex((p) => p.kind === 'preview')
-        if (idx !== -1) cardPanes.splice(idx, 1)
         cardPanes.push({ key, kind: 'preview', file: relPath })
         panes[worktreePath] = cardPanes
       }
@@ -719,21 +795,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  notePreviewContent(worktreePath: string, content: string) {
+  notePreviewContent(worktreePath: string, relPath: string, content: string) {
     set((s) => {
-      const existing = s.previews[worktreePath]
-      if (!existing || existing.content === content) return s.previews
-      return { previews: { ...s.previews, [worktreePath]: { ...existing, content } } }
+      const file = s.previews[worktreePath]?.[relPath]
+      if (!file || file.content === content) return {}
+      return {
+        previews: {
+          ...s.previews,
+          [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, content } }
+        }
+      }
     })
   },
 
-  closePreview(worktreePath: string) {
+  closePreview(worktreePath: string, relPath?: string) {
+    const closedFiles = relPath !== undefined ? [relPath] : Object.keys(get().previews[worktreePath] ?? {})
     set((s) => {
       const panes = { ...s.panes }
-      const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.kind !== 'preview')
+      const cardPanes = (panes[worktreePath] ?? []).filter(
+        (p) => p.kind !== 'preview' || (relPath !== undefined && p.file !== relPath)
+      )
       panes[worktreePath] = cardPanes
       const previews = { ...s.previews }
-      delete previews[worktreePath]
+      if (relPath === undefined) {
+        delete previews[worktreePath]
+      } else {
+        const files = { ...previews[worktreePath] }
+        delete files[relPath]
+        if (Object.keys(files).length === 0) delete previews[worktreePath]
+        else previews[worktreePath] = files
+      }
       const activePane = { ...s.activePane }
       if (!cardPanes.some((p) => p.key === activePane[worktreePath])) {
         activePane[worktreePath] = cardPanes[0]?.key ?? ''
@@ -750,6 +841,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       persistSessionSoon()
       return { panes, previews, activePane, layouts }
     })
+    // models for files no longer shown anywhere get disposed (memory ceiling)
+    for (const f of closedFiles) disposePreviewModel(worktreePath, f)
   },
 
   /** Drop all per-worktree UI state whose worktree no longer belongs to any repo

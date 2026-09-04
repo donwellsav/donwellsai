@@ -260,7 +260,7 @@ export type UiCommand =
   | { op: 'pane.close'; worktreePath: string; key: string }
   | { op: 'pane.resize'; worktreePath: string; splitId: number; pct: number }
   | { op: 'preview.open'; worktreePath: string; relPath: string }
-  | { op: 'preview.close'; worktreePath: string }
+  | { op: 'preview.close'; worktreePath: string; relPath?: string }
   | { op: 'editor.open'; worktreePath: string; relPath: string }
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
