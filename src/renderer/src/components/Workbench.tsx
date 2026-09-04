@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react'
-import { useAppStore, type LayoutNode, type Pane } from '../store'
+import { useAppStore, isMarkdownFile, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { EditorPane } from './EditorPane'
 import { BrowserPane } from './BrowserPane'
@@ -74,6 +74,7 @@ export function Workbench() {
   const retargetPreview = useAppStore((s) => s.retargetPreview)
   const previewsForWt = useAppStore((s) => (s.activeWorktreePath ? s.previews[s.activeWorktreePath] : undefined))
   const openFiles = Object.keys(previewsForWt ?? {})
+  const setPreviewMode = useAppStore((s) => s.setPreviewMode)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
   const openTerminal = useAppStore((s) => s.openTerminal)
   const resizeSplit = useAppStore((s) => s.resizeSplit)
@@ -136,6 +137,20 @@ export function Workbench() {
               <Icon name={pane.kind === 'preview' ? 'file' : 'terminal'} size={11} />
               <span className="pane-title">{labelOf(pane)}</span>
             </>
+          )}
+          {pane.kind === 'preview' && pane.file && isMarkdownFile(pane.file) && (
+            <button
+              className="icon-btn"
+              title={(previewsForWt?.[pane.file]?.mode ?? 'edit') === 'preview' ? 'Edit source (⌘⇧V)' : 'Rendered preview (⌘⇧V)'}
+              onClick={(e) => {
+                e.stopPropagation()
+                const file = pane.file!
+                const cur = previewsForWt?.[file]?.mode ?? 'edit'
+                setPreviewMode(activeWorktreePath, file, cur === 'preview' ? 'edit' : 'preview')
+              }}
+            >
+              <Icon name={(previewsForWt?.[pane.file]?.mode ?? 'edit') === 'preview' ? 'edit' : 'eye'} size={11} />
+            </button>
           )}
           {pane.kind === 'terminal' && (
             <button className="icon-btn" title="Split terminal" onClick={() => void splitTerminal(activeWorktreePath)}>

@@ -130,4 +130,30 @@ describe('editor tabs: multi-file previews', () => {
     expect(s.previews[wt]?.['fresh.ts']?.content).toBe('written content')
     expect(s.panes[wt]!.some((p) => p.kind === 'preview' && p.file === 'fresh.ts')).toBe(true)
   })
+
+  it('markdown files default to preview mode when the setting is on', async () => {
+    seed()
+    useAppStore.setState({ settings: { ...useAppStore.getState().settings, markdownPreviewDefault: true } })
+    await useAppStore.getState().openPreview(wt, 'README.md')
+    expect(useAppStore.getState().previews[wt]?.['README.md']?.mode).toBe('preview')
+    useAppStore.setState({ settings: { ...useAppStore.getState().settings, markdownPreviewDefault: false } })
+    await useAppStore.getState().openPreview(wt, 'guide.md')
+    expect(useAppStore.getState().previews[wt]?.['guide.md']?.mode).toBe('edit')
+    // non-markdown never previews
+    useAppStore.setState({ settings: { ...useAppStore.getState().settings, markdownPreviewDefault: true } })
+    await useAppStore.getState().openPreview(wt, 'notes.md.ts')
+    expect(useAppStore.getState().previews[wt]?.['notes.md.ts']?.mode).toBe('edit')
+  })
+
+  it('setPreviewMode flips a buffer and is a no-op for unknown files', async () => {
+    seed()
+    await useAppStore.getState().openPreview(wt, 'a.md')
+    useAppStore.getState().setPreviewMode(wt, 'a.md', 'preview')
+    expect(useAppStore.getState().previews[wt]?.['a.md']?.mode).toBe('preview')
+    useAppStore.getState().setPreviewMode(wt, 'missing.md', 'preview')
+    expect(useAppStore.getState().previews[wt]?.['missing.md']).toBeUndefined()
+    // explicit mode survives a re-open of the same file
+    await useAppStore.getState().openPreview(wt, 'a.md')
+    expect(useAppStore.getState().previews[wt]?.['a.md']?.mode).toBe('preview')
+  })
 })

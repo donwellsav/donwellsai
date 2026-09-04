@@ -1,14 +1,15 @@
 import { create } from 'zustand'
 import { disposePreviewModel } from './editor-models'
-import type { SettingsSection,
-
+import type {
   AgentPreset,
   AppSettings,
   FileContent,
   FileEntry,
   PersistedState,
+  PreviewMode,
   RepoSummary,
   RunningAgent,
+  SettingsSection,
   TerminalSession,
   WorktreeStatus
 } from '@shared/types'
@@ -38,6 +39,14 @@ export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 
 function insertLeaf(node: LayoutNode, targetKey: string | undefined, newKey: string): LayoutNode | null {
   const matched = targetKey !== undefined ? insertAt(node, targetKey, newKey) : null
   return matched ?? insertAt(node, undefined, newKey)
+}
+
+export function isMarkdownFile(relPath: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(relPath)
+}
+
+function defaultPreviewMode(relPath: string, settings: AppSettings): PreviewMode {
+  return isMarkdownFile(relPath) && settings.markdownPreviewDefault ? 'preview' : 'edit'
 }
 
 function layoutHasLeaf(node: LayoutNode, key: string): boolean {
@@ -111,8 +120,8 @@ type AppState = {
   scans: Record<string, { ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
   /** file explorer entries per worktree path */
   explorer: Record<string, FileEntry[]>
-  /** open editor buffers: worktree path → file relPath → versioned content */
-  previews: Record<string, Record<string, FileContent & { v: number }>>
+  /** open editor buffers: worktree path → file relPath → versioned content (+ markdown view mode) */
+  previews: Record<string, Record<string, FileContent & { v: number; mode?: PreviewMode }>>
   /** loading flags */
   busy: Record<string, boolean>
 
@@ -176,6 +185,8 @@ type AppState = {
   notePreviewContent(worktreePath: string, relPath: string, content: string): void
   /** Close one file (relPath) or every editor of the worktree when omitted. */
   closePreview(worktreePath: string, relPath?: string): void
+  /** Set an editor buffer's view mode (markdown files: 'edit' source / 'preview' rendered). */
+  setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode): void
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
   /** Scan ports + resource usage for the active worktree (status segments). */
@@ -647,11 +658,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const content = await window.orca.readFile(worktreePath, relPath)
       const key = `preview:${relPath}`
       set((s) => {
+        const existing = s.previews[worktreePath]?.[relPath]
         const previews = {
           ...s.previews,
           [worktreePath]: {
             ...s.previews[worktreePath],
-            [relPath]: { ...content, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+            [relPath]: { ...content, v: (existing?.v ?? 0) + 1, mode: existing?.mode ?? defaultPreviewMode(relPath, s.settings) }
           }
         }
         const panes = { ...s.panes }
@@ -690,11 +702,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const content = await window.orca.readFile(worktreePath, relPath)
       const key = `preview:${relPath}`
       set((s) => {
+        const existing = s.previews[worktreePath]?.[relPath]
         const previews = {
           ...s.previews,
           [worktreePath]: {
             ...s.previews[worktreePath],
-            [relPath]: { ...content, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+            [relPath]: { ...content, v: (existing?.v ?? 0) + 1, mode: existing?.mode ?? defaultPreviewMode(relPath, s.settings) }
           }
         }
         const panes = { ...s.panes }
@@ -735,11 +748,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const saved = await window.orca.writeFile(worktreePath, relPath, content)
     const key = `preview:${relPath}`
     set((s) => {
+      const existing = s.previews[worktreePath]?.[relPath]
       const previews = {
         ...s.previews,
         [worktreePath]: {
           ...s.previews[worktreePath],
-          [relPath]: { ...saved, v: (s.previews[worktreePath]?.[relPath]?.v ?? 0) + 1 }
+          [relPath]: { ...saved, v: (existing?.v ?? 0) + 1, mode: existing?.mode ?? defaultPreviewMode(relPath, s.settings) }
         }
       }
       const panes = { ...s.panes }
@@ -756,6 +770,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
     })
     persistSessionSoon()
+  },
+
+  setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode) {
+    set((s) => {
+      const file = s.previews[worktreePath]?.[relPath]
+      if (!file || file.mode === mode) return {}
+      return {
+        previews: { ...s.previews, [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, mode } } }
+      }
+    })
   },
 
   /** Open (or retarget) the worktree's single embedded browser pane. */

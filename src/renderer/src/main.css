@@ -931,6 +931,54 @@ body {
 }
 .editor-tab:hover .editor-tab-close, .editor-tab.active .editor-tab-close { opacity: 1; }
 .editor-tab-close:hover { background: rgb(255 255 255 / 0.09); color: var(--foreground); }
+
+/* ── Markdown preview (rendered .md inside an editor pane) ─── */
+.md-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.md-preview {
+  margin: 0 auto;
+  padding: 24px 32px 48px;
+  max-width: 720px;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.65;
+  word-wrap: break-word;
+}
+.md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4 {
+  font-weight: 650; letter-spacing: -0.01em; line-height: 1.25;
+  margin: 22px 0 10px;
+}
+.md-preview h1 { font-size: 24px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.md-preview h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.md-preview h3 { font-size: 15px; }
+.md-preview h4 { font-size: 13.5px; }
+.md-preview p { margin: 8px 0; }
+.md-preview a { color: #6ab0ff; text-decoration: none; border-bottom: 1px solid rgb(106 176 255 / 0.35); }
+.md-preview a:hover { border-bottom-color: #6ab0ff; }
+.md-preview img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+.md-preview ul, .md-preview ol { margin: 8px 0; padding-left: 22px; }
+.md-preview li + li { margin-top: 3px; }
+.md-preview li > input[type='checkbox'] { margin-right: 6px; accent-color: var(--primary); }
+.md-preview blockquote {
+  margin: 10px 0; padding: 2px 14px;
+  border-left: 3px solid var(--border);
+  color: var(--muted-fg);
+}
+.md-preview code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px;
+}
+.md-preview pre {
+  margin: 10px 0; padding: 12px 14px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); overflow-x: auto;
+}
+.md-preview pre code { background: none; border: none; padding: 0; font-size: 12px; line-height: 1.55; }
+.md-preview hr { margin: 20px 0; border: none; border-top: 1px solid var(--border); }
+.md-preview table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 12.5px; }
+.md-preview th, .md-preview td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+.md-preview th { background: var(--card); font-weight: 600; }
 .git-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .git-branch-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px 4px; font-size: 12px; color: var(--muted-fg); }
 .git-branch-row .git-branch { font-family: var(--font-mono); font-size: 11px; color: var(--foreground); }

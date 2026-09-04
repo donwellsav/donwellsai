@@ -4,9 +4,10 @@ import { useAppStore } from '../store'
 import { Icon } from './Icon'
 import { TERMINAL_THEMES } from '../terminal-themes'
 
-const SECTIONS: { id: SettingsSection; label: string; icon: 'gear' | 'terminal' | 'bolt' | 'clock' | 'layers' }[] = [
+const SECTIONS: { id: SettingsSection; label: string; icon: 'gear' | 'terminal' | 'file' | 'bolt' | 'clock' | 'layers' }[] = [
   { id: 'general', label: 'General', icon: 'gear' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+  { id: 'editor', label: 'Editor', icon: 'file' },
   { id: 'skills', label: 'Skills', icon: 'bolt' },
   { id: 'automations', label: 'Automations', icon: 'clock' },
   { id: 'orchestration', label: 'Orchestration', icon: 'layers' }
@@ -71,6 +72,7 @@ export function SettingsModal({ open }: { open: boolean }) {
           <div className="settings-content">
             {section === 'general' && <GeneralSection />}
             {section === 'terminal' && <TerminalSection />}
+            {section === 'editor' && <EditorSection />}
             {section === 'skills' && <SkillsSection />}
             {section === 'automations' && <AutomationsSection />}
             {section === 'orchestration' && <OrchestrationSection />}
@@ -233,6 +235,36 @@ function TerminalSection() {
           ]}
           onChange={(v) => void setSettings({ scrollback: Number(v) })}
         />
+      </Row>
+    </>
+  )
+}
+
+/** Editor: monaco view options + markdown behavior, all live-applied. */
+function EditorSection() {
+  const settings = useAppStore((s) => s.settings)
+  const setSettings = useAppStore((s) => s.setSettings)
+  return (
+    <>
+      <Row label="Word wrap" hint="Wrap long lines instead of horizontal scrolling">
+        <Toggle checked={settings.editorWordWrap === 'on'} onChange={(v) => void setSettings({ editorWordWrap: v ? 'on' : 'off' })} />
+      </Row>
+      <Row label="Minimap">
+        <Toggle checked={settings.editorMinimap ?? false} onChange={(v) => void setSettings({ editorMinimap: v })} />
+      </Row>
+      <Row label="Tab size" hint="Applies to open buffers on the next keystroke">
+        <Seg
+          value={String(settings.editorTabSize ?? 4)}
+          options={[
+            ['2', '2'],
+            ['4', '4'],
+            ['8', '8']
+          ]}
+          onChange={(v) => void setSettings({ editorTabSize: Number(v) as 2 | 4 | 8 })}
+        />
+      </Row>
+      <Row label="Markdown preview" hint="Open .md files rendered instead of source; ⌘⇧V toggles per file">
+        <Toggle checked={settings.markdownPreviewDefault ?? false} onChange={(v) => void setSettings({ markdownPreviewDefault: v })} />
       </Row>
     </>
   )

@@ -94,7 +94,9 @@ export type FileContent = {
 export type TerminalThemeName = 'tomorrow-night' | 'dracula' | 'solarized-dark' | 'github-dark'
 
 /** Settings modal sections (nav rail). */
-export type SettingsSection = 'general' | 'terminal' | 'skills' | 'automations' | 'orchestration'
+export type SettingsSection = 'general' | 'terminal' | 'editor' | 'skills' | 'automations' | 'orchestration'
+/** How an editor pane shows a markdown file. */
+export type PreviewMode = 'edit' | 'preview'
 
 export type AppSettings = {
   agentCommand: string
@@ -112,6 +114,14 @@ export type AppSettings = {
   copyOnSelect?: boolean
   /** terminal ANSI palette (Orca terminalTheme) */
   terminalTheme?: TerminalThemeName
+  /** editor word wrap */
+  editorWordWrap?: 'on' | 'off'
+  /** editor minimap */
+  editorMinimap?: boolean
+  /** editor tab size */
+  editorTabSize?: 2 | 4 | 8
+  /** markdown files open rendered instead of source */
+  markdownPreviewDefault?: boolean
   /** worktree/git status poll interval; 0 disables polling */
   statusPollMs: number
 }

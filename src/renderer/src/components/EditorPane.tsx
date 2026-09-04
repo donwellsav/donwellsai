@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { modelCache } from '../editor-models'
 import { monaco } from '../monaco-setup'
-import { useAppStore } from '../store'
+import { isMarkdownFile, useAppStore } from '../store'
+import { MarkdownPreview } from './MarkdownPreview'
 
 /**
  * One file, one pane: the tab strip lives in the pane title bar (Workbench);
@@ -12,6 +13,11 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   const preview = useAppStore((s) => s.previews[worktreePath]?.[relPath])
   const fontSize = useAppStore((s) => s.settings.fontSize)
   const fontFamily = useAppStore((s) => s.settings.fontFamily)
+  const editorWordWrap = useAppStore((s) => s.settings.editorWordWrap)
+  const editorMinimap = useAppStore((s) => s.settings.editorMinimap)
+  const editorTabSize = useAppStore((s) => s.settings.editorTabSize)
+  const markdown = isMarkdownFile(relPath)
+  const mode = markdown ? preview?.mode ?? 'edit' : 'edit'
   const notePreviewContent = useAppStore((s) => s.notePreviewContent)
   const hostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -22,7 +28,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   // mount / file swap
   useEffect(() => {
     const host = hostRef.current
-    if (!host || !preview) return
+    if (!host || !preview || mode === 'preview') return
     const uri = monaco.Uri.parse(`file://${worktreePath}/${preview.path}`)
     let model = modelCache.get(uri.toString())
     if (!model) {
@@ -37,7 +43,8 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       fontSize,
       fontFamily: fontFamily || "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
       automaticLayout: true,
-      minimap: { enabled: false },
+      minimap: { enabled: editorMinimap ?? false },
+      wordWrap: editorWordWrap ?? 'off',
       scrollBeyondLastLine: false,
       padding: { top: 8 },
       renderLineHighlight: 'line',
@@ -46,6 +53,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     })
     editorRef.current = editor
     modelRef.current = model
+    model.updateOptions({ tabSize: editorTabSize ?? 4 })
     const pending = pendingRef.current
     pending.disposed = false
 
@@ -85,7 +93,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       modelRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worktreePath, relPath])
+  }, [worktreePath, relPath, mode])
 
   // adopt agent IPC writes (equality guard kills the self-write loop)
   useEffect(() => {
@@ -98,15 +106,23 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   useEffect(() => {
     editorRef.current?.updateOptions({
       fontSize,
-      fontFamily: fontFamily || "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace"
+      fontFamily: fontFamily || "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
+      wordWrap: editorWordWrap ?? 'off',
+      minimap: { enabled: editorMinimap ?? false }
     })
-  }, [fontSize, fontFamily])
+    modelRef.current?.updateOptions({ tabSize: editorTabSize ?? 4 })
+  }, [fontSize, fontFamily, editorWordWrap, editorMinimap, editorTabSize])
 
   if (!preview) return null
+  const rendered = mode === 'preview'
   return (
     <div className="editor-pane">
-      <div className="editor-host" ref={hostRef} />
-      {(saveState || preview?.truncated) && (
+      {rendered ? (
+        <MarkdownPreview worktreePath={worktreePath} relPath={relPath} />
+      ) : (
+        <div className="editor-host" ref={hostRef} />
+      )}
+      {(!rendered && (saveState || preview?.truncated)) && (
         <span
           className={`editor-status-chip${saveState === 'failed' ? ' failed' : ''}`}
           title={saveState === 'failed' ? 'Could not write the file — see logs' : undefined}

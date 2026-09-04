@@ -9,7 +9,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
 import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
 import { Icon } from './components/Icon'
-import { useAppStore } from './store'
+import { isMarkdownFile, useAppStore } from './store'
 import { initTerminalEvents } from './terminal-bus'
 import { executeUiCommand } from './agent-ui-commands'
 
@@ -182,6 +182,15 @@ export function App() {
       } else if (k === 'b') {
         e.preventDefault()
         dispatchAction('toggle-sidebar')
+      } else if (k === 'v' && e.shiftKey) {
+        // ⌘⇧V flips the active markdown editor between source and rendered preview (VS Code parity)
+        const wt = st.activeWorktreePath
+        const pane = wt ? (st.panes[wt] ?? []).find((p) => p.key === st.activePane[wt]) : undefined
+        if (wt && pane?.kind === 'preview' && pane.file && isMarkdownFile(pane.file)) {
+          e.preventDefault()
+          const cur = st.previews[wt]?.[pane.file]?.mode ?? 'edit'
+          st.setPreviewMode(wt, pane.file, cur === 'preview' ? 'edit' : 'preview')
+        }
       } else if (e.key === ',') {
         e.preventDefault()
         dispatchAction('settings')

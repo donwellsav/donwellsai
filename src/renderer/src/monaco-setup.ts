@@ -2,6 +2,7 @@
  * the full env lives at 'monaco-editor' and weighs ~8 MB). */
 import * as monaco from 'monaco-editor/editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
+import TypescriptWorker from 'monaco-editor/language/typescript/ts.worker?worker'
 
 import 'monaco-editor/editor/contrib/find/browser/findController.js'
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js'
@@ -15,9 +16,17 @@ import 'monaco-editor/editor/contrib/smartSelect/browser/smartSelect.js'
 import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations.js'
 import 'monaco-editor/editor/contrib/tokenization/browser/tokenization.js'
 import 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'
+import 'monaco-editor/editor/contrib/dnd/browser/dnd.js'
+import 'monaco-editor/editor/contrib/links/browser/links.js'
+import 'monaco-editor/editor/contrib/wordHighlighter/browser/highlightDecorations.js'
+import 'monaco-editor/editor/contrib/suggest/browser/suggestController.js'
+import 'monaco-editor/editor/contrib/parameterHints/browser/parameterHints.js'
 
 import 'monaco-editor/languages/definitions/typescript/register.js'
 import 'monaco-editor/languages/definitions/javascript/register.js'
+// TS language features (completion/hover/diagnostics for ts+js) — the ~4 MB
+// worker is the difference between a text pane and an editor.
+import 'monaco-editor/language/typescript/monaco.contribution.js'
 // 0.56 ships no definition-only json; a small monarch grammar instead of the full JSON worker
 monaco.languages.register({ id: 'json', extensions: ['.json', '.bowerrc', '.jscsrc', '.webmanifest'], aliases: ['JSON', 'json'], mimetypes: ['application/json'] })
 monaco.languages.setMonarchTokensProvider('json', {
@@ -64,7 +73,10 @@ import 'monaco-editor/languages/definitions/cpp/register.js'
 import 'monaco-editor/languages/definitions/csharp/register.js'
 import 'monaco-editor/languages/definitions/dockerfile/register.js'
 
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
+self.MonacoEnvironment = {
+  getWorker: (_moduleId: string, label: string) =>
+    label === 'typescript' || label === 'javascript' ? new TypescriptWorker() : new EditorWorker()
+}
 // Debug/agent handle: tooling (CDP probes, CLI eval) can read live models.
 ;(window as unknown as Record<string, unknown>).monaco = monaco
 
