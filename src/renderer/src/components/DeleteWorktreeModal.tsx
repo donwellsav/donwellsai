@@ -2,9 +2,10 @@ import { useMemo } from 'react'
 import { useAppStore } from '../store'
 import { descendantsOf } from '@shared/worktree-lineage'
 import { Icon } from './Icon'
+import { ModalDialog } from './ModalDialog'
 
 /**
- * Destructive-action confirmation (Orca DeleteWorktreeDialog parity):
+ * Destructive-action confirmation (upstream DeleteWorktreeDialog parity):
  * warns about uncommitted changes and lists descendant worktrees cut from
  * this branch before allowing the delete.
  */
@@ -38,9 +39,8 @@ export function DeleteWorktreeModal() {
   }
 
   return (
-    <div className="modal-overlay" onClick={close}>
-      <div className="modal delete-modal" onClick={(e) => e.stopPropagation()}>
-        <h3 className="modal-title">Delete worktree “{info.name}”?</h3>
+    <ModalDialog className="modal delete-modal" labelledBy="delete-worktree-title" onClose={close}>
+        <h3 id="delete-worktree-title" className="modal-title">Delete worktree “{info.name}”?</h3>
 
         {info.dirty > 0 && (
           <div className="delete-warning">
@@ -73,7 +73,6 @@ export function DeleteWorktreeModal() {
           <button className="btn" onClick={close}>Cancel</button>
           <button className="btn btn-danger" onClick={confirm}>Delete</button>
         </div>
-      </div>
-    </div>
+    </ModalDialog>
   )
 }

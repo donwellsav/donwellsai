@@ -1,44 +1,44 @@
 #!/usr/bin/env node
-/** Terminal daemon entrypoint: `node terminal-daemon-entry.js <userDataDir>`.
- * Detached from the app lifecycle; owns PTYs so agents survive app restarts. */
-import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+/** Detached terminal owner and its least-authority per-run hook emitter. */
+import { normalizeAgentHookMessage } from '@shared/agent-runtime'
+import { runAgentHookEmitterFromEnvironment } from './agent-hook'
 import { TerminalDaemon, newAuthToken } from './terminal-daemon'
+
 // The daemon must NEVER run as a GUI Electron app — spawned wrong (without
 // ELECTRON_RUN_AS_NODE=1) it registers a Dock icon / stray window for the user.
 if (process.type !== undefined) {
-  // process.versions.electron is still set under ELECTRON_RUN_AS_NODE; process.type
-  // is only defined when Electron's GUI/IPC environment is live.
   console.error('terminal-daemon: refusing GUI-mode start — spawn with ELECTRON_RUN_AS_NODE=1')
   process.exit(1)
 }
 
-const userDataDir = process.argv[2]
-if (!userDataDir) {
-  console.error('usage: terminal-daemon-entry <userDataDir>')
-  process.exit(1)
-}
+async function main(): Promise<void> {
+  if (process.argv[2] === '--emit-agent-hook') {
+    const hook = normalizeAgentHookMessage({ kind: process.argv[3] })
+    if (!hook) throw new Error('invalid agent hook event')
+    await runAgentHookEmitterFromEnvironment(hook.kind)
+    return
+  }
 
-const daemon = new TerminalDaemon({
-  socketPath: join(userDataDir, 'terminal.sock'),
-  authToken: process.env['DONWELLS_DAEMON_TOKEN'] ?? newAuthToken(),
-  runtimeFile: join(userDataDir, 'terminal-runtime.json')
-})
-
-daemon.start().then(() => {
-  console.log('terminal-daemon:ready', join(userDataDir, 'terminal.sock'))
-  // orcad rule: DisconnectDaemon, never ShutdownDaemon. SIGTERM/SIGHUP must not
-  // tear the socket down while sessions (agents!) are live — that strands every
-  // client. Only exit when no session would be orphaned.
+  const userDataDir = process.argv[2]
+  if (!userDataDir) throw new Error('usage: terminal-daemon-entry <userDataDir>')
+  const daemon = new TerminalDaemon({
+    userDataDir,
+    authToken: process.env['DONWELLS_DAEMON_TOKEN'] ?? newAuthToken()
+  })
+  await daemon.start()
+  console.log('terminal-daemon:ready')
   const handleSignal = (): void => {
-    if (daemon.hasLiveSessions()) {
-      console.log('terminal-daemon:refuse-shutdown (live sessions)')
-      return
-    }
-    daemon.stop()
-    process.exit(0)
+    void daemon.stopIfIdle().then((stopped) => {
+      if (stopped) process.exit(0)
+      else console.log('terminal-daemon:refuse-shutdown (owned sessions)')
+    })
   }
   process.on('SIGTERM', handleSignal)
   process.on('SIGINT', handleSignal)
-  process.on('SIGHUP', handleSignal)
+  if (process.platform !== 'win32') process.on('SIGHUP', handleSignal)
+}
+
+void main().catch((error: unknown) => {
+  console.error('terminal-daemon:start-failed', error instanceof Error ? error.message : String(error))
+  process.exitCode = 1
 })

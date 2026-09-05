@@ -12,11 +12,9 @@ import { join } from 'node:path'
 export class SecretStore {
   private file: string
   private memory = new Map<string, string>()
-  private encrypted: boolean
 
   constructor(userDataDir: string) {
     this.file = join(userDataDir, 'secrets.enc.json')
-    this.encrypted = safeStorage.isEncryptionAvailable()
   }
 
   private readAll(): Record<string, string> {
@@ -36,16 +34,18 @@ export class SecretStore {
   }
 
   set(key: string, value: string): void {
-    if (!this.encrypted || !safeStorage.isEncryptionAvailable()) {
+    if (!this.available) {
       this.memory.set(key, value)
       return
     }
     const sealed = safeStorage.encryptString(value).toString('base64')
     this.writeAll({ ...this.readAll(), [key]: sealed })
+    this.memory.delete(key)
   }
 
   get(key: string): string | null {
     if (this.memory.has(key)) return this.memory.get(key)!
+    if (!this.available) return null
     const sealed = this.readAll()[key]
     if (!sealed) return null
     try {
@@ -66,6 +66,9 @@ export class SecretStore {
 
   /** Whether values are actually encrypted at rest (false = memory only). */
   get available(): boolean {
-    return this.encrypted
+    if (!safeStorage.isEncryptionAvailable()) return false
+    if (process.platform !== 'linux') return true
+    const backend = safeStorage.getSelectedStorageBackend()
+    return backend !== 'basic_text' && backend !== 'unknown'
   }
 }

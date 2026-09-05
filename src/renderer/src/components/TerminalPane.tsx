@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { SearchAddon } from '@xterm/addon-search'
+import { SearchAddon, type ISearchOptions, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useAppStore } from '../store'
 import { terminalThemeOf } from '../terminal-themes'
 import { terminalBus } from '../terminal-bus'
 import { Icon } from './Icon'
+import { TERMINAL_FIND_EVENT, type TerminalFindEvent } from '../terminal-ui'
+import {
+  acknowledgeVisibleAttention,
+  useAttentionInboxState
+} from '../attention-inbox'
 
 type Props = {
   sessionId: string
@@ -15,6 +20,8 @@ type Props = {
   rows: number
   isActive: boolean
 }
+
+type TerminalContextMenuState = { x: number; y: number; error?: string }
 
 
 /** Diagnostics ring-buffer for the terminal mount/fit lifecycle (window.__paneLog). */
@@ -31,11 +38,14 @@ declare global {
 
 export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const fontSize = useAppStore((s) => s.settings.fontSize)
-  const fontFamily = useAppStore((s) => s.settings.fontFamily)
+  const fontSize = useAppStore((s) => s.settings.terminalFontSize)
+  const fontFamily = useAppStore((s) => s.settings.terminalFontFamily)
   const cursorStyle = useAppStore((s) => s.settings.cursorStyle)
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalTheme = useAppStore((s) => s.settings.terminalTheme)
+  const runsOpen = useAppStore((s) => s.runsOpen)
+  const attentionInbox = useAttentionInboxState()
+  const attentionReveal = attentionInbox.reveals[sessionId]
   const termRef = useRef<Terminal | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -44,6 +54,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const resizeRows = useRef(rows)
   const [searchOpen, setSearchOpen] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<TerminalContextMenuState | null>(null)
 
   // Mount once per sessionId; deliberately never re-runs for the session's life.
   useEffect(() => {
@@ -59,8 +70,8 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
         allowProposedApi: true,
         cursorBlink: settings.cursorBlink ?? true,
         cursorStyle: settings.cursorStyle === 'bar' || settings.cursorStyle === 'underline' ? settings.cursorStyle : 'block',
-        fontSize: settings.fontSize || 13,
-        fontFamily: settings.fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+        fontSize: settings.terminalFontSize || 13,
+        fontFamily: settings.terminalFontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
         theme: terminalThemeOf(settings.terminalTheme),
         scrollback: settings.scrollback ?? 10000,
         scrollOnUserInput: true,
@@ -112,7 +123,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     const search = new SearchAddon()
     t.loadAddon(search)
     searchRef.current = search
-    t.loadAddon(new WebLinksAddon((_e, uri) => void window.orca.openExternal(uri)))
+    t.loadAddon(new WebLinksAddon((_e, uri) => void window.donwells.openExternal(uri)))
     // Copy-on-select reads the setting live so toggling applies without remount.
     t.onSelectionChange(() => {
       if (useAppStore.getState().settings.copyOnSelect && t.hasSelection()) {
@@ -120,27 +131,32 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
       }
     })
 
-    const unsubscribe = terminalBus.subscribe(sessionId, (data) => t.write(data))
-    // reattach replay: daemon-held scrollback written before any live data
-    void window.orca
+    const subscription = terminalBus.subscribe(sessionId, (data) => t.write(data))
+    let mounted = true
+    // The snapshot sequence is the atomic boundary: queued live chunks at or
+    // before it are duplicates; later chunks drain in sequence order.
+    void window.donwells
       .attachTerminal(sessionId)
-      .then((r) => {
-        if (r?.scrollback) t.write(r.scrollback)
+      .then((result) => {
+        if (!mounted) return
+        if (!result) throw new Error('terminal session is no longer available')
+        subscription.acceptSnapshot(result.scrollback, result.sequence)
       })
-      .catch(() => { /* session gone — exit event will clean up */ })
+      .catch((error) => {
+        if (!mounted) return
+        subscription.dispose()
+        setInitError(error instanceof Error ? error.message : String(error))
+      })
     t.onData((input) => {
       useAppStore.getState().writeTerminal(sessionId, input)
     })
 
-    // Right-click to paste (Orca terminalRightClickToPaste).
-    const onContextMenu = (e: MouseEvent): void => {
-      e.preventDefault()
-      void navigator.clipboard
-        .readText()
-        .then((text) => {
-          if (text) useAppStore.getState().writeTerminal(sessionId, text)
-        })
-        .catch(() => { /* clipboard permission denied — ignore */ })
+    // Right-click opens an explicit action menu. Clipboard access only occurs
+    // after the user chooses Copy or Paste; opening the menu never mutates input.
+    const onContextMenu = (event: MouseEvent): void => {
+      event.preventDefault()
+      const rect = host.getBoundingClientRect()
+      setContextMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top })
     }
     host.addEventListener('contextmenu', onContextMenu)
 
@@ -186,9 +202,10 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     window.addEventListener('resize', onWinResize)
 
     return () => {
+      mounted = false
       ro.disconnect()
       window.removeEventListener('resize', onWinResize)
-      unsubscribe()
+      subscription.dispose()
       host.removeEventListener('contextmenu', onContextMenu)
       document.removeEventListener('visibilitychange', onVisible)
       cancelAnimationFrame(raf1)
@@ -196,23 +213,35 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
       t.dispose()
       webgl = null
       termRef.current = null
-      plog(`unmount ${sessionId.slice(0, 8)}`)
+      plog('unmount ' + sessionId.slice(0, 8))
     }
   }, [sessionId])
 
-  // ⌘F opens the search bar scoped to the ACTIVE pane only.
+  // Renderer command catalog and direct terminal keystrokes both target the
+  // active session. Non-terminal views retain their own Mod+F behavior.
   useEffect(() => {
     if (!isActive) return
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
+    const onKey = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
         setSearchOpen(true)
       }
-      if (e.key === 'Escape') setSearchOpen(false)
+      if (event.key === 'Escape') {
+        searchRef.current?.clearDecorations()
+        setSearchOpen(false)
+        setContextMenu(null)
+      }
+    }
+    const onFind = (event: Event): void => {
+      if ((event as TerminalFindEvent).detail.sessionId === sessionId) setSearchOpen(true)
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [isActive])
+    window.addEventListener(TERMINAL_FIND_EVENT, onFind)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(TERMINAL_FIND_EVENT, onFind)
+    }
+  }, [isActive, sessionId])
 
   // Re-fit when the pane becomes visible (tab switch, split toggle).
   useEffect(() => {
@@ -234,6 +263,53 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     })
     return () => cancelAnimationFrame(raf)
   }, [isActive, sessionId])
+  // Durable attention is acknowledged only by the exact visible xterm after it
+  // owns focus. Opening the app, Runs, or the inbox never clears an event.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || !isActive) return
+    let frame = 0
+    const attempt = (focusRequested: boolean, allowCapture: boolean): void => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const terminal = termRef.current
+        if (!terminal || runsOpen || attentionInbox.overlayOpen) return
+        if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+        const bounds = host.getBoundingClientRect()
+        if (!host.isConnected || bounds.width <= 0 || bounds.height <= 0) return
+        if (focusRequested && attentionReveal) terminal.focus()
+        void acknowledgeVisibleAttention({
+          sessionId,
+          isActive,
+          runsOverlayOpen: runsOpen,
+          host,
+          allowCapture
+        })
+      })
+    }
+    const onFocusIn = (): void => attempt(false, true)
+    const onWindowFocus = (): void => attempt(attentionReveal !== undefined, false)
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') attempt(attentionReveal !== undefined, false)
+    }
+    host.addEventListener('focusin', onFocusIn)
+    window.addEventListener('focus', onWindowFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    attempt(attentionReveal !== undefined, false)
+    return () => {
+      cancelAnimationFrame(frame)
+      host.removeEventListener('focusin', onFocusIn)
+      window.removeEventListener('focus', onWindowFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [
+    attentionInbox.overlayOpen,
+    attentionInbox.snapshot?.revision,
+    attentionReveal,
+    isActive,
+    runsOpen,
+    sessionId
+  ])
 
   // Live appearance: every visual setting mutates the running terminal in place.
   useEffect(() => {
@@ -270,6 +346,35 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   }, [cols, rows, isActive])
 
   const wrapStyle = { backgroundColor: terminalThemeOf(terminalTheme).background }
+
+  const closeSearch = (): void => {
+    searchRef.current?.clearDecorations()
+    setSearchOpen(false)
+  }
+
+  const runContextAction = async (action: 'copy' | 'paste' | 'select-all' | 'clear' | 'find'): Promise<void> => {
+    const terminal = termRef.current
+    if (!terminal) return
+    try {
+      if (action === 'copy') {
+        if (!terminal.hasSelection()) throw new Error('Select terminal text before copying.')
+        await navigator.clipboard.writeText(terminal.getSelection())
+      } else if (action === 'paste') {
+        const text = await navigator.clipboard.readText()
+        if (text) useAppStore.getState().writeTerminal(sessionId, text)
+      } else if (action === 'select-all') {
+        terminal.selectAll()
+      } else if (action === 'clear') {
+        terminal.clear()
+      } else {
+        setSearchOpen(true)
+      }
+      setContextMenu(null)
+      terminal.focus()
+    } catch (error) {
+      setContextMenu((current) => current ? { ...current, error: String(error) } : current)
+    }
+  }
   if (initError) {
     return (
       <div className="terminal-host-wrap" style={wrapStyle}>
@@ -285,63 +390,145 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   }
 
   return (
-    <div className={`terminal-host-wrap ${isActive ? '' : 'terminal-hidden'}`} style={wrapStyle}>
-      {searchOpen && isActive && (
-        <TerminalSearch search={searchRef} onClose={() => setSearchOpen(false)} />
+    <div className={'terminal-host-wrap ' + (isActive ? '' : 'terminal-hidden')} style={wrapStyle}>
+      {searchOpen && isActive && <TerminalSearch search={searchRef} onClose={closeSearch} />}
+      {contextMenu && isActive && (
+        <>
+          <button className="terminal-context-scrim" aria-label="Close terminal menu" onClick={() => setContextMenu(null)} />
+          <div
+            className="terminal-context-menu"
+            role="menu"
+            aria-label="Terminal actions"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button role="menuitem" onClick={() => void runContextAction('copy')}>Copy <span>⌘C</span></button>
+            <button role="menuitem" onClick={() => void runContextAction('paste')}>Paste <span>⌘V</span></button>
+            <button role="menuitem" onClick={() => void runContextAction('select-all')}>Select all</button>
+            <span className="terminal-context-rule" />
+            <button role="menuitem" onClick={() => void runContextAction('clear')}>Clear buffer</button>
+            <button role="menuitem" onClick={() => void runContextAction('find')}>Find… <span>⌘F</span></button>
+            {contextMenu.error && <p role="alert">{contextMenu.error}</p>}
+          </div>
+        </>
       )}
       <div className="terminal-host" ref={hostRef} />
     </div>
   )
 }
 
-/** ⌘F overlay: incremental search over the terminal buffer (official SearchAddon). */
+/** Full-buffer search powered by the official SearchAddon. */
 function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAddon | null>; onClose: () => void }) {
-  const [q, setQ] = useState('')
+  const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [regex, setRegex] = useState(false)
+  const [results, setResults] = useState<ISearchResultChangeEvent>({ resultIndex: 0, resultCount: 0 })
+  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const settingsRevision = useAppStore((state) => state.settingsRevision)
+
+  const options = useMemo<ISearchOptions>(() => {
+    const css = getComputedStyle(document.documentElement)
+    const color = (token: string, fallback: string): string => css.getPropertyValue(token).trim() || fallback
+    return {
+      caseSensitive,
+      wholeWord,
+      regex,
+      decorations: {
+        matchBackground: color('--accent', '#31445c'),
+        activeMatchBackground: color('--status-progress', '#7a5f00'),
+        matchOverviewRuler: color('--chart-1', '#81a2be'),
+        activeMatchColorOverviewRuler: color('--agent-question', '#e7c547')
+      }
+    }
+  }, [caseSensitive, regex, settingsRevision, wholeWord])
+
   useEffect(() => {
     inputRef.current?.focus()
-  }, [])
+    const disposable = search.current?.onDidChangeResults(setResults)
+    return () => disposable?.dispose()
+  }, [search])
 
-  const run = (backwards = false): void => {
+  useEffect(() => {
     const addon = search.current
-    if (!addon || !q) return
+    if (!addon) return
+    if (!query) {
+      addon.clearDecorations()
+      setResults({ resultIndex: 0, resultCount: 0 })
+      setError(null)
+      return
+    }
+    if (regex) {
+      try {
+        new RegExp(query, caseSensitive ? '' : 'i')
+      } catch (regexError) {
+        addon.clearDecorations()
+        setError(regexError instanceof Error ? regexError.message : String(regexError))
+        return
+      }
+    }
     try {
-      if (backwards) addon.findPrevious(q, { caseSensitive, decorations: { matchOverviewRuler: '#81a2be', activeMatchColorOverviewRuler: '#e7c547' } })
-      else addon.findNext(q, { caseSensitive, decorations: { matchOverviewRuler: '#81a2be', activeMatchColorOverviewRuler: '#e7c547' } })
-    } catch { /* buffer mid-write */ }
+      setError(null)
+      addon.findNext(query, { ...options, incremental: true })
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : String(searchError))
+    }
+  }, [query, caseSensitive, wholeWord, regex, search])
+
+  const run = (backwards: boolean): void => {
+    const addon = search.current
+    if (!addon || !query || error) return
+    try {
+      if (backwards) addon.findPrevious(query, options)
+      else addon.findNext(query, options)
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : String(searchError))
+    }
   }
 
+  const clear = (): void => {
+    setQuery('')
+    setError(null)
+    setResults({ resultIndex: 0, resultCount: 0 })
+    search.current?.clearDecorations()
+    inputRef.current?.focus()
+  }
+
+  const resultLabel = error
+    ? 'Invalid expression'
+    : query && results.resultCount === 0
+      ? 'No results'
+      : results.resultCount > 0
+        ? (results.resultIndex + 1) + ' of ' + results.resultCount
+        : ''
+
   return (
-    <div className="terminal-search" onKeyDown={(e) => e.stopPropagation()}>
-      <input
-        ref={inputRef}
-        className="input terminal-search-input"
-        placeholder="Search terminal…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) run(false)
-          else if (e.key === 'Enter' && e.shiftKey) run(true)
-          else if (e.key === 'Escape') onClose()
-        }}
-      />
-      <button
-        className={`icon-btn ${caseSensitive ? 'search-case-on' : ''}`}
-        title="Match case"
-        onClick={() => setCaseSensitive(!caseSensitive)}
-      >
-        Aa
-      </button>
-      <button className="icon-btn" title="Previous (Shift+Enter)" onClick={() => run(true)}>
-        ↑
-      </button>
-      <button className="icon-btn" title="Next (Enter)" onClick={() => run(false)}>
-        ↓
-      </button>
-      <button className="icon-btn" title="Close (Esc)" onClick={onClose}>
-        <Icon name="x" size={11} />
-      </button>
+    <div className="terminal-search" role="search" onKeyDown={(event) => event.stopPropagation()}>
+      <div className="terminal-search-query">
+        <input
+          ref={inputRef}
+          className={'input terminal-search-input' + (error ? ' invalid' : '')}
+          aria-label="Find in terminal"
+          aria-invalid={!!error}
+          placeholder="Find in terminal"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') run(event.shiftKey)
+            else if (event.key === 'Escape') onClose()
+          }}
+        />
+        <span className="terminal-search-results" aria-live="polite">{resultLabel}</span>
+      </div>
+      <button className={'icon-btn search-option' + (caseSensitive ? ' active' : '')} aria-pressed={caseSensitive} title="Match case" onClick={() => setCaseSensitive(!caseSensitive)}>Aa</button>
+      <button className={'icon-btn search-option' + (wholeWord ? ' active' : '')} aria-pressed={wholeWord} title="Match whole word" onClick={() => setWholeWord(!wholeWord)}>ab</button>
+      <button className={'icon-btn search-option regex' + (regex ? ' active' : '')} aria-pressed={regex} title="Use regular expression" onClick={() => setRegex(!regex)}>.*</button>
+      <button className="icon-btn" title="Previous result (Shift+Enter)" disabled={!query || !!error} onClick={() => run(true)}>↑</button>
+      <button className="icon-btn" title="Next result (Enter)" disabled={!query || !!error} onClick={() => run(false)}>↓</button>
+      <button className="icon-btn terminal-search-clear" title="Clear search" disabled={!query && !error} onClick={clear}>Clear</button>
+      <button className="icon-btn" title="Close search (Esc)" onClick={onClose}><Icon name="x" size={11} /></button>
+      {error && <p className="terminal-search-error" role="alert">{error}</p>}
     </div>
   )
 }

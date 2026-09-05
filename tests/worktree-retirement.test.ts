@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
@@ -13,7 +13,7 @@ function sh(cwd: string, ...args: string[]): void {
 }
 
 function makeRepo(): { root: string; path: string } {
-  const root = mkdtempSync(join(tmpdir(), 'orca-retire-'))
+  const root = mkdtempSync(join(tmpdir(), 'donwells-retire-'))
   const path = join(root, 'repo')
   mkdirSync(path)
   sh(path, 'init', '-b', 'main')
@@ -32,7 +32,7 @@ let git: GitWorktrees
 
 beforeEach(() => {
   cleanup.length = 0
-  storeDir = mkdtempSync(join(tmpdir(), 'orca-retire-store-'))
+  storeDir = mkdtempSync(join(tmpdir(), 'donwells-retire-store-'))
   cleanup.push(storeDir)
   store = new Store(storeDir)
   git = new GitWorktrees(store)
@@ -115,10 +115,9 @@ describe('worktree name retirement', () => {
   it('removing a worktree of an unregistered repo is refused (scan fence)', async () => {
     const { root, path } = makeRepo()
     cleanup.push(root)
-    // repo never added to store: victim resolution from live scan is fine, but
-    // retirement would silently skip — removal itself still works since the
-    // scan is by repoPath, not by registered id. Verify:
-    sh(path, 'worktree', 'add', join(root, 'wt-z'), '-b', 'z')
-    await expect(git.removeWorktree(path, join(root, 'wt-z'))).resolves.toBeDefined()
+    const worktreePath = join(root, 'wt-z')
+    sh(path, 'worktree', 'add', worktreePath, '-b', 'z')
+    await expect(git.removeWorktree(path, worktreePath)).rejects.toThrow()
+    expect(readFileSync(join(worktreePath, 'f.txt'), 'utf8')).toBe('one\n')
   })
 })

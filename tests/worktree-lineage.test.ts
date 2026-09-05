@@ -13,7 +13,7 @@ function sh(cwd: string, ...args: string[]): void {
 }
 
 function makeRepo(): { root: string; path: string } {
-  const root = mkdtempSync(join(tmpdir(), 'orca-lineage-'))
+  const root = mkdtempSync(join(tmpdir(), 'donwells-lineage-'))
   const path = join(root, 'repo')
   mkdirSync(path)
   sh(path, 'init', '-b', 'main')
@@ -32,7 +32,7 @@ let git: GitWorktrees
 
 beforeEach(() => {
   cleanup.length = 0
-  storeDir = mkdtempSync(join(tmpdir(), 'orca-lineage-store-'))
+  storeDir = mkdtempSync(join(tmpdir(), 'donwells-lineage-store-'))
   cleanup.push(storeDir)
   store = new Store(storeDir)
   git = new GitWorktrees(store)

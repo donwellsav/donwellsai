@@ -1,76 +1,109 @@
-import type { MainEvents } from '@shared/types'
-
-type PayloadOf<K extends keyof MainEvents> = MainEvents[K]
-
 type Listener<T> = (payload: T) => void
 
-const MAX_BUFFER = 512 * 1024 // tail of output kept per session when no pane is mounted
+type DataListener = {
+  callback: Listener<string>
+  ready: boolean
+  lastSequence: number
+  queued: Map<number, string>
+}
+
+export type TerminalSubscription = {
+  acceptSnapshot: (scrollback: string, sequence?: number) => void
+  dispose: () => void
+}
 
 /**
- * Out-of-React data bus for high-frequency terminal output.
- * PTY data must never flow through React state — that is the freezer of terminal UIs.
- * Each TerminalPane subscribes to its sessionId and writes straight to xterm.
- *
- * Buffering: output sent while no pane is mounted (tab hidden, worktree card
- * unmounted) is replayed on subscribe. This is what keeps a session's scrollback
- * coherent across UI navigation — Orca calls this the permanently-mounted workbench.
+ * Out-of-React bus for high-frequency terminal output. Each subscriber holds
+ * live chunks until it receives the daemon's atomic snapshot boundary.
  */
-class TerminalBus {
-  private dataListeners = new Map<string, Set<Listener<string>>>()
-  private buffers = new Map<string, string[]>()
+export class TerminalBus {
+  private dataListeners = new Map<string, Set<DataListener>>()
 
-  subscribe(sessionId: string, cb: Listener<string>): () => void {
-    let set = this.dataListeners.get(sessionId)
-    if (!set) {
-      set = new Set()
-      this.dataListeners.set(sessionId, set)
+  subscribe(sessionId: string, callback: Listener<string>): TerminalSubscription {
+    let listeners = this.dataListeners.get(sessionId)
+    if (!listeners) {
+      listeners = new Set()
+      this.dataListeners.set(sessionId, listeners)
     }
-    set.add(cb)
-    // replay buffered output so a freshly mounted pane shows prior output
-    const buf = this.buffers.get(sessionId)
-    if (buf) for (const chunk of buf) cb(chunk)
-    return () => {
-      set!.delete(cb)
-      if (set!.size === 0) this.dataListeners.delete(sessionId)
+    const target = listeners
+    const listener: DataListener = {
+      callback,
+      ready: false,
+      lastSequence: 0,
+      queued: new Map()
+    }
+    target.add(listener)
+
+    return {
+      acceptSnapshot: (scrollback, sequence) => {
+        if (sequence === undefined || !Number.isSafeInteger(sequence) || sequence < 0) {
+          throw new Error(
+            'terminal daemon upgrade required for sequenced reattach; existing sessions were left running'
+          )
+        }
+        if (listener.ready) return
+        if (scrollback) listener.callback(scrollback)
+        listener.ready = true
+        listener.lastSequence = sequence
+        for (const queuedSequence of listener.queued.keys()) {
+          if (queuedSequence <= sequence) listener.queued.delete(queuedSequence)
+        }
+        this.drain(listener)
+      },
+      dispose: () => {
+        target.delete(listener)
+        listener.queued.clear()
+        if (target.size === 0) this.dataListeners.delete(sessionId)
+      }
     }
   }
 
-  emitData(sessionId: string, data: string): void {
+  emitData(sessionId: string, data: string, sequence?: number): void {
     const listeners = this.dataListeners.get(sessionId)
-    // keep a listener-side buffer, GC session buffers once listeners are gone
-    let buf = this.buffers.get(sessionId)
-    if (!buf) {
-      buf = []
-      this.buffers.set(sessionId, buf)
+    if (!listeners || sequence === undefined || !Number.isSafeInteger(sequence) || sequence < 1) return
+    for (const listener of listeners) {
+      if (sequence <= listener.lastSequence || listener.queued.has(sequence)) continue
+      listener.queued.set(sequence, data)
+      if (listener.ready) this.drain(listener)
     }
-    buf.push(data)
-    let len = 0
-    for (const c of buf) len += c.length
-    while (len > MAX_BUFFER && buf.length > 1) {
-      const removed = buf.shift()!
-      len -= removed.length
-    }
-    listeners?.forEach((cb) => cb(data))
   }
 
   dropSession(sessionId: string): void {
+    const listeners = this.dataListeners.get(sessionId)
+    if (listeners) {
+      for (const listener of listeners) listener.queued.clear()
+    }
     this.dataListeners.delete(sessionId)
-    this.buffers.delete(sessionId)
+  }
+
+  private drain(listener: DataListener): void {
+    let next = listener.lastSequence + 1
+    let data = listener.queued.get(next)
+    while (data !== undefined) {
+      listener.queued.delete(next)
+      listener.callback(data)
+      listener.lastSequence = next
+      next++
+      data = listener.queued.get(next)
+    }
   }
 }
 
 export const terminalBus = new TerminalBus()
 
-/** Wire main-process events once at app start. */
+/** Wire main-process events once at app start and return symmetric cleanup. */
 export function initTerminalEvents(
   onExit: (sessionId: string, exitCode: number) => void,
-  onTitle: (sessionId: string, title: string) => void,
-  onHook: (sessionId: string, state: string, detail: string) => void
-): void {
-  window.orca.on('terminal:data', ({ sessionId, data }) => terminalBus.emitData(sessionId, data))
-  window.orca.on('terminal:exit', ({ sessionId, exitCode }) => onExit(sessionId, exitCode))
-  window.orca.on('terminal:title', ({ sessionId, title }) => onTitle(sessionId, title))
-  window.orca.on('terminal:hook', ({ sessionId, state, detail }) => onHook(sessionId, state, detail))
+  onTitle: (sessionId: string, title: string) => void
+): () => void {
+  const disposeData = window.donwells.on('terminal:data', ({ sessionId, data, sequence }) => {
+    terminalBus.emitData(sessionId, data, sequence)
+  })
+  const disposeExit = window.donwells.on('terminal:exit', ({ sessionId, exitCode }) => onExit(sessionId, exitCode))
+  const disposeTitle = window.donwells.on('terminal:title', ({ sessionId, title }) => onTitle(sessionId, title))
+  return () => {
+    disposeData()
+    disposeExit()
+    disposeTitle()
+  }
 }
-
-export type { MainEvents }

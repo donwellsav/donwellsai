@@ -1,5 +1,7 @@
+import { assertProjectMemoryDraftSaved } from './project-memory-editor'
 import type { UiCommand } from '@shared/types'
-import { useAppStore } from './store'
+import { flushWorkspaceSession, useAppStore } from './store'
+import { flushAllPreviewModels, getEditorDocument } from './editor-models'
 
 /**
  * Executes agent UI-control commands (runtime RPC `ui.*`) against the store:
@@ -23,7 +25,9 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
         paletteOpen: s.paletteOpen,
         settings: s.settings,
         settingsOpen: s.settingsOpen,
-        settingsSection: s.settingsSection
+        settingsSection: s.settingsSection,
+        runsOpen: s.runsOpen,
+        runsSection: s.runsSection
       }
     }
     case 'activate': {
@@ -58,7 +62,7 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       return {}
     }
     case 'pane.close':
-      s.closePane(cmd.worktreePath, cmd.key)
+      if (!(await s.closePane(cmd.worktreePath, cmd.key))) throw new Error(useAppStore.getState().error ?? 'Pane could not be closed')
       return {}
     case 'pane.resize':
       s.resizeSplit(cmd.worktreePath, cmd.splitId, cmd.pct)
@@ -67,7 +71,7 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       await s.openPreview(cmd.worktreePath, cmd.relPath)
       return {}
     case 'preview.close':
-      s.closePreview(cmd.worktreePath, cmd.relPath)
+      if (!(await s.closePreview(cmd.worktreePath, cmd.relPath))) throw new Error('Editor has unsaved changes')
       return {}
     case 'editor.open':
       await s.openPreview(cmd.worktreePath, cmd.relPath)
@@ -82,9 +86,12 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
     case 'editor.read': {
       const files = s.previews[cmd.worktreePath]
       const buffer = cmd.relPath ? files?.[cmd.relPath] : files ? Object.values(files)[0] : undefined
-      if (buffer) return buffer
+      if (buffer) {
+        const document = getEditorDocument(cmd.worktreePath, buffer.path)
+        return document ? { ...buffer, content: document.model.getValue() } : buffer
+      }
       if (!cmd.relPath) throw new Error('no editor open in this worktree')
-      return window.orca.readFile(cmd.worktreePath, cmd.relPath)
+      return window.donwells.readFile(cmd.worktreePath, cmd.relPath)
     }
     case 'sidebar': {
       if (cmd.side === 'left') {
@@ -100,11 +107,19 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
     }
     case 'palette': {
       const open = cmd.open === 'toggle' || cmd.open === undefined ? !s.paletteOpen : cmd.open
-      s.setPaletteOpen(open)
+      s.setPaletteOpen(open, cmd.mode)
       return { open }
     }
     case 'settings.open':
       s.openSettings(cmd.section ?? s.settingsSection)
+      return {}
+    case 'runs.open':
+      s.openRuns(cmd.section)
+      return {}
+    case 'workspace.flush':
+      assertProjectMemoryDraftSaved()
+      await flushAllPreviewModels()
+      await flushWorkspaceSession()
       return {}
   }
 }

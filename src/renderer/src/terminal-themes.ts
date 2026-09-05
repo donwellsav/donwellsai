@@ -1,9 +1,8 @@
 import type { TerminalThemeName } from '@shared/types'
 
 /**
- * Terminal ANSI palettes (Orca's terminalTheme setting). `swatch` drives the
- * settings picker preview; `xterm` is the xterm.js ITheme. Every palette
- * carries the same key set so live theme swaps are total.
+ * Terminal ANSI palettes. `swatch` drives the settings picker preview; `xterm`
+ * is the xterm.js ITheme. Every palette carries the same key set for total live swaps.
  */
 export const TERMINAL_THEMES: Record<TerminalThemeName, { label: string; swatch: string[]; xterm: Record<string, string> }> = {
   'tomorrow-night': {
@@ -115,6 +114,13 @@ export const TERMINAL_THEMES: Record<TerminalThemeName, { label: string; swatch:
     }
   }
 }
+
+export const TERMINAL_THEME_NAMES: readonly TerminalThemeName[] = Object.freeze<TerminalThemeName[]>([
+  'tomorrow-night',
+  'dracula',
+  'solarized-dark',
+  'github-dark'
+])
 
 export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'tomorrow-night'
 

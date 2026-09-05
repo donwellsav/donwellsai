@@ -47,6 +47,7 @@ describe('GitWorktrees.writeFile', () => {
     const read = await git.readFile(path, 'f.txt')
     expect(read.content).toBe('two\n')
     expect(read.bytes).toBe(4)
+    expect(read.revision).toMatch(/^sha256:[a-f0-9]{64}$/)
   })
 
   it('refuses traversal outside the worktree, for read and write alike', async () => {
@@ -67,5 +68,51 @@ describe('GitWorktrees.writeFile', () => {
     await expect(git.listAllFiles('/tmp')).rejects.toThrow('Unknown worktree')
     await expect(git.commit('/tmp', 'x')).rejects.toThrow('Unknown worktree')
     await expect(git.diff('/tmp', 'a')).rejects.toThrow('Unknown worktree')
+  })
+
+  it('rejects a stale guarded write and returns a fresh revision after saving', async () => {
+    const { git, path } = await repoContext()
+    const initial = await git.readFile(path, 'f.txt')
+    expect(initial.revision).toBeDefined()
+    writeFileSync(join(path, 'f.txt'), 'external\n')
+
+    await expect(git.writeFile(path, 'f.txt', 'editor\n', initial.revision)).rejects.toThrow(
+      'Write conflict: f.txt changed on disk'
+    )
+    expect(readFileSync(join(path, 'f.txt'), 'utf8')).toBe('external\n')
+
+    const current = await git.readFile(path, 'f.txt')
+    const saved = await git.writeFile(path, 'f.txt', 'editor\n', current.revision)
+    expect(saved.revision).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(saved.revision).not.toBe(current.revision)
+  })
+
+  it('serializes competing guarded writes so only one revision wins', async () => {
+    const { git, path } = await repoContext()
+    const revision = (await git.readFile(path, 'f.txt')).revision
+    const results = await Promise.allSettled([
+      git.writeFile(path, 'f.txt', 'first\n', revision),
+      git.writeFile(path, 'f.txt', 'second\n', revision)
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.find((result) => result.status === 'rejected')
+    expect(rejected?.status === 'rejected' ? String(rejected.reason) : '').toContain('Write conflict:')
+    expect(['first\n', 'second\n']).toContain(readFileSync(join(path, 'f.txt'), 'utf8'))
+  })
+
+  it('never issues revisions for partial snapshots or accepts them for guarded writes', async () => {
+    const { git, path } = await repoContext()
+    writeFileSync(join(path, 'large.txt'), Buffer.alloc(512 * 1024 + 1, 97))
+    const preview = await git.readFile(path, 'large.txt')
+    expect(preview.truncated).toBe(true)
+    expect(preview.content).toHaveLength(512 * 1024)
+    expect(preview.revision).toBeUndefined()
+    await expect(git.writeFile(path, 'large.txt', 'unsafe', `sha256:${'0'.repeat(64)}`)).rejects.toThrow(
+      'partial or truncated'
+    )
+    await expect(git.writeFile(path, 'large.txt', 'agent whole-file write')).resolves.toMatchObject({
+      content: 'agent whole-file write',
+      truncated: false
+    })
   })
 })

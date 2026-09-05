@@ -1,5 +1,5 @@
 /**
- * Fuzzy subsequence matching for the command palette (VS Code/Orca-grade feel):
+ * Fuzzy subsequence matching for the command palette (VS Code/upstream-grade feel):
  * needle chars must appear in order; score favors word starts, consecutiveness,
  * and earlier positions. Returns match indices so the UI can highlight hits.
  */
@@ -8,9 +8,11 @@ export type FuzzyResult = { score: number; hits: number[] }
 const WORD_BOUNDARY = /[\s\-_./:\\]/
 
 export function fuzzyMatch(text: string, needle: string): FuzzyResult | null {
-  if (!needle) return { score: 0, hits: [] }
-  const t = text.toLowerCase()
-  const n = needle.toLowerCase()
+  const normalizedNeedle = needle.trim()
+  if (!normalizedNeedle) return { score: 0, hits: [] }
+  if (normalizedNeedle.length > 256 || text.length > 4_096) return null
+  const t = text.toLocaleLowerCase()
+  const n = normalizedNeedle.toLocaleLowerCase()
   const hits: number[] = []
   let score = 0
   let ti = 0

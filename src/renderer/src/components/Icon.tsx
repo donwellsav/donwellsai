@@ -15,7 +15,7 @@ const paths: Record<string, string> = {
   split: 'M2 2h12v12H2z M8 2v12',
   eye: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z M8 5.7a2.3 2.3 0 100 4.6 2.3 2.3 0 000-4.6z',
   edit: 'M3 13h2.5L12 6.5 9.5 4 3 10.5V13z M8.7 4.8l2.5 2.5',
-  // orca status iconography
+  // donwells status iconography
   activity: 'M2 8.5h3l2-5 3 9 2-4h2',
   check: 'M3 8.5l3.5 3.5L13 4.5',
   'check-circle': 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM5.5 8l1.8 1.8L11 6',

@@ -1,0 +1,135 @@
+.recovery-panel {
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  color: var(--foreground);
+}
+
+.recovery-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.recovery-panel-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--muted-fg);
+  font: 10px/16px var(--font-mono);
+  text-align: center;
+}
+
+.recovery-panel-state,
+.recovery-panel-alert {
+  padding: 10px;
+  color: var(--muted-fg);
+  font-size: 11px;
+}
+
+.recovery-panel-alert {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--destructive);
+}
+
+.recovery-panel-alert button,
+.recovery-row-actions button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  background: var(--secondary);
+  color: var(--secondary-fg);
+  font-size: 10px;
+}
+
+.recovery-panel-alert button:hover,
+.recovery-row-actions button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.recovery-list {
+  display: grid;
+  max-height: 224px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+
+.recovery-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.recovery-row:hover {
+  background: var(--secondary);
+}
+
+.recovery-row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.recovery-row-path,
+.recovery-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recovery-row-path {
+  font: 11px/1.4 var(--font-mono);
+}
+
+.recovery-row-meta {
+  color: var(--muted-fg);
+  font-size: 10px;
+}
+
+.recovery-row-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+}
+
+.recovery-row:focus-within .recovery-row-actions,
+.recovery-row:hover .recovery-row-actions {
+  opacity: 1;
+}
+
+.recovery-row-actions .danger {
+  color: var(--destructive);
+}
+
+.recovery-row-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+@media (hover: none) {
+  .recovery-row-actions {
+    opacity: 1;
+  }
+}

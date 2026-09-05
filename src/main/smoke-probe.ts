@@ -6,22 +6,28 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { runProcess } from '@shared/child-process/run-process'
 import type { GitWorktrees } from './git'
 import { PtyManager } from './pty'
+
+async function runGit(cwd: string, args: string[]): Promise<void> {
+  await runProcess({ program: 'git', args, cwd, timeoutMs: 10_000, maxOutputBytes: 1024 * 1024 })
+}
 
 export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
   const root = mkdtempSync(join(tmpdir(), 'donwells-probe-'))
   const repo = join(root, 'proj')
   const results: string[] = []
+  let pty: PtyManager | null = null
+  let smokeSessionId: string | null = null
   try {
     mkdirSync(repo, { recursive: true })
-    execFileSync('git', ['init', '-b', 'main'], { cwd: repo, stdio: 'pipe' })
-    execFileSync('git', ['config', 'user.email', 'smoke@donwells.ai'], { cwd: repo, stdio: 'pipe' })
-    execFileSync('git', ['config', 'user.name', 'donwells.ai Smoke'], { cwd: repo, stdio: 'pipe' })
+    await runGit(repo, ['init', '-b', 'main'])
+    await runGit(repo, ['config', 'user.email', 'smoke@donwells.ai'])
+    await runGit(repo, ['config', 'user.name', 'donwells.ai Smoke'])
     writeFileSync(join(repo, 'readme.md'), '# probe\n')
-    execFileSync('git', ['add', '.'], { cwd: repo, stdio: 'pipe' })
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: repo, stdio: 'pipe' })
+    await runGit(repo, ['add', '.'])
+    await runGit(repo, ['commit', '-m', 'init'])
 
     // 1. addRepo
     const summary = await git.addRepo(repo)
@@ -41,33 +47,30 @@ export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
       exit: () => {},
       title: () => {}
     }
-    const pty = new PtyManager({
+    pty = new PtyManager({
       data: (id, d) => events.data(id, d),
       exit: (id, c) => events.exit(id, c),
       title: (id, t) => events.title(id, t)
     })
-    const session = pty.open(feat.path, 80, 24)
+    const manager = pty
+    const session = manager.open(feat.path, 80, 24)
+    smokeSessionId = session.id
     let acc = ''
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        if (acc.includes('PROBE_OK')) {
-          clearInterval(timer)
-          resolve()
-        }
-      }, 50)
-      events.data = (id, d) => {
-        if (id === session.id) acc += d
-      }
-      setTimeout(() => {
-        clearInterval(timer)
-        resolve()
-      }, 5000)
-      pty.write(session.id, 'echo PROBE_OK\n')
-    })
+    const outputReceived = Promise.withResolvers<void>()
+    events.data = (id, d) => {
+      if (id !== session.id) return
+      acc += d
+      if (acc.includes('PROBE_OK')) outputReceived.resolve()
+    }
+    const outputDeadline = setTimeout(outputReceived.resolve, 5000)
+    manager.write(session.id, 'echo PROBE_OK\n')
+    await outputReceived.promise
+    clearTimeout(outputDeadline)
     if (!acc.includes('PROBE_OK')) throw new Error('terminal output never arrived: ' + JSON.stringify(acc.slice(0, 300)))
     results.push('terminal-data')
-    pty.close(session.id)
-    if (pty.has(session.id)) throw new Error('closeTerminal did not release session')
+    await manager.close(session.id)
+    smokeSessionId = null
+    if (manager.has(session.id)) throw new Error('closeTerminal did not release session')
     results.push('terminal-close')
 
     // 4. removeWorktree
@@ -81,6 +84,14 @@ export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
     console.log('smoke:fail ' + (err instanceof Error ? err.message : String(err)))
     return false
   } finally {
+    if (pty && smokeSessionId && pty.has(smokeSessionId)) {
+      try {
+        await pty.close(smokeSessionId)
+      } catch (error) {
+        console.log('smoke:cleanup-fail ' + (error instanceof Error ? error.message : String(error)))
+        return false
+      }
+    }
     rmSync(root, { recursive: true, force: true })
   }
 }

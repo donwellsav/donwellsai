@@ -1,9 +1,31 @@
+import type { PersistedNavigationHistoryV1 } from './navigation-history'
+import type { ProjectMemoryApi } from './project-memory'
+import type { RecoveryApi } from './editor-recovery'
+import type { AttentionInboxApi } from './attention-inbox'
+import type { AppearanceApi } from './appearance'
+import type { BrowserHistoryApi } from './browser-history'
+import type { FileWorkspaceApi } from './file-workspace'
+import type { MediaPreviewApi } from './media-preview'
+import type { SkillPackagesApi } from './skill-packages'
+import type { OperationalRunsApi } from './operational-runs'
+import type { AgentDeliveryApi } from './agent-delivery'
+import type { AgentStartResult } from './agent-runtime'
+import type { DiffReviewApi } from './diff-review'
+import type {
+  AgentPreset as RuntimeAgentPreset,
+  RunningAgent as RuntimeRunningAgent
+} from './agent-runtime'
+
 // Contracts shared across main, preload, and renderer.
+
+export type RepoKind = 'git' | 'folder'
 
 export type Repo = {
   id: string
   path: string
   addedAt: string
+  /** Absent only in persisted records written before folder workspaces existed. */
+  kind?: RepoKind
 }
 
 export type Worktree = {
@@ -17,9 +39,29 @@ export type Worktree = {
   detached?: boolean
 }
 
-/** Per-worktree git status snapshot (porcelain v1 --branch parse). */
+/** One path from a NUL-delimited porcelain v2 status snapshot. */
+export type GitStatusCode = '.' | 'M' | 'T' | 'A' | 'D' | 'R' | 'C' | 'U' | '?'
+
+export type GitStatusEntry = {
+  /** Current relative path. Exact filesystem spelling; never C-style quoted. */
+  path: string
+  /** Previous relative path for a rename/copy. */
+  originalPath?: string
+  kind: 'ordinary' | 'renamed' | 'conflict' | 'untracked'
+  index: GitStatusCode
+  workingTree: GitStatusCode
+  staged: boolean
+  unstaged: boolean
+  conflict: boolean
+}
+
+/** Per-worktree status. New fields are optional so an older host degrades without reparsing raw text. */
 export type WorktreeStatus = {
+  kind?: RepoKind
   branch: string
+  detached?: boolean
+  headOid?: string
+  upstream?: string
   /** ahead of upstream / behind upstream, when the branch has one */
   ahead: number
   behind: number
@@ -27,10 +69,40 @@ export type WorktreeStatus = {
   modified: number
   untracked: number
   conflicts: number
+  /** NUL-safe typed entries. Absence means the connected host cannot provide actionable path details. */
+  entries?: GitStatusEntry[]
   /** relative paths, one per changed file (staged/modified/conflicted/untracked) */
   changedFiles: string[]
-  /** raw porcelain v1 lines for diff view / detail */
+  /** Compatibility-only porcelain-like lines. Current clients must use entries. */
   raw: string[]
+}
+
+export type GitPathFailure = { path: string; error: string }
+export type GitPathOperation = 'stage' | 'unstage' | 'discard'
+export type GitPathOperationResult = {
+  operation: GitPathOperation
+  succeeded: string[]
+  failures: GitPathFailure[]
+}
+
+export type GitBranchInfo = {
+  current: string | null
+  detached: boolean
+  headOid?: string
+  all: string[]
+}
+
+export type GitCommit = {
+  oid: string
+  shortOid: string
+  author: string
+  authoredAt: string
+  subject: string
+}
+
+export type GitHistoryPage = {
+  commits: GitCommit[]
+  nextCursor?: string
 }
 
 /** Full repo view: persisted repo meta + live-discovered worktrees + git user info for branch prefixes. */
@@ -52,29 +124,17 @@ export type TerminalSession = {
   exited: boolean
 }
 
-export type AgentPreset = {
-  name: string
-  command: string
-  detected: boolean
-}
+export type AgentPreset = RuntimeAgentPreset
 
 export type AppMeta = {
   version: string
   shell: string
   userDataDir: string
+  memoryMcp?: { command: string; args: string[]; env: Record<string, string> }
 }
 
-/** A running agent bound to a worktree terminal. */
-export type RunningAgent = {
-  sessionId: string
-  worktreePath: string
-  agent: string
-  startedAt: string
-  /** Agent hook state: working (default) | permission | done | note */
-  state: 'working' | 'permission' | 'done' | 'note'
-  /** Free-form hook payload (e.g. permission reason). */
-  detail?: string
-}
+/** A daemon-owned finite agent run bound to a workspace terminal. */
+export type RunningAgent = RuntimeRunningAgent
 
 /** Explorer tree built from `git ls-files -co --exclude-standard` + fs dirs. */
 export type FileEntry = {
@@ -89,44 +149,82 @@ export type FileContent = {
   content: string
   truncated: boolean
   bytes: number
+  /** Opaque full-file revision; absent on hosts that cannot guard writes. */
+  revision?: string
 }
+
+export type DiffComparison = 'working' | 'staged' | 'unstaged'
 
 export type TerminalThemeName = 'tomorrow-night' | 'dracula' | 'solarized-dark' | 'github-dark'
 
-/** Settings modal sections (nav rail). */
-export type SettingsSection = 'general' | 'terminal' | 'editor' | 'skills' | 'automations' | 'orchestration'
+/** Stable settings route ids used by the UI and runtime command contract. */
+export type SettingsSection =
+  | 'agents'
+  | 'editor'
+  | 'source-control'
+  | 'browser'
+  | 'appearance'
+  | 'terminal'
+  | 'shortcuts'
+  | 'notifications'
+  | 'privacy'
+  | 'advanced'
+export type RunsSection = 'agents' | 'automations' | 'orchestration'
+export type AttentionState = {
+  /** Whether the tray and Dock should show a current needs-attention marker. */
+  indicator: boolean
+  /** Whether a background window should request native attention for a new attention state. */
+  flash: boolean
+}
 /** How an editor pane shows a markdown file. */
 export type PreviewMode = 'edit' | 'preview'
 
 export type AppSettings = {
   agentCommand: string
-  /** app chrome theme (dark-only UI; terminal palettes live in terminalTheme) */
-  theme: 'dark'
-  fontSize: number
-  /** terminal font family override (Orca terminalFontFamily); empty = default stack */
-  fontFamily?: string
-  /** cursor: block | bar | underline (Orca terminalCursorStyle) */
-  cursorStyle?: 'block' | 'bar' | 'underline'
-  cursorBlink?: boolean
-  /** xterm scrollback lines for NEW terminals (live terminals keep theirs) */
-  scrollback?: number
-  /** copy selection to clipboard on mouse-up (Orca terminalCopyOnSelect) */
-  copyOnSelect?: boolean
-  /** terminal ANSI palette (Orca terminalTheme) */
-  terminalTheme?: TerminalThemeName
-  /** editor word wrap */
-  editorWordWrap?: 'on' | 'off'
-  /** editor minimap */
-  editorMinimap?: boolean
-  /** editor tab size */
-  editorTabSize?: 2 | 4 | 8
-  /** markdown files open rendered instead of source */
-  markdownPreviewDefault?: boolean
-  /** worktree/git status poll interval; 0 disables polling */
+  theme: 'system' | 'dark' | 'light'
+  uiScale: number
+  terminalFontFamily: string
+  terminalFontSize: number
+  terminalFontWeight: 400 | 500 | 600 | 700
+  terminalLineHeight: number
+  cursorStyle: 'block' | 'bar' | 'underline'
+  cursorBlink: boolean
+  scrollback: number
+  copyOnSelect: boolean
+  terminalTheme: TerminalThemeName
+  /** null inherits the terminal preference. */
+  editorFontFamily: string | null
+  /** null inherits terminalFontSize. */
+  editorFontSize: number | null
+  editorWordWrap: 'on' | 'off'
+  editorMinimap: boolean
+  editorTabSize: 2 | 4 | 8
+  editorStickyScroll: boolean
+  editorRenderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all'
+  editorAutoSaveMode: 'after-delay' | 'manual'
+  editorAutoSaveDelayMs: number
+  markdownPreviewDefault: boolean
+  diffViewStyle: 'split' | 'unified'
+  diffWordWrap: boolean
+  /** null inherits the effective editor font family. */
+  diffFontFamily: string | null
+  /** null inherits the effective editor font size. */
+  diffFontSize: number | null
+  browserHomeUrl: string
+  browserSearchEngine: 'duckduckgo' | 'google' | 'bing'
+  imageViewerFit: 'contain' | 'width' | 'actual'
+  pdfViewerFit: 'page' | 'width' | 'actual'
+  notificationActivityIndicator: boolean
+  notificationFlashWindow: boolean
+  keyboardShortcutOverrides: Record<string, string>
+  /** Worktree/git status poll interval; 0 disables polling. */
   statusPollMs: number
 }
 
-// Persisted state (subset of orca-data.json; lite keeps user intent + settings, never derived state)
+export type SettingKey = keyof AppSettings
+export type SettingsResetRequest = { keys: SettingKey[] } | { section: SettingsSection }
+
+// Persisted state (subset of donwells-data.json; lite keeps user intent + settings, never derived state)
 /** Binary split tree, persisted shape (mirrors the renderer's LayoutNode). */
 export type PersistedLayoutNode =
   | { kind: 'leaf'; pane: string }
@@ -134,7 +232,7 @@ export type PersistedLayoutNode =
 
 
 export type PersistedState = {
-  schemaVersion: 1
+  schemaVersion: 2
   repos: Repo[]
   settings: Partial<AppSettings>
   /**
@@ -151,8 +249,21 @@ export type PersistedState = {
    */
   workspaceSession?: {
     activeRepoId: string | null
+    navigationHistory?: PersistedNavigationHistoryV1
     /** persisted chrome widths (panel resizing) */
     ui?: { sidebarWidth?: number; rightSidebarWidth?: number }
+    /** User-owned workspace organization; hidden entries remain registered and restorable. */
+    workspaceNav?: {
+      collapsedRepoIds?: string[]
+      pinnedPaths?: string[]
+      order?: string[]
+      renames?: Record<string, string>
+      hiddenPaths?: string[]
+    }
+    /** Commit messages stay with the workspace session and survive app restarts. */
+    gitCommitDrafts?: Record<string, string>
+    /** Bounded Quick Open MRU paths keyed by workspace path. */
+    fileSearchMru?: Record<string, string[]>
     /**
      * Agent chips keyed by PTY session id. Restored only when the daemon still
      * owns the session — a chip must never outlive the process it tracks.
@@ -160,7 +271,7 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'; sessionId?: string; file?: string; url?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
@@ -168,6 +279,8 @@ export type PersistedState = {
       activeWorktreePath: string | null
     }>
   }
+  /** Unknown top-level data is retained for independent state owners. */
+  [key: string]: unknown
 }
 
 /** An automation: a command fired into a worktree terminal on a schedule. */
@@ -209,6 +322,7 @@ export type OrchestrationTask = {
   startedAt?: string
   finishedAt?: string
   error?: string
+  output?: string
 }
 
 export type OrchestrationRun = {
@@ -223,24 +337,22 @@ export type OrchestrationRun = {
   tasks: OrchestrationTask[]
 }
 
-/** An installed agent skill (markdown doc under userData/skills). */
-export type SkillMeta = {
-  name: string
-  source: string
-  installedAt: string
-  size: number
-}
+
+export type BrowserShortcutAction = 'focusAddress' | 'find' | 'zoomIn' | 'zoomOut' | 'zoomReset'
 
 // IPC events main -> renderer
 export type MainEvents = {
-  'terminal:data': { sessionId: string; data: string }
+  'terminal:data': { sessionId: string; data: string; sequence?: number }
   'terminal:exit': { sessionId: string; exitCode: number }
   'terminal:title': { sessionId: string; title: string }
   'worktree:changed': { repoId: string }
-  /** Agent hook envelope: state ∈ working|permission|done|note. */
-  'terminal:hook': { sessionId: string; state: string; detail: string }
+  'agent:changed': { run: RunningAgent }
+  'agent:dismissed': { sessionId: string }
+  'project-memory:changed': { projectKey: string }
   /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
   'menu:action': { action: string }
+  /** BrowserWindow accelerator forwarded while focus is inside a guest. */
+  'browser:shortcut': { action: BrowserShortcutAction; guestId: number }
   /** Settings mutated by an RPC/CLI client — renderer re-applies live. */
   'settings:changed': { settings: AppSettings }
 }
@@ -275,19 +387,22 @@ export type UiCommand =
   | { op: 'editor.open'; worktreePath: string; relPath: string }
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
-  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git'; width?: number }
-  | { op: 'palette'; open?: boolean | 'toggle' }
+  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git' | 'memory' | 'recovery'; width?: number }
+  | { op: 'palette'; open?: boolean | 'toggle'; mode?: 'commands' | 'files' }
   | { op: 'settings.open'; section?: SettingsSection }
+  | { op: 'runs.open'; section?: RunsSection }
+  | { op: 'workspace.flush' }
 
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
-export type IpcApi = {
+export type IpcApi = ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   meta(): Promise<AppMeta>
   listRepos(): Promise<RepoSummary[]>
   /** Browser control surface (renderer executes on its webviews). */
   onBrowserCommand(cb: (env: { id: string; cmd: BrowserCommand }) => void): () => void
   resolveBrowserCommand(id: string, result: BrowserCommandResult): void
-  browserRegisterPanes(keys: string[]): void
+  browserRouterReady?(): void
+  uiRouterReady?(): void
   /** UI/panel control surface (renderer executes against its store). */
   onUiCommand(cb: (env: { id: string; cmd: UiCommand }) => void): () => void
   resolveUiCommand(id: string, result: UiCommandResult): void
@@ -300,7 +415,7 @@ export type IpcApi = {
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
-  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string } | null>
+  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number } | null>
   closeTerminal(sessionId: string): Promise<void>
   /** Live daemon-owned sessions (for reattach after app restart). */
   terminalSessions(): Promise<TerminalSession[]>
@@ -311,27 +426,31 @@ export type IpcApi = {
   gitStatus(worktreePath: string): Promise<WorktreeStatus>
   /** Ports + cpu/mem of processes whose cwd is inside the worktree. */
   scanWorktree(worktreePath: string): Promise<{ ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
-  gitStage(worktreePath: string, paths: string[]): Promise<void>
-  gitUnstage(worktreePath: string, paths: string[]): Promise<void>
-  gitDiscard(worktreePath: string, paths: string[]): Promise<void>
-  gitCommit(worktreePath: string, message: string): Promise<string>
+  gitStage(worktreePath: string, paths: string[]): Promise<GitPathOperationResult>
+  gitUnstage(worktreePath: string, paths: string[]): Promise<GitPathOperationResult>
+  gitDiscard(worktreePath: string, paths: string[]): Promise<GitPathOperationResult>
+  gitCommit(worktreePath: string, message: string, options?: { amend?: boolean }): Promise<string>
+  gitFetch(worktreePath: string): Promise<string>
   gitPush(worktreePath: string): Promise<string>
   gitPull(worktreePath: string): Promise<string>
-  gitBranches(worktreePath: string): Promise<{ current: string; all: string[] }>
-  gitCheckout(worktreePath: string, branch: string): Promise<void>
+  gitBranches(worktreePath: string): Promise<GitBranchInfo>
+  gitCheckout(worktreePath: string, branch: string): Promise<GitBranchInfo>
+  gitCreateBranch(worktreePath: string, branch: string, startPoint?: string): Promise<GitBranchInfo>
+  gitHistory(worktreePath: string, options?: { cursor?: string; limit?: number }): Promise<GitHistoryPage>
   gitDiff(worktreePath: string, relPath: string): Promise<string>
-  readFile(worktreePath: string, relPath: string): Promise<FileContent>
-  /** Working-tree counterpart at a git ref (diff editor's left side). null = absent at ref. */
+  /** Empty ref selects the index. null means absent, not an unreadable object. */
   readFileAtRef(worktreePath: string, relPath: string, ref?: string): Promise<{ content: string | null }>
-  writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent>
-  listFiles(worktreePath: string, prefix?: string): Promise<FileEntry[]>
-  listAllFiles(worktreePath: string): Promise<FileEntry[]>
 
   getSettings(): Promise<AppSettings>
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
+  resetSettings(request: SettingsResetRequest): Promise<AppSettings>
   getWorkspaceSession(): Promise<PersistedState['workspaceSession']>
   saveWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): Promise<void>
   listAgents(): Promise<AgentPreset[]>
+  agentStart(workspacePath: string, command: string): Promise<AgentStartResult>
+  agentList(): Promise<RunningAgent[]>
+  agentInterrupt(sessionId: string): Promise<RunningAgent>
+  agentDismiss(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   pickDirectory(): Promise<string | null>
 
@@ -340,23 +459,8 @@ export type IpcApi = {
   secretGet(key: string): Promise<string | null>
   secretDelete(key: string): Promise<void>
   secretAvailable(): Promise<boolean>
-  /** Tray/Dock attention dot: true while any agent runs. */
-  setAttention(on: boolean): void
+  /** Independently controls the current attention marker and background-window flash. */
+  setAttention(state: AttentionState): void
 
-  /** Skills registry (agent-skill passthrough). */
-  skillsList(): Promise<SkillMeta[]>
-  skillsInstall(source: string): Promise<SkillMeta>
-  skillsRemove(name: string): Promise<void>
-  /** Automations (scheduler + persisted runs). */
-  automationsList(): Promise<Automation[]>
-  automationSave(a: Automation): Promise<void>
-  automationRemove(id: string): Promise<void>
-  automationRunNow(id: string): Promise<void>
-  automationRuns(id: string): Promise<AutomationRun[]>
-
-  /** Orchestration (fan-out agent runs across worktrees). */
-  orchestrationList(): Promise<OrchestrationRun[]>
-  orchestrationStart(name: string, command: string, worktreePaths: string[], parallel: number): Promise<OrchestrationRun | null>
-  orchestrationCancel(id: string): Promise<void>
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 }

@@ -133,4 +133,27 @@ monaco.editor.defineTheme('donwells-dark', {
   }
 })
 
+monaco.editor.defineTheme('donwells-light', {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#ffffff',
+    'editor.foreground': '#0a0a0a',
+    'editorLineNumber.foreground': '#a3a3a3',
+    'editorLineNumber.activeForeground': '#525252',
+    'editor.lineHighlightBackground': '#f5f5f5',
+    'editorCursor.foreground': '#171717',
+    'editor.selectionBackground': '#d4d4d480',
+    'editor.inactiveSelectionBackground': '#e5e5e580',
+    'editorWidget.background': '#ffffff',
+    'editorWidget.border': '#e5e5e5',
+    'editorIndentGuide.background1': '#e5e5e5',
+    'editorIndentGuide.activeBackground1': '#a3a3a3',
+    'scrollbarSlider.background': '#a3a3a359',
+    'scrollbarSlider.hoverBackground': '#73737380',
+    'scrollbarSlider.activeBackground': '#52525299'
+  }
+})
+
 export { monaco }

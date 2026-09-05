@@ -1,47 +1,109 @@
-import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, resolve, sep } from 'node:path'
-import type { FileContent, FileEntry, RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
+import { existsSync, lstatSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import type {
+  FileContent,
+  FileEntry,
+  GitBranchInfo,
+  GitCommit,
+  GitHistoryPage,
+  GitPathOperation,
+  GitPathOperationResult,
+  Repo,
+  RepoKind,
+  RepoSummary,
+  Worktree,
+  WorktreeStatus
+} from '@shared/types'
+import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
+import { rankWorkspaceFiles } from '@shared/file-search'
+import {
+  MAX_DIRECTORY_ENTRIES,
+  MAX_FILE_SEARCH_CANDIDATES,
+  type WorkspaceCreateRequest,
+  type WorkspaceDeleteRequest,
+  type WorkspaceDirectoryRequest,
+  type WorkspaceDirectoryResult,
+  type WorkspaceDuplicateRequest,
+  type WorkspaceFileSearchRequest,
+  type WorkspaceFileSearchResult,
+  type WorkspaceMoveRequest,
+  type WorkspaceMutationResult
+} from '@shared/file-workspace'
+import { emptyWorkspaceStatus, parseStatusPorcelainV2Z } from './git-status'
 import type { Store } from './store'
 import { readRepoWorktreeAdminFingerprint } from './worktree-fingerprint'
 import { retireWorktreeName, takenNames, uniquifyWorktreeName } from './worktree-name-retirement'
 import { idFromPath } from './store'
 import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
 import { pruneLineage, recordLineage } from '@shared/worktree-lineage'
+import { PREVIEW_BYTE_LIMIT, WorktreeFiles } from './worktree-files'
+import type { BinaryPreviewRequest, BinaryPreviewPayload } from '@shared/media-preview'
+import { readBinaryPreview } from './binary-preview'
 
 const HIDDEN_DIRS = new Set([`.git`, `node_modules`, `.DS_Store`])
 
 export class GitError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options: { cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause })
     this.name = 'GitError'
   }
 }
 
-/** Editor/file writes and reads never escape the worktree (no .. or symlink jailbreaks). */
-function confinedPath(worktreePath: string, relPath: string): string {
-  if (relPath.startsWith('/') || relPath.includes('\0')) throw new GitError(`Invalid path: ${relPath}`)
-  const abs = resolve(worktreePath, relPath)
-  const root = resolve(worktreePath)
-  if (abs !== root && !abs.startsWith(root + sep)) throw new GitError(`Path escapes worktree: ${relPath}`)
-  return abs
+const DEFAULT_GIT_OUTPUT_BYTES = 16 * 1024 * 1024
+
+function gitFailure(error: unknown): GitError {
+  if (!(error instanceof ProcessExecutionError)) {
+    return error instanceof GitError ? error : new GitError(error instanceof Error ? error.message : String(error), { cause: error })
+  }
+  const detail = error.result?.stderr.trim() || error.result?.stdout.trim() || error.message
+  return new GitError(detail, { cause: error })
 }
 
-function run(repoPath: string, args: string[], opts: { cwd?: string; timeoutMs?: number; raw?: boolean } = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
+async function run(
+  repoPath: string,
+  args: readonly string[],
+  opts: { cwd?: string; timeoutMs?: number; raw?: boolean; maxOutputBytes?: number } = {}
+): Promise<string> {
+  try {
+    const result = await runProcess({
+      program: 'git',
       args,
-      { cwd: opts.cwd ?? repoPath, timeout: opts.timeoutMs ?? 30000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(new GitError((stderr || stdout || String(err)).trim()))
-          return
-        }
-        resolve(opts.raw ? stdout : stdout.trim())
-      }
-    )
-  })
+      cwd: opts.cwd ?? repoPath,
+      timeoutMs: opts.timeoutMs ?? 30_000,
+      maxOutputBytes: opts.maxOutputBytes ?? DEFAULT_GIT_OUTPUT_BYTES,
+      executionHost: { kind: 'local' }
+    })
+    return opts.raw ? result.stdout : result.stdout.trim()
+  } catch (error) {
+    throw gitFailure(error)
+  }
+}
+
+async function runCapture(
+  repoPath: string,
+  args: readonly string[],
+  options: { timeoutMs?: number; maxOutputBytes?: number } = {}
+): Promise<{ failed: boolean; code: number | null; stdout: string; stderr: string }> {
+  try {
+    const result = await runProcess({
+      program: 'git',
+      args,
+      cwd: repoPath,
+      timeoutMs: options.timeoutMs ?? 20_000,
+      maxOutputBytes: options.maxOutputBytes ?? PREVIEW_BYTE_LIMIT + 1,
+      acceptExitCodes: [0, 1, 128],
+      executionHost: { kind: 'local' }
+    })
+    return { failed: result.code !== 0, code: result.code, stdout: result.stdout, stderr: result.stderr }
+  } catch (error) {
+    throw gitFailure(error)
+  }
+}
+
+interface WorktreeRunOptions {
+  timeoutMs?: number
+  raw?: boolean
+  maxOutputBytes?: number
 }
 
 /** Parse `git worktree list --porcelain` output into structured worktrees.
@@ -79,7 +141,7 @@ export function parseWorktreePorcelain(output: string, mainPath?: string): Workt
 /** Worktree sync: every repo is the source of truth for its own worktrees; repo records in the store are just pointers. */
 export async function listRepoWorktrees(repoPath: string): Promise<Worktree[]> {
   if (!existsSync(repoPath)) throw new GitError(`Path does not exist: ${repoPath}`)
-  const out = await run(repoPath, ['worktree', 'list', '--porcelain'], { timeoutMs: 10000 }).catch(() => '')
+  const out = await run(repoPath, ['worktree', 'list', '--porcelain'], { timeoutMs: 10_000 })
   // git resolves symlinks (e.g. /tmp -> /private/tmp on macOS); compare on the
   // real path so the main worktree of a /tmp repo is identified correctly.
   const real = realpathSync(repoPath)
@@ -87,7 +149,7 @@ export async function listRepoWorktrees(repoPath: string): Promise<Worktree[]> {
   return worktrees.sort((a, b) => (a.isMain === b.isMain ? 0 : a.isMain ? -1 : 1))
 }
 
-export function repoSummary(repoPath: string, worktrees: Worktree[]): { defaultBranch: string; currentBranch?: string } {
+export function repoSummary(worktrees: Worktree[]): { defaultBranch: string; currentBranch?: string } {
   const main = worktrees.find((w) => w.isMain)
   return {
     defaultBranch: main ? main.branch : 'unknown',
@@ -95,9 +157,34 @@ export function repoSummary(repoPath: string, worktrees: Worktree[]): { defaultB
   }
 }
 
-async function verifyRepoIsGit(path: string): Promise<void> {
-  const out = await run(path, ['rev-parse', '--git-dir']).catch(() => '')
-  if (!out) throw new GitError(`Not a git repository: ${path}`)
+type WorkspaceIdentity = { path: string; kind: RepoKind }
+
+function canonicalDirectory(path: string): string {
+  if (!existsSync(path)) throw new GitError(`Path does not exist: ${path}`)
+  const real = realpathSync(path)
+  if (!statSync(real).isDirectory()) throw new GitError(`Path is not a directory: ${path}`)
+  return real
+}
+
+async function classifyWorkspace(path: string): Promise<WorkspaceIdentity> {
+  const real = canonicalDirectory(path)
+  const probe = await runCapture(real, ['rev-parse', '--is-inside-work-tree'])
+  if (!probe.failed && probe.stdout.trim() === 'true') return { path: real, kind: 'git' }
+  const detail = (probe.stderr || probe.stdout).trim()
+  if (probe.failed && /not a git repository|not a git directory/i.test(detail)) {
+    return { path: real, kind: 'folder' }
+  }
+  if (!probe.failed) return { path: real, kind: 'folder' }
+  throw new GitError(detail || `Unable to classify workspace: ${real}`)
+}
+
+function folderSummary(repo: Repo): RepoSummary {
+  return {
+    repo: { ...repo, kind: 'folder' },
+    worktrees: [{ id: idFromPath(repo.path), path: repo.path, branch: '', isMain: true }],
+    lineage: {},
+    defaultBranch: ''
+  }
 }
 
 
@@ -142,6 +229,7 @@ export class WorktreeScanCache {
 }
 export class GitWorktrees {
   private scanCache = new WorktreeScanCache()
+  private files = new WorktreeFiles()
   /** Recovery dir for removed worktrees (wired from main). */
   private trashDir: string | null = null
 
@@ -177,38 +265,52 @@ export class GitWorktrees {
     }
     return summaries
   }
+
   async summarize(repoPath: string): Promise<RepoSummary> {
-    await verifyRepoIsGit(repoPath)
-    const worktrees = await this.listWorktreesCached(repoPath)
-    const repoId = idFromPath(repoPath)
+    const identity = await classifyWorkspace(repoPath)
+    const stored = this.store.listRepos().find((repo) => repo.id === idFromPath(identity.path))
+    const repo: Repo = {
+      id: idFromPath(identity.path),
+      path: identity.path,
+      addedAt: stored?.addedAt ?? new Date().toISOString(),
+      kind: identity.kind
+    }
+    if (identity.kind === 'folder') return folderSummary(repo)
+
+    const worktrees = await this.listWorktreesCached(identity.path)
     // keep lineage aligned with the live scan: drop dead branch pairs
-    const lineage = pruneLineage(this.store.getLineage(repoId), worktrees)
-    this.store.setLineage(repoId, lineage)
+    const lineage = pruneLineage(this.store.getLineage(repo.id), worktrees)
+    this.store.setLineage(repo.id, lineage)
     return {
-      repo: { id: repoId, path: repoPath, addedAt: new Date().toISOString() },
+      repo,
       worktrees,
       lineage,
-      ...repoSummary(repoPath, worktrees)
+      ...repoSummary(worktrees)
     }
   }
 
-
-  /** Ensure a repo directory is a real git repo, then record it. */
+  /** Record either a Git worktree root or a plain folder workspace. */
   async addRepo(dir: string): Promise<RepoSummary> {
-    const normalized = dir.replace(/\/+$/, '')
-    await verifyRepoIsGit(normalized)
-    const worktrees = await listRepoWorktrees(normalized)
-    const summary = {
-      repo: { id: idFromPath(normalized), path: normalized, addedAt: new Date().toISOString() },
-      worktrees,
-      lineage: {} as Record<string, string>,
-      ...repoSummary(normalized, worktrees)
+    const identity = await classifyWorkspace(dir)
+    const repo: Repo = {
+      id: idFromPath(identity.path),
+      path: identity.path,
+      addedAt: new Date().toISOString(),
+      kind: identity.kind
     }
-    if (!this.store.listRepos().some((r) => r.id === summary.repo.id)) {
-      this.store.addRepo(summary.repo)
+    let summary: RepoSummary
+    if (identity.kind === 'git') {
+      const worktrees = await listRepoWorktrees(identity.path)
+      summary = {
+        repo,
+        worktrees,
+        lineage: {},
+        ...repoSummary(worktrees)
+      }
     } else {
-      this.store.addRepo(summary.repo) // idempotent
+      summary = folderSummary(repo)
     }
+    this.store.addRepo(repo)
     return summary
   }
 
@@ -220,6 +322,7 @@ export class GitWorktrees {
     repoPath: string,
     opts: { name?: string; branch?: string }
   ): Promise<RepoSummary> {
+    repoPath = await requireGitWorktree(this.store, repoPath)
     const base = opts.branch?.trim()
     const requested = opts.name?.trim() || (base ? basename(base) : 'feature')
     // retirement: a removed name never returns; collisions suffix -2, -3, …
@@ -234,7 +337,7 @@ export class GitWorktrees {
     }
     await run(repoPath, args, { timeoutMs: 120000 })
     // lineage: branch ← base at creation. Default base = main worktree branch.
-    const baseBranch = base ?? repoSummary(repoPath, worktreesBefore).currentBranch
+    const baseBranch = base ?? repoSummary(worktreesBefore).currentBranch
     if (baseBranch) {
       this.store.setLineage(repoId, recordLineage(this.store.getLineage(repoId), wdName, baseBranch))
     }
@@ -242,7 +345,7 @@ export class GitWorktrees {
     return this.summarize(repoPath)
   }
   async removeWorktree(repoPath: string, worktreePath: string, force = false): Promise<RepoSummary> {
-    fenceMainWorktree(worktreePath, repoPath)
+    repoPath = await requireGitWorktree(this.store, repoPath)
     // resolve the victim from the live scan (canonical path + branch to retire).
     // compare on realpaths: git prints symlink-resolved paths (/tmp → /private/tmp)
     const worktrees = await this.listWorktreesCached(repoPath)
@@ -261,6 +364,8 @@ export class GitWorktrees {
     if (!canonical) throw new GitError(`Unknown worktree: ${worktreePath}`)
     const victimDir = canonical.path
     const victimBranch = canonical.branch
+    fenceMainWorktree(realTarget ?? victimDir, repoPath)
+    fenceMainWorktree(victimDir, worktrees[0]?.path ?? repoPath)
 
     if (isOrphanWorktree(victimDir, repoPath)) {
       // dir already gone (external rm -rf): prune the lingering admin entry
@@ -297,50 +402,55 @@ export class GitWorktrees {
   }
 
 
-  async detectAgents(): Promise<{ name: string; command: string; detected: boolean }[]> {
-    const candidates = ['codex', 'claude', 'pi', 'opencode', 'cursor-agent', 'qwen-code', 'goose']
-    const found = await Promise.all(
-      candidates.map(async (c) => ({ name: c, command: c, detected: await this.hasBin(c) }))
-    )
-    return found.filter((a) => a.detected)
-  }
-
-  private hasBin(name: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      execFile('which', [name], (err) => resolve(!err))
-    })
-  }
-
-  /** Per-worktree git status: branch + ahead/behind + change counts + changed file paths. */
+  /** Per-workspace status. Folder workspaces return an explicit non-Git snapshot. */
   async status(worktreePath: string): Promise<WorktreeStatus> {
-    await verifyWorktreePath(this.store, worktreePath)
-    const out = await runWorktree(worktreePath, ['status', '--porcelain', '--branch'])
-    return parseStatusPorcelain(out)
+    const workspace = await resolveWorkspacePath(this.store, worktreePath)
+    if (workspace.kind === 'folder') return emptyWorkspaceStatus('folder')
+    const out = await runWorktree(workspace.path, [
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '-z',
+      '--untracked-files=all'
+    ], { raw: true })
+    try {
+      return parseStatusPorcelainV2Z(out)
+    } catch (error) {
+      throw new GitError(`Unable to parse Git status: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    }
   }
 
   /** List files under a worktree (git-tracked + untracked, ignoring ignored files). */
   async listFiles(worktreePath: string, prefix = ''): Promise<FileEntry[]> {
-    await verifyWorktreePath(this.store, worktreePath)
-    // empty prefix must not pass `-- ''` (git rejects an empty pathspec)
+    const root = await requireGitWorktree(this.store, worktreePath)
+    if (prefix.split('/').some((segment) => HIDDEN_DIRS.has(segment))) throw new GitError(`Invalid path prefix: ${prefix}`)
+    await this.files.resolveDirectory(root, prefix)
     const lsArgs = prefix
-      ? ['ls-files', '--others', '--exclude-standard', '--', prefix]
-      : ['ls-files', '--others', '--exclude-standard']
-    const lsOut = await runWorktree(worktreePath, lsArgs)
-    // `--others` is untracked-only: union with tracked files or the explorer
-    // silently loses every committed path.
-    const trackedArgs = prefix
-      ? ['ls-files', '--', prefix]
-      : ['ls-files']
-    const trackedOut = await runWorktree(worktreePath, trackedArgs)
-    const files = new Set<string>()
-    for (const line of `${lsOut}\n${trackedOut}`.split('\n')) {
-      const rel = line.trim()
-      if (rel && rel.startsWith(prefix)) files.add(rel)
+      ? ['ls-files', '-z', '--others', '--exclude-standard', '--', prefix]
+      : ['ls-files', '-z', '--others', '--exclude-standard']
+    const trackedArgs = prefix ? ['ls-files', '-z', '--', prefix] : ['ls-files', '-z']
+    const [untracked, tracked] = await Promise.all([
+      runWorktree(root, lsArgs, { raw: true }),
+      runWorktree(root, trackedArgs, { raw: true })
+    ])
+    const candidates = new Set<string>()
+    const base = prefix ? `${prefix}/` : ''
+    for (const rel of `${untracked}${tracked}`.split('\0')) {
+      if (rel && (!prefix || rel.startsWith(base))) candidates.add(rel)
     }
-    // include untracked dirs collapsed to their top level so explorers stay shallow
+
+    const files = new Set<string>()
+    const candidateList = [...candidates]
+    for (let start = 0; start < candidateList.length; start += 64) {
+      const batch = candidateList.slice(start, start + 64)
+      const safe = await Promise.all(batch.map((rel) => this.files.isSafeListedPath(root, rel)))
+      for (let index = 0; index < batch.length; index++) {
+        if (safe[index]) files.add(batch[index])
+      }
+    }
+
     const entries: FileEntry[] = []
     const seenDirs = new Set<string>()
-    const base = prefix ? `${prefix}/` : ''
     for (const rel of files) {
       const rest = rel.slice(base.length)
       const slash = rest.indexOf('/')
@@ -354,231 +464,417 @@ export class GitWorktrees {
         }
       }
     }
-    // fs directories that git doesn't know (empty / ignored) still show up —
-    // but internal plumbing (.git, node_modules) never belongs in an explorer.
-    const abs = join(worktreePath, prefix)
-    if (existsSync(abs) && statSync(abs).isDirectory()) {
-      for (const name of readdirSync(abs)) {
-        if (HIDDEN_DIRS.has(name)) continue
-        const rel = base + name
-        if (files.has(rel)) continue
-        const st = statSync(join(abs, name))
-        entries.push({ path: rel, name, type: st.isDirectory() ? 'dir' : 'file' })
-      }
+    for (const item of await this.files.listDirectory(root, prefix)) {
+      if (HIDDEN_DIRS.has(item.name)) continue
+      const rel = base + item.name
+      if (files.has(rel) || seenDirs.has(rel)) continue
+      entries.push({ path: rel, name: item.name, type: item.type })
     }
     return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
   }
 
-  /** Raw recursive file list (QuickOpen wants every path; the explorer collapses dirs). */
+  /** Raw recursive file list (QuickOpen wants every safe regular file path). */
   async listAllFiles(worktreePath: string): Promise<FileEntry[]> {
-    await verifyWorktreePath(this.store, worktreePath)
-    const out = await runWorktree(worktreePath, ['ls-files', '--others', '--exclude-standard'])
-    const tracked = await runWorktree(worktreePath, ['ls-files'])
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const [untracked, tracked] = await Promise.all([
+      runWorktree(root, ['ls-files', '-z', '--others', '--exclude-standard'], { raw: true }),
+      runWorktree(root, ['ls-files', '-z'], { raw: true })
+    ])
+    const candidates = [...new Set(`${untracked}${tracked}`.split(String.fromCharCode(0)).filter(Boolean))]
+      .slice(0, MAX_FILE_SEARCH_CANDIDATES + 1)
     const entries: FileEntry[] = []
-    for (const line of `${out}\n${tracked}`.split('\n')) {
-      const rel = line.trim()
-      if (!rel) continue
-      if (rel.split('/').some((seg) => HIDDEN_DIRS.has(seg))) continue
-      entries.push({ path: rel, name: rel.split('/').pop() ?? rel, type: 'file' })
+    for (let start = 0; start < candidates.length; start += 64) {
+      const batch = candidates.slice(start, start + 64)
+      const safe = await Promise.all(batch.map((rel) => this.files.isSafeListedPath(root, rel)))
+      for (let index = 0; index < batch.length; index++) {
+        const rel = batch[index]
+        if (!safe[index] || rel.split('/').some((segment) => HIDDEN_DIRS.has(segment))) continue
+        entries.push({ path: rel, name: rel.split('/').pop() ?? rel, type: 'file' })
+      }
     }
     return entries
   }
 
-  /** Read one file from a worktree, capped at 512 KiB (rendering guard, not a product limit). */
-  async readFile(worktreePath: string, relPath: string): Promise<FileContent> {
-    await verifyWorktreePath(this.store, worktreePath)
-    const abs = confinedPath(worktreePath, relPath)
-    if (!existsSync(abs)) throw new GitError(`No such file: ${relPath}`)
-    const st = statSync(abs)
-    if (st.isDirectory()) throw new GitError(`${relPath} is a directory`)
-    const limit = 512 * 1024
-    const buf = readFileSync(abs)
+  async listWorkspaceDirectory(
+    workspacePath: string,
+    request: WorkspaceDirectoryRequest
+  ): Promise<WorkspaceDirectoryResult> {
+    const workspace = await resolveWorkspacePath(this.store, workspacePath)
+    if (!request || typeof request.directory !== 'string'
+      || typeof request.showHidden !== 'boolean' || typeof request.includeIgnored !== 'boolean') {
+      throw new GitError('Invalid workspace directory request')
+    }
+    if (workspace.kind === 'folder' || request.includeIgnored) {
+      return this.files.listWorkspaceDirectory(workspace.path, request)
+    }
+    const all = await this.listFiles(workspace.path, request.directory)
+    const visible = request.showHidden ? all : all.filter((entry) => !entry.name.startsWith('.'))
     return {
-      path: relPath,
-      content: buf.subarray(0, limit).toString('utf8'),
-      truncated: buf.length > limit,
-      bytes: buf.length
+      directory: request.directory,
+      entries: visible.slice(0, MAX_DIRECTORY_ENTRIES),
+      truncated: visible.length > MAX_DIRECTORY_ENTRIES
     }
   }
 
-  /** File content at a git ref (diff editor). Absent at the ref → null; not "untouched by the repo" errors. */
+  async searchWorkspaceFiles(
+    workspacePath: string,
+    request: WorkspaceFileSearchRequest
+  ): Promise<WorkspaceFileSearchResult> {
+    const workspace = await resolveWorkspacePath(this.store, workspacePath)
+    if (!request || typeof request.query !== 'string'
+      || typeof request.showHidden !== 'boolean' || typeof request.includeIgnored !== 'boolean') {
+      throw new GitError('Invalid workspace file search request')
+    }
+    if (workspace.kind === 'folder' || request.includeIgnored) {
+      return this.files.searchWorkspaceFiles(workspace.path, request)
+    }
+    return rankWorkspaceFiles(await this.listAllFiles(workspace.path), request)
+  }
+
+  /** Read a bounded preview. Full stable snapshots carry the only revisions accepted by guarded writes. */
+  async readFile(worktreePath: string, relPath: string): Promise<FileContent> {
+    const root = await verifyWorktreePath(this.store, worktreePath)
+    return this.files.readFile(root, relPath)
+  }
+
+  /** File content at HEAD or the index (empty ref). Only an absent object or path maps to null. */
   async readFileAtRef(worktreePath: string, relPath: string, ref = 'HEAD'): Promise<{ content: string | null }> {
-    await verifyWorktreePath(this.store, worktreePath)
-    // ref + rel become one `<ref>:<rel>` token for `git show` — both hardened
-    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref)) throw new GitError(`Invalid ref: ${ref}`)
-    if (relPath.includes('..') || relPath.startsWith('/') || relPath.includes(':')) throw new GitError(`Invalid path: ${relPath}`)
-    try {
-      return { content: await run(worktreePath, ['show', `${ref}:${relPath}`], { raw: true }) }
-    } catch {
-      return { content: null }
+    worktreePath = await requireGitWorktree(this.store, worktreePath)
+    validateGitPath(relPath)
+
+    let hash: string | null = null
+    if (ref === '') {
+      const staged = await runWorktree(worktreePath, ['ls-files', '--stage', '-z', '--', relPath])
+      const matches = staged.split('\0').filter((record) => record.endsWith(`\t${relPath}`))
+      if (matches.length === 0) return { content: null }
+      const stageZero = matches.find((record) => /^\d+ [a-f0-9]+ 0\t/.test(record))
+      if (!stageZero) throw new GitError(`Cannot read unmerged index entry: ${relPath}`)
+      hash = stageZero.match(/^\d+ ([a-f0-9]+) 0\t/)?.[1] ?? null
+    } else {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref)) throw new GitError(`Invalid ref: ${ref}`)
+      const probe = await runCapture(worktreePath, ['rev-parse', '--verify', '--quiet', `${ref}^{object}`])
+      if (probe.failed) {
+        if (typeof probe.code === 'number' && !probe.stdout && !probe.stderr) return { content: null }
+        throw new GitError((probe.stderr || probe.stdout || `Unable to resolve git ref: ${ref}`).trim())
+      }
+      const tree = await runWorktree(worktreePath, ['ls-tree', '-z', ref, '--', relPath])
+      const record = tree.split('\0').find((entry) => entry.endsWith(`\t${relPath}`))
+      if (!record) return { content: null }
+      const match = record.match(/^\d+ (\S+) ([a-f0-9]+)\t/)
+      if (!match) throw new GitError(`Invalid git tree entry for: ${relPath}`)
+      if (match[1] !== 'blob') throw new GitError(`${relPath} is not a regular file at ${ref}`)
+      hash = match[2]
+    }
+    if (!hash) throw new GitError(`Invalid git object for: ${relPath}`)
+    const sizeText = await runWorktree(worktreePath, ['cat-file', '-s', hash])
+    const size = Number(sizeText)
+    if (!Number.isSafeInteger(size) || size < 0) throw new GitError(`Invalid git object size for: ${relPath}`)
+    if (size > PREVIEW_BYTE_LIMIT) throw new GitError(`Git object exceeds 512 KiB preview cap: ${relPath}`)
+    return {
+      content: await run(worktreePath, ['cat-file', '-p', hash], {
+        raw: true,
+        maxOutputBytes: PREVIEW_BYTE_LIMIT + 1
+      })
     }
   }
 
-  /** Write one file inside a worktree (editor autosave + agent edits). Creates new files; refuses traversal. */
-  async writeFile(worktreePath: string, relPath: string, content: string): Promise<FileContent> {
-    await verifyWorktreePath(this.store, worktreePath)
-    if (content.length > 2 * 1024 * 1024) throw new GitError('File content exceeds 2 MiB write cap')
-    const abs = confinedPath(worktreePath, relPath)
-    const parent = dirname(abs)
-    if (!existsSync(parent) || !statSync(parent).isDirectory()) throw new GitError(`No such directory for: ${relPath}`)
-    writeFileSync(abs, content, 'utf8')
-    const st = statSync(abs)
-    return { path: relPath, content, truncated: false, bytes: st.size }
+  /** Serialized whole-file write. expectedRevision enables optimistic conflict protection. */
+  async writeFile(worktreePath: string, relPath: string, content: string, expectedRevision?: string): Promise<FileContent> {
+    const root = await verifyWorktreePath(this.store, worktreePath)
+    return this.files.writeFile(root, relPath, content, expectedRevision)
   }
 
-  // ── GitOps: stage/unstage/commit/push/pull/branch/diff (upstream §8 git surface, lite) ──
-
-  async stage(worktreePath: string, paths: string[]): Promise<void> {
-    await verifyWorktreePath(this.store, worktreePath)
-    if (paths.length === 0) return
-    await runWorktree(worktreePath, ['add', '--', ...paths])
+  /** Resolve a markdown-local image into a verified, bounded data URL. */
+  async readPreviewImage(worktreePath: string, documentPath: string, source: string): Promise<string> {
+    const root = await verifyWorktreePath(this.store, worktreePath)
+    return this.files.readPreviewImage(root, documentPath, source)
   }
 
-  async unstage(worktreePath: string, paths: string[]): Promise<void> {
-    await verifyWorktreePath(this.store, worktreePath)
-    if (paths.length === 0) return
-    await runWorktree(worktreePath, ['restore', '--staged', '--', ...paths])
+  async readBinaryPreview(workspacePath: string, request: BinaryPreviewRequest, signal?: AbortSignal): Promise<BinaryPreviewPayload> {
+    return readBinaryPreview(await verifyWorktreePath(this.store, workspacePath), request, signal)
   }
 
-  /** Discard worktree changes for paths (destructive; the UI confirms). */
-  async discard(worktreePath: string, paths: string[]): Promise<void> {
-    await verifyWorktreePath(this.store, worktreePath)
-    if (paths.length === 0) return
-    await runWorktree(worktreePath, ['checkout', '--', ...paths])
-    // untracked files are not touched by checkout — remove them explicitly
-    const st = await this.status(worktreePath)
-    const untrackedLeft = st.raw.filter((l) => l.startsWith('??') && paths.some((p) => l.slice(3) === p))
-    for (const line of untrackedLeft) {
-      const p = line.slice(3)
+  async createWorkspaceEntry(workspacePath: string, request: WorkspaceCreateRequest): Promise<WorkspaceMutationResult> {
+    return this.files.createWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
+  }
+
+  async moveWorkspaceEntry(workspacePath: string, request: WorkspaceMoveRequest): Promise<WorkspaceMutationResult> {
+    return this.files.moveWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
+  }
+
+  async duplicateWorkspaceEntry(workspacePath: string, request: WorkspaceDuplicateRequest): Promise<WorkspaceMutationResult> {
+    return this.files.duplicateWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
+  }
+
+  async deleteWorkspaceEntry(workspacePath: string, request: WorkspaceDeleteRequest): Promise<WorkspaceMutationResult> {
+    return this.files.deleteWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
+  }
+  // ── Git operations ───────────────────────────────────────────────────────
+
+  private async operatePaths(
+    operation: GitPathOperation,
+    paths: readonly string[],
+    execute: (path: string) => Promise<void>
+  ): Promise<GitPathOperationResult> {
+    const result: GitPathOperationResult = { operation, succeeded: [], failures: [] }
+    for (const path of new Set(paths)) {
       try {
-        rmSync(join(worktreePath, p))
-      } catch {
-        // already gone
+        validateGitPath(path)
+        await execute(path)
+        result.succeeded.push(path)
+      } catch (error) {
+        result.failures.push({ path, error: error instanceof Error ? error.message : String(error) })
       }
     }
+    return result
   }
 
-  async commit(worktreePath: string, message: string): Promise<string> {
-    await verifyWorktreePath(this.store, worktreePath)
+  async stage(worktreePath: string, paths: readonly string[]): Promise<GitPathOperationResult> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    return this.operatePaths('stage', paths, (path) => runWorktree(root, ['add', '--', path]).then(() => undefined))
+  }
+
+  async unstage(worktreePath: string, paths: readonly string[]): Promise<GitPathOperationResult> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const hasHead = !(await runCapture(root, ['rev-parse', '--verify', 'HEAD'])).failed
+    return this.operatePaths('unstage', paths, (path) => {
+      const args = hasHead ? ['restore', '--staged', '--', path] : ['rm', '--cached', '--', path]
+      return runWorktree(root, args).then(() => undefined)
+    })
+  }
+
+  /** Discard exact worktree paths. The renderer confirms and flushes dirty editors first. */
+  async discard(worktreePath: string, paths: readonly string[]): Promise<GitPathOperationResult> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const status = await this.status(root)
+    const entries = status.entries
+    if (!entries) throw new GitError('This Git host does not provide typed status entries')
+    const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+    return this.operatePaths('discard', paths, async (path) => {
+      const entry = byPath.get(path)
+      if (!entry) throw new GitError('Path has no discardable changes')
+      if (entry.kind === 'untracked') {
+        removeUntrackedPath(root, path)
+        return
+      }
+      if (entry.conflict) {
+        await runWorktree(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', path])
+        return
+      }
+      if (!entry.unstaged) throw new GitError('Path has no unstaged changes')
+      const targets = entry.originalPath ? [entry.originalPath, entry.path] : [entry.path]
+      for (const target of targets) validateGitPath(target)
+      await runWorktree(root, ['restore', '--worktree', '--', ...targets])
+    })
+  }
+
+  async commit(worktreePath: string, message: string, options: { amend?: boolean } = {}): Promise<string> {
+    const root = await requireGitWorktree(this.store, worktreePath)
     const msg = message.trim()
     if (!msg) throw new GitError('Commit message is empty')
-    const out = await runWorktree(worktreePath, ['commit', '-m', msg])
-    const line = out.split('\n').find((l) => l.includes(']'))
-    return line?.trim() ?? 'committed'
+    const args = ['commit']
+    if (options.amend) args.push('--amend')
+    args.push('-m', msg)
+    const out = await runWorktree(root, args, { timeoutMs: 60_000 })
+    return out.split(String.fromCharCode(10)).find((line) => line.includes(']'))?.trim() ?? (options.amend ? 'Commit amended' : 'Committed')
   }
 
-  /** Push HEAD; sets upstream when the branch has none. */
+  async fetch(worktreePath: string): Promise<string> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    return (await runWorktree(root, ['fetch'], { timeoutMs: 120_000 })) || 'Fetch complete'
+  }
+
+  /** Push HEAD; sets origin as upstream only when no upstream is configured. */
   async push(worktreePath: string): Promise<string> {
-    await verifyWorktreePath(this.store, worktreePath)
-    try {
-      return await runWorktree(worktreePath, ['push'], { timeoutMs: 60000 })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes('no upstream') && !msg.includes('has no upstream')) throw e
-      return await runWorktree(worktreePath, ['push', '-u', 'origin', 'HEAD'], { timeoutMs: 60000 })
-    }
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const branch = await this.branches(root)
+    if (!branch.current) throw new GitError('Cannot push a detached HEAD')
+    const upstream = await runCapture(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+    const args = upstream.failed ? ['push', '-u', 'origin', 'HEAD'] : ['push']
+    return (await runWorktree(root, args, { timeoutMs: 120_000 })) || 'Push complete'
   }
 
   async pull(worktreePath: string): Promise<string> {
-    await verifyWorktreePath(this.store, worktreePath)
-    return await runWorktree(worktreePath, ['pull', '--ff-only'], { timeoutMs: 60000 })
+    const root = await requireGitWorktree(this.store, worktreePath)
+    return (await runWorktree(root, ['pull', '--ff-only'], { timeoutMs: 120_000 })) || 'Already up to date'
   }
 
-  async branches(worktreePath: string): Promise<{ current: string; all: string[] }> {
-    await verifyWorktreePath(this.store, worktreePath)
-    const out = await runWorktree(worktreePath, ['branch', '--format=%(refname:short)'])
-    const all = out.split('\n').map((l) => l.trim()).filter(Boolean)
-    const current = all.find((b) => b.startsWith('* '))?.slice(2) ?? all[0] ?? ''
-    return { current: current.replace(/^\* /, ''), all: all.map((b) => b.replace(/^\* /, '')) }
+  async branches(worktreePath: string): Promise<GitBranchInfo> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const [currentOutput, refsOutput, head] = await Promise.all([
+      runWorktree(root, ['branch', '--show-current']),
+      runWorktree(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']),
+      runCapture(root, ['rev-parse', '--verify', 'HEAD'])
+    ])
+    const current = currentOutput || null
+    const headOid = head.failed ? undefined : head.stdout.trim() || undefined
+    return {
+      current,
+      detached: Boolean(headOid && !current),
+      headOid,
+      all: refsOutput.split(String.fromCharCode(10)).map((branch) => branch.trim()).filter(Boolean)
+    }
   }
 
-  async checkout(worktreePath: string, branch: string): Promise<void> {
-    await verifyWorktreePath(this.store, worktreePath)
-    if (!branch.trim()) throw new GitError('Branch is empty')
-    await runWorktree(worktreePath, ['checkout', branch.trim()])
+  async checkout(worktreePath: string, branch: string): Promise<GitBranchInfo> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const name = branch.trim()
+    if (!name) throw new GitError('Branch is empty')
+    await validateBranchName(root, name)
+    await runWorktree(root, ['checkout', name])
+    return this.branches(root)
   }
 
-  /** Unified diff for one path (worktree vs HEAD; falls back to empty for untracked). */
+  async createBranch(worktreePath: string, branch: string, startPoint?: string): Promise<GitBranchInfo> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const name = branch.trim()
+    if (!name) throw new GitError('Branch is empty')
+    await validateBranchName(root, name)
+    const args = ['checkout', '-b', name]
+    if (startPoint !== undefined) {
+      const base = startPoint.trim()
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/~^-]*$/.test(base)) throw new GitError('Invalid branch start point')
+      args.push(base)
+    }
+    await runWorktree(root, args)
+    return this.branches(root)
+  }
+
+  async history(
+    worktreePath: string,
+    options: { cursor?: string; limit?: number } = {}
+  ): Promise<GitHistoryPage> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? 30)))
+    const branch = await this.branches(root)
+    if (!branch.headOid) return { commits: [] }
+    const args = [
+      'log',
+      '-z',
+      `--max-count=${limit + 1}`,
+      '--format=%H%x00%h%x00%an%x00%aI%x00%s'
+    ]
+    if (options.cursor) {
+      if (!/^[0-9a-f]{40,64}$/i.test(options.cursor)) throw new GitError('Invalid history cursor')
+      args.push('--skip=1', options.cursor)
+    }
+    const output = await runWorktree(root, args, { raw: true, timeoutMs: 30_000, maxOutputBytes: 4 * 1024 * 1024 })
+    const commits = parseHistory(output)
+    const page = commits.slice(0, limit)
+    return {
+      commits: page,
+      nextCursor: commits.length > limit ? page.at(-1)?.oid : undefined
+    }
+  }
+
+  /** Unified diff for one path (worktree vs HEAD). Git failures are never reclassified as an empty diff. */
   async diff(worktreePath: string, relPath: string): Promise<string> {
-    await verifyWorktreePath(this.store, worktreePath)
-    try {
-      return await runWorktree(worktreePath, ['diff', 'HEAD', '--', relPath], { timeoutMs: 20000 })
-    } catch {
-      return ''
-    }
+    const root = await requireGitWorktree(this.store, worktreePath)
+    validateGitPath(relPath)
+    return runWorktree(root, ['diff', 'HEAD', '--', relPath], { timeoutMs: 20_000 })
   }
 }
 
-/**
- * Parse `git status --porcelain --branch` (v1) into counts + changed paths.
- * Branch line: `## main...origin/main [ahead 1, behind 2]`; worktree lines:
- * `XY path` where X=index, Y=worktree, `??` untracked, `U*`/`*U` conflicts.
- */
-export function parseStatusPorcelain(output: string): WorktreeStatus {
-  let branch = ''
-  let ahead = 0
-  let behind = 0
-  let staged = 0
-  let modified = 0
-  let untracked = 0
-  let conflicts = 0
-  const changedFiles: string[] = []
-  const raw: string[] = []
-
-  for (const rawLine of output.split('\n')) {
-    const line = rawLine.trimEnd()
-    if (!line) continue
-    raw.push(line)
-    if (line.startsWith('## ')) {
-      const rest = line.slice(3)
-      const [br, upstream] = rest.split('...')
-      branch = br.split(' ')[0] ?? ''
-      const upticks = rest.match(/ahead (\d+)/)
-      const downticks = rest.match(/behind (\d+)/)
-      if (upticks) ahead = Number(upticks[1])
-      if (downticks) behind = Number(downticks[1])
-      void upstream
-      continue
+function parseHistory(output: string): GitCommit[] {
+  const fields = output.split(String.fromCharCode(0))
+  while (fields.at(-1) === '') fields.pop()
+  if (fields.length % 5 !== 0) throw new GitError('Git returned a malformed history record')
+  const commits: GitCommit[] = []
+  for (let index = 0; index < fields.length; index += 5) {
+    let oid = fields[index] ?? ''
+    while (oid.charCodeAt(0) === 10) oid = oid.slice(1)
+    const shortOid = fields[index + 1] ?? ''
+    const author = fields[index + 2] ?? ''
+    const authoredAt = fields[index + 3] ?? ''
+    const subject = fields[index + 4] ?? ''
+    if (!/^[0-9a-f]{40,64}$/i.test(oid) || !shortOid || !authoredAt) {
+      throw new GitError('Git returned a malformed history record')
     }
-    const x = line[0] ?? ''
-    const y = line[1] ?? ''
-    const p = line.slice(3)
-    if (x === '?' && y === '?') {
-      untracked++
-      changedFiles.push(p)
-    } else {
-      if (x === 'U' || y === 'U' || line.startsWith('DD') || line.startsWith('AA')) {
-        conflicts++
-      } else if (x !== ' ' && x !== '.') {
-        staged++
-      } else if (y !== ' ' && y !== '.') {
-        modified++
+    commits.push({ oid, shortOid, author, authoredAt, subject })
+  }
+  return commits
+}
+
+function validateGitPath(relPath: string): string {
+  if (typeof relPath !== 'string' || relPath.length === 0 || relPath.includes(String.fromCharCode(0))) {
+    throw new GitError(`Invalid Git path: ${String(relPath)}`)
+  }
+  const pathSegments = sep === '\\' ? relPath.split(/[\\/]/) : relPath.split('/')
+  const windowsAbsolute = sep === '\\' && (relPath.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(relPath))
+  if (
+    relPath.startsWith('/') ||
+    windowsAbsolute ||
+    pathSegments.some((part) => part === '..' || part === '.' || part === '')
+  ) {
+    throw new GitError(`Path escapes workspace: ${relPath}`)
+  }
+  return relPath
+}
+
+function pathIsInside(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate)
+  return fromRoot === '' || (fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`))
+}
+
+function removeUntrackedPath(root: string, relPath: string): void {
+  validateGitPath(relPath)
+  const realRoot = realpathSync(root)
+  const target = resolve(realRoot, relPath)
+  if (!pathIsInside(realRoot, target)) throw new GitError(`Path escapes workspace: ${relPath}`)
+  const realParent = realpathSync(dirname(target))
+  if (!pathIsInside(realRoot, realParent)) throw new GitError(`Path escapes workspace through a symlink: ${relPath}`)
+  const metadata = lstatSync(target)
+  if (metadata.isDirectory()) throw new GitError(`Refusing to discard an untracked directory: ${relPath}`)
+  rmSync(target)
+}
+
+async function resolveWorkspacePath(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string }> {
+  const real = canonicalDirectory(path)
+  // Accept a registered workspace root itself or any worktree Git lists for it.
+  // Linked worktrees live outside the registered repo directory.
+  for (const repo of store.listRepos()) {
+    if (!existsSync(repo.path)) continue
+    const registered = realpathSync(repo.path)
+    if (real === registered) {
+      const kind = repo.kind ?? (await classifyWorkspace(registered)).kind
+      return { path: real, kind, projectPath: registered }
+    }
+    if (repo.kind === 'folder') continue
+    try {
+      const worktrees = await listRepoWorktrees(registered)
+      for (const worktree of worktrees) {
+        if (existsSync(worktree.path) && realpathSync(worktree.path) === real) return { path: real, kind: 'git', projectPath: registered }
       }
-      if (p) changedFiles.push(p)
-    }
-  }
-  return { branch, ahead, behind, staged, modified, untracked, conflicts, changedFiles, raw }
-}
-
-async function verifyWorktreePath(store: Store, path: string): Promise<void> {
-  if (!existsSync(path)) throw new GitError(`Path does not exist: ${path}`)
-  const real = realpathSync(path)
-  // Accept a registered repo root itself or any worktree git lists for it —
-  // linked worktrees live OUTSIDE the repo dir (e.g. ../wt-feature/<name>).
-  for (const r of store.listRepos()) {
-    if (!existsSync(r.path)) continue
-    const rr = realpathSync(r.path)
-    if (real === rr) return
-    try {
-      const wts = await listRepoWorktrees(r.path)
-      if (wts.some((w) => realpathSync(w.path) === real)) return
     } catch {
-      // not a repo / git unavailable — fall through to next registered repo
+      // A different registered repo may be offline; it must not authorize this path.
     }
   }
   throw new GitError(`Unknown worktree: ${path}`)
 }
 
-function runWorktree(worktreePath: string, args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
-  return run(worktreePath, args, { timeoutMs: opts.timeoutMs ?? 20000 })
+export async function resolveRegisteredProjectWorkspace(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string }> {
+  return resolveWorkspacePath(store, path)
+}
+
+export async function verifyWorktreePath(store: Store, path: string): Promise<string> {
+  return (await resolveWorkspacePath(store, path)).path
+}
+
+async function requireGitWorktree(store: Store, path: string): Promise<string> {
+  const workspace = await resolveWorkspacePath(store, path)
+  if (workspace.kind !== 'git') throw new GitError(`Git actions are unavailable for folder workspace: ${path}`)
+  return workspace.path
+}
+
+async function validateBranchName(worktreePath: string, branch: string): Promise<void> {
+  const result = await runCapture(worktreePath, ['check-ref-format', '--branch', branch])
+  if (result.failed) throw new GitError(`Invalid branch name: ${branch}`)
+}
+
+function runWorktree(worktreePath: string, args: readonly string[], opts: WorktreeRunOptions = {}): Promise<string> {
+  return run(worktreePath, args, {
+    timeoutMs: opts.timeoutMs ?? 20_000,
+    raw: opts.raw,
+    maxOutputBytes: opts.maxOutputBytes
+  })
 }

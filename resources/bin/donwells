@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+resources_dir=$(CDPATH= cd -- "$launcher_dir/.." && pwd -P)
+case "$(uname -s)" in
+  Darwin) electron="$resources_dir/../MacOS/donwells" ;;
+  *) electron="$resources_dir/../donwells" ;;
+esac
+cli="$resources_dir/cli/donwells.mjs"
+
+if [ ! -x "$electron" ]; then
+  printf '%s\n' "donwells: packaged Electron executable not found: $electron" >&2
+  exit 127
+fi
+if [ ! -f "$cli" ]; then
+  printf '%s\n' "donwells: packaged CLI loader not found: $cli" >&2
+  exit 127
+fi
+
+ELECTRON_RUN_AS_NODE=1 exec "$electron" "$cli" "$@"

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "ai.donwells.desktop",
+  "productName": "donwells.ai",
+  "artifactName": "donwells-${version}-${os}-${arch}.${ext}",
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/node-pty/**/*"
+  ],
+  "compression": "maximum",
+  "npmRebuild": true,
+  "buildDependenciesFromSource": false,
+  "directories": {
+    "buildResources": "build",
+    "output": "dist"
+  },
+  "files": [
+    "out/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "cli",
+      "to": "cli"
+    },
+    {
+      "from": "dist-cli",
+      "to": "dist-cli"
+    },
+    {
+      "from": "resources/bin",
+      "to": "bin"
+    },
+    {
+      "from": "resources/THIRD_PARTY_NOTICES.txt",
+      "to": "THIRD_PARTY_NOTICES.txt"
+    }
+  ],
+  "mac": {
+    "identity": null,
+    "forceCodeSigning": false,
+    "category": "public.app-category.developer-tools",
+    "icon": "build/icon.icns",
+    "executableName": "donwells",
+    "target": [
+      "dmg"
+    ]
+  },
+  "dmg": {
+    "icon": "build/icon.icns",
+    "title": "donwells ${version}",
+    "contents": [
+      {
+        "x": 140,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  },
+  "linux": {
+    "category": "Development",
+    "icon": "build/icons",
+    "executableName": "donwells",
+    "target": [
+      "AppImage",
+      "tar.gz"
+    ]
+  },
+  "win": {
+    "icon": "build/icon.ico",
+    "executableName": "donwells",
+    "requestedExecutionLevel": "asInvoker",
+    "target": [
+      "nsis",
+      "zip"
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "donwells.ai"
+  }
+}

@@ -1,67 +1,401 @@
 import DOMPurify from 'dompurify'
-import { marked } from 'marked'
+import { Marked } from 'marked'
 import markedFootnote from 'marked-footnote'
 import { useEffect, useRef, useState } from 'react'
 import { CALLOUT_KINDS, scanNeeds, slugify, splitFrontMatter, type TocEntry } from '../lib/markdown'
 import { monaco } from '../monaco-setup'
-import { isMarkdownFile, useAppStore } from '../store'
+import { useAppStore } from '../store'
+import { useMarkdownView } from '../use-markdown-view'
 
-marked.setOptions({ gfm: true, breaks: false })
-marked.use(markedFootnote())
+type KatexModule = typeof import('marked-katex-extension')
 
 // Dynamic import is deliberate feature-level code-splitting (ts rule exception):
 // KaTeX (~300 kB + fonts) and mermaid (~1.5 MB) should never weigh down the
 // editor bundle; they load the first time a document actually needs them and
 // stay hot for the session.
-let mathEnabled = false
-async function enableMath(): Promise<void> {
-  if (mathEnabled) return
-  const katex = await import('marked-katex-extension')
-  await import('katex/dist/katex.min.css')
-  marked.use(katex.default({ throwOnError: false }))
-  mathEnabled = true
+let katexReady: Promise<KatexModule> | null = null
+function getKatex(): Promise<KatexModule> {
+  katexReady ??= Promise.all([
+    import('marked-katex-extension'),
+    import('katex/dist/katex.min.css')
+  ]).then(([module]) => module).catch((error: unknown) => {
+    katexReady = null
+    throw error
+  })
+  return katexReady
 }
 
 let mermaidReady: Promise<(typeof import('mermaid'))['default']> | null = null
 function getMermaid(): Promise<(typeof import('mermaid'))['default']> {
-  mermaidReady ??= import('mermaid').then((m) => {
-    m.default.initialize({
+  mermaidReady ??= import('mermaid').then((module) => {
+    const tokens = getComputedStyle(document.documentElement)
+    const chartColors = [1, 2, 3, 4, 5].map((index) => tokens.getPropertyValue(`--chart-${index}`).trim())
+    const chartVariables: Record<string, string> = {}
+    for (let index = 0; index < 12; index += 1) {
+      const color = chartColors[index % chartColors.length]
+      chartVariables[`pie${index + 1}`] = color
+      chartVariables[`cScale${index}`] = color
+    }
+    module.default.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
-      theme: 'dark',
+      theme: 'base',
       fontFamily: "'Geist Variable', ui-sans-serif, system-ui, sans-serif",
+      flowchart: { htmlLabels: false, useMaxWidth: true },
       themeVariables: {
-        background: '#0a0a0a',
-        primaryColor: '#161616',
-        primaryTextColor: '#ececec',
-        primaryBorderColor: '#373737',
-        secondaryColor: '#101010',
-        tertiaryColor: '#0b0b0b',
-        lineColor: '#7b7b7b',
-        clusterBkg: 'transparent',
-        titleColor: '#fafafa'
+        ...chartVariables,
+        darkMode: true,
+        pieOpacity: 1,
+        pieStrokeColor: tokens.getPropertyValue('--background').trim(),
+        pieTitleTextColor: tokens.getPropertyValue('--foreground').trim(),
+        pieLegendTextColor: tokens.getPropertyValue('--foreground').trim(),
+        xyChart: {
+          plotColorPalette: chartColors.join(','),
+          backgroundColor: tokens.getPropertyValue('--background').trim(),
+          titleColor: tokens.getPropertyValue('--foreground').trim(),
+          xAxisLabelColor: tokens.getPropertyValue('--foreground').trim(),
+          yAxisLabelColor: tokens.getPropertyValue('--foreground').trim(),
+          xAxisTitleColor: tokens.getPropertyValue('--foreground').trim(),
+          yAxisTitleColor: tokens.getPropertyValue('--foreground').trim(),
+          xAxisTickColor: tokens.getPropertyValue('--muted-fg').trim(),
+          yAxisTickColor: tokens.getPropertyValue('--muted-fg').trim(),
+          xAxisLineColor: tokens.getPropertyValue('--muted-fg').trim(),
+          yAxisLineColor: tokens.getPropertyValue('--muted-fg').trim()
+        },
+        background: tokens.getPropertyValue('--background').trim(),
+        primaryColor: tokens.getPropertyValue('--card').trim(),
+        primaryTextColor: tokens.getPropertyValue('--foreground').trim(),
+        actorTextColor: tokens.getPropertyValue('--foreground').trim(),
+        primaryBorderColor: tokens.getPropertyValue('--input').trim(),
+        secondaryColor: tokens.getPropertyValue('--secondary').trim(),
+        tertiaryColor: tokens.getPropertyValue('--muted').trim(),
+        lineColor: tokens.getPropertyValue('--muted-fg').trim(),
+        textColor: tokens.getPropertyValue('--foreground').trim(),
+        clusterBkg: tokens.getPropertyValue('--background').trim(),
+        titleColor: tokens.getPropertyValue('--foreground').trim()
       }
     })
-    return m.default
+    return module.default
+  }).catch((error: unknown) => {
+    mermaidReady = null
+    throw error
   })
   return mermaidReady
 }
+let markdownRenderSequence = 0
+function nextMarkdownRenderToken(): string {
+  markdownRenderSequence += 1
+  return 'md-' + markdownRenderSequence.toString(36)
+}
+const KATEX_LAYOUT_PROPERTY: Record<string, true> = {
+  height: true,
+  width: true,
+  'min-width': true,
+  top: true,
+  left: true,
+  'margin-left': true,
+  'margin-right': true,
+  'padding-left': true,
+  'vertical-align': true,
+  'border-bottom-width': true,
+  'border-width': true
+}
+const MERMAID_COLOR_PROPERTY: Record<string, true> = {
+  fill: true,
+  stroke: true,
+  color: true,
+  background: true,
+  'background-color': true,
+  'stop-color': true,
+  'flood-color': true
+}
+const MERMAID_OPACITY_PROPERTY: Record<string, true> = {
+  opacity: true,
+  'fill-opacity': true,
+  'stroke-opacity': true,
+  'stop-opacity': true,
+  'flood-opacity': true
+}
+const MERMAID_LENGTH_PROPERTY: Record<string, true> = {
+  'stroke-width': true,
+  'stroke-dashoffset': true,
+  'stroke-miterlimit': true,
+  'font-size': true,
+  width: true,
+  height: true,
+  'max-width': true,
+  rx: true,
+  ry: true,
+  'border-radius': true
+}
+const MERMAID_KEYWORD_PROPERTY: Record<string, RegExp> = {
+  display: /^(?:none|block|inline|inline-block)$/,
+  visibility: /^(?:visible|hidden|collapse)$/,
+  overflow: /^(?:visible|hidden)$/,
+  'pointer-events': /^(?:none|auto)$/,
+  'font-style': /^(?:normal|italic|oblique)$/,
+  'text-align': /^(?:left|right|center|start|end)$/,
+  'text-anchor': /^(?:start|middle|end)$/,
+  'dominant-baseline': /^(?:auto|middle|central|hanging|text-after-edge|text-before-edge)$/,
+  'stroke-linecap': /^(?:butt|round|square)$/,
+  'stroke-linejoin': /^(?:arcs|bevel|miter|miter-clip|round)$/,
+  'vector-effect': /^(?:none|non-scaling-stroke)$/,
+  'shape-rendering': /^(?:auto|optimizespeed|crispedges|geometricprecision)$/
+}
+const MERMAID_LOCAL_REFERENCE_PROPERTY: Record<string, true> = {
+  filter: true,
+  'clip-path': true,
+  mask: true,
+  'marker-start': true,
+  'marker-mid': true,
+  'marker-end': true
+}
+const SAFE_LENGTH = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:em|ex|px|pt|%)?$/
+const SAFE_COLOR = /^(?:none|transparent|currentcolor|#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%deg]+\)|[a-z]+)$/i
+const SAFE_LOCAL_REFERENCE = /^url\((?:['"])?#[a-z0-9_.:-]+(?:['"])?\)$/i
 
-// task-list checkboxes survive sanitization, but a file must never smuggle in a live control
+function safeKatexStyle(style: string): string {
+  const safe: string[] = []
+  for (const declaration of style.split(';')) {
+    const separator = declaration.indexOf(':')
+    if (separator === -1) continue
+    const property = declaration.slice(0, separator).trim().toLowerCase()
+    const value = declaration.slice(separator + 1).trim().toLowerCase()
+    const safeLength = SAFE_LENGTH.test(value) && Math.abs(Number.parseFloat(value)) <= 10_000
+    if (KATEX_LAYOUT_PROPERTY[property] && safeLength) safe.push(`${property}:${value}`)
+    else if (property === 'position' && value === 'relative') safe.push('position:relative')
+    else if (property === 'border-style' && value === 'solid') safe.push('border-style:solid')
+    else if (property === 'color' && SAFE_COLOR.test(value)) safe.push(`color:${value}`)
+  }
+  return safe.join(';')
+}
+
+function safeMermaidStyle(style: string): string {
+  const safe: string[] = []
+  for (const declaration of style.split(';')) {
+    const separator = declaration.indexOf(':')
+    if (separator === -1) continue
+    const property = declaration.slice(0, separator).trim().toLowerCase()
+    const rawValue = declaration.slice(separator + 1).replace(/\s*!important\s*$/i, '').trim()
+    if (rawValue.length > 200) continue
+    const value = rawValue.toLowerCase()
+    const safeLength = SAFE_LENGTH.test(value) && Math.abs(Number.parseFloat(value)) <= 10_000
+    const keyword = MERMAID_KEYWORD_PROPERTY[property]
+    if (MERMAID_COLOR_PROPERTY[property] && SAFE_COLOR.test(value)) {
+      safe.push(`${property}:${value}`)
+    } else if (MERMAID_OPACITY_PROPERTY[property] && /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(value)) {
+      safe.push(`${property}:${value}`)
+    } else if (MERMAID_LENGTH_PROPERTY[property] && safeLength) {
+      safe.push(`${property}:${value}`)
+    } else if (property === 'stroke-dasharray' && /^[\d\s.,-]+$/.test(value)) {
+      safe.push(`${property}:${value}`)
+    } else if (property === 'font-weight' && /^(?:normal|bold|[1-9]00)$/.test(value)) {
+      safe.push(`${property}:${value}`)
+    } else if (keyword?.test(value)) {
+      safe.push(`${property}:${value}`)
+    } else if (MERMAID_LOCAL_REFERENCE_PROPERTY[property] && (value === 'none' || SAFE_LOCAL_REFERENCE.test(rawValue))) {
+      safe.push(`${property}:${rawValue}`)
+    }
+  }
+  return safe.join(';')
+}
+
+// KaTeX needs numeric inline geometry. Preserve only its inert layout subset;
+// arbitrary markdown style attributes remain forbidden.
+function sanitizeDoc(html: string): string {
+  const source = document.createElement('template')
+  source.innerHTML = html
+  const token = nextMarkdownRenderToken()
+  const styles: string[] = []
+  for (const element of Array.from(source.content.querySelectorAll('.katex[style], .katex [style]'))) {
+    const style = safeKatexStyle(element.getAttribute('style') ?? '')
+    if (!style) continue
+    const index = styles.push(style) - 1
+    element.setAttribute('data-katex-layout', `${token}:${index}`)
+  }
+  const sanitized = DOMPurify.sanitize(source.innerHTML, {
+    USE_PROFILES: { html: true, svg: true, mathMl: true },
+    FORBID_TAGS: ['style', 'form'],
+    FORBID_ATTR: ['style', 'onerror', 'onload']
+  })
+  const clean = document.createElement('template')
+  clean.innerHTML = sanitized
+  for (const element of Array.from(clean.content.querySelectorAll('[data-katex-layout]'))) {
+    const marker = element.getAttribute('data-katex-layout') ?? ''
+    element.removeAttribute('data-katex-layout')
+    const prefix = `${token}:`
+    if (!marker.startsWith(prefix)) continue
+    const style = styles[Number(marker.slice(prefix.length))]
+    if (style) element.setAttribute('style', style)
+  }
+  return clean.innerHTML
+}
+
+function replaceMermaidHtmlLabels(fragment: DocumentFragment): void {
+  for (const foreignObject of Array.from(fragment.querySelectorAll('foreignObject'))) {
+    const label = (foreignObject.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (!label) {
+      foreignObject.remove()
+      continue
+    }
+    const x = Number.parseFloat(foreignObject.getAttribute('x') ?? '0')
+    const y = Number.parseFloat(foreignObject.getAttribute('y') ?? '0')
+    const width = Number.parseFloat(foreignObject.getAttribute('width') ?? '0')
+    const height = Number.parseFloat(foreignObject.getAttribute('height') ?? '0')
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    text.textContent = label
+    text.setAttribute('x', String((Number.isFinite(x) ? x : 0) + (Number.isFinite(width) ? width / 2 : 0)))
+    text.setAttribute('y', String((Number.isFinite(y) ? y : 0) + (Number.isFinite(height) ? height / 2 : 0)))
+    text.setAttribute('text-anchor', 'middle')
+    text.setAttribute('dominant-baseline', 'central')
+    text.setAttribute('font-size', '16')
+    foreignObject.replaceWith(text)
+  }
+}
+
+function inlineSafeMermaidCss(fragment: DocumentFragment): void {
+  const originalStyles = new Map<Element, string>()
+  for (const element of Array.from(fragment.querySelectorAll('[style]'))) {
+    if (element.tagName.toLowerCase() === 'style') continue
+    originalStyles.set(element, element.getAttribute('style') ?? '')
+    element.removeAttribute('style')
+  }
+
+  let rulesSeen = 0
+  for (const styleElement of Array.from(fragment.querySelectorAll('style'))) {
+    const sheet = new CSSStyleSheet()
+    try {
+      sheet.replaceSync(styleElement.textContent ?? '')
+      for (const rule of Array.from(sheet.cssRules)) {
+        if (!(rule instanceof CSSStyleRule) || ++rulesSeen > 512) continue
+        const style = safeMermaidStyle(rule.style.cssText)
+        if (!style) continue
+        let matches: NodeListOf<Element>
+        try {
+          matches = fragment.querySelectorAll(rule.selectorText)
+        } catch {
+          continue
+        }
+        for (const element of Array.from(matches)) {
+          const existing = element.getAttribute('style')
+          element.setAttribute('style', existing ? `${existing};${style}` : style)
+        }
+      }
+    } catch {
+      // Invalid or unsupported CSS is discarded with the style element.
+    }
+    styleElement.remove()
+  }
+
+  // Mermaid directives emit inline styles; they outrank theme stylesheet rules.
+  for (const [element, original] of originalStyles) {
+    const style = safeMermaidStyle(original)
+    if (!style) continue
+    const existing = element.getAttribute('style')
+    element.setAttribute('style', existing ? `${existing};${style}` : style)
+  }
+}
+
+function hexLuminance(color: string): number | null {
+  if (!/^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(color)) return null
+  const hex = color.length === 4
+    ? color[1] + color[1] + color[2] + color[2] + color[3] + color[3]
+    : color.slice(1)
+  const rgb = Number.parseInt(hex, 16)
+  let luminance = 0
+  for (let index = 0; index < 3; index += 1) {
+    const channel = ((rgb >>> (16 - index * 8)) & 255) / 255
+    const linear = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    luminance += linear * (index === 0 ? 0.2126 : index === 1 ? 0.7152 : 0.0722)
+  }
+  return luminance
+}
+
+function contrastPieLabels(root: SVGSVGElement): void {
+  const slices = root.querySelectorAll<SVGPathElement>('path.pieCircle')
+  if (!slices.length) return
+  const tokens = getComputedStyle(document.documentElement)
+  const foreground = hexLuminance(tokens.getPropertyValue('--foreground').trim())
+  const background = hexLuminance(tokens.getPropertyValue('--background').trim())
+  if (foreground === null || background === null) return
+  const labels = root.querySelectorAll<SVGTextElement>('text.slice')
+  for (let index = 0; index < slices.length; index += 1) {
+    const label = labels[index]
+    const slice = slices[index]
+    const luminance = hexLuminance(slice.style.fill || slice.getAttribute('fill') || '')
+    if (!label || luminance === null) continue
+    const foregroundContrast = (Math.max(foreground, luminance) + 0.05) / (Math.min(foreground, luminance) + 0.05)
+    const backgroundContrast = (Math.max(background, luminance) + 0.05) / (Math.min(background, luminance) + 0.05)
+    label.style.fill = foregroundContrast >= backgroundContrast ? 'var(--foreground)' : 'var(--background)'
+  }
+}
+
+// Mermaid stylesheets are converted to safe, SVG-local presentation values,
+// then removed before sanitization. Label contrast uses app tokens afterward.
+function sanitizeMermaidSvg(svg: string): string {
+  const source = document.createElement('template')
+  source.innerHTML = svg
+  replaceMermaidHtmlLabels(source.content)
+  inlineSafeMermaidCss(source.content)
+  const token = nextMarkdownRenderToken()
+  const styles: string[] = []
+  for (const element of Array.from(source.content.querySelectorAll('[style]'))) {
+    const style = safeMermaidStyle(element.getAttribute('style') ?? '')
+    if (!style) continue
+    const index = styles.push(style) - 1
+    element.setAttribute('data-mermaid-style', `${token}:${index}`)
+  }
+  const sanitized = DOMPurify.sanitize(source.innerHTML, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    FORBID_TAGS: ['style'],
+    FORBID_ATTR: ['style', 'onerror', 'onload']
+  })
+  const clean = document.createElement('template')
+  clean.innerHTML = sanitized
+  for (const element of Array.from(clean.content.querySelectorAll('[data-mermaid-style]'))) {
+    const marker = element.getAttribute('data-mermaid-style') ?? ''
+    element.removeAttribute('data-mermaid-style')
+    const prefix = `${token}:`
+    if (!marker.startsWith(prefix)) continue
+    const style = styles[Number(marker.slice(prefix.length))]
+    if (style) element.setAttribute('style', style)
+  }
+  const root = clean.content.querySelector('svg')
+  if (!root) return ''
+  root.setAttribute('role', 'img')
+  if (!root.hasAttribute('aria-label') && !root.hasAttribute('aria-labelledby')) {
+    root.setAttribute('aria-label', 'Mermaid diagram')
+  }
+  if (!root.style.maxWidth) root.style.maxWidth = '100%'
+  root.style.fontFamily = 'var(--font-sans)'
+  root.style.color = 'var(--foreground)'
+  root.style.fill = 'var(--foreground)'
+  root.style.background = 'transparent'
+  contrastPieLabels(root)
+  for (const shape of Array.from(root.querySelectorAll('.node rect, .node circle, .node ellipse, .node polygon'))) {
+    if (!(shape instanceof SVGElement)) continue
+    if (!shape.style.fill && !shape.getAttribute('fill')) shape.style.fill = 'var(--card)'
+    if (!shape.style.stroke && !shape.getAttribute('stroke')) shape.style.stroke = 'var(--input)'
+  }
+  for (const edge of Array.from(root.querySelectorAll('.flowchart-link, .edgePath path, .messageLine0, .messageLine1'))) {
+    if (edge instanceof SVGElement) edge.style.stroke = 'var(--muted-fg)'
+  }
+  for (const arrow of Array.from(root.querySelectorAll('marker path'))) {
+    if (arrow instanceof SVGElement) {
+      arrow.style.fill = 'var(--muted-fg)'
+      arrow.style.stroke = 'var(--muted-fg)'
+    }
+  }
+  return clean.innerHTML
+}
+
+// Task-list checkboxes survive sanitization, but a file must never smuggle in a live control.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'INPUT') {
     node.setAttribute('type', 'checkbox')
     node.setAttribute('disabled', 'true')
   }
 })
-
-function sanitizeDoc(html: string): string {
-  return DOMPurify.sanitize(html, {
-    USE_PROFILES: { html: true, svg: true, mathMl: true },
-    FORBID_TAGS: ['style', 'form'],
-    FORBID_ATTR: ['style', 'onerror', 'onload']
-  })
-}
 
 const CALLOUT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i
 
@@ -74,20 +408,28 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
   const content = useAppStore((s) => s.previews[worktreePath]?.[relPath]?.content ?? '')
   const hostRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const { beginRender, finishRender, failRender, navigateToAnchor } = useMarkdownView(
+    worktreePath,
+    relPath,
+    { hostRef, scrollRef }
+  )
   const [toc, setToc] = useState<TocEntry[]>([])
   const [activeHeading, setActiveHeading] = useState<string | null>(null)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    const checkpoint = beginRender()
     let cancelled = false
     const listeners: (() => void)[] = []
-
+    const codeColorizations: Promise<void>[] = []
     void (async () => {
       const { meta, body } = splitFrontMatter(content)
       const needs = scanNeeds(body)
-      if (needs.math) await enableMath()
-      const parsed = await marked.parse(body, { async: true })
+      const parser = new Marked({ gfm: true, breaks: false })
+      parser.use(markedFootnote())
+      if (needs.math) parser.use((await getKatex()).default({ throwOnError: false }))
+      const parsed = await parser.parse(body, { async: true })
       if (cancelled) return
       host.innerHTML = sanitizeDoc(parsed)
 
@@ -114,8 +456,9 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
       const used = new Set<string>()
       for (const h of Array.from(host.querySelectorAll<HTMLElement>('h1, h2, h3'))) {
         const text = h.textContent ?? ''
-        let id = slugify(text) || 'section'
-        for (let n = 2; used.has(id); n++) id = `${slugify(text)}-${n}`
+        const baseId = slugify(text) || 'section'
+        let id = baseId
+        for (let n = 2; used.has(id); n++) id = `${baseId}-${n}`
         used.add(id)
         h.id = id
         const anchor = document.createElement('a')
@@ -143,8 +486,10 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
             node.textContent = node.textContent.replace(CALLOUT_RE, '').trimStart()
             break
           }
-          if (node.nodeType === Node.ELEMENT_NODE && (node as Element).textContent?.trimStart().startsWith('[!')) {
-            ;(node as Element).textContent = (node as Element).textContent!.replace(CALLOUT_RE, '').trimStart()
+          if (node instanceof Element) {
+            const text = node.textContent
+            if (!text?.trimStart().startsWith('[!')) continue
+            node.textContent = text.replace(CALLOUT_RE, '').trimStart()
             break
           }
         }
@@ -154,129 +499,166 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
         bq.prepend(title)
       }
 
-      // images: relative paths resolve inside the worktree only
+      // Relative images are resolved and encoded by the confined main-process API.
+      // Decode completion is part of the render checkpoint so scroll restoration
+      // sees final image geometry instead of a transient short document.
+      const imageLoads: Promise<void>[] = []
       for (const img of Array.from(host.querySelectorAll('img'))) {
-        const src = img.getAttribute('src') ?? ''
-        if (/^(https?:)?\/\//.test(src) || src.startsWith('data:')) continue
-        const rel = src.replace(/^\.\//, '')
-        if (rel.includes('..')) {
-          img.remove()
+        const source = img.getAttribute('src') ?? ''
+        const showUnavailable = (message: string): void => {
+          if (cancelled) return
+          const fallback = document.createElement('span')
+          fallback.className = 'md-image-unavailable'
+          fallback.setAttribute('role', 'img')
+          fallback.setAttribute('aria-label', img.alt || source || 'Unavailable image')
+          fallback.title = message
+          fallback.textContent = img.alt ? `Image unavailable: ${img.alt}` : 'Image unavailable'
+          img.replaceWith(fallback)
+        }
+        if (/^data:image\//i.test(source)) {
+          imageLoads.push(img.decode().catch((error: unknown) => {
+            showUnavailable(error instanceof Error ? error.message : String(error))
+          }))
           continue
         }
-        const base = worktreePath.endsWith('/') ? worktreePath.slice(0, -1) : worktreePath
-        const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : ''
-        img.src = `file://${base}${dir ? `/${dir}` : ''}/${rel}`
+        if (/^(?:https?:)?\/\//i.test(source)) {
+          showUnavailable('Remote images are blocked for privacy')
+          continue
+        }
+        if (!source || /^[a-z][a-z0-9+.-]*:/i.test(source)) {
+          showUnavailable('Unsupported image source')
+          continue
+        }
+        imageLoads.push(
+          window.donwells.readPreviewImage(worktreePath, relPath, source)
+            .then(async (dataUrl: string) => {
+              if (cancelled) return
+              if (!/^data:image\/(?:png|jpe?g|gif|webp|avif|bmp|x-icon|svg\+xml);base64,/i.test(dataUrl)) {
+                showUnavailable('The image reader returned an unsupported format')
+                return
+              }
+              img.src = dataUrl
+              await img.decode()
+            })
+            .catch((error: unknown) => {
+              showUnavailable(error instanceof Error ? error.message : String(error))
+            })
+        )
       }
+      await Promise.all(imageLoads)
+      if (cancelled) return
 
       // code fences: header row (language + copy), monaco colorization
       for (const pre of Array.from(host.querySelectorAll('pre'))) {
         const code = pre.querySelector('code')
         if (!code) continue
-        const fence = /language-(\w+)/.exec(code.className)?.[1]?.toLowerCase() ?? ''
+        const fence = /language-([^\s]+)/.exec(code.className)?.[1]?.toLowerCase() ?? ''
         const text = code.textContent ?? ''
         if (!text) continue
 
         const lang = fence
           ? monaco.languages
               .getLanguages()
-              .find((l) => l.id === fence || l.aliases?.some((a) => a.toLowerCase() === fence))?.id
+              .find((language) => language.id === fence || language.aliases?.some((alias) => alias.toLowerCase() === fence))?.id
           : undefined
 
         if (fence !== 'mermaid') {
           const header = document.createElement('div')
           header.className = 'md-codehead'
           const label = document.createElement('span')
-          label.textContent = lang ?? 'text'
+          label.textContent = fence || 'text'
           const copy = document.createElement('button')
+          copy.type = 'button'
           copy.className = 'md-copy'
           copy.textContent = 'copy'
+          let resetTimer: number | undefined
           const press = (): void => {
-            void navigator.clipboard.writeText(text)
-            copy.textContent = 'copied'
-            window.setTimeout(() => (copy.textContent = 'copy'), 1200)
+            void navigator.clipboard.writeText(text).then(() => {
+              if (cancelled) return
+              copy.textContent = 'copied'
+              if (resetTimer !== undefined) window.clearTimeout(resetTimer)
+              resetTimer = window.setTimeout(() => {
+                if (!cancelled) copy.textContent = 'copy'
+              }, 1200)
+            }).catch((error: unknown) => {
+              if (!cancelled) useAppStore.getState().setError(`Could not copy code: ${String(error)}`)
+            })
           }
           copy.addEventListener('click', press)
-          listeners.push(() => copy.removeEventListener('click', press))
+          listeners.push(() => {
+            copy.removeEventListener('click', press)
+            if (resetTimer !== undefined) window.clearTimeout(resetTimer)
+          })
           header.append(label, copy)
           pre.prepend(header)
         }
 
         if (lang && fence !== 'mermaid') {
           code.textContent = ''
-          void monaco.editor
-            .colorize(text, lang, {})
-            .then((colored) => {
+          codeColorizations.push(
+            monaco.editor.colorize(text, lang, {}).then((colored) => {
               if (!cancelled) code.innerHTML = sanitizeDoc(colored)
+            }).catch(() => {
+              if (!cancelled) code.textContent = text
             })
-            .catch(() => {
-              code.textContent = text
-            })
+          )
         }
       }
+      await Promise.all(codeColorizations)
+      if (cancelled) return
 
       // mermaid diagrams: fence → centered figure
       if (needs.mermaid) {
         const mermaid = await getMermaid()
         if (cancelled) return
-        let n = 0
         for (const pre of Array.from(host.querySelectorAll('pre'))) {
+          if (cancelled) return
           const code = pre.querySelector('code.language-mermaid')
           if (!code) continue
           const source = code.textContent ?? ''
           const figure = document.createElement('figure')
           figure.className = 'md-figure'
           pre.replaceWith(figure)
-          n += 1
           try {
-            const { svg } = await mermaid.render(`md-mermaid-${Date.now()}-${n}`, source)
+            const { svg } = await mermaid.render(nextMarkdownRenderToken(), source)
             if (cancelled) return
-            figure.innerHTML = DOMPurify.sanitize(svg, {
-              USE_PROFILES: { svg: true, html: true },
-              FORBID_TAGS: ['style'],
-              FORBID_ATTR: ['onerror', 'onload']
-            })
-          } catch {
+            const sanitized = sanitizeMermaidSvg(svg)
+            if (!sanitized) throw new Error('Mermaid returned no safe SVG')
+            figure.innerHTML = sanitized
+          } catch (error) {
+            if (cancelled) return
             figure.className = 'md-figure md-figure-error'
             const pre2 = document.createElement('pre')
             pre2.textContent = source
             const cap = document.createElement('figcaption')
             cap.textContent = 'mermaid render failed'
+            cap.title = error instanceof Error ? error.message : String(error)
             figure.append(cap, pre2)
           }
         }
       }
-
-      // link behavior: app-internal for .md, external for http(s), scroll for anchors
-      const openPreview = useAppStore.getState().openPreview
-      const onClick = (e: MouseEvent): void => {
-        const a = (e.target as HTMLElement).closest('a')
-        if (!a) return
-        e.preventDefault()
-        e.stopPropagation()
-        const href = a.getAttribute('href') ?? ''
-        if (href.startsWith('#')) {
-          const target = host.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)
-          target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          return
-        }
-        if (/^https?:/.test(href)) {
-          void window.orca.openExternal(href)
-          return
-        }
-        if (isMarkdownFile(href)) {
-          const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : ''
-          void openPreview(worktreePath, dir ? `${dir}/${href}` : href)
-        }
-      }
-      host.addEventListener('click', onClick)
-      listeners.push(() => host.removeEventListener('click', onClick))
-    })()
+      if (cancelled) return
+      finishRender(checkpoint)
+    })().catch((error: unknown) => {
+      if (cancelled) return
+      failRender(checkpoint)
+      setToc([])
+      const alert = document.createElement('div')
+      alert.className = 'md-render-error'
+      alert.setAttribute('role', 'alert')
+      const title = document.createElement('strong')
+      title.textContent = 'Could not render this document'
+      const detail = document.createElement('span')
+      detail.textContent = error instanceof Error ? error.message : String(error)
+      alert.append(title, detail)
+      host.replaceChildren(alert)
+    })
 
     return () => {
       cancelled = true
       for (const off of listeners) off()
     }
-  }, [worktreePath, relPath, content])
+  }, [beginRender, content, failRender, finishRender, relPath, worktreePath])
 
   // scroll-spy for the TOC rail
   useEffect(() => {
@@ -285,14 +667,14 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
       return
     }
     const scroller = scrollRef.current
-    if (!scroller) return
+    const host = hostRef.current
+    if (!scroller || !host) return
+    const heads = Array.from(host.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id]'))
     const onScroll = (): void => {
-      const heads = toc
-        .map((t) => document.getElementById(t.id))
-        .filter((el): el is HTMLElement => el !== null)
+      const threshold = scroller.getBoundingClientRect().top + 96
       let current: string | null = null
-      for (const h of heads) {
-        if (h.getBoundingClientRect().top - scroller.getBoundingClientRect().top <= 96) current = h.id
+      for (const heading of heads) {
+        if (heading.getBoundingClientRect().top <= threshold) current = heading.id
         else break
       }
       setActiveHeading(current)
@@ -318,9 +700,9 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
               href={`#${t.id}`}
               className={`md-toc-item${activeHeading === t.id ? ' active' : ''}`}
               style={{ paddingLeft: `${(t.depth - 1) * 12 + 10}px` }}
-              onClick={(e) => {
-                e.preventDefault()
-                document.getElementById(t.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              onClick={(event) => {
+                event.preventDefault()
+                navigateToAnchor(t.id)
               }}
             >
               {t.text}

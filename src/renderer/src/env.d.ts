@@ -2,7 +2,7 @@
 // an import would make it a module and disallow ambient `declare module` here.
 /// <reference types="vite/client" />
 interface Window {
-  orca: import('@shared/types').IpcApi
+  donwells: import('@shared/types').IpcApi
 }
 
 declare module '*.css'

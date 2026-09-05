@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
+import type { AgentLiveness } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
+import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import { windowsSystem32Binary } from '@shared/child-process/windows-system-binary'
+import { AGENT_HOOK_ENV } from './agents/provider-hooks'
 
-/** Exited sessions are kept this long for reattach/scrollback, then reaped. */
+/** Exited interactive terminals are kept briefly for reattach/scrollback. */
 export const REAP_EXITED_MS = 5 * 60_000
+/** Jobs are never dropped before their persisted owner acknowledges the result. */
+export const MAX_RETAINED_JOBS = 128
+const PTY_CLOSE_TIMEOUT_MS = 5_000
 
 export type PtyEvents = {
   data: (sessionId: string, data: string) => void
@@ -11,31 +18,72 @@ export type PtyEvents = {
   title: (sessionId: string, title: string) => void
 }
 
+export type AgentPtyOptions = {
+  id: string
+  env: NodeJS.ProcessEnv
+}
+
 type Session = {
   session: TerminalSession
   proc: pty.IPty
+  kind: 'terminal' | 'job' | 'agent'
   /** ESC-encoded title updates from OSC 0/2 sequences */
   titleBuffer: string
+  exit: Promise<number>
+  resolveExit: (exitCode: number) => void
+  exitCode?: number
+  settled: boolean
 }
 
 const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  return Promise.withResolvers<T>()
+}
+
 /**
- * PTY session manager — one node-pty per terminal tab.
+ * PTY session manager — one node-pty per terminal tab or finite shell job.
  * Sessions are keyed by uuid; the renderer holds no node access, only ids.
  */
 export class PtyManager {
   private sessions = new Map<string, Session>()
+  private retainedSessions = 0
   private events: PtyEvents
   private shellPath: string
+  private jobShellPath: string
+  private maxRetainedJobs: number
 
-  constructor(events: PtyEvents, shellPath = process.env.SHELL || '/bin/bash') {
+  constructor(
+    events: PtyEvents,
+    shellPath = process.platform === 'win32'
+      ? process.env.ComSpec || windowsSystem32Binary('cmd.exe')
+      : process.env.SHELL || '/bin/bash',
+    maxRetainedJobs = MAX_RETAINED_JOBS
+  ) {
     this.events = events
     this.shellPath = shellPath
+    this.jobShellPath = process.platform === 'win32'
+      ? process.env.ComSpec || windowsSystem32Binary('cmd.exe')
+      : '/bin/sh'
+    this.maxRetainedJobs = Number.isSafeInteger(maxRetainedJobs) && maxRetainedJobs > 0
+      ? maxRetainedJobs
+      : MAX_RETAINED_JOBS
   }
 
   has(sessionId: string): boolean {
     return this.sessions.has(sessionId)
+  }
+
+  /** Process state known by this execution-host owner; unknown ids remain unverifiable. */
+  liveness(sessionId: string): AgentLiveness {
+    const session = this.sessions.get(sessionId)
+    if (!session) return 'unverifiable'
+    return session.session.exited ? 'exited' : 'live'
+  }
+
+  isRetained(sessionId: string): boolean {
+    const kind = this.sessions.get(sessionId)?.kind
+    return kind === 'job' || kind === 'agent'
   }
 
   list(): TerminalSession[] {
@@ -43,13 +91,70 @@ export class PtyManager {
   }
 
   open(cwd: string, cols: number, rows: number): TerminalSession {
-    const id = randomUUID()
-    const proc = pty.spawn(this.shellPath, [], {
+    return this.spawn(cwd, cols, rows, [], { kind: 'terminal' })
+  }
+
+  /** Run one finite shell command in a daemon-owned PTY. */
+  openJob(cwd: string, command: string, cols: number, rows: number): TerminalSession {
+    return this.openFinite(cwd, command, cols, rows, 'job')
+  }
+
+  /** Run one finite agent command with a pre-bound id and scoped hook environment. */
+  openAgent(
+    cwd: string,
+    command: string,
+    cols: number,
+    rows: number,
+    options: AgentPtyOptions
+  ): TerminalSession {
+    return this.openFinite(cwd, command, cols, rows, 'agent', options)
+  }
+
+  private openFinite(
+    cwd: string,
+    command: string,
+    cols: number,
+    rows: number,
+    kind: 'job' | 'agent',
+    options?: AgentPtyOptions
+  ): TerminalSession {
+    if (this.retainedSessions >= this.maxRetainedJobs) {
+      throw new Error(
+        'terminal daemon job capacity reached; reconcile or cancel an existing command job before launching another'
+      )
+    }
+    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command]
+    const session = this.spawn(cwd, cols, rows, args, { kind, id: options?.id, env: options?.env })
+    this.retainedSessions++
+    return session
+  }
+
+  private spawn(
+    cwd: string,
+    cols: number,
+    rows: number,
+    args: string[],
+    options: { kind: Session['kind']; id?: string; env?: NodeJS.ProcessEnv }
+  ): TerminalSession {
+    const id = options.id ?? randomUUID()
+    const env = sanitizedProcessEnv(process.env, {
+      [AGENT_HOOK_ENV.socket]: undefined,
+      [AGENT_HOOK_ENV.runId]: undefined,
+      [AGENT_HOOK_ENV.sessionId]: undefined,
+      [AGENT_HOOK_ENV.token]: undefined,
+      ...(options.env ?? {}),
+      TERM: 'xterm-256color',
+      TERM_PROGRAM: 'donwells.ai',
+      TERM_PROGRAM_VERSION: undefined,
+      TERM_SESSION_ID: undefined
+    })
+    const executable = options.kind === 'terminal' ? this.shellPath : this.jobShellPath
+    const proc = pty.spawn(executable, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd,
-      env: { ...process.env, TERM: 'xterm-256color' }
+      env
     })
 
     const session: TerminalSession = {
@@ -59,58 +164,120 @@ export class PtyManager {
       createdAt: new Date().toISOString(),
       exited: false
     }
-    this.sessions.set(id, { session, proc, titleBuffer: '' })
+    const completion = deferred<number>()
+    this.sessions.set(id, {
+      session,
+      proc,
+      kind: options.kind,
+      titleBuffer: '',
+      exit: completion.promise,
+      resolveExit: completion.resolve,
+      settled: false
+    })
 
     proc.onData((data) => {
       this.scanTitle(id, data)
       this.events.data(id, data)
     })
-    proc.onExit(({ exitCode }) => {
-      const s = this.sessions.get(id)
-      if (!s) return
-      // node-pty#72: data can arrive after exit fires. VS Code's fix (9464b54)
-      // waits 250ms so scrollback is complete before the UI sees `exited`.
-      s.session.exited = true
-      setTimeout(() => this.events.exit(id, exitCode), 250)
-      // Reattach grace: an exited session has no future scrollback. Reap it
-      // so the daemon's session list cannot grow unboundedly across restarts.
+    proc.onExit(({ exitCode: code, signal }) => {
+      // POSIX signal exits can carry code 0; they are not successful completion.
+      const exitCode = signal ? 128 + signal : code
+      const current = this.sessions.get(id)
+      if (!current || current.session.exited) return
+      // node-pty#72: data can arrive after exit fires. Delay settlement so a
+      // close acknowledgement and job result include all trailing output.
+      current.session.exited = true
+      current.exitCode = exitCode
       setTimeout(() => {
-        const cur = this.sessions.get(id)
-        if (cur && cur.session.exited) this.sessions.delete(id)
-      }, REAP_EXITED_MS)
+        const retained = this.sessions.get(id)
+        if (!retained) return
+        retained.settled = true
+        this.events.exit(id, exitCode)
+        retained.resolveExit(exitCode)
+        if (retained.kind === 'terminal') {
+          setTimeout(() => this.removeSession(id), REAP_EXITED_MS)
+        }
+      }, 250)
     })
 
     return session
   }
 
   write(sessionId: string, data: string): void {
-    const s = this.sessions.get(sessionId)
-    if (!s || s.session.exited) return
-    s.proc.write(data)
+    const session = this.sessions.get(sessionId)
+    if (!session || session.session.exited) return
+    session.proc.write(data)
+  }
+
+  /** Write only to a currently live daemon-owned agent PTY. */
+  writeAgent(sessionId: string, data: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.kind !== 'agent') {
+      throw new Error('unknown agent session: ' + sessionId)
+    }
+    if (session.session.exited || session.settled) {
+      throw new Error('agent session has exited: ' + sessionId)
+    }
+    session.proc.write(data)
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
-    const s = this.sessions.get(sessionId)
-    if (!s || s.session.exited) return
+    const session = this.sessions.get(sessionId)
+    if (!session || session.session.exited) return
     try {
-      s.proc.resize(Math.max(cols, 2), Math.max(rows, 2))
+      session.proc.resize(Math.max(cols, 2), Math.max(rows, 2))
     } catch {
       /* process may be mid-exit */
     }
   }
 
-  close(sessionId: string): void {
-    const s = this.sessions.get(sessionId)
-    if (!s) return
-    try {
-      s.proc.kill()
-    } catch {
-      /* already dead */
+  /** Kill a session and resolve only after node-pty confirms process exit. */
+  async close(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      throw new Error('terminal ' + sessionId + ' exit is unverifiable because the daemon does not own the session')
     }
-    this.sessions.delete(sessionId)
+    if (!session.session.exited) {
+      try {
+        session.proc.kill()
+      } catch (error) {
+        if (!session.session.exited) throw error
+      }
+    }
+    if (!session.settled) {
+      const timeout = Promise.withResolvers<never>()
+      const timer = setTimeout(() => timeout.reject(new Error(
+        'terminal ' + sessionId + ' exit is unverifiable after cancellation'
+      )), PTY_CLOSE_TIMEOUT_MS)
+      try {
+        await Promise.race([session.exit, timeout.promise])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    this.removeSession(sessionId)
   }
 
-  /** Send Ctrl-C (SIGINT in the PTY) to interrupt a foreground process — used to stop a running agent TUI. */
+  private removeSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || !this.sessions.delete(sessionId)) return
+    if (session.kind !== 'terminal') this.retainedSessions--
+  }
+
+  jobResult(sessionId: string): { exited: boolean; exitCode?: number } {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.kind !== 'job') throw new Error('unknown job: ' + sessionId)
+    return { exited: session.settled, exitCode: session.settled ? session.exitCode : undefined }
+  }
+
+  dismissExited(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.kind !== 'agent') throw new Error('unknown agent session: ' + sessionId)
+    if (!session.settled) throw new Error('agent session is still live and cannot be dismissed')
+    this.removeSession(sessionId)
+  }
+
+  /** Send Ctrl-C (SIGINT in the PTY) to interrupt a foreground process. */
   interrupt(sessionId: string): void {
     this.write(sessionId, '\u0003')
   }
@@ -126,24 +293,24 @@ export class PtyManager {
 
   /** Strip OSC title sequences from a data chunk and surface the freshest title. */
   private scanTitle(id: string, data: string): void {
-    const s = this.sessions.get(id)
-    if (!s) return
-    s.titleBuffer += data
+    const session = this.sessions.get(id)
+    if (!session) return
+    session.titleBuffer += data
     // keep buffer bounded; titles arrive as small escape-encoded bursts
-    if (s.titleBuffer.length > 4096) s.titleBuffer = s.titleBuffer.slice(-2048)
+    if (session.titleBuffer.length > 4096) session.titleBuffer = session.titleBuffer.slice(-2048)
     OSC_TITLE_RE.lastIndex = 0
-    let m: RegExpExecArray | null
+    let match: RegExpExecArray | null
     let last: string | null = null
-    while ((m = OSC_TITLE_RE.exec(s.titleBuffer)) !== null) {
-      last = m[1]
-      if (OSC_TITLE_RE.lastIndex === m.index) OSC_TITLE_RE.lastIndex++
+    while ((match = OSC_TITLE_RE.exec(session.titleBuffer)) !== null) {
+      last = match[1]
+      if (OSC_TITLE_RE.lastIndex === match.index) OSC_TITLE_RE.lastIndex++
     }
-    if (last && last.trim()) {
-      s.session.title = last.trim()
-      this.events.title(id, s.session.title)
+    if (last?.trim()) {
+      session.session.title = last.trim()
+      this.events.title(id, session.session.title)
     }
     // drop fully-consumed title sequences from the buffer to bound growth
-    const clean = s.titleBuffer.replace(OSC_TITLE_RE, '')
-    if (clean.length < s.titleBuffer.length) s.titleBuffer = clean
+    const clean = session.titleBuffer.replace(OSC_TITLE_RE, '')
+    if (clean.length < session.titleBuffer.length) session.titleBuffer = clean
   }
 }

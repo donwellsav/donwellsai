@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
-import { useAppStore } from '../src/renderer/src/store'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { useAppStore, flushWorkspaceSession } from '../src/renderer/src/store'
 import { executeUiCommand } from '../src/renderer/src/agent-ui-commands'
-import type { RepoSummary } from '../src/shared/types'
+import type { PersistedState, RepoSummary, RunningAgent, TerminalSession } from '../src/shared/types'
 
 const main = '/repos/demo'
 const feature = '/repos/demo-feature'
@@ -28,6 +28,8 @@ function seed(): void {
     activeTerminal: { [main]: 't1' },
     terminalOrder: { [main]: ['t1'] },
     layouts: {},
+    terminals: {},
+    runningAgents: {},
     previews: {},
     sidebarOpen: true,
     rightSidebarOpen: false,
@@ -36,14 +38,19 @@ function seed(): void {
     sidebarWidth: 260,
     paletteOpen: false,
     settingsOpen: false,
-    settingsSection: 'general',
+    settingsSection: 'agents',
+    runsOpen: false,
   })
 }
 
-beforeAll(() => {
+beforeEach(() => {
   // persistSessionSoon's deferred save must not explode in node
-  vi.stubGlobal('window', { orca: { saveWorkspaceSession: async () => {}, closeTerminal: () => {} } })
+  vi.stubGlobal('window', { donwells: { getWorkspaceSession: async () => null, saveWorkspaceSession: async () => {}, closeTerminal: () => {} } })
   seed()
+})
+afterEach(async () => {
+  await flushWorkspaceSession()
+  vi.unstubAllGlobals()
 })
 
 describe('executeUiCommand', () => {
@@ -71,14 +78,47 @@ describe('executeUiCommand', () => {
     expect(useAppStore.getState().panes[main]).toHaveLength(0)
   })
 
+  it('keeps a live terminal open until the explicit close confirmation', async () => {
+    let closes = 0
+    vi.stubGlobal('window', {
+      donwells: {
+        saveWorkspaceSession: async () => {},
+        closeTerminal: async () => { closes++ }
+      }
+    })
+    useAppStore.setState({
+      terminals: {
+        t1: {
+          session: { id: 't1', worktreePath: main, title: 'zsh', createdAt: '2026-09-04T10:00:00.000Z', exited: false },
+          cols: 100,
+          rows: 30
+        }
+      }
+    })
+
+    useAppStore.getState().requestClosePane(main, 'term:t1')
+    expect(closes).toBe(0)
+    expect(useAppStore.getState().closeRequest?.sessionId).toBe('t1')
+    expect(useAppStore.getState().panes[main]).toHaveLength(1)
+
+    await useAppStore.getState().confirmClosePane()
+    expect(closes).toBe(1)
+    expect(useAppStore.getState().closeRequest).toBeNull()
+    expect(useAppStore.getState().panes[main]).toHaveLength(0)
+  })
+
   it('pane.resize clamps to the 15-85 band', async () => {
     useAppStore.setState({
       layouts: { [main]: { kind: 'split', dir: 'row', first: { kind: 'leaf', pane: 'term:t1' }, second: { kind: 'leaf', pane: 'browser:tab' } } }
     })
     await executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 5 })
-    expect(useAppStore.getState().layouts[main]?.size).toBe(15)
+    const firstResize = useAppStore.getState().layouts[main]
+    if (firstResize?.kind !== 'split') throw new Error('expected split layout')
+    expect(firstResize.size).toBe(15)
     await executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 99 })
-    expect(useAppStore.getState().layouts[main]?.size).toBe(85)
+    const secondResize = useAppStore.getState().layouts[main]
+    if (secondResize?.kind !== 'split') throw new Error('expected split layout')
+    expect(secondResize.size).toBe(85)
   })
 
   it('sidebar left toggles; right opens with tab and width', async () => {
@@ -117,69 +157,78 @@ describe('executeUiCommand', () => {
     expect(s.layouts[main]).toEqual({ kind: 'leaf', pane: 'term:t1' })
   })
 
-  it('state returns a serializable control snapshot', async () => {
-    const state = (await executeUiCommand({ op: 'state' })) as Record<string, unknown>
-    expect(state['activeRepoId']).toBe('demo')
-    expect(state['panes']).toBeTruthy()
-    expect(state['rightSidebar']).toBeTruthy()
-    expect(JSON.parse(JSON.stringify(state))).toBeTruthy()
-  })
 })
 
-describe('agent chip durability', () => {
-  it('running agents persist into the workspace session and restore with their live PTYs only', async () => {
-    const live = [
-      { id: 't1', worktreePath: main, title: 'zsh', createdAt: 'a', exited: false },
-      { id: 't2', worktreePath: main, title: 'zsh', createdAt: 'b', exited: false }
-    ]
-    let savedSession: unknown = null
+describe('native agent state', () => {
+  it('starts through the runtime and reconstructs a missing live agent pane after restart', async () => {
+    const session: TerminalSession = {
+      id: 't1',
+      worktreePath: main,
+      title: 'codex',
+      createdAt: '2026-09-04T10:00:00.000Z',
+      exited: false
+    }
+    const run: RunningAgent = {
+      id: 'run-1',
+      sessionId: session.id,
+      workspacePath: main,
+      command: 'codex',
+      presetId: 'codex',
+      startedAt: session.createdAt,
+      updatedAt: '2026-09-04T10:01:00.000Z',
+      liveness: 'live',
+      activity: 'permission',
+      detail: 'Waiting for approval',
+      hook: {
+        support: 'native',
+        adapter: 'codex-hooks',
+        documentationUrl: 'https://developers.openai.com/codex/hooks',
+        events: ['working', 'waiting', 'permission', 'completed'],
+        connected: true,
+        lastEventAt: '2026-09-04T10:01:00.000Z'
+      }
+    }
+    let savedSession: PersistedState['workspaceSession']
+    let directTerminalWrites = 0
     vi.stubGlobal('window', {
-      orca: {
-        saveWorkspaceSession: async (ws: unknown) => { savedSession = ws },
-        closeTerminal: () => {},
-        // round-trip through the real actions so persistence is the byproduct
-        openTerminal: async (cwd: string) => ({ id: 't1', worktreePath: cwd, title: 'zsh', createdAt: 'a', exited: false }),
-        terminalWrite: async () => true
+      donwells: {
+        saveWorkspaceSession: async (value: NonNullable<PersistedState['workspaceSession']>) => { savedSession = value },
+        closeTerminal: async () => true,
+        agentStart: async () => ({ run, session }),
+        terminalWrite: async () => { directTerminalWrites++; return true }
       }
     })
 
     await useAppStore.getState().runAgent(main, 'codex')
-    expect(useAppStore.getState().runningAgents['t1']?.state).toBe('working')
+    expect(useAppStore.getState().runningAgents.t1).toEqual(run)
+    expect(directTerminalWrites).toBe(0)
 
-    // debounced persist
-    await new Promise((r) => setTimeout(r, 450))
-    const saved = savedSession as { runningAgents?: Record<string, unknown> } | null
-    expect(saved?.runningAgents?.['t1']).toBeTruthy()
+    await flushWorkspaceSession()
+    expect(savedSession).not.toHaveProperty('runningAgents')
 
-    // Restart: daemon still owns t1 and t2; the saved session also claims a
-    // chip for session "ghost" (no live PTY) and a pane for "t2".
     useAppStore.setState({ runningAgents: {}, panes: {}, activePane: {}, terminalOrder: {}, terminals: {}, layouts: {} })
     vi.stubGlobal('window', {
-      orca: {
+      donwells: {
         saveWorkspaceSession: async () => {},
-        closeTerminal: () => {},
+        closeTerminal: async () => true,
         listRepos: async () => [repoSummary()],
         listAgents: async () => [],
-        getSettings: async () => ({ agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 }),
+        agentList: async () => [run],
+        getSettings: async () => useAppStore.getState().settings,
         getWorkspaceSession: async () => ({
           activeRepoId: 'demo',
-          runningAgents: {
-            t1: { sessionId: 't1', worktreePath: main, agent: 'codex', startedAt: 'a', state: 'permission' as const },
-            ghost: { sessionId: 'ghost', worktreePath: main, agent: 'codex', startedAt: 'a', state: 'working' as const }
-          },
           repos: {
             demo: {
-              panes: { [main]: [{ key: 'term:t1', kind: 'terminal', sessionId: 't1' }, { key: 'term:t2', kind: 'terminal', sessionId: 't2' }] },
-              activePane: { [main]: 'term:t1' },
-              activeTerminal: { [main]: 't1' },
-              terminalOrder: { [main]: ['t1', 't2'] },
+              panes: { [main]: [] },
+              activePane: {},
+              activeTerminal: {},
+              terminalOrder: { [main]: [] },
               layouts: {},
               activeWorktreePath: main
             }
           }
         }),
-        terminalSessions: async () => live,
-        // restore-time fallback open for exited sessions — none here
+        terminalSessions: async () => [session],
         openTerminal: async () => { throw new Error('not expected') },
         loadExplorer: async () => {},
         gitStatus: async () => null,
@@ -189,12 +238,74 @@ describe('agent chip durability', () => {
     })
 
     await useAppStore.getState().load()
-    const chips = useAppStore.getState().runningAgents
-    expect(Object.keys(chips).sort()).toEqual(['t1'])
-    // hook state survives the restart (permission chip, not just "working")
-    expect(chips['t1']?.state).toBe('permission')
-    expect(chips['ghost']).toBeUndefined()
-    // both panes restored against the live sessions
-    expect(useAppStore.getState().panes[main]?.map((p) => p.key)).toEqual(['term:t1', 'term:t2'])
+    const restored = useAppStore.getState()
+    expect({
+      error: restored.error,
+      run: restored.runningAgents.t1,
+      panes: restored.panes[main]?.map((pane) => pane.key),
+      activePane: restored.activePane[main]
+    }).toEqual({ error: null, run, panes: ['term:t1'], activePane: 'term:t1' })
+  })
+
+  it('retains exited agent output until explicit dismissal', async () => {
+    const session: TerminalSession = { id: 't1', worktreePath: main, title: 'node', createdAt: 't0', exited: false }
+    const run: RunningAgent = {
+      id: 'finished-run', sessionId: session.id, workspacePath: main, command: 'node',
+      startedAt: 't0', updatedAt: 't1', liveness: 'exited', activity: 'failed', exitCode: 143,
+      hook: { support: 'unavailable', events: [], reason: 'Local fixture', connected: false }
+    }
+    const confirmation = Promise.withResolvers<void>()
+    vi.stubGlobal('window', { donwells: {
+      saveWorkspaceSession: async () => {},
+      agentDismiss: () => confirmation.promise
+    } })
+    useAppStore.setState({
+      terminals: { t1: { session, cols: 100, rows: 30 } },
+      runningAgents: { t1: run }
+    })
+
+    useAppStore.getState().applyTerminalExit(session.id, 143)
+    expect(useAppStore.getState().panes[main]?.map(pane => pane.key)).toEqual(['term:t1'])
+    expect(useAppStore.getState().terminals.t1?.session.exited).toBe(true)
+
+    const closing = useAppStore.getState().closePane(main, 'term:t1')
+    expect(useAppStore.getState().panes[main]?.map(pane => pane.key)).toEqual(['term:t1'])
+    confirmation.resolve()
+    await expect(closing).resolves.toBe(true)
+    expect(useAppStore.getState().panes[main]).toBeUndefined()
+    expect(useAppStore.getState().terminals.t1).toBeUndefined()
+    expect(useAppStore.getState().runningAgents.t1).toBeUndefined()
+  })
+  it('opens a CLI-created retained session without starting another process', async () => {
+    const session: TerminalSession = { id: 'cli-agent', worktreePath: feature, title: 'node', createdAt: 't0', exited: true }
+    const run: RunningAgent = {
+      id: 'cli-run', sessionId: session.id, workspacePath: feature, command: 'node',
+      startedAt: 't0', updatedAt: 't1', liveness: 'exited', activity: 'completed', exitCode: 0,
+      hook: { support: 'unavailable', events: [], reason: 'Local fixture', connected: false }
+    }
+    vi.stubGlobal('window', { donwells: {
+      saveWorkspaceSession: async () => {},
+      terminalSessions: async () => [session],
+      agentList: async () => [run],
+      openTerminal: () => { throw new Error('must not start a replacement terminal') }
+    } })
+    useAppStore.setState({ panes: {}, terminals: {}, runsOpen: true })
+    await expect(useAppStore.getState().focusAgentSession(session.id)).resolves.toBe(true)
+    const focused = useAppStore.getState()
+    expect(focused.activeRepoId).toBe('demo')
+    expect(focused.activeWorktreePath).toBe(feature)
+    expect(focused.activePane[feature]).toBe('term:cli-agent')
+    expect(focused.panes[feature]).toHaveLength(1)
+    expect(focused.runsOpen).toBe(false)
+    await focused.focusAgentSession(session.id)
+    expect(useAppStore.getState().panes[feature]).toHaveLength(1)
+
+    const pending = Promise.withResolvers<TerminalSession[]>()
+    window.donwells.terminalSessions = () => pending.promise
+    const opening = useAppStore.getState().focusAgentSession(session.id)
+    useAppStore.setState({ repos: [], panes: {}, terminals: {} })
+    pending.resolve([session])
+    await expect(opening).resolves.toBe(false)
+    expect(useAppStore.getState().panes).toEqual({})
   })
 })

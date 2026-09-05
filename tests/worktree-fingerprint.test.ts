@@ -11,7 +11,7 @@ function sh(cwd: string, ...args: string[]): void {
 }
 
 function makeRepo(): { root: string; path: string } {
-  const root = mkdtempSync(join(tmpdir(), 'orca-fp-'))
+  const root = mkdtempSync(join(tmpdir(), 'donwells-fp-'))
   const path = join(root, 'repo')
   mkdirSync(path)
   sh(path, 'init', '-b', 'main')

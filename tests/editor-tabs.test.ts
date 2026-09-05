@@ -36,7 +36,7 @@ const readFileStub = vi.fn(async (_wt: string, rel: string): Promise<FileContent
 
 beforeAll(() => {
   vi.stubGlobal('window', {
-    orca: {
+    donwells: {
       readFile: readFileStub,
       writeFile: async (_wt: string, rel: string, content: string): Promise<FileContent> => ({
         path: rel,
@@ -44,6 +44,7 @@ beforeAll(() => {
         bytes: content.length,
         truncated: false
       }),
+      getWorkspaceSession: async () => null,
       saveWorkspaceSession: async () => {},
       closeTerminal: async () => {}
     }
@@ -85,7 +86,7 @@ describe('editor tabs: multi-file previews', () => {
     seed()
     useAppStore.setState({
       layouts: {
-        [wt]: { kind: 'split', id: 0, dir: 'row', first: { kind: 'leaf', pane: 'term:t1' }, second: { kind: 'leaf', pane: 'preview:a.ts' }, size: 50 }
+        [wt]: { kind: 'split', dir: 'row', first: { kind: 'leaf', pane: 'term:t1' }, second: { kind: 'leaf', pane: 'preview:a.ts' }, size: 50 }
       },
       panes: { [wt]: [{ key: 'term:t1', kind: 'terminal', sessionId: 't1' }, { key: 'preview:a.ts', kind: 'preview', file: 'a.ts' }] },
       previews: { [wt]: { 'a.ts': { path: 'a.ts', content: 'x', bytes: 1, truncated: false, v: 1 } } },
@@ -98,27 +99,40 @@ describe('editor tabs: multi-file previews', () => {
     expect(json).not.toContain('preview:a.ts')
   })
 
-  it('notePreviewContent updates the buffer without a version bump', () => {
+  it('ignores a save acknowledgement from an older external-source epoch', () => {
     seed()
+    const sourceEpoch = 3
+    const staleSourceEpoch = sourceEpoch - 1
     useAppStore.setState({
-      previews: { [wt]: { 'a.ts': { path: 'a.ts', content: 'old', bytes: 3, truncated: false, v: 3 } } }
+      previews: {
+        [wt]: {
+          'a.ts': { path: 'a.ts', content: 'new agent content', bytes: 17, truncated: false, revision: 'r3', v: sourceEpoch }
+        }
+      }
     })
-    useAppStore.getState().notePreviewContent(wt, 'a.ts', 'new')
-    const buf = useAppStore.getState().previews[wt]?.['a.ts']
-    expect(buf?.content).toBe('new')
-    expect(buf?.v).toBe(3)
+    useAppStore.getState().ackPreviewSave(
+      wt,
+      'a.ts',
+      { path: 'a.ts', content: 'stale editor content', bytes: 20, truncated: false, revision: 'r2' },
+      staleSourceEpoch
+    )
+    expect(useAppStore.getState().previews[wt]?.['a.ts']).toMatchObject({
+      content: 'new agent content',
+      revision: 'r3',
+      v: sourceEpoch
+    })
   })
 
   it('closePreview removes one file: pane, buffer, others survive', async () => {
     seed()
     await useAppStore.getState().openPreview(wt, 'a.ts')
     await useAppStore.getState().openPreview(wt, 'b.ts')
-    useAppStore.getState().closePreview(wt, 'a.ts')
+    await useAppStore.getState().closePreview(wt, 'a.ts')
     const s = useAppStore.getState()
     expect(Object.keys(s.previews[wt] ?? {})).toEqual(['b.ts'])
     expect(s.panes[wt]!.filter((p) => p.kind === 'preview')).toHaveLength(1)
     expect(s.activePane[wt]).toBe(KEY('b.ts'))
-    useAppStore.getState().closePreview(wt)
+    await useAppStore.getState().closePreview(wt)
     expect(useAppStore.getState().previews[wt]).toBeUndefined()
     expect(useAppStore.getState().panes[wt]!.filter((p) => p.kind === 'preview')).toHaveLength(0)
   })
@@ -148,9 +162,9 @@ describe('editor tabs: multi-file previews', () => {
   it('setPreviewMode flips a buffer and is a no-op for unknown files', async () => {
     seed()
     await useAppStore.getState().openPreview(wt, 'a.md')
-    useAppStore.getState().setPreviewMode(wt, 'a.md', 'preview')
+    await useAppStore.getState().setPreviewMode(wt, 'a.md', 'preview')
     expect(useAppStore.getState().previews[wt]?.['a.md']?.mode).toBe('preview')
-    useAppStore.getState().setPreviewMode(wt, 'missing.md', 'preview')
+    await useAppStore.getState().setPreviewMode(wt, 'missing.md', 'preview')
     expect(useAppStore.getState().previews[wt]?.['missing.md']).toBeUndefined()
     // explicit mode survives a re-open of the same file
     await useAppStore.getState().openPreview(wt, 'a.md')
@@ -184,7 +198,7 @@ describe('diff panes', () => {
     expect(s.panes[wt]!.some((p) => p.kind === 'preview' && p.file === 'src/notes.ts')).toBe(true)
     expect(s.panes[wt]!.some((p) => p.kind === 'diff')).toBe(true)
 
-    useAppStore.getState().closePane(wt, 'diff:src/notes.ts')
+    await useAppStore.getState().closePane(wt, 'diff:src/notes.ts')
     s = useAppStore.getState()
     expect(s.panes[wt]!.filter((p) => p.kind === 'diff')).toHaveLength(0)
     // editor buffer survives the diff pane closing

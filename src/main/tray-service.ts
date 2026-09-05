@@ -1,9 +1,9 @@
 import { Menu, Tray, app, nativeImage, BrowserWindow } from 'electron'
+import type { AttentionState } from '@shared/types'
 
 /**
- * System tray (upstream orcad tray): lightweight presence when the window is
- * closed; an amber dot marks unread agent activity (attention icon), mirrored
- * to the Dock badge on macOS.
+ * System tray presence. The indicator reflects a current agent state that needs
+ * attention; native window flashing is governed independently.
  */
 
 function trayIcon(attention: boolean): Electron.NativeImage {
@@ -48,10 +48,11 @@ function trayIcon(attention: boolean): Electron.NativeImage {
 
 export class TrayService {
   private tray: Tray | null = null
-  private attention = false
+  private indicator = false
+  private flash = false
 
   start(onShow: () => void): void {
-    this.tray = new Tray(trayIcon(false))
+    this.tray = new Tray(trayIcon(this.indicator))
     this.tray.setToolTip('donwells.ai')
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -69,14 +70,23 @@ export class TrayService {
     this.tray.on('click', () => onShow())
   }
 
-  setAttention(on: boolean): void {
-    if (this.attention === on) return
-    this.attention = on
-    this.tray?.setImage(trayIcon(on))
-    if (process.platform === 'darwin') app.dock?.setBadge(on ? '•' : '')
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (on) w.flashFrame(true)
-      else w.flashFrame(false)
+  setAttention(state: AttentionState): void {
+    if (this.indicator !== state.indicator) {
+      this.indicator = state.indicator
+      this.tray?.setImage(trayIcon(state.indicator))
+      if (process.platform === 'darwin') app.dock?.setBadge(state.indicator ? '•' : '')
+    }
+
+    const beginFlash = state.flash && !this.flash
+    const endFlash = !state.flash && this.flash
+    this.flash = state.flash
+    if (!beginFlash && !endFlash) return
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (beginFlash) {
+        if (!window.isFocused()) window.flashFrame(true)
+      } else {
+        window.flashFrame(false)
+      }
     }
   }
 

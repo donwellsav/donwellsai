@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">donwells.ai mark</title>
+  <desc id="description">A geometric white d and signal point on a charcoal rounded square.</desc>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#111113"/>
+  <rect x="52" y="52" width="920" height="920" rx="204" fill="none" stroke="#2A2A2E" stroke-width="8"/>
+  <path fill="#F5F5F3" fill-rule="evenodd" d="M746 238H614v154c-39-28-86-43-138-43-137 0-240 104-240 246 0 143 103 247 240 247 53 0 102-16 142-47v35h128V238Zm-132 357c0 74-49 127-119 127-72 0-125-53-125-127 0-73 53-126 125-126 70 0 119 53 119 126Z"/>
+  <circle cx="248" cy="261" r="45" fill="#8BA7FF"/>
+</svg>

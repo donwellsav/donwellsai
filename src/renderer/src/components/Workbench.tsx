@@ -1,9 +1,9 @@
 import { useRef, type ReactNode } from 'react'
-import { useAppStore, isMarkdownFile, type LayoutNode, type Pane } from '../store'
+import { useAppStore, isMarkdownFile, layoutHasLeaf, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
-import { EditorPane } from './EditorPane'
+import { MediaPreviewRouter } from './MediaPreviewRouter'
 import { DiffPane } from './DiffPane'
-import { BrowserPane } from './BrowserPane'
+
 import { Icon } from './Icon'
 
 // Stable references for selectors: zustand v5 compares snapshots by identity, so a
@@ -56,7 +56,7 @@ function LayoutNodeView({ node, render, onResize, counter }: { node: LayoutNode;
 
 /**
  * Center workbench: the ACTIVE worktree's terminal/preview panes laid out by the
- * split tree (flat = single active pane; split = every leaf visible, Orca's
+ * split tree (flat = single active pane; split = every leaf visible, upstream's
  * TabGroupSplitLayout).
  */
 export function Workbench() {
@@ -65,28 +65,28 @@ export function Workbench() {
   const panes = activeWorktreePath ? paneRecord[activeWorktreePath] ?? EMPTY_PANES : EMPTY_PANES
   const layout = useAppStore((s) => (activeWorktreePath ? s.layouts[activeWorktreePath] : undefined))
   const activePaneKey = useAppStore((s) => (activeWorktreePath ? s.activePane[activeWorktreePath] ?? '' : ''))
+  const visibleLayout = layout && layoutHasLeaf(layout, activePaneKey) ? layout : undefined
   const terminals = useAppStore((s) => s.terminals)
   const runningAgents = useAppStore((s) => s.runningAgents)
-  const stopAgent = useAppStore((s) => s.stopAgent)
-  const dismissAgent = useAppStore((s) => s.dismissAgent)
-  const setActivePane = useAppStore((s) => s.setActivePane)
-  const closePane = useAppStore((s) => s.closePane)
-  const closePreview = useAppStore((s) => s.closePreview)
+  const stopAgent = useAppStore((state) => state.stopAgent)
+  const dismissAgent = useAppStore((state) => state.dismissAgent)
+  const setActivePane = useAppStore((state) => state.setActivePane)
+  const requestClosePane = useAppStore((state) => state.requestClosePane)
+  const closePreview = useAppStore((state) => state.closePreview)
   const retargetPreview = useAppStore((s) => s.retargetPreview)
   const previewsForWt = useAppStore((s) => (s.activeWorktreePath ? s.previews[s.activeWorktreePath] : undefined))
   const openFiles = Object.keys(previewsForWt ?? {})
   const setPreviewMode = useAppStore((s) => s.setPreviewMode)
   const splitTerminal = useAppStore((s) => s.splitTerminal)
-  const openTerminal = useAppStore((s) => s.openTerminal)
   const resizeSplit = useAppStore((s) => s.resizeSplit)
 
   if (!activeWorktreePath) return null
 
   const labelOf = (pane: Pane): string => {
-    if (pane.kind === 'preview') return pane.file?.split('/').pop() ?? 'file'
-    if (pane.kind === 'diff') return `${pane.file?.split('/').pop()} ⤨ diff`
-    const session = pane.sessionId ? terminals[pane.sessionId]?.session : null
-    return session?.title?.split(':').pop() ?? 'terminal'
+    if (pane.label) return pane.label
+    if (pane.kind === 'preview' || pane.kind === 'diff') return pane.file?.split('/').pop() ?? 'File'
+    if (pane.kind === 'browser') return pane.url?.replace(/^https?:\/\//, '').split('/')[0] ?? 'Browser'
+    return 'Terminal'
   }
 
   const renderPane = (paneKey: string): ReactNode => {
@@ -95,10 +95,14 @@ export function Workbench() {
     const isActive = pane.key === activePaneKey
     return (
       <div
-        className={`pane${isActive ? ' pane-active' : ''}`}
+        className={'pane' + (isActive ? ' pane-active' : '')}
+        data-pane-key={pane.key}
+        data-pane-kind={pane.kind}
+        tabIndex={-1}
+        onFocus={() => setActivePane(activeWorktreePath, paneKey)}
         onMouseDown={() => setActivePane(activeWorktreePath, paneKey)}
       >
-        <div className="pane-title-bar">
+        {pane.kind !== 'diff' && pane.kind !== 'browser' && <div className="pane-title-bar">
           {pane.kind === 'preview' && pane.file ? (
             <div className="editor-tabs" role="tablist">
               {openFiles.map((rel) => {
@@ -107,36 +111,24 @@ export function Workbench() {
                 const dup = openFiles.filter((o) => o.split('/').pop() === name).length > 1
                 const active = pane.file === rel
                 return (
-                  <button
-                    key={rel}
-                    role="tab"
-                    aria-selected={active}
-                    className={`editor-tab${active ? ' active' : ''}`}
-                    title={rel}
-                    onClick={(e) => {
-                      e.stopPropagation()
+                  <div key={rel} className={`editor-tab${active ? ' active' : ''}`}>
+                    <button role="tab" aria-selected={active} className="editor-tab-select" title={rel} onClick={(event) => {
+                      event.stopPropagation()
                       if (!active) void retargetPreview(activeWorktreePath, pane.key, rel)
-                    }}
-                  >
-                    <span className="editor-tab-name">{dup ? parts.slice(-2).join('/') : name}</span>
-                    <span
-                      className="editor-tab-close"
-                      role="button"
-                      title={`Close ${name}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        closePreview(activeWorktreePath, rel)
-                      }}
-                    >
-                      ×
-                    </span>
-                  </button>
+                    }}>
+                      <span className="editor-tab-name">{dup ? parts.slice(-2).join('/') : name}</span>
+                    </button>
+                    <button className="editor-tab-close" aria-label={`Close ${name}`} onClick={(event) => {
+                      event.stopPropagation()
+                      void closePreview(activeWorktreePath, rel)
+                    }}>×</button>
+                  </div>
                 )
               })}
             </div>
           ) : (
             <>
-              <Icon name={pane.kind === 'preview' ? 'file' : pane.kind === 'diff' ? 'git' : 'terminal'} size={11} />
+              <Icon name={pane.kind === 'preview' ? 'file' : 'terminal'} size={11} />
               <span className="pane-title">{labelOf(pane)}</span>
             </>
           )}
@@ -155,59 +147,50 @@ export function Workbench() {
             </button>
           )}
           {pane.kind === 'terminal' && (
-            <button className="icon-btn" title="Split terminal" onClick={() => void splitTerminal(activeWorktreePath)}>
-              <Icon name="split" size={11} />
-            </button>
+            <span className="pane-split-actions" aria-label="Split terminal">
+              <button className="icon-btn" title="Split terminal right" aria-label="Split terminal right" onClick={() => void splitTerminal(activeWorktreePath, 'row')}>
+                <Icon name="columns" size={11} />
+              </button>
+              <button className="icon-btn" title="Split terminal down" aria-label="Split terminal down" onClick={() => void splitTerminal(activeWorktreePath, 'col')}>
+                <Icon name="split" size={11} />
+              </button>
+            </span>
           )}
-          {/* Agent lifecycle lives in the pane it runs in — no dedicated bar. */}
+          {/* Hook state is informational. Permission decisions stay in the provider's own UI. */}
           {pane.kind === 'terminal' && pane.sessionId && runningAgents[pane.sessionId] && (() => {
             const agent = runningAgents[pane.sessionId]!
+            const terminalAgent = agent.command.trim().split(' ')[0] || agent.presetId || 'agent'
+            const settled = agent.liveness === 'exited'
+            const busy = agent.activity === 'starting' || agent.activity === 'working' || agent.activity === 'stopping'
+            const stateLabel = agent.liveness === 'unverifiable'
+              ? agent.activity + ' · liveness unavailable'
+              : agent.liveness === 'exited'
+                ? agent.exitCode === undefined ? 'exited' : 'exited ' + agent.exitCode
+                : agent.activity
             return (
               <span
-                className={`agent-chip agent-state-${agent.state}`}
-                title={agent.detail ?? agent.state}
-                onClick={(e) => e.stopPropagation()}
+                className={'agent-chip agent-state-' + agent.activity + ' agent-liveness-' + agent.liveness}
+                title={agent.detail ? stateLabel + ' · ' + agent.detail : stateLabel}
+                onClick={(event) => event.stopPropagation()}
               >
-                {agent.state === 'working' && <span className="spinner" />}
-                {agent.state === 'permission' && <span className="state-icon state-permission" />}
-                {agent.state === 'done' && <span className="state-icon state-done" />}
-                {agent.state === 'note' && <span className="state-icon state-note" />}
-                <span className="agent-cmd">{agent.agent}</span>
-                {agent.state === 'permission' && (
-                  <>
-                    <button
-                      className="chip-act allow"
-                      title="Allow — sends y ⏎ to the agent terminal"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void useAppStore.getState().writeTerminal(agent.sessionId, 'y\r')
-                        setActivePane(activeWorktreePath, pane.key)
-                      }}
-                    >
-                      Allow
-                    </button>
-                    <button
-                      className="chip-act deny"
-                      title="Deny — sends Esc to the agent terminal"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void useAppStore.getState().writeTerminal(agent.sessionId, '\x1b')
-                        setActivePane(activeWorktreePath, pane.key)
-                      }}
-                    >
-                      Deny
-                    </button>
-                  </>
-                )}
+                {busy && <span className="spinner" />}
+                {agent.activity === 'permission' && <span className="state-icon state-permission" />}
+                {agent.activity === 'waiting' && <Icon name="clock" size={10} />}
+                {agent.activity === 'completed' && <Icon name="check" size={10} />}
+                {agent.activity === 'failed' && <Icon name="alert" size={10} />}
+                <span className="agent-cmd">{agent.presetId ?? terminalAgent}</span>
+                <span className="agent-state-label">{stateLabel}</span>
                 <button
                   className="icon-btn"
-                  title={agent.state === 'done' ? 'Dismiss' : 'Stop agent'}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    agent.state === 'done' ? dismissAgent(agent.sessionId) : stopAgent(agent.sessionId)
+                  title={settled ? 'Dismiss agent status' : agent.activity === 'stopping' ? 'Stopping agent…' : 'Stop agent'}
+                  disabled={!settled && (agent.activity === 'stopping' || agent.liveness !== 'live')}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (settled) void dismissAgent(agent.sessionId)
+                    else void stopAgent(agent.sessionId)
                   }}
                 >
-                  {agent.state === 'done' ? <Icon name="check" size={10} /> : <Icon name="stop" size={10} />}
+                  {settled ? <Icon name="x" size={10} /> : <Icon name="stop" size={10} />}
                 </button>
               </span>
             )
@@ -217,27 +200,27 @@ export function Workbench() {
             title="Close pane"
             onClick={(e) => {
               e.stopPropagation()
-              closePane(activeWorktreePath, paneKey)
+              requestClosePane(activeWorktreePath, paneKey)
             }}
           >
             <Icon name="x" size={11} />
           </button>
-        </div>
+        </div>}
         {pane.kind === 'browser' && pane.url ? (
-          <BrowserPane worktreePath={activeWorktreePath} url={pane.url} onClose={() => closePane(activeWorktreePath, pane.key)} />
+          <div className="browser-pane-slot" data-browser-worktree={activeWorktreePath} />
         ) : (
-          <div className={`pane-body-terminal${isActive || !!layout ? '' : ' terminal-hidden'}`}>
+          <div className={`pane-body-terminal${isActive || !!visibleLayout ? '' : ' terminal-hidden'}`}>
             {pane.kind === 'terminal' && pane.sessionId && terminals[pane.sessionId] ? (
               <TerminalPane
                 sessionId={pane.sessionId}
                 cols={terminals[pane.sessionId]!.cols}
                 rows={terminals[pane.sessionId]!.rows}
-                isActive={!!layout || isActive}
+                isActive={!!visibleLayout || isActive}
               />
             ) : pane.kind === 'preview' && pane.file ? (
-              <EditorPane worktreePath={activeWorktreePath} relPath={pane.file} />
+              <MediaPreviewRouter worktreePath={activeWorktreePath} relPath={pane.file} />
             ) : pane.kind === 'diff' && pane.file ? (
-              <DiffPane worktreePath={activeWorktreePath} relPath={pane.file} />
+              <DiffPane worktreePath={activeWorktreePath} relPath={pane.file} comparison={pane.comparison} />
             ) : null}
           </div>
         )}
@@ -246,12 +229,12 @@ export function Workbench() {
   }
   return (
     <div className="workbench">
-      {layout ? (
-        <LayoutTree node={layout} render={renderPane} onResize={(splitId, pct) => resizeSplit(activeWorktreePath, splitId, pct)} />
+      {visibleLayout ? (
+        <LayoutTree node={visibleLayout} render={renderPane} onResize={(splitId, pct) => resizeSplit(activeWorktreePath, splitId, pct)} />
       ) : (
         panes
           .filter((p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser' || p.kind === 'diff')
-          .map((p) => <div key={p.key} className={p.key === activePaneKey ? '' : 'terminal-hidden'}>{renderPane(p.key)}</div>)
+          .map((p) => <div key={`${activeWorktreePath}:${p.key}`} className={p.key === activePaneKey ? '' : 'terminal-hidden'}>{renderPane(p.key)}</div>)
       )}
     </div>
   )

@@ -1,18 +1,32 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
-import { copyFileSync, existsSync } from 'node:fs'
-import type { BrowserCommand, IpcApi, MainEvents, UiCommand } from '@shared/types'
+import { createHash } from 'node:crypto'
+import { ProjectMemoryService } from './project-memory'
+import { EditorRecoveryService, registerEditorRecoveryHandlers } from './editor-recovery'
+import type { AppMeta, AppSettings, AttentionState, BrowserCommand, IpcApi, MainEvents, SettingsResetRequest, UiCommand } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
+import { RendererCommandRouter } from './renderer-command-router'
+import packageMetadata from '../../package.json'
 import { Store, idFromPath } from './store'
-import { GitWorktrees } from './git'
+import { GitWorktrees, verifyWorktreePath, resolveRegisteredProjectWorkspace } from './git'
 import { scanWorktree } from './ports'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
-import { SkillsManager } from './skills'
+import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
-import { AutomationStore, SchedulerService, nextRunAfter, type Automation } from './automations'
-import { OrchestrationStore, Orchestrator } from './orchestration'
+import { BROWSER_PARTITION, configureBrowserPermissions, guardBrowserGuests } from './browser-permissions'
+import { OperationalRunService } from './operational-run-service'
+import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
+import { deliverAgentAttachment } from './agent-delivery'
+import { DiffReviewService } from './diff-review'
+import { existsSync } from 'node:fs'
+import { BrowserHistoryStore } from './browser-history'
+import type { BrowserHistoryRecord } from '@shared/browser-history'
+import { registerBrowserShortcuts } from './browser-shortcuts'
+import { localRuntimePaths } from './local-runtime'
+import { applyWindowAppearance } from './appearance'
+import { registerMediaPreviewHandlers } from './media-preview'
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
@@ -20,17 +34,6 @@ app.setName('donwells.ai')
 // Test seam: isolated userData dir for the smoke harness.
 if (process.env['DONWELLS_USER_DATA']) {
   app.setPath('userData', process.env['DONWELLS_USER_DATA'])
-} else {
-  // One-time migration from the pre-rename orca-lite dir: carry repos/settings over.
-  try {
-    const newPath = join(app.getPath('userData'), 'donwells-data.json')
-    const oldPath = join(app.getPath('appData'), 'orca-lite', 'orca-lite-data.json')
-    if (!existsSync(newPath) && existsSync(oldPath)) {
-      copyFileSync(oldPath, newPath)
-    }
-  } catch (e) {
-    console.error('data migration failed:', e)
-  }
 }
 
 // Single instance (upstream parity): a second app instance would fight the first
@@ -47,19 +50,27 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let store: Store
+let browserHistory: BrowserHistoryStore
 let git: GitWorktrees
 let terminalBus: DaemonClient
 let rpcServer: RuntimeRpcServer | null = null
 let trayService: TrayService | null = null
 let secrets: SecretStore | null = null
-let automationStore: AutomationStore | null = null
-let scheduler: SchedulerService | null = null
-let orchestrationStore: OrchestrationStore | null = null
-let orchestrator: Orchestrator | null = null
+let operationalRuns: OperationalRunService
+let agentRuntime: AgentRuntime
 let mainWindow: BrowserWindow | null = null
+let quitRequested = false
+let allowQuit = false
+const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
   mainWindow?.webContents.send(channel, payload)
+}
+
+function publishSettings(settings: AppSettings): AppSettings {
+  send('settings:changed', { settings })
+  buildMenu()
+  return settings
 }
 
 /** Route a menu/accelerator action to the renderer; the store decides what it does. */
@@ -156,48 +167,32 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// Agent-control bridge: forward commands to the renderer and correlate replies
-// (browser webview commands + UI/panel commands; see registerIpc).
-type PendingCall = { resolve: (v: unknown) => void; reject: (e: Error) => void }
-const pendingByChannel = new Map<string, Map<string, PendingCall>>([
-  ['browser:command', new Map()],
-  ['ui:command', new Map()]
-])
-let browserPanes: string[] = []
-let callSeq = 0
+const commandRouter = new RendererCommandRouter(() => {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  return mainWindow!.webContents
+})
+const browserControl = (cmd: BrowserCommand): Promise<unknown> => commandRouter.call('browser:command', cmd)
+const uiControl = (cmd: UiCommand): Promise<unknown> => commandRouter.call('ui:command', cmd)
 
-/** Send a command to the renderer over `channel`; resolves on the correlated reply. */
-function rendererCall(channel: string, cmd: unknown, timeoutMs = 10000): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const win = mainWindow
-    if (!win || win.isDestroyed()) {
-      reject(new Error('no window'))
-      return
+function runtimeMetadata(): AppMeta {
+  return {
+    version: packageMetadata.version,
+    shell: process.env.SHELL || '',
+    userDataDir: app.getPath('userData'),
+    memoryMcp: {
+      command: process.execPath,
+      args: [join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'cli', 'donwells.mjs')],
+      env: { ELECTRON_RUN_AS_NODE: '1' }
     }
-    const domain = channel.split(':')[0]!
-    const id = `${domain}-${++callSeq}`
-    const pending = pendingByChannel.get(channel)!
-    const timer = setTimeout(() => {
-      pending.delete(id)
-      reject(new Error(`${domain} command timed out`))
-    }, timeoutMs)
-    pending.set(id, {
-      resolve: (v) => { clearTimeout(timer); resolve(v) },
-      reject: (e) => { clearTimeout(timer); reject(e) }
-    })
-    win.webContents.send(channel, { id, cmd })
-  })
+  }
 }
 
-const browserControl = (cmd: BrowserCommand): Promise<unknown> => rendererCall('browser:command', cmd)
-const uiControl = (cmd: UiCommand): Promise<unknown> => rendererCall('ui:command', cmd)
-
 function registerIpc(): void {
-  ipcMain.handle('meta', () => ({
-    version: app.getVersion(),
-    shell: process.env.SHELL || '',
-    userDataDir: app.getPath('userData')
-  }))
+  ipcMain.handle('meta', runtimeMetadata)
+  const editorRecovery = new EditorRecoveryService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace })
+  registerEditorRecoveryHandlers(ipcMain, editorRecovery)
+  ipcMain.handle('attentionInboxList', () => terminalBus.attentionInboxList())
+  ipcMain.handle('attentionInboxAcknowledge', (_e, request: Parameters<IpcApi['attentionInboxAcknowledge']>[0]) => terminalBus.attentionInboxAcknowledge(request))
 
   ipcMain.handle('listRepos', () => git.listAll())
 
@@ -271,20 +266,37 @@ function registerIpc(): void {
   ipcMain.handle('gitStage', (_e, worktreePath: string, paths: string[]) => git.stage(worktreePath, paths))
   ipcMain.handle('gitUnstage', (_e, worktreePath: string, paths: string[]) => git.unstage(worktreePath, paths))
   ipcMain.handle('gitDiscard', (_e, worktreePath: string, paths: string[]) => git.discard(worktreePath, paths))
-  ipcMain.handle('gitCommit', (_e, worktreePath: string, message: string) => git.commit(worktreePath, message))
+  ipcMain.handle('gitCommit', (_e, ...args: Parameters<IpcApi['gitCommit']>) => git.commit(...args))
   ipcMain.handle('gitPush', (_e, worktreePath: string) => git.push(worktreePath))
   ipcMain.handle('gitPull', (_e, worktreePath: string) => git.pull(worktreePath))
+  ipcMain.handle('gitFetch', (_e, ...args: Parameters<IpcApi['gitFetch']>) => git.fetch(...args))
   ipcMain.handle('gitBranches', (_e, worktreePath: string) => git.branches(worktreePath))
   ipcMain.handle('gitCheckout', (_e, worktreePath: string, branch: string) => git.checkout(worktreePath, branch))
+  ipcMain.handle('gitCreateBranch', (_e, ...args: Parameters<IpcApi['gitCreateBranch']>) => git.createBranch(...args))
+  ipcMain.handle('gitHistory', (_e, ...args: Parameters<IpcApi['gitHistory']>) => git.history(...args))
   ipcMain.handle('gitDiff', (_e, worktreePath: string, relPath: string) => git.diff(worktreePath, relPath))
-  ipcMain.handle('listFiles', (_e, worktreePath: string, prefix = '') => git.listFiles(worktreePath, prefix))
-  ipcMain.handle('listAllFiles', (_e, worktreePath: string) => git.listAllFiles(worktreePath))
+  ipcMain.handle('listWorkspaceDirectory', (_e, ...args: Parameters<IpcApi['listWorkspaceDirectory']>) => git.listWorkspaceDirectory(...args))
+  ipcMain.handle('searchWorkspaceFiles', (_e, ...args: Parameters<IpcApi['searchWorkspaceFiles']>) => git.searchWorkspaceFiles(...args))
+  ipcMain.handle('createWorkspaceEntry', (_e, ...args: Parameters<IpcApi['createWorkspaceEntry']>) => git.createWorkspaceEntry(...args))
+  ipcMain.handle('moveWorkspaceEntry', (_e, ...args: Parameters<IpcApi['moveWorkspaceEntry']>) => git.moveWorkspaceEntry(...args))
+  ipcMain.handle('duplicateWorkspaceEntry', (_e, ...args: Parameters<IpcApi['duplicateWorkspaceEntry']>) => git.duplicateWorkspaceEntry(...args))
+  ipcMain.handle('deleteWorkspaceEntry', (_e, ...args: Parameters<IpcApi['deleteWorkspaceEntry']>) => git.deleteWorkspaceEntry(...args))
   ipcMain.handle('readFile', (_e, worktreePath: string, relPath: string) => git.readFile(worktreePath, relPath))
   ipcMain.handle('readFileAtRef', (_e, worktreePath: string, relPath: string, ref?: string) => git.readFileAtRef(worktreePath, relPath, ref))
-  ipcMain.handle('writeFile', (_e, worktreePath: string, relPath: string, content: string) => git.writeFile(worktreePath, relPath, content))
+  ipcMain.handle('writeFile', (_e, worktreePath: string, relPath: string, content: string, expectedRevision?: string) => git.writeFile(worktreePath, relPath, content, expectedRevision))
+  ipcMain.handle('readPreviewImage', (_e, worktreePath: string, documentPath: string, source: string) => git.readPreviewImage(worktreePath, documentPath, source))
+  registerMediaPreviewHandlers(git)
+  ipcMain.handle('applyAppearance', (_e, request: Parameters<IpcApi['applyAppearance']>[0]) => {
+    if (!mainWindow) throw new Error('The application window is unavailable')
+    applyWindowAppearance(mainWindow, request)
+  })
 
   ipcMain.handle('getSettings', () => store.getSettings())
-  ipcMain.handle('setSettings', (_e, patch: Record<string, unknown>) => store.updateSettings(patch))
+  ipcMain.handle('setSettings', (_e, patch: Record<string, unknown>) => publishSettings(store.updateSettings(patch)))
+  ipcMain.handle('resetSettings', (_e, request: SettingsResetRequest) => publishSettings(store.resetSettings(request)))
+  ipcMain.handle('browserHistoryList', () => browserHistory.list())
+  ipcMain.handle('browserHistoryRecord', (_e, entry: BrowserHistoryRecord) => browserHistory.record(entry))
+  ipcMain.handle('browserHistoryClear', () => browserHistory.clear())
 
   ipcMain.handle('getWorkspaceSession', () => store.getWorkspaceSession())
   ipcMain.handle('saveWorkspaceSession', (_e, ws) => store.setWorkspaceSession(ws))
@@ -296,34 +308,26 @@ function registerIpc(): void {
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
   })
 
-  ipcMain.handle('listAgents', () => git.detectAgents())
+  ipcMain.handle('listAgents', () => agentRuntime.listAgents())
+  ipcMain.handle('agentStart', (_e, ...args: Parameters<IpcApi['agentStart']>) => agentRuntime.start(...args))
+  ipcMain.handle('agentList', () => agentRuntime.list())
+  ipcMain.handle('agentInterrupt', (_e, sessionId: string) => agentRuntime.interrupt(sessionId))
+  ipcMain.handle('agentDismiss', (_e, sessionId: string) => agentRuntime.dismiss(sessionId))
+  ipcMain.handle('agentDeliver', (_e, request: Parameters<IpcApi['agentDeliver']>[0]) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request))
 
   ipcMain.handle('openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     return true
   })
 
-  // Agent-control bridge: renderer replies with results, main matches them to
-  // pending runtime-RPC commands by correlation id.
-  const resolveCall = (
-    channel: string,
-    id: string,
-    result: { ok: true; result: unknown } | { ok: false; error: string }
-  ): void => {
-    const pending = pendingByChannel.get(channel)?.get(id)
-    if (!pending) return
-    pendingByChannel.get(channel)!.delete(id)
-    if (result.ok) pending.resolve(result.result)
-    else pending.reject(new Error(result.error))
-  }
-  ipcMain.on('browser:command:result', (_e, id: string, result) => resolveCall('browser:command', id, result))
-  ipcMain.on('ui:command:result', (_e, id: string, result) => resolveCall('ui:command', id, result))
-  ipcMain.on('browser:register-panes', (_e, keys: string[]) => {
-    browserPanes = Array.isArray(keys) ? keys.map(String) : []
-  })
+  ipcMain.on('browser:router-ready', (event) => commandRouter.ready('browser:command', event.sender))
+  ipcMain.on('ui:router-ready', (event) => commandRouter.ready('ui:command', event.sender))
+  ipcMain.on('browser:command:result', (event, id: string, result) => commandRouter.resolve('browser:command', id, result, event.sender))
+  ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
 }
 
 function createWindow(): void {
+  configureBrowserPermissions(session.fromPartition(BROWSER_PARTITION))
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -340,7 +344,37 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('closed', () => {
+  const window = mainWindow
+  commandRouter.bind(window.webContents)
+  guardBrowserGuests(window)
+  window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) commandRouter.reset(new Error('Renderer reloaded before the command finished'), true)
+  })
+  window.webContents.on('render-process-gone', () => commandRouter.reset(new Error('Renderer process exited before the command finished')))
+  let closing = false
+  let allowClose = false
+  window.on('close', (event) => {
+    if (allowClose || !commandRouter.isReady('ui:command')) return
+    event.preventDefault()
+    if (closing) return
+    closing = true
+    void (async () => {
+      try {
+        await uiControl({ op: 'workspace.flush' })
+      } catch (error) {
+        const result = await dialog.showMessageBox(window, {
+          type: 'warning', message: 'Some changes could not be saved', detail: String(error),
+          buttons: ['Keep open', 'Close without saving'], defaultId: 0, cancelId: 0
+        })
+        if (result.response !== 1) { closing = false; quitRequested = false; return }
+      }
+      allowClose = true
+      window.close()
+      if (quitRequested) { allowQuit = true; app.quit() }
+    })()
+  })
+  window.on('closed', () => {
+    commandRouter.reset(new Error('Window closed before the command finished'))
     mainWindow = null
   })
 
@@ -353,6 +387,8 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   store = new Store()
+  browserHistory = new BrowserHistoryStore(app.getPath('userData'))
+  registerBrowserShortcuts(() => mainWindow?.webContents ?? null)
   git = new GitWorktrees(store)
   git.setTrashRoot(join(app.getPath('userData'), 'trash'))
   // Daemon owns the PTYs: spawn-if-needed (detached), never killed on app exit —
@@ -360,21 +396,33 @@ app.whenReady().then(() => {
   terminalBus = new DaemonClient(
     app.getPath('userData'),
     {
-      data: (sessionId, data) => send('terminal:data', { sessionId, data }),
+      data: (sessionId, data, sequence) => {
+        send('terminal:data', { sessionId, data, sequence })
+        void operationalRuns?.onDaemonEvent('data', sessionId, data).catch((error) => console.error('Run output persistence failed:', error))
+      },
       exit: (sessionId, exitCode) => {
         send('terminal:exit', { sessionId, exitCode })
-        scheduler?.onDaemonEvent('exit', sessionId, '', exitCode)
-        orchestrator?.onDaemonEvent('exit', sessionId)
+        void operationalRuns?.onDaemonEvent('exit', sessionId, '', exitCode).catch((error) => console.error('Run completion persistence failed:', error))
       },
       title: (sessionId, title) => send('terminal:title', { sessionId, title }),
-      hook: (sessionId, state, detail) => {
-        send('terminal:hook', { sessionId, state, detail })
-        scheduler?.onDaemonEvent('hook', sessionId, state)
-        orchestrator?.onDaemonEvent('hook', sessionId, state)
+      agent: (run) => {
+        agentRuntime.observe(run)
+        send('agent:changed', { run })
+      },
+      agentDismissed: (sessionId) => {
+        agentRuntime.observeDismissed(sessionId)
+        send('agent:dismissed', { sessionId })
       }
     },
     join(__dirname, 'terminal-daemon-entry.js')
   )
+  agentRuntime = new AgentRuntime(terminalBus, {
+    registeredWorkspaces: async () => (await git.listAll()).flatMap<AgentWorkspaceRegistration>((summary) => [
+      { path: summary.repo.path, host: { kind: 'local' } },
+      ...summary.worktrees.map<AgentWorkspaceRegistration>((worktree) => ({ path: worktree.path, host: { kind: 'local' } }))
+    ])
+  })
+  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace)
   void terminalBus.connect().catch((e) => {
     console.error('terminal daemon connect failed:', e)
   })
@@ -403,71 +451,68 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('secretAvailable', () => secrets?.available ?? false)
-  // Renderer-driven attention state (agents running → tray dot)
-  ipcMain.on('attention', (_e, on: boolean) => trayService?.setAttention(!!on))
+  // Renderer-driven, preference-gated native attention effects.
+  ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
-  // Automations scheduler: fire due runs into worktree terminals.
-  automationStore = new AutomationStore(app.getPath('userData'))
-  scheduler = new SchedulerService(automationStore, async (a) => {
-    const s = await terminalBus.open(a.worktreePath)
-    // newline terminates the command like a human Enter
-    terminalBus.write(s.id, `${a.command}\n`)
-    return s.id
+  void operationalRuns.resume().catch((error) => console.error('Run recovery failed:', error))
+  ipcMain.handle('scheduledRunsList', () => operationalRuns.scheduledRunsList())
+  ipcMain.handle('scheduledRunSave', (_e, ...args: Parameters<IpcApi['scheduledRunSave']>) => operationalRuns.scheduledRunSave(...args))
+  ipcMain.handle('scheduledRunSetEnabled', (_e, ...args: Parameters<IpcApi['scheduledRunSetEnabled']>) => operationalRuns.scheduledRunSetEnabled(...args))
+  ipcMain.handle('scheduledRunDuplicate', (_e, id: string) => operationalRuns.scheduledRunDuplicate(id))
+  ipcMain.handle('scheduledRunDelete', (_e, id: string) => operationalRuns.scheduledRunDelete(id))
+  ipcMain.handle('scheduledRunRunNow', (_e, id: string) => operationalRuns.scheduledRunRunNow(id))
+  ipcMain.handle('scheduledRunCancel', (_e, id: string) => operationalRuns.scheduledRunCancel(id))
+  ipcMain.handle('scheduledRunHistory', (_e, id: string) => operationalRuns.scheduledRunHistory(id))
+  ipcMain.handle('parallelRunsList', () => operationalRuns.parallelRunsList())
+  ipcMain.handle('parallelRunStart', (_e, ...args: Parameters<IpcApi['parallelRunStart']>) => operationalRuns.parallelRunStart(...args))
+  ipcMain.handle('parallelRunRetry', (_e, ...args: Parameters<IpcApi['parallelRunRetry']>) => operationalRuns.parallelRunRetry(...args))
+  ipcMain.handle('parallelRunCancel', (_e, id: string) => operationalRuns.parallelRunCancel(id))
+  ipcMain.handle('parallelRunDelete', (_e, id: string) => operationalRuns.parallelRunDelete(id))
+  const skills = new SkillPackagesManager(app.getPath('userData'), {
+    resolveWorkspace: resolveRegisteredWorkspace
   })
-  scheduler.prime()
-  scheduler.start()
-
-  // Orchestration: fan a prompt across worktrees (upstream §8 model).
-  orchestrationStore = new OrchestrationStore(app.getPath('userData'))
-  orchestrator = new Orchestrator(orchestrationStore, async (worktreePath, prompt) => {
-    const s = await terminalBus.open(worktreePath)
-    terminalBus.write(s.id, `${prompt}\n`)
-    return s.id
-  })
-  ipcMain.handle('orchestrationList', () => orchestrationStore?.list() ?? [])
-  ipcMain.handle(
-    'orchestrationStart',
-    (_e, name: string, command: string, worktreePaths: string[], parallel: number) =>
-      orchestrator?.start(String(name), String(command), worktreePaths.map(String), Number(parallel) || 4) ?? null
-  )
-  ipcMain.handle('orchestrationCancel', (_e, id: string) => {
-    orchestrator?.cancel(String(id))
-    return true
-  })
-  ipcMain.handle('automationsList', () => automationStore?.list() ?? [])
-  ipcMain.handle('automationSave', (_e, a: Automation) => {
-    automationStore?.upsert({ ...a, nextRunAt: nextRunAfter(a.schedule, new Date()) })
-    return true
-  })
-  ipcMain.handle('automationRemove', (_e, id: string) => {
-    automationStore?.remove(String(id))
-    return true
-  })
-  ipcMain.handle('automationRunNow', (_e, id: string) => {
-    void scheduler?.runNow(String(id))
-    return true
-  })
-  ipcMain.handle('automationRuns', (_e, id: string) => automationStore?.runsFor(String(id)) ?? [])
-  // Skills registry (agent-skill passthrough)
-  const skills = new SkillsManager(app.getPath('userData'))
-  ipcMain.handle('skillsList', () => skills.list())
-  ipcMain.handle('skillsInstall', (_e, source: string) => skills.install(String(source)))
-  ipcMain.handle('skillsRemove', (_e, name: string) => {
-    skills.remove(String(name))
-    return true
-  })
-  // Runtime RPC (upstream §6.1 local transport): unix socket + discovery file
+  ipcMain.handle('skillPackagesList', (_e, ...args: Parameters<IpcApi['skillPackagesList']>) => skills.list(...args))
+  ipcMain.handle('skillPackagesPrepare', (_e, ...args: Parameters<IpcApi['skillPackagesPrepare']>) => skills.prepare(...args))
+  ipcMain.handle('skillPackagesApply', (_e, ...args: Parameters<IpcApi['skillPackagesApply']>) => skills.apply(...args))
+  ipcMain.handle('skillPackagesRead', (_e, ...args: Parameters<IpcApi['skillPackagesRead']>) => skills.read(...args))
+  ipcMain.handle('skillPackagesPrepareUpdate', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareUpdate']>) => skills.prepareUpdate(...args))
+  ipcMain.handle('skillPackagesPrepareRemove', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareRemove']>) => skills.prepareRemove(...args))
+  ipcMain.handle('skillPackagesRemove', (_e, ...args: Parameters<IpcApi['skillPackagesRemove']>) => skills.remove(...args))
+  const diffReview = new DiffReviewService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace })
+  ipcMain.handle('diffReviewList', (_e, ...args: Parameters<IpcApi['diffReviewList']>) => diffReview.list(...args))
+  ipcMain.handle('diffReviewCreate', (_e, ...args: Parameters<IpcApi['diffReviewCreate']>) => diffReview.create(...args))
+  ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
+  ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
+  const projectMemory = new ProjectMemoryService(app.getPath('userData'), async (workspacePath) => {
+    const { projectPath } = await resolveRegisteredProjectWorkspace(store, workspacePath)
+    const identity = process.platform === 'win32' ? projectPath.toLowerCase() : projectPath
+    return { projectPath, projectKey: createHash('sha256').update(identity).digest('hex') }
+  }, { onChanged: ({ projectKey }) => send('project-memory:changed', { projectKey }) })
+  ipcMain.handle('projectMemoryList', (_e, request: Parameters<IpcApi['projectMemoryList']>[0]) => projectMemory.projectMemoryList(request))
+  ipcMain.handle('projectMemoryGet', (_e, request: Parameters<IpcApi['projectMemoryGet']>[0]) => projectMemory.projectMemoryGet(request))
+  ipcMain.handle('projectMemoryCreate', (_e, request: Parameters<IpcApi['projectMemoryCreate']>[0]) => projectMemory.projectMemoryCreate(request))
+  ipcMain.handle('projectMemoryUpdate', (_e, request: Parameters<IpcApi['projectMemoryUpdate']>[0]) => projectMemory.projectMemoryUpdate(request))
+  ipcMain.handle('projectMemoryHistory', (_e, request: Parameters<IpcApi['projectMemoryHistory']>[0]) => projectMemory.projectMemoryHistory(request))
+  ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
+  const runtimePaths = localRuntimePaths(app.getPath('userData'), 'app')
   const rpc = new RuntimeRpcServer(
-    join(app.getPath('userData'), 'donwells.sock'),
-    join(app.getPath('userData'), 'donwells-runtime.json'),
+    runtimePaths.socketPath,
+    runtimePaths.runtimeFile,
     newRpcToken(),
     {
       store,
       git,
       terminals: terminalBus,
-      meta: async () => ({ version: app.getVersion(), shell: process.env.SHELL ?? '', userDataDir: app.getPath('userData') }),
+      agents: agentRuntime,
+      deliverAgentAttachment: (request) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request),
+      skills,
+      runs: operationalRuns,
+      browserHistory,
+      diffReview,
+      projectMemory,
+      meta: async () => runtimeMetadata(),
       onChanged: (repoId) => send('worktree:changed', { repoId }),
-      onSettingsChanged: (settings) => send('settings:changed', { settings }),
+      onSettingsChanged: publishSettings,
       browser: { command: (cmd) => browserControl(cmd) },
       ui: { command: (cmd) => uiControl(cmd) }
     }
@@ -483,17 +528,24 @@ app.whenReady().then(() => {
     })
   }
 })
+app.on('before-quit', (event) => {
+  if (!allowQuit && mainWindow && commandRouter.isReady('ui:command')) {
+    event.preventDefault()
+    quitRequested = true
+    mainWindow.close()
+  }
+})
 
-app.on('before-quit', () => {
-  // orcad rule: never kill the daemon or its PTYs on app exit — sessions survive.
+app.on('will-quit', () => {
+  // daemon rule: never kill the daemon or its PTYs on app exit — sessions survive.
   // The RPC socket is UI-adjacent: closing it is correct (CLI reconnects via discovery).
   rpcServer?.stop()
-  scheduler?.stop()
+  operationalRuns?.stop()
   trayService?.stop()
 })
 
 app.on('window-all-closed', () => {
-  // macOS convention (and Orca parity): stay alive with no windows; quit elsewhere.
+  // macOS convention (and upstream parity): stay alive with no windows; quit elsewhere.
   if (process.platform !== 'darwin') app.quit()
 })
 

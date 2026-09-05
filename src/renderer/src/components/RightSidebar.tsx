@@ -2,10 +2,11 @@ import { useAppStore } from '../store'
 import { Icon } from './Icon'
 import { ExplorerPane } from './ExplorerPane'
 import { GitPane } from './GitPane'
+import { ProjectMemoryPanel } from './ProjectMemoryPanel'
+import { RecoveryPanel } from './RecoveryPanel'
 
-export type RightSidebarTab = 'explorer' | 'git'
+export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery'
 
-/** Right sidebar: Explorer / Git tabs for the active worktree (Orca's right-sidebar). */
 export function RightSidebar() {
   const tab = useAppStore((s) => s.rightSidebarTab)
   const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
@@ -42,21 +43,18 @@ export function RightSidebar() {
           >
             Git
           </button>
+          <button className={`rs-tab${tab === 'memory' ? ' active' : ''}`} onClick={() => setRightSidebarTab('memory')}>Memory</button>
+          <button className={`rs-tab${tab === 'recovery' ? ' active' : ''}`} onClick={() => setRightSidebarTab('recovery')}>Recovery</button>
         </div>
         <button className="icon-btn" title="Close sidebar" onClick={() => setRightSidebarOpen(false)}>
           <Icon name="x" size={12} />
         </button>
       </div>
       <div className="rs-body">
-        {activeWorktreePath ? (
-          tab === 'explorer' ? (
-            <ExplorerPane worktreePath={activeWorktreePath} />
-          ) : (
-            <GitPane worktreePath={activeWorktreePath} />
-          )
-        ) : (
-          <div className="empty-note">No active worktree</div>
-        )}
+        {tab === 'recovery' ? <RecoveryPanel /> : activeWorktreePath ? (
+          tab === 'memory' ? <ProjectMemoryPanel key={activeWorktreePath} workspacePath={activeWorktreePath} /> :
+          tab === 'explorer' ? <ExplorerPane worktreePath={activeWorktreePath} /> : <GitPane worktreePath={activeWorktreePath} />
+        ) : <div className="empty-note">Select a project workspace</div>}
       </div>
     </div>
   )

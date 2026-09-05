@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { AttentionInbox } from './components/AttentionInbox'
+import { openAttentionInbox, refreshAttentionInbox, useAttentionInboxMount } from './attention-inbox'
 import { WorktreeSidebar } from './components/WorktreeSidebar'
 import { TitlebarTabs } from './components/TitlebarTabs'
 import { Workbench } from './components/Workbench'
@@ -7,88 +9,21 @@ import { Landing } from './components/Landing'
 import { CreateWorktreeModal } from './components/CreateWorktreeModal'
 import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
+import { RunsPanel } from './components/RunsPanel'
+import { BrowserHosts } from './components/BrowserHosts'
 import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
+import { TerminalCloseDialog } from './components/TerminalCloseDialog'
 import { Icon } from './components/Icon'
-import { isMarkdownFile, useAppStore } from './store'
+import { useAppStore } from './store'
+import { useAppearance } from './appearance'
+import { dispatchAppCommand, installAppShortcuts } from './commands'
 import { initTerminalEvents } from './terminal-bus'
-import { collectBrowserKeys } from './components/BrowserPane'
 import { executeUiCommand } from './agent-ui-commands'
+import { ProjectMemoryEditor } from './components/ProjectMemoryEditor'
+import { useProjectMemoryEditor } from './project-memory-editor'
+import { startEditorRecoveryController } from './editor-recovery'
+import { useNavigationHistoryController } from './navigation-controller'
 
-/** Actions reachable from the menu, ⌘K palette, and keyboard shortcuts. `arg` = tab index for select-tab. */
-export function dispatchAction(action: string, arg?: number): void {
-  const s = useAppStore.getState()
-  switch (action) {
-    case 'add-repo':
-      void (async () => {
-        const dir = await window.orca.pickDirectory()
-        if (dir) void s.addRepo(dir)
-      })()
-      break
-    case 'new-worktree':
-      s.setPaletteOpen(false)
-      s.setCreateOpen(true)
-      break
-    case 'command-palette':
-      s.setPaletteOpen(true)
-      break
-    case 'new-terminal': {
-      const target = pinnedWorktree()
-      if (target) void s.openTerminal(target)
-      break
-    }
-    case 'split-terminal': {
-      const target = pinnedWorktree()
-      if (target) void s.splitTerminal(target)
-      break
-    }
-    case 'toggle-sidebar':
-      s.setSidebarOpen(!s.sidebarOpen)
-      break
-    case 'toggle-explorer':
-      if (s.rightSidebarOpen && s.rightSidebarTab === 'explorer') s.setRightSidebarOpen(false)
-      else s.setRightSidebarTab('explorer')
-      break
-    case 'toggle-git-status':
-      if (s.rightSidebarOpen && s.rightSidebarTab === 'git') s.setRightSidebarOpen(false)
-      else s.setRightSidebarTab('git')
-      break
-    case 'run-agent': {
-      const target = pinnedWorktree()
-      if (target) void s.runAgent(target, s.settings.agentCommand)
-      break
-    }
-    case 'settings':
-      s.openSettings('general')
-      break
-    case 'close-active-pane': {
-      const target = s.activeWorktreePath
-      const key = target ? s.activePane[target] : ''
-      if (target && key) s.closePane(target, key)
-      break
-    }
-    case 'select-tab': {
-      const target = pinnedWorktree()
-      if (!target) break
-      const tabs = (s.panes[target] ?? []).filter(
-        (p) => p.kind === 'terminal' || p.kind === 'preview' || p.kind === 'browser' || p.kind === 'diff'
-      )
-      const pane = arg !== undefined ? tabs[arg] : undefined
-      if (pane) s.setActivePane(target, pane.key)
-      break
-    }
-   }
- }
-
-/** Resolve the worktree a global action should pin to: focused, else first non-main, else main. */
-function pinnedWorktree(): string | null {
-  const s = useAppStore.getState()
-  const repo = s.repos.find((r) => r.repo.id === s.activeRepoId)
-  if (!repo || repo.worktrees.length === 0) return null
-  if (s.activeWorktreePath) return s.activeWorktreePath
-  const nonMain = repo.worktrees.find((w) => !w.isMain)
-  const main = repo.worktrees.find((w) => w.isMain)
-  return (nonMain ?? main)?.path ?? null
-}
 
 export function App() {
   const load = useAppStore((s) => s.load)
@@ -100,74 +35,72 @@ export function App() {
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
-  const repos = useAppStore((s) => s.repos)
-  const statuses = useAppStore((s) => s.statuses)
-  const runningAgents = useAppStore((s) => s.runningAgents)
+  const attentionInbox = useAttentionInboxMount(window.donwells)
   const settings = useAppStore((s) => s.settings)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
+  const runsOpen = useAppStore((s) => s.runsOpen)
+
+  useAppearance(settings)
+  useNavigationHistoryController()
 
   useEffect(() => {
     // Wire PTY event stream once; terminal data bypasses React entirely.
-    initTerminalEvents(
-      (sessionId) => {
-        useAppStore.getState().applyTerminalExit(sessionId, 0)
+    const offTerminals = initTerminalEvents(
+      (sessionId, exitCode) => {
+        useAppStore.getState().applyTerminalExit(sessionId, exitCode)
       },
       (sessionId, title) => {
         useAppStore.getState().applyTerminalTitle(sessionId, title)
-      },
-      (sessionId, state, detail) => {
-        useAppStore.getState().applyAgentHook(sessionId, state, detail)
       }
     )
     // Repos/worktrees may be mutated by CLI/RPC clients behind our back — resync + prune.
-    const offWt = window.orca.on('worktree:changed', () => void useAppStore.getState().syncRepos())
+    const offWt = window.donwells.on('worktree:changed', () => void useAppStore.getState().syncRepos())
     // Settings may be mutated by CLI/RPC clients — re-apply live.
-    const offSettings = window.orca.on('settings:changed', ({ settings }) => useAppStore.setState({ settings }))
+    const offSettings = window.donwells.on('settings:changed', ({ settings }) => useAppStore.getState().syncSettings(settings))
+    // The native runtime is the authority for every agent lifecycle transition.
+    const offAgentChanged = window.donwells.on('agent:changed', ({ run }) => {
+      useAppStore.getState().applyAgentRun(run)
+      void refreshAttentionInbox()
+    })
+    const offAgentDismissed = window.donwells.on('agent:dismissed', ({ sessionId }) => {
+      useAppStore.getState().applyAgentDismissed(sessionId)
+      void refreshAttentionInbox()
+    })
     // Menu accelerators route through the same dispatch as keyboard shortcuts.
-    const offMenu = window.orca.on('menu:action', ({ action }) => dispatchAction(action))
+    const offMenu = window.donwells.on('menu:action', ({ action }) => dispatchAppCommand(action))
     // Agents drive panels/settings over the runtime RPC (ui.* / settings.set).
-    const offUi = window.orca.onUiCommand(async ({ id, cmd }) => {
+    const offUi = window.donwells.onUiCommand(async ({ id, cmd }) => {
       try {
         const result = await executeUiCommand(cmd)
-        window.orca.resolveUiCommand(id, { ok: true, result })
+        window.donwells.resolveUiCommand(id, { ok: true, result })
       } catch (e) {
-        window.orca.resolveUiCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
+        window.donwells.resolveUiCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
       }
     })
-    // Open/list must live at app shell: with zero browser panes mounted nobody
-    // else is subscribed, and a cold-start `browser.open` would time out.
-    const offBrowserShell = window.orca.onBrowserCommand(({ id, cmd }) => {
-      if (cmd.op !== 'open' && cmd.op !== 'list') return // mounted panes handle the rest
-      try {
-        if (cmd.op === 'open') {
-          const st = useAppStore.getState()
-          const wt = cmd.key === 'active' ? st.activeWorktreePath : cmd.key
-          if (!wt) throw new Error('no active worktree')
-          st.openBrowser(wt, cmd.url)
-          window.orca.resolveBrowserCommand(id, { ok: true, result: { opened: cmd.url, key: wt } })
-        } else {
-          window.orca.resolveBrowserCommand(id, { ok: true, result: collectBrowserKeys() })
-        }
-      } catch (e) {
-        window.orca.resolveBrowserCommand(id, { ok: false, error: e instanceof Error ? e.message : String(e) })
-      }
-    })
+    window.donwells.uiRouterReady?.()
+    startEditorRecoveryController(window.donwells)
+    const offMemory = window.donwells.on('project-memory:changed', () => useProjectMemoryEditor.getState().refresh())
     void load()
     return () => {
+      offMemory()
       offWt()
       offSettings()
+      offAgentChanged()
+      offAgentDismissed()
       offMenu()
       offUi()
-      offBrowserShell()
+      offTerminals()
     }
   }, [load])
 
-  // Tray/Dock attention dot follows RUNNING agents only (done chips don't count).
   useEffect(() => {
-    const active = Object.values(runningAgents).filter((a) => a.state !== 'done').length
-    window.orca.setAttention(active > 0)
-  }, [runningAgents])
+    const hasUnread = (attentionInbox.snapshot?.unreadCount ?? 0) > 0
+    window.donwells.setAttention({
+      indicator: settings.notificationActivityIndicator && hasUnread,
+      flash: settings.notificationFlashWindow && hasUnread
+    })
+  }, [attentionInbox.snapshot?.unreadCount, settings.notificationActivityIndicator, settings.notificationFlashWindow])
 
   // Live status polling: every statusPollMs refresh worktree statuses for the active repo.
   useEffect(() => {
@@ -180,68 +113,15 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [settings.statusPollMs])
 
-  // Global keyboard: ⌘K/⌘P palette, ⌘↩ run agent, ⌘N new worktree, ⌘B sidebar,
-  // ⌘T/⌘W tabs, ⌘1–9 tab switch, ⌘, settings. Tab actions are inert
-  // while a modal owns the screen so keystrokes can't hit hidden panes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const meta = navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey
-      if (!meta) return
-      const st = useAppStore.getState()
-      const modalOpen = st.paletteOpen || st.settingsOpen || st.createOpen
-      const k = e.key.toLowerCase()
-      if (k === 'k' || k === 'p') {
-        e.preventDefault()
-        dispatchAction('command-palette')
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        dispatchAction('run-agent')
-      } else if (k === 'n') {
-        e.preventDefault()
-        dispatchAction('new-worktree')
-      } else if (k === 'b') {
-        e.preventDefault()
-        dispatchAction('toggle-sidebar')
-      } else if (k === 'v' && e.shiftKey) {
-        // ⌘⇧V flips the active markdown editor between source and rendered preview (VS Code parity)
-        const wt = st.activeWorktreePath
-        const pane = wt ? (st.panes[wt] ?? []).find((p) => p.key === st.activePane[wt]) : undefined
-        if (wt && pane?.kind === 'preview' && pane.file && isMarkdownFile(pane.file)) {
-          e.preventDefault()
-          const cur = st.previews[wt]?.[pane.file]?.mode ?? 'edit'
-          st.setPreviewMode(wt, pane.file, cur === 'preview' ? 'edit' : 'preview')
-        }
-      } else if (e.key === ',') {
-        e.preventDefault()
-        dispatchAction('settings')
-      } else if (modalOpen) {
-        return
-      } else if (k === 't') {
-        e.preventDefault()
-        dispatchAction('new-terminal')
-      } else if (k === 'w') {
-        e.preventDefault()
-        dispatchAction('close-active-pane')
-      } else if (/^[1-9]$/.test(e.key)) {
-        e.preventDefault()
-        dispatchAction('select-tab', Number(e.key) - 1)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useEffect(() => installAppShortcuts(), [])
 
-  const dirtyCount = activeWorktreePath
-    ? (statuses[activeWorktreePath]?.modified ?? 0) + (statuses[activeWorktreePath]?.staged ?? 0)
-    : 0
-  const agentCount = Object.keys(runningAgents).length
 
   if (loading) {
     return (
       <div className="app-layout">
         <div className="landing">
           <div className="landing-inner">
-            <div className="landing-logo">O</div>
+            <div className="landing-logo" aria-label="donwells.ai">dw</div>
             <p className="landing-sub">Loading donwells.ai…</p>
           </div>
         </div>
@@ -264,6 +144,10 @@ export function App() {
           <TitlebarTabs />
         </div>
         <div className="titlebar-section">
+          <button className="titlebar-icon-button" title={`Attention inbox (${attentionInbox.snapshot?.unreadCount ?? 0} unread)`} aria-label={`Attention inbox (${attentionInbox.snapshot?.unreadCount ?? 0} unread)`} onClick={openAttentionInbox}>
+            <Icon name="activity" size={15} />
+            {(attentionInbox.snapshot?.unreadCount ?? 0) > 0 && <span>{attentionInbox.snapshot?.unreadCount}</span>}
+          </button>
           <button
             className="titlebar-icon-button"
             title="Toggle right sidebar"
@@ -278,7 +162,11 @@ export function App() {
       <div className="app-body">
         {sidebarOpen && <WorktreeSidebar />}
         <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {activeWorktreePath ? <Workbench /> : repos.length > 0 ? <Landing /> : <Landing />}
+          <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
+            {activeWorktreePath ? <Workbench /> : <Landing />}
+            <BrowserHosts />
+          </div>
+          {runsOpen && <RunsPanel />}
         </div>
         {rightSidebarOpen && <RightSidebar />}
       </div>
@@ -312,6 +200,9 @@ export function App() {
       <SettingsModal open={settingsOpen} />
       <CreateWorktreeModal />
       <DeleteWorktreeModal />
+      <TerminalCloseDialog />
+      <ProjectMemoryEditor />
+      <AttentionInbox />
     </div>
   )
 }

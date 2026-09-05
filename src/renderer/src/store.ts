@@ -1,19 +1,42 @@
+import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
+import { projectRemovalBlockers } from './project-removal'
 import { create } from 'zustand'
-import { disposePreviewModel } from './editor-models'
+import { mediaPreviewDescriptorForPath } from '@shared/media-preview'
+import { DEFAULT_SETTINGS, resolveSettings } from '@shared/settings'
+import {
+  disposePreviewModel,
+  disposePreviewModelsUnder,
+  flushPreviewModel,
+  getEditorDocument,
+  runWithEditorGuard
+} from './editor-models'
+import { deleteDocumentViewStates, moveDocumentViewStates } from './document-view-state'
+import { normalizeBrowserUrl } from './browser-routing'
 import type {
   AgentPreset,
   AppSettings,
+  DiffComparison,
   FileContent,
   FileEntry,
   PersistedState,
   PreviewMode,
   RepoSummary,
   RunningAgent,
+  RunsSection,
   SettingsSection,
   TerminalSession,
   WorktreeStatus
 } from '@shared/types'
 import { terminalBus } from './terminal-bus'
+import {
+  EMPTY_WORKSPACE_NAVIGATION,
+  moveWorkspaceNavigation,
+  normalizeWorkspaceNavigation,
+  renameWorkspaceNavigation,
+  restoreWorkspaceNavigation,
+  toggleNavigationValue,
+  type WorkspaceNavigationState
+} from './workspace-navigation'
 
 type TerminalView = {
   session: TerminalSession
@@ -29,8 +52,11 @@ export type Pane = {
   kind: PaneKind
   sessionId?: string
   file?: string
+  comparison?: DiffComparison
   /** browser pane start URL */
   url?: string
+  /** Stable user-facing pane label. Terminal OSC titles remain live metadata. */
+  label?: string
 }
 /** Binary split tree (upstream TabGroupLayoutNode): leaf = pane key. */
 export type LayoutNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | 'col'; first: LayoutNode; second: LayoutNode; /** first child size in percent (drag divider; default 50) */ size?: number }
@@ -49,7 +75,72 @@ function defaultPreviewMode(relPath: string, settings: AppSettings): PreviewMode
   return isMarkdownFile(relPath) && settings.markdownPreviewDefault ? 'preview' : 'edit'
 }
 
-function layoutHasLeaf(node: LayoutNode, key: string): boolean {
+export type ExplorerDirectoryState = {
+  phase: 'idle' | 'loading' | 'ready' | 'error'
+  entries: FileEntry[]
+  error?: string
+  truncated: boolean
+  requestId: number
+}
+
+export type ExplorerWorkspaceState = {
+  directories: Record<string, ExplorerDirectoryState>
+  expanded: string[]
+  selected: string | null
+  filter: string
+  showHidden: boolean
+  includeIgnored: boolean
+}
+
+export type DocumentNavigationTarget = {
+  generation: number
+  mode?: PreviewMode
+  line?: number
+  column?: number
+  anchor?: string
+}
+
+function emptyExplorerWorkspace(): ExplorerWorkspaceState {
+  return { directories: {}, expanded: [], selected: null, filter: '', showHidden: false, includeIgnored: false }
+}
+
+function parentDirectory(relPath: string): string {
+  const index = relPath.lastIndexOf('/')
+  return index < 0 ? '' : relPath.slice(0, index)
+}
+
+function replacePathPrefix(relPath: string, sourcePath: string, destinationPath: string): string {
+  return relPath === sourcePath ? destinationPath : destinationPath + relPath.slice(sourcePath.length)
+}
+
+function previewFileContent(worktreePath: string, relPath: string): Promise<FileContent> {
+  if (mediaPreviewDescriptorForPath(relPath)) {
+    return Promise.resolve({ path: relPath, content: '', truncated: false, bytes: 0 })
+  }
+  return window.donwells.readFile(worktreePath, relPath)
+}
+
+const PREVIEW_KEY_SEPARATOR = String.fromCharCode(0)
+const previewRequests = new Map<string, symbol>()
+let explorerRequestSequence = 0
+
+function beginPreviewRequest(worktreePath: string, relPath: string): { key: string; token: symbol } {
+  const key = worktreePath + PREVIEW_KEY_SEPARATOR + relPath
+  const token = Symbol(key)
+  previewRequests.set(key, token)
+  return { key, token }
+}
+
+function invalidatePreviewRequestsUnder(worktreePath: string, relPath?: string): void {
+  const worktreePrefix = worktreePath + PREVIEW_KEY_SEPARATOR
+  for (const key of previewRequests.keys()) {
+    if (!key.startsWith(worktreePrefix)) continue
+    const file = key.slice(worktreePrefix.length)
+    if (relPath === undefined || file === relPath || file.startsWith(relPath + '/')) previewRequests.delete(key)
+  }
+}
+
+export function layoutHasLeaf(node: LayoutNode, key: string): boolean {
   if (node.kind === 'leaf') return node.pane === key
   return layoutHasLeaf(node.first, key) || layoutHasLeaf(node.second, key)
 }
@@ -116,19 +207,24 @@ type AppState = {
 
   /** live git status per worktree path (polled) */
   statuses: Record<string, WorktreeStatus>
-  /** per-worktree scan: listening ports + cpu/mem usage (polled; Orca status segments) */
+  /** per-worktree scan: listening ports + cpu/mem usage (polled; upstream status segments) */
   scans: Record<string, { ports: Array<{ port: number; pid: number; command: string }>; cpuPercent: number; memMB: number }>
-  /** file explorer entries per worktree path */
-  explorer: Record<string, FileEntry[]>
+  /** Controlled, lazily loaded explorer state per worktree. */
+  explorer: Record<string, ExplorerWorkspaceState>
   /** open editor buffers: worktree path → file relPath → versioned content (+ markdown view mode) */
   previews: Record<string, Record<string, FileContent & { v: number; mode?: PreviewMode }>>
+  documentNavigation: Record<string, Record<string, DocumentNavigationTarget>>
+  fileSearchMru: Record<string, string[]>
+  gitCommitDrafts: Record<string, string>
   /** loading flags */
   busy: Record<string, boolean>
 
-  /** terminals per worktree path */
+  /** Terminal records keyed by session ID; each session owns its worktree. */
   terminals: Record<string, TerminalView>
   /** RCU order of open terminals per worktree path */
   terminalOrder: Record<string, string[]>
+  /** Persisted sidebar organization; all arrays use stable repo ids or workspace paths. */
+  workspaceNavigation: WorkspaceNavigationState
   /** per-worktree panes (terminal tabs + explorer + git) in layout order */
   panes: Record<string, Pane[]>
   /** which pane key is active per worktree path */
@@ -140,90 +236,127 @@ type AppState = {
   runningAgents: Record<string, RunningAgent>
   agents: AgentPreset[]
   settings: AppSettings
+  /** Monotonic renderer revision used to reject drafts based on stale RPC state. */
+  settingsRevision: number
   /** split-tree layout per worktree path; undefined = flat single active pane */
   layouts: Record<string, LayoutNode>
   paletteOpen: boolean
+  paletteMode: 'commands' | 'files'
   settingsOpen: boolean
+  runsOpen: boolean
+  runsSection: RunsSection
+
   /** which settings section the modal shows (nav rail selection; deep-linkable) */
   settingsSection: SettingsSection
-  /** app chrome (Orca shell state) */
+  /** app chrome (upstream shell state) */
   sidebarOpen: boolean
   sidebarWidth: number
   rightSidebarWidth: number
   rightSidebarOpen: boolean
-  rightSidebarTab: 'explorer' | 'git'
+  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery'
   createOpen: boolean
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
+  closeRequest: { worktreePath: string; key: string; sessionId: string; label: string } | null
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
-  removeRepo(repoId: string): Promise<void>
+  removeRepo(repoId: string): Promise<{ ok: true } | { ok: false; error: string }>
   /** Re-pull the repo list after a CLI/RPC client mutates repos behind our back. */
   syncRepos(): Promise<void>
   refresh(repoId?: string): Promise<void>
-  createWorktree(name?: string, branch?: string): Promise<void>
+  createWorktree(repoId: string, name?: string, branch?: string): Promise<{ ok: true } | { ok: false; error: string }>
   removeWorktree(worktreePath: string, force?: boolean): Promise<void>
   setDeleteTarget(path: string | null): void
   openTerminal(worktreePath: string): Promise<TerminalSession | null>
-  closeTerminal(worktreePath: string, sessionId: string): void
+  closeTerminal(worktreePath: string, sessionId: string): Promise<boolean>
   writeTerminal(sessionId: string, data: string): void
   interruptTerminal(sessionId: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
-  closePane(worktreePath: string, key: string): void
+  closePane(worktreePath: string, key: string): Promise<boolean>
+  requestClosePane(worktreePath: string, key: string): void
+  confirmClosePane(): Promise<void>
+  cancelClosePane(): void
   setActivePane(worktreePath: string, key: string): void
-  splitTerminal(worktreePath: string): Promise<void>
+  focusRelativePane(worktreePath: string, delta: -1 | 1): void
+  reorderPane(worktreePath: string, sourceKey: string, targetKey: string): void
+  renamePane(worktreePath: string, key: string, label: string): void
+  splitTerminal(worktreePath: string, direction?: 'row' | 'col'): Promise<void>
   selectTerminal(worktreePath: string, sessionId: string): void
 
-  loadExplorer(worktreePath: string, prefix?: string): Promise<void>
-  openPreview(worktreePath: string, relPath: string): Promise<void>
+  refreshExplorer(worktreePath: string, directory?: string): Promise<void>
+  setExplorerExpanded(worktreePath: string, directory: string, expanded: boolean): void
+  setExplorerSelected(worktreePath: string, relPath: string | null): void
+  setExplorerFilter(worktreePath: string, filter: string): void
+  setExplorerVisibility(worktreePath: string, options: { showHidden?: boolean; includeIgnored?: boolean }): void
+  collapseExplorer(worktreePath: string): void
+  createWorkspaceEntry(worktreePath: string, relPath: string, kind: 'file' | 'directory'): Promise<boolean>
+  moveWorkspaceEntry(worktreePath: string, sourcePath: string, destinationPath: string): Promise<boolean>
+  duplicateWorkspaceEntry(worktreePath: string, sourcePath: string, destinationPath: string): Promise<boolean>
+  deleteWorkspaceEntry(worktreePath: string, relPath: string): Promise<boolean>
+  openPreview(worktreePath: string, relPath: string, navigation?: Omit<DocumentNavigationTarget, 'generation'>): Promise<void>
+  reloadOpenPreviews(worktreePath: string, relPaths?: readonly string[]): Promise<void>
   /** HEAD↔worktree diff editor for one file (component loads its own content). */
-  openDiff(worktreePath: string, relPath: string): void
+  openDiff(worktreePath: string, relPath: string, comparison?: DiffComparison): void
   /** Switch an open editor pane to another file (tab switch semantics). */
   retargetPreview(worktreePath: string, paneKey: string, relPath: string): Promise<void>
   openBrowser(worktreePath: string, url: string): void
+  noteBrowserNavigation(worktreePath: string, url: string): void
   writePreview(worktreePath: string, relPath: string, content: string): Promise<void>
-  /** Editor → buffer sync after a save, without re-adopting into monaco (no v bump). */
-  notePreviewContent(worktreePath: string, relPath: string, content: string): void
+  /** Acknowledgements never advance the external-write epoch. */
+  ackPreviewSave(worktreePath: string, relPath: string, saved: FileContent, sourceEpoch: number): void
   /** Close one file (relPath) or every editor of the worktree when omitted. */
-  closePreview(worktreePath: string, relPath?: string): void
+  closePreview(worktreePath: string, relPath?: string): Promise<boolean>
   /** Set an editor buffer's view mode (markdown files: 'edit' source / 'preview' rendered). */
-  setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode): void
+  setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode): Promise<boolean>
   pruneRemovedRepos(): void
   refreshStatuses(): Promise<void>
   /** Scan ports + resource usage for the active worktree (status segments). */
   refreshScan(worktreePath: string): Promise<void>
 
+  focusAgentSession(sessionId: string): Promise<boolean>
   runAgent(worktreePath: string, command: string): Promise<void>
-  stopAgent(sessionId: string): void
-  dismissAgent(sessionId: string): void
+  stopAgent(sessionId: string): Promise<void>
+  dismissAgent(sessionId: string): Promise<void>
 
-  setPaletteOpen(open: boolean): void
+  setPaletteOpen(open: boolean, mode?: 'commands' | 'files'): void
+  setGitCommitDraft(worktreePath: string, value: string): void
   setSettingsOpen(open: boolean): void
   openSettings(section: SettingsSection): void
+  openRuns(section?: RunsSection): void
+  setRunsOpen(open: boolean): void
+  syncSettings(settings: AppSettings): void
   setSettings(patch: Partial<AppSettings>): Promise<void>
   setSidebarOpen(open: boolean): void
   setSidebarWidth(w: number): void
   setRightSidebarWidth(w: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): void
   setRightSidebarOpen(open: boolean): void
-  setRightSidebarTab(tab: 'explorer' | 'git'): void
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery'): void
   setCreateOpen(open: boolean): void
+
+  toggleRepoCollapsed(repoId: string): void
+  toggleWorkspacePinned(path: string): void
+  renameWorkspace(path: string, label: string): void
+  hideWorkspace(path: string): void
+  restoreWorkspace(path?: string): void
+  moveWorkspace(path: string, delta: -1 | 1): void
 
   setActiveRepo(repoId: string | null): void
   setActiveWorktree(path: string | null): void
   applyTerminalExit(sessionId: string, exitCode: number): void
   applyTerminalTitle(sessionId: string, title: string): void
   setError(err: string | null): void
-  applyAgentHook(sessionId: string, state: string, detail: string): void
+  applyAgentRun(run: RunningAgent): void
+  applyAgentDismissed(sessionId: string): void
 }
 
-/** Restore persisted per-repo workbench (panes/tabs/active) into a fresh state object.
- *  Live-session lookups may hit the daemon; callers treat failure as non-fatal. */
+/** Restore per-workspace panes while reconciling them with daemon-owned PTYs and agent runs. */
 async function restoreSession(
-  saved: NonNullable<Awaited<ReturnType<typeof window.orca.getWorkspaceSession>>>,
+  saved: NonNullable<PersistedState['workspaceSession']> | null,
   repos: RepoSummary[],
-  state: Partial<AppState>
+  state: Partial<AppState>,
+  agentRuns: RunningAgent[]
 ): Promise<void> {
   const restored: {
     panes: Record<string, Pane[]>
@@ -232,85 +365,123 @@ async function restoreSession(
     terminalOrder: Record<string, string[]>
     terminals: Record<string, TerminalView>
     layouts: Record<string, LayoutNode>
-    runningAgents: Record<string, RunningAgent>
-  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {}, runningAgents: {} }
-  const liveSessions = await window.orca.terminalSessions()
+  } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {} }
+  const liveSessions = await window.donwells.terminalSessions()
   const restoredPreviews: Record<string, Record<string, FileContent & { v: number }>> = {}
-  const liveById = new Map(liveSessions.map((s) => [s.id, s]))
+  const liveById = new Map(liveSessions.map((session) => [session.id, session]))
+  const worktreePaths = new Set(repos.flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)))
+  const managedAgentIds = new Set<string>()
+  for (const run of agentRuns) managedAgentIds.add(run.sessionId)
+  const savedRepos = saved?.repos ?? {}
+
   for (const repo of repos) {
-    const savedRepo = saved.repos[repo.repo.id]
+    const savedRepo = savedRepos[repo.repo.id]
     if (!savedRepo) continue
-    for (const [wtPath, panes] of Object.entries(savedRepo.panes)) {
+    for (const [worktreePath, panes] of Object.entries(savedRepo.panes)) {
       const valid: Pane[] = []
-      for (const p of panes) {
-        if (p.kind !== 'terminal' || !p.sessionId) {
-          // Editor buffers repopulate from disk on restore — a pane whose file
-          // is gone drops like a dead terminal instead of rendering blank.
-          if (p.kind === 'preview' && p.file) {
+      for (const pane of panes) {
+        if (pane.kind !== 'terminal' || !pane.sessionId) {
+          if (pane.kind === 'preview' && pane.file) {
             try {
-              const files = (restoredPreviews[wtPath] ??= {})
-              if (p.file in files) { valid.push(p); continue }
+              const files = (restoredPreviews[worktreePath] ??= {})
+              if (pane.file in files) {
+                valid.push(pane)
+                continue
+              }
               if (Object.keys(files).length >= 12) continue
-              const content = await window.orca.readFile(wtPath, p.file)
-              files[p.file] = { ...content, v: 0 }
+              const content = await previewFileContent(worktreePath, pane.file)
+              files[pane.file] = { ...content, v: 0 }
             } catch {
               continue
             }
           }
-          valid.push(p)
+          valid.push(pane)
           continue
         }
-        const live = liveById.get(p.sessionId)
-        if (live && !live.exited) {
-          valid.push(p)
-          if (!restored.terminals[p.sessionId]) {
-            restored.terminals[p.sessionId] = { session: live, cols: 100, rows: 30 }
-          }
+        const live = liveById.get(pane.sessionId)
+        if (live && (!live.exited || managedAgentIds.has(pane.sessionId))) {
+          valid.push(pane)
+          restored.terminals[pane.sessionId] ??= { session: live, cols: 100, rows: 30 }
           continue
         }
-        // Daemon lost the PTY (crash/reap): keep the tab, swap in a fresh
-        // shell (Orca's pendingReconnect, resolved immediately). Dropping the
-        // pane made every restart lose workspaces whenever the daemon cycled.
+        // Lost shells may be replaced; managed agents require a daemon-owned PTY.
+        if (managedAgentIds.has(pane.sessionId)) continue
         try {
-          const fresh = await window.orca.openTerminal(wtPath, wtPath)
+          const fresh = await window.donwells.openTerminal(worktreePath, worktreePath)
           restored.terminals[fresh.id] = { session: fresh, cols: 100, rows: 30 }
-          valid.push({ ...p, sessionId: fresh.id })
+          valid.push({ ...pane, key: 'term:' + fresh.id, sessionId: fresh.id })
         } catch {
-          /* worktree gone — drop this pane only */
+          // The workspace disappeared; dropping only this pane preserves siblings.
         }
       }
       if (!valid.length) continue
-      restored.panes[wtPath] = valid
-      restored.terminalOrder[wtPath] = valid.filter((p) => p.sessionId).map((p) => p.sessionId!)
-      // Restore the split tree pruned to the panes that actually survived.
-      const savedLayout = savedRepo.layouts?.[wtPath]
+      restored.panes[worktreePath] = valid
+      restored.terminalOrder[worktreePath] = valid.flatMap((pane) => pane.sessionId ? [pane.sessionId] : [])
+      const savedLayout = savedRepo.layouts?.[worktreePath]
       if (savedLayout) {
-        const validKeys = new Set(valid.map((p) => p.key))
-        // leaves with no live pane die too — stale previews etc. survive per-pane diffs otherwise
-        const pruned = pruneLayoutTo(savedLayout, new Set(valid.map((p) => p.key)))
-        if (pruned) restored.layouts[wtPath] = pruned
+        const pruned = pruneLayoutTo(savedLayout, new Set(valid.map((pane) => pane.key)))
+        if (pruned) restored.layouts[worktreePath] = pruned
       }
     }
     restored.activePane = { ...restored.activePane, ...savedRepo.activePane }
     restored.activeTerminal = { ...restored.activeTerminal, ...savedRepo.activeTerminal }
   }
+
+  // Retained agent output remains inspectable until explicit dismissal.
+  for (const run of agentRuns) {
+    const live = liveById.get(run.sessionId)
+    if (!live || !worktreePaths.has(run.workspacePath)) continue
+    restored.terminals[run.sessionId] ??= { session: live, cols: 100, rows: 30 }
+    const workspacePanes = restored.panes[run.workspacePath] ?? []
+    const key = 'term:' + run.sessionId
+    if (!workspacePanes.some((pane) => pane.key === key)) {
+      const terminalNumber = workspacePanes.filter((pane) => pane.kind === 'terminal').length + 1
+      workspacePanes.push({ key, kind: 'terminal', sessionId: run.sessionId, label: 'Terminal ' + terminalNumber })
+    }
+    restored.panes[run.workspacePath] = workspacePanes
+    const order = restored.terminalOrder[run.workspacePath] ?? []
+    if (!order.includes(run.sessionId)) restored.terminalOrder[run.workspacePath] = [...order, run.sessionId]
+    restored.activePane[run.workspacePath] ??= key
+    restored.activeTerminal[run.workspacePath] ??= run.sessionId
+  }
+
   state.panes = restored.panes
   state.activePane = restored.activePane
   state.activeTerminal = restored.activeTerminal
   state.terminalOrder = restored.terminalOrder
   state.terminals = restored.terminals
-  // Agent chips restore only alongside their PTY session (daemon still owns
-  // the process). Reopened panes get fresh session ids, so a dead agent's chip
-  // can never resurrect as a stale badge.
-  for (const [sid, agent] of Object.entries(saved.runningAgents ?? {})) {
-    if (restored.terminals[sid]) restored.runningAgents[sid] = agent
-  }
-  state.runningAgents = restored.runningAgents
   state.previews = restoredPreviews
   state.layouts = restored.layouts
-  state.activeWorktreePath = saved.repos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
+  state.fileSearchMru = Object.fromEntries(
+    Object.entries(saved?.fileSearchMru ?? {}).filter(([worktreePath]) => worktreePaths.has(worktreePath))
+  )
+  state.gitCommitDrafts = Object.fromEntries(
+    Object.entries(saved?.gitCommitDrafts ?? {}).filter(([worktreePath]) => worktreePaths.has(worktreePath))
+  )
+  state.activeWorktreePath = savedRepos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
 }
 
+function activateTerminalSession(state: AppState, session: TerminalSession): Partial<AppState> {
+  const worktreePath = session.worktreePath
+  const key = 'term:' + session.id
+  const previous = state.panes[worktreePath] ?? []
+  const cardPanes = [...previous]
+  if (!cardPanes.some((pane) => pane.key === key)) {
+    const terminalNumber = cardPanes.filter((pane) => pane.kind === 'terminal').length + 1
+    cardPanes.push({ key, kind: 'terminal', sessionId: session.id, label: 'Terminal ' + terminalNumber })
+  }
+  const previousOrder = state.terminalOrder[worktreePath] ?? []
+  const terminalOrder = previousOrder.includes(session.id) ? previousOrder : [...previousOrder, session.id]
+  return {
+    terminals: { ...state.terminals, [session.id]: { cols: state.terminals[session.id]?.cols ?? 100, rows: state.terminals[session.id]?.rows ?? 30, session } },
+    terminalOrder: { ...state.terminalOrder, [worktreePath]: terminalOrder },
+    panes: { ...state.panes, [worktreePath]: cardPanes },
+    activePane: { ...state.activePane, [worktreePath]: key },
+    activeTerminal: { ...state.activeTerminal, [worktreePath]: session.id },
+    activeWorktreePath: worktreePath,
+    error: null
+  }
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   repos: [],
@@ -322,10 +493,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   scans: {},
   explorer: {},
   previews: {},
+  documentNavigation: {},
+  fileSearchMru: {},
+  gitCommitDrafts: {},
   busy: {},
-  settings: { agentCommand: 'codex', theme: 'dark', fontSize: 13, statusPollMs: 5000 },
+  settings: structuredClone(DEFAULT_SETTINGS),
+  settingsRevision: 0,
   terminals: {},
   terminalOrder: {},
+  workspaceNavigation: structuredClone(EMPTY_WORKSPACE_NAVIGATION),
   panes: {},
   layouts: {},
   activePane: {},
@@ -337,35 +513,54 @@ export const useAppStore = create<AppState>((set, get) => ({
   rightSidebarTab: 'explorer',
   createOpen: false,
   deleteTarget: null,
+  closeRequest: null,
   paletteOpen: false,
+  paletteMode: 'commands',
   settingsOpen: false,
-  settingsSection: 'general',
+  runsOpen: false,
+  runsSection: 'orchestration',
+  settingsSection: 'agents',
   runningAgents: {},
   agents: [],
 
   async load() {
     try {
-      const [repos, agents, settings, wsSession] = await Promise.all([
-        window.orca.listRepos().catch(() => [] as RepoSummary[]),
-        window.orca.listAgents().catch(() => [] as AgentPreset[]),
-        window.orca.getSettings().catch(() => get().settings),
-        window.orca.getWorkspaceSession().catch(() => null)
+      const settingsRevision = get().settingsRevision
+      let agentRuntimeError: string | null = null
+      const [repos, agents, agentRuns, settings, wsSession] = await Promise.all([
+        window.donwells.listRepos().catch(() => [] as RepoSummary[]),
+        window.donwells.listAgents().catch(() => [] as AgentPreset[]),
+        window.donwells.agentList().catch((error: unknown) => {
+          agentRuntimeError = 'Agent runtime state is unavailable: ' + String(error)
+          return [] as RunningAgent[]
+        }),
+        window.donwells.getSettings().catch(() => get().settings),
+        window.donwells.getWorkspaceSession().catch(() => null)
       ])
-      const state: Partial<AppState> = { repos, agents, settings, loading: false }
-      const saved = wsSession ?? undefined
+      const currentSettingsRevision = get().settingsRevision
+      const acceptLoadedSettings = currentSettingsRevision === settingsRevision
+      const state: Partial<AppState> = {
+        repos,
+        agents,
+        runningAgents: Object.fromEntries(agentRuns.map((run) => [run.sessionId, run])),
+        workspaceNavigation: normalizeWorkspaceNavigation(wsSession?.workspaceNav, repos),
+        settings: acceptLoadedSettings ? resolveSettings(settings) : get().settings,
+        settingsRevision: acceptLoadedSettings ? currentSettingsRevision + 1 : currentSettingsRevision,
+        loading: false,
+        error: agentRuntimeError
+      }
+      const saved = wsSession ?? null
       if (saved?.activeRepoId && repos.some((r) => r.repo.id === saved.activeRepoId)) {
         state.activeRepoId = saved.activeRepoId
       } else if (repos.length > 0) {
         state.activeRepoId = repos[0]!.repo.id
       }
-      if (saved) {
-        // Session restore is async (daemon round-trip) — it MUST complete before
-        // the state object is committed, or the workbench boots empty every time.
-        try {
-          await restoreSession(saved, repos, state)
-        } catch (restoreErr) {
-          console.error('session restore failed:', restoreErr)
-        }
+      // Session reconciliation completes before the renderer publishes state,
+      // so live agent terminals never flash as missing after a restart.
+      try {
+        await restoreSession(saved, repos, state, agentRuns)
+      } catch (restoreError) {
+        state.error = 'Workspace session restore failed: ' + String(restoreError)
       }
       set(state)
       const ui = saved?.ui
@@ -383,9 +578,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async addRepo(dir: string) {
     try {
-      const summary = await window.orca.addRepo(dir)
+      const summary = await window.donwells.addRepo(dir)
       const repos = [...get().repos.filter((r) => r.repo.id !== summary.repo.id), summary]
-      set({ repos, activeRepoId: summary.repo.id, error: null })
+      set((state) => ({
+        repos,
+        activeRepoId: summary.repo.id,
+        workspaceNavigation: normalizeWorkspaceNavigation(state.workspaceNavigation, repos),
+        error: null
+      }))
       void get().refreshStatuses()
     } catch (e) {
       set({ error: String(e) })
@@ -393,16 +593,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async removeRepo(repoId: string) {
-    await window.orca.removeRepo(repoId)
-    set({ repos: get().repos.filter((r) => r.repo.id !== repoId) })
-    if (get().activeRepoId === repoId) set({ activeRepoId: get().repos[0]?.repo.id ?? null })
-    get().pruneRemovedRepos()
+    const repo = get().repos.find((candidate) => candidate.repo.id === repoId)
+    if (!repo) {
+      const error = 'Project is no longer registered.'
+      set({ error })
+      return { ok: false as const, error }
+    }
+
+    const blockers = projectRemovalBlockers(repo, get())
+    if (blockers.length > 0) {
+      const error = 'Cannot remove project. ' + blockers.map((blocker) => blocker.message).join(' ')
+      set({ error })
+      return { ok: false as const, error }
+    }
+
+    try {
+      await window.donwells.removeRepo(repoId)
+      const repos = get().repos.filter((candidate) => candidate.repo.id !== repoId)
+      const removingActive = get().activeRepoId === repoId
+      set({
+        repos,
+        ...(removingActive ? { activeRepoId: repos[0]?.repo.id ?? null, activeWorktreePath: null } : {}),
+        error: null
+      })
+      get().pruneRemovedRepos()
+      return { ok: true as const }
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause)
+      set({ error })
+      return { ok: false as const, error }
+    }
   },
 
   async syncRepos() {
     try {
-      const repos = await window.orca.listRepos()
-      set({ repos, error: null })
+      const repos = await window.donwells.listRepos()
+      set((state) => ({
+        repos,
+        workspaceNavigation: normalizeWorkspaceNavigation(state.workspaceNavigation, repos),
+        error: null
+      }))
       if (!get().activeRepoId && repos.length > 0) set({ activeRepoId: repos[0]!.repo.id })
       get().pruneRemovedRepos()
     } catch (e) {
@@ -414,22 +644,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const id = repoId ?? get().activeRepoId
       if (!id) return
-      const summary = await window.orca.refreshRepo(id)
-      set({ repos: get().repos.map((r) => (r.repo.id === id ? summary : r)), error: null })
+      const summary = await window.donwells.refreshRepo(id)
+      set((state) => {
+        const repos = state.repos.map((repo) => (repo.repo.id === id ? summary : repo))
+        return {
+          repos,
+          workspaceNavigation: normalizeWorkspaceNavigation(state.workspaceNavigation, repos),
+          error: null
+        }
+      })
       void get().refreshStatuses()
     } catch (e) {
       set({ error: String(e) })
     }
   },
 
-  async createWorktree(name?: string, branch?: string) {
-    const repoId = get().activeRepoId
-    if (!repoId) return
+  async createWorktree(repoId: string, name?: string, branch?: string) {
+    const previous = get().repos.find((candidate) => candidate.repo.id === repoId)
+    if (!previous || previous.repo.kind === 'folder') {
+      const error = previous ? 'Worktrees require a Git project.' : 'Select a registered Git project.'
+      set({ error })
+      return { ok: false as const, error }
+    }
     try {
-      const summary = await window.orca.createWorktree(repoId, { name, branch })
-      set({ repos: get().repos.map((r) => (r.repo.id === repoId ? summary : r)), error: null })
-    } catch (e) {
-      set({ error: String(e) })
+      const summary = await window.donwells.createWorktree(repoId, { name, branch })
+      const previousPaths = new Set(previous.worktrees.map((worktree) => worktree.path))
+      const created = summary.worktrees.find((worktree) => !previousPaths.has(worktree.path))
+      set((state) => {
+        const repos = state.repos.map((repo) => (repo.repo.id === repoId ? summary : repo))
+        return {
+          repos,
+          activeRepoId: repoId,
+          workspaceNavigation: normalizeWorkspaceNavigation(state.workspaceNavigation, repos),
+          error: null
+        }
+      })
+      if (created) get().setActiveWorktree(created.path)
+      return { ok: true as const }
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause)
+      set({ error })
+      return { ok: false as const, error }
     }
   },
 
@@ -437,7 +692,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const repoId = get().activeRepoId
     if (!repoId) return
     try {
-      const summary = await window.orca.removeWorktree(repoId, worktreePath, force)
+      const summary = await window.donwells.removeWorktree(repoId, worktreePath, force)
       // drop any state bound to the deleted worktree
       set((s) => {
         const terminals = { ...s.terminals }
@@ -445,14 +700,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         for (const [id, t] of Object.entries(terminals)) {
           if (t.session.worktreePath === worktreePath) {
             delete terminals[id]
-            void window.orca.closeTerminal(id)
-          }
-        }
-        const runningAgents = { ...s.runningAgents }
-        for (const [id, a] of Object.entries(runningAgents)) {
-          if (a.worktreePath === worktreePath) {
-            delete runningAgents[id]
-            void window.orca.closeTerminal(id)
+            void window.donwells.closeTerminal(id)
           }
         }
         delete panes[worktreePath]
@@ -462,7 +710,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         delete s.explorer[worktreePath]
         delete s.previews[worktreePath]
         if (s.activeWorktreePath === worktreePath) s.activeWorktreePath = null
-        return { repos: s.repos.map((r) => (r.repo.id === repoId ? summary : r)), terminals, panes, runningAgents, error: null }
+        return { repos: s.repos.map((repo) => (repo.repo.id === repoId ? summary : repo)), terminals, panes, error: null }
       })
       void get().refreshStatuses()
     } catch (e) {
@@ -472,68 +720,83 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async openTerminal(worktreePath: string) {
     try {
-      const session = await window.orca.openTerminal(worktreePath)
-      const key = `term:${session.id}`
-      set((s) => {
-        const terminalOrder = { ...s.terminalOrder, [worktreePath]: [...(s.terminalOrder[worktreePath] ?? []), session.id] }
-        const panes = { ...s.panes }
-        const cardPanes = panes[worktreePath] ?? []
-        const pane: Pane = { key, kind: 'terminal', sessionId: session.id }
-        if (!cardPanes.some((p) => p.key === key)) cardPanes.push(pane)
-        panes[worktreePath] = cardPanes
-        return {
-          terminals: { ...s.terminals, [session.id]: { session, cols: 100, rows: 30 } },
-          terminalOrder,
-          panes,
-          activePane: { ...s.activePane, [worktreePath]: key },
-          activeTerminal: { ...s.activeTerminal, [worktreePath]: session.id },
-          activeWorktreePath: worktreePath,
-          error: null
-        }
-      })
+      const session = await window.donwells.openTerminal(worktreePath)
+      set((state) => activateTerminalSession(state, session))
       persistSessionSoon()
       return session
-    } catch (e) {
-      set({ error: String(e) })
+    } catch (error) {
+      set({ error: 'Terminal open failed: ' + String(error) })
       return null
     }
   },
 
-  closeTerminal(worktreePath: string, sessionId: string) {
-    void window.orca.closeTerminal(sessionId)
+  async closeTerminal(worktreePath: string, sessionId: string) {
+    try {
+      const agent = get().runningAgents[sessionId]
+      if (agent) {
+        if (agent.liveness !== 'exited') {
+          get().applyAgentRun(await window.donwells.agentInterrupt(sessionId))
+          return false
+        }
+        await window.donwells.agentDismiss(sessionId)
+        get().applyAgentDismissed(sessionId)
+        return true
+      }
+      await window.donwells.closeTerminal(sessionId)
+    } catch (error) {
+      set({ error: `Terminal close is unverifiable: ${String(error)}` })
+      return false
+    }
     set((s) => {
       const terminals = { ...s.terminals }
       delete terminals[sessionId]
-      const panes = { ...s.panes }
-      const cardPanes = (panes[worktreePath] ?? []).filter((p) => p.sessionId !== sessionId)
-      panes[worktreePath] = cardPanes
+      const previous = s.panes[worktreePath] ?? []
+      const removedKeys = new Set(previous.filter((p) => p.sessionId === sessionId).map((p) => p.key))
+      const cardPanes = previous.filter((p) => p.sessionId !== sessionId)
+      const panes = { ...s.panes, [worktreePath]: cardPanes }
       const activePane = { ...s.activePane }
       const activeTerminal = { ...s.activeTerminal }
       const terminalOrder = { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== sessionId) }
       if (activeTerminal[worktreePath] === sessionId) {
-        const next = cardPanes.find((p) => p.kind === 'terminal')
-        activeTerminal[worktreePath] = next?.sessionId ?? ''
-        activePane[worktreePath] = next?.key ?? cardPanes[0]?.key ?? ''
+        activeTerminal[worktreePath] = cardPanes.find((p) => p.kind === 'terminal')?.sessionId ?? ''
       }
-      const runningAgents = { ...s.runningAgents }
-      delete runningAgents[sessionId]
-      return { terminals, panes, activePane, activeTerminal, terminalOrder, runningAgents }
+      if (removedKeys.has(activePane[worktreePath] ?? '')) {
+        activePane[worktreePath] = cardPanes[0]?.key ?? ''
+      }
+      const layouts = { ...s.layouts }
+      const previousLayout = layouts[worktreePath]
+      if (previousLayout) {
+        const next = pruneLayoutTo(previousLayout, new Set(cardPanes.map((p) => p.key)))
+        if (next) layouts[worktreePath] = next
+        else delete layouts[worktreePath]
+      }
+      return { terminals, panes, activePane, activeTerminal, terminalOrder, layouts, error: null }
     })
     terminalBus.dropSession(sessionId)
     persistSessionSoon()
+    return true
   },
 
+
   writeTerminal(sessionId: string, data: string) {
-    void window.orca.terminalWrite(sessionId, data)
+    void window.donwells.terminalWrite(sessionId, data).catch((error: unknown) => {
+      set({ error: 'Terminal input failed: ' + String(error) })
+    })
   },
 
   interruptTerminal(sessionId: string) {
-    void window.orca.terminalInterrupt(sessionId)
+    void window.donwells.terminalInterrupt(sessionId).catch((error: unknown) => {
+      set({ error: 'Terminal interrupt failed: ' + String(error) })
+    })
   },
 
   resizeTerminal(sessionId: string, cols: number, rows: number) {
-    set((s) => ({ terminals: { ...s.terminals, [sessionId]: { ...s.terminals[sessionId]!, cols, rows } } }))
-    void window.orca.terminalResize(sessionId, cols, rows)
+    const current = get().terminals[sessionId]
+    if (!current) return
+    set((s) => ({ terminals: { ...s.terminals, [sessionId]: { ...current, cols, rows } } }))
+    void window.donwells.terminalResize(sessionId, cols, rows).catch((error: unknown) => {
+      set({ error: 'Terminal resize failed: ' + String(error) })
+    })
   },
 
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status') {
@@ -554,7 +817,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         cardPanes.push({ key, kind })
         panes[worktreePath] = cardPanes
         activePane[worktreePath] = key
-        if (kind === 'explorer') void get().loadExplorer(worktreePath)
+        if (kind === 'explorer') void get().refreshExplorer(worktreePath)
         if (kind === 'git-status') void get().refreshStatuses()
       }
       void prev
@@ -563,12 +826,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  closePane(worktreePath: string, key: string) {
+  async closePane(worktreePath: string, key: string) {
     // closing an editor pane means closing its file: buffers, tabs, and models
     const target = get().panes[worktreePath]?.find((p) => p.key === key)
     if (target?.kind === 'preview' && target.file) {
-      get().closePreview(worktreePath, target.file)
-      return
+      return get().closePreview(worktreePath, target.file)
+    }
+    if (target?.sessionId) {
+      return get().closeTerminal(worktreePath, target.sessionId)
     }
     set((s) => {
       const panes = { ...s.panes }
@@ -587,24 +852,45 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (next) layouts[worktreePath] = next
         else delete layouts[worktreePath]
       }
-      const p = s.panes[worktreePath]?.find((x) => x.key === key)
-      if (p?.sessionId) {
-        const terminals = { ...s.terminals }
-        delete terminals[p.sessionId]
-        void window.orca.closeTerminal(p.sessionId)
-        const runningAgents = { ...s.runningAgents }
-        delete runningAgents[p.sessionId]
-        return { panes, activePane, terminals, runningAgents, layouts, terminalOrder: { ...s.terminalOrder, [worktreePath]: (s.terminalOrder[worktreePath] ?? []).filter((id) => id !== p.sessionId) } }
-      }
+
       return { panes, activePane, layouts }
     })
     persistSessionSoon()
+    return true
+  },
+
+  requestClosePane(worktreePath: string, key: string) {
+    const target = get().panes[worktreePath]?.find((pane) => pane.key === key)
+    const terminal = target?.sessionId ? get().terminals[target.sessionId] : undefined
+    if (target?.sessionId && terminal && !terminal.session.exited) {
+      set({
+        closeRequest: {
+          worktreePath,
+          key,
+          sessionId: target.sessionId,
+          label: target.label ?? terminal.session.title ?? 'Terminal'
+        }
+      })
+      return
+    }
+    void get().closePane(worktreePath, key)
+  },
+
+  async confirmClosePane() {
+    const request = get().closeRequest
+    if (!request) return
+    if (await get().closePane(request.worktreePath, request.key)) set({ closeRequest: null })
+  },
+
+  cancelClosePane() {
+    set({ closeRequest: null })
   },
 
   setActivePane(worktreePath: string, key: string) {
     set((s) => {
       const p = s.panes[worktreePath]?.find((x) => x.key === key)
       return {
+        runsOpen: false,
         activePane: { ...s.activePane, [worktreePath]: key },
         ...(p?.sessionId ? { activeTerminal: { ...s.activeTerminal, [worktreePath]: p.sessionId } } : {})
       }
@@ -612,23 +898,66 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  async splitTerminal(worktreePath: string) {
-    const s = get()
-    const activeKey = s.activePane[worktreePath]
+  focusRelativePane(worktreePath: string, delta: -1 | 1) {
+    const panes = (get().panes[worktreePath] ?? []).filter((pane) =>
+      pane.kind === 'terminal' || pane.kind === 'preview' || pane.kind === 'browser' || pane.kind === 'diff'
+    )
+    if (!panes.length) return
+    const current = panes.findIndex((pane) => pane.key === get().activePane[worktreePath])
+    const next = panes[(current < 0 ? 0 : current + delta + panes.length) % panes.length]
+    if (next) get().setActivePane(worktreePath, next.key)
+  },
+
+  reorderPane(worktreePath: string, sourceKey: string, targetKey: string) {
+    if (sourceKey === targetKey) return
+    set((state) => {
+      const previous = state.panes[worktreePath] ?? []
+      const source = previous.find((pane) => pane.key === sourceKey)
+      if (!source || !previous.some((pane) => pane.key === targetKey)) return {}
+      const panes = previous.filter((pane) => pane.key !== sourceKey)
+      const insertAt = panes.findIndex((pane) => pane.key === targetKey)
+      panes.splice(insertAt < 0 ? panes.length : insertAt, 0, source)
+      return {
+        panes: { ...state.panes, [worktreePath]: panes },
+        terminalOrder: {
+          ...state.terminalOrder,
+          [worktreePath]: panes.flatMap((pane) => pane.sessionId ? [pane.sessionId] : [])
+        }
+      }
+    })
+    persistSessionSoon()
+  },
+
+  renamePane(worktreePath: string, key: string, label: string) {
+    const normalized = label.trim().replace(/\s+/g, ' ').slice(0, 80)
+    set((state) => ({
+      panes: {
+        ...state.panes,
+        [worktreePath]: (state.panes[worktreePath] ?? []).map((pane) =>
+          pane.key === key ? { ...pane, label: normalized || undefined } : pane
+        )
+      }
+    }))
+    persistSessionSoon()
+  },
+
+  async splitTerminal(worktreePath: string, direction) {
+    const state = get()
+    const activeKey = state.activePane[worktreePath]
     const session = await get().openTerminal(worktreePath)
     if (!session) return
-    const newKey = `term:${session.id}`
-    // split the active pane's leaf: new terminal beside it (row = side-by-side)
-    set((st) => {
-      const prev = st.layouts[worktreePath]
+    const newKey = 'term:' + session.id
+    const dir = direction ?? (window.innerWidth < 900 ? 'col' : 'row')
+    set((current) => {
+      const previous = current.layouts[worktreePath]
       let next: LayoutNode
-      if (!prev) {
-        next = { kind: 'split', dir: 'row', first: { kind: 'leaf', pane: activeKey ?? newKey }, second: { kind: 'leaf', pane: newKey } }
+      if (!previous) {
+        next = { kind: 'split', dir, first: { kind: 'leaf', pane: activeKey ?? newKey }, second: { kind: 'leaf', pane: newKey } }
       } else {
-        const inserted = insertLeaf(prev, activeKey, newKey)
-        next = inserted ?? { kind: 'split', dir: 'row', first: prev, second: { kind: 'leaf', pane: newKey } }
+        const inserted = insertAt(previous, activeKey, newKey)
+        next = inserted ?? { kind: 'split', dir, first: previous, second: { kind: 'leaf', pane: newKey } }
       }
-      return { layouts: { ...st.layouts, [worktreePath]: next } }
+      return { layouts: { ...current.layouts, [worktreePath]: next } }
     })
     if (session) get().selectTerminal(worktreePath, session.id)
     persistSessionSoon()
@@ -646,100 +975,441 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  async loadExplorer(worktreePath: string, prefix = '') {
+  async refreshExplorer(worktreePath: string, directory = '') {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    const previous = workspace.directories[directory]
+    const requestId = ++explorerRequestSequence
+    set((state) => ({
+      explorer: {
+        ...state.explorer,
+        [worktreePath]: {
+          ...workspace,
+          directories: {
+            ...workspace.directories,
+            [directory]: {
+              phase: 'loading',
+              entries: previous?.entries ?? [],
+              truncated: previous?.truncated ?? false,
+              requestId
+            }
+          }
+        }
+      }
+    }))
     try {
-      const entries = await window.orca.listFiles(worktreePath, prefix)
-      set((s) => ({ explorer: { ...s.explorer, [worktreePath]: entries }, error: null }))
-    } catch (e) {
-      set({ error: String(e) })
+      const result = await window.donwells.listWorkspaceDirectory(worktreePath, {
+        directory,
+        showHidden: workspace.showHidden,
+        includeIgnored: workspace.includeIgnored
+      })
+      set((state) => {
+        const current = state.explorer[worktreePath]
+        if (current?.directories[directory]?.requestId !== requestId) return {}
+        return {
+          explorer: {
+            ...state.explorer,
+            [worktreePath]: {
+              ...current,
+              directories: {
+                ...current.directories,
+                [directory]: { phase: 'ready', entries: result.entries, truncated: result.truncated, requestId }
+              }
+            }
+          }
+        }
+      })
+    } catch (error) {
+      set((state) => {
+        const current = state.explorer[worktreePath]
+        if (current?.directories[directory]?.requestId !== requestId) return {}
+        return {
+          explorer: {
+            ...state.explorer,
+            [worktreePath]: {
+              ...current,
+              directories: {
+                ...current.directories,
+                [directory]: {
+                  phase: 'error',
+                  entries: current.directories[directory]?.entries ?? [],
+                  error: String(error),
+                  truncated: false,
+                  requestId
+                }
+              }
+            }
+          }
+        }
+      })
     }
   },
 
-  async openPreview(worktreePath: string, relPath: string) {
+  setExplorerExpanded(worktreePath: string, directory: string, expanded: boolean) {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    const next = new Set(workspace.expanded)
+    if (expanded) next.add(directory)
+    else next.delete(directory)
+    set((state) => ({ explorer: { ...state.explorer, [worktreePath]: { ...workspace, expanded: [...next] } } }))
+    if (expanded && workspace.directories[directory]?.phase !== 'ready') void get().refreshExplorer(worktreePath, directory)
+  },
+
+  setExplorerSelected(worktreePath: string, relPath: string | null) {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    set((state) => ({ explorer: { ...state.explorer, [worktreePath]: { ...workspace, selected: relPath } } }))
+  },
+
+  setExplorerFilter(worktreePath: string, filter: string) {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    set((state) => ({ explorer: { ...state.explorer, [worktreePath]: { ...workspace, filter: filter.slice(0, 256) } } }))
+  },
+
+  setExplorerVisibility(worktreePath: string, options: { showHidden?: boolean; includeIgnored?: boolean }) {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    const next = {
+      ...workspace,
+      directories: {},
+      showHidden: options.showHidden ?? workspace.showHidden,
+      includeIgnored: options.includeIgnored ?? workspace.includeIgnored
+    }
+    set((state) => ({ explorer: { ...state.explorer, [worktreePath]: next } }))
+    void get().refreshExplorer(worktreePath)
+  },
+
+  collapseExplorer(worktreePath: string) {
+    const workspace = get().explorer[worktreePath] ?? emptyExplorerWorkspace()
+    set((state) => ({ explorer: { ...state.explorer, [worktreePath]: { ...workspace, expanded: [] } } }))
+  },
+
+  async createWorkspaceEntry(worktreePath: string, relPath: string, kind: 'file' | 'directory') {
     try {
-      const content = await window.orca.readFile(worktreePath, relPath)
-      const key = `preview:${relPath}`
-      set((s) => {
-        const existing = s.previews[worktreePath]?.[relPath]
+      await window.donwells.createWorkspaceEntry(worktreePath, { path: relPath, kind: kind === 'directory' ? 'dir' : 'file' })
+      await get().refreshExplorer(worktreePath, parentDirectory(relPath))
+      if (kind === 'file') await get().openPreview(worktreePath, relPath, { mode: 'edit' })
+      return true
+    } catch (error) {
+      set({ error: String(error) })
+      return false
+    }
+  },
+
+  async duplicateWorkspaceEntry(worktreePath: string, sourcePath: string, destinationPath: string) {
+    try {
+      await runWithEditorGuard(worktreePath, [sourcePath], async () => {
+        await window.donwells.duplicateWorkspaceEntry(worktreePath, { sourcePath, destinationPath })
+      })
+      await get().refreshExplorer(worktreePath, parentDirectory(destinationPath))
+      return true
+    } catch (error) {
+      set({ error: String(error) })
+      return false
+    }
+  },
+
+  async moveWorkspaceEntry(worktreePath: string, sourcePath: string, destinationPath: string) {
+    try {
+      await runWithEditorGuard(worktreePath, [sourcePath], async () => {
+        await window.donwells.moveWorkspaceEntry(worktreePath, { sourcePath, destinationPath })
+        invalidatePreviewRequestsUnder(worktreePath, sourcePath)
+        invalidatePreviewRequestsUnder(worktreePath, destinationPath)
+        set((state) => {
+          const sourcePrefix = sourcePath + '/'
+          const movedFiles: Record<string, FileContent & { v: number; mode?: PreviewMode }> = {}
+          for (const [relPath, file] of Object.entries(state.previews[worktreePath] ?? {})) {
+            if (relPath !== sourcePath && !relPath.startsWith(sourcePrefix)) {
+              movedFiles[relPath] = file
+              continue
+            }
+            const movedPath = replacePathPrefix(relPath, sourcePath, destinationPath)
+            movedFiles[movedPath] = { ...file, path: movedPath }
+          }
+          const keyReplacements: Record<string, string> = {}
+          const cardPanes: Pane[] = []
+          for (const pane of state.panes[worktreePath] ?? []) {
+            if (!pane.file || (pane.file !== sourcePath && !pane.file.startsWith(sourcePrefix))) {
+              cardPanes.push(pane)
+              continue
+            }
+            if (pane.kind === 'diff') continue
+            const movedPath = replacePathPrefix(pane.file, sourcePath, destinationPath)
+            const key = pane.kind === 'preview' ? 'preview:' + movedPath : pane.key
+            keyReplacements[pane.key] = key
+            cardPanes.push({ ...pane, key, file: movedPath })
+          }
+          let layout: LayoutNode | undefined = state.layouts[worktreePath]
+          if (layout) {
+            for (const [from, to] of Object.entries(keyReplacements)) layout = replaceLayoutLeafKey(layout, from, to)
+            layout = pruneLayoutTo(layout, new Set(cardPanes.map((pane) => pane.key))) ?? undefined
+          }
+          const layouts = { ...state.layouts }
+          if (layout) layouts[worktreePath] = layout
+          else delete layouts[worktreePath]
+          const activeKey = state.activePane[worktreePath]
+          const activePane = {
+            ...state.activePane,
+            [worktreePath]: keyReplacements[activeKey] ?? (cardPanes.some((pane) => pane.key === activeKey) ? activeKey : cardPanes[0]?.key ?? '')
+          }
+          const previousExplorer = state.explorer[worktreePath] ?? emptyExplorerWorkspace()
+          const movedNavigation: Record<string, DocumentNavigationTarget> = {}
+          for (const [relPath, target] of Object.entries(state.documentNavigation[worktreePath] ?? {})) {
+            const movedPath = relPath === sourcePath || relPath.startsWith(sourcePrefix)
+              ? replacePathPrefix(relPath, sourcePath, destinationPath)
+              : relPath
+            movedNavigation[movedPath] = target
+          }
+          return {
+            previews: { ...state.previews, [worktreePath]: movedFiles },
+            panes: { ...state.panes, [worktreePath]: cardPanes },
+            layouts,
+            activePane,
+            explorer: {
+              ...state.explorer,
+              [worktreePath]: {
+                ...previousExplorer,
+                directories: {},
+                selected: previousExplorer.selected && (previousExplorer.selected === sourcePath || previousExplorer.selected.startsWith(sourcePrefix))
+                  ? replacePathPrefix(previousExplorer.selected, sourcePath, destinationPath)
+                  : previousExplorer.selected,
+                expanded: previousExplorer.expanded.map((path) =>
+                  path === sourcePath || path.startsWith(sourcePrefix)
+                    ? replacePathPrefix(path, sourcePath, destinationPath)
+                    : path
+                )
+              }
+            },
+            documentNavigation: { ...state.documentNavigation, [worktreePath]: movedNavigation },
+            fileSearchMru: {
+              ...state.fileSearchMru,
+              [worktreePath]: (state.fileSearchMru[worktreePath] ?? []).map((path) =>
+                path === sourcePath || path.startsWith(sourcePrefix)
+                  ? replacePathPrefix(path, sourcePath, destinationPath)
+                  : path
+              )
+            },
+            error: null
+          }
+        })
+        disposePreviewModelsUnder(worktreePath, sourcePath)
+        moveDocumentViewStates(worktreePath, sourcePath, destinationPath)
+      })
+      for (const directory of new Set([parentDirectory(sourcePath), parentDirectory(destinationPath)])) {
+        await get().refreshExplorer(worktreePath, directory)
+      }
+      persistSessionSoon()
+      return true
+    } catch (error) {
+      set({ error: String(error) })
+      return false
+    }
+  },
+
+  async deleteWorkspaceEntry(worktreePath: string, relPath: string) {
+    try {
+      await runWithEditorGuard(worktreePath, [relPath], async () => {
+        await window.donwells.deleteWorkspaceEntry(worktreePath, { path: relPath })
+        invalidatePreviewRequestsUnder(worktreePath, relPath)
+        set((state) => {
+          const prefix = relPath + '/'
+          const retainedFiles = Object.fromEntries(
+            Object.entries(state.previews[worktreePath] ?? {}).filter(([path]) => path !== relPath && !path.startsWith(prefix))
+          )
+          const cardPanes = (state.panes[worktreePath] ?? []).filter(
+            (pane) => !pane.file || (pane.file !== relPath && !pane.file.startsWith(prefix))
+          )
+          const layouts = { ...state.layouts }
+          const previousLayout = state.layouts[worktreePath]
+          const layout = previousLayout ? pruneLayoutTo(previousLayout, new Set(cardPanes.map((pane) => pane.key))) : null
+          if (layout) layouts[worktreePath] = layout
+          else delete layouts[worktreePath]
+          const activeKey = state.activePane[worktreePath]
+          const previousExplorer = state.explorer[worktreePath] ?? emptyExplorerWorkspace()
+          const retainedNavigation = Object.fromEntries(
+            Object.entries(state.documentNavigation[worktreePath] ?? {}).filter(([path]) => path !== relPath && !path.startsWith(prefix))
+          )
+          return {
+            previews: { ...state.previews, [worktreePath]: retainedFiles },
+            panes: { ...state.panes, [worktreePath]: cardPanes },
+            layouts,
+            activePane: {
+              ...state.activePane,
+              [worktreePath]: cardPanes.some((pane) => pane.key === activeKey) ? activeKey : cardPanes[0]?.key ?? ''
+            },
+            explorer: {
+              ...state.explorer,
+              [worktreePath]: {
+                ...previousExplorer,
+                directories: {},
+                selected: previousExplorer.selected && (previousExplorer.selected === relPath || previousExplorer.selected.startsWith(prefix))
+                  ? null
+                  : previousExplorer.selected,
+                expanded: previousExplorer.expanded.filter((path) => path !== relPath && !path.startsWith(prefix))
+              }
+            },
+            documentNavigation: { ...state.documentNavigation, [worktreePath]: retainedNavigation },
+            fileSearchMru: {
+              ...state.fileSearchMru,
+              [worktreePath]: (state.fileSearchMru[worktreePath] ?? []).filter((path) => path !== relPath && !path.startsWith(prefix))
+            },
+            error: null
+          }
+        })
+        disposePreviewModelsUnder(worktreePath, relPath)
+        deleteDocumentViewStates(worktreePath, relPath)
+      })
+      await get().refreshExplorer(worktreePath, parentDirectory(relPath))
+      persistSessionSoon()
+      return true
+    } catch (error) {
+      set({ error: String(error) })
+      return false
+    }
+  },
+
+  async openPreview(worktreePath: string, relPath: string, navigation?: Omit<DocumentNavigationTarget, 'generation'>) {
+    try {
+      let content: FileContent | undefined = get().previews[worktreePath]?.[relPath]
+      if (!content) {
+        const request = beginPreviewRequest(worktreePath, relPath)
+        content = await previewFileContent(worktreePath, relPath)
+        if (previewRequests.get(request.key) !== request.token) return
+        previewRequests.delete(request.key)
+      }
+      const key = 'preview:' + relPath
+      set((state) => {
+        const existing = state.previews[worktreePath]?.[relPath]
+        const mode = navigation?.mode ?? existing?.mode ?? defaultPreviewMode(relPath, state.settings)
         const previews = {
-          ...s.previews,
+          ...state.previews,
           [worktreePath]: {
-            ...s.previews[worktreePath],
-            [relPath]: { ...content, v: (existing?.v ?? 0) + 1, mode: existing?.mode ?? defaultPreviewMode(relPath, s.settings) }
+            ...state.previews[worktreePath],
+            [relPath]: { ...content, v: existing?.v ?? 0, mode }
           }
         }
-        const panes = { ...s.panes }
+        const nextMru = [relPath, ...(state.fileSearchMru[worktreePath] ?? []).filter((path) => path !== relPath)].slice(0, 64)
+        let documentNavigation = state.documentNavigation
+        if (navigation) {
+          const previousTarget = state.documentNavigation[worktreePath]?.[relPath]
+          const targets = {
+            ...state.documentNavigation[worktreePath],
+            [relPath]: { ...navigation, generation: (previousTarget?.generation ?? 0) + 1 }
+          }
+          const targetPaths = Object.keys(targets)
+          while (targetPaths.length > 64) {
+            const stale = targetPaths.shift()
+            if (stale) delete targets[stale]
+          }
+          documentNavigation = { ...state.documentNavigation, [worktreePath]: targets }
+        }
+        const panes = { ...state.panes }
         const cardPanes = [...(panes[worktreePath] ?? [])]
-        const activePane = { ...s.activePane, [worktreePath]: key }
-        // already open somewhere → just focus that pane
-        if (cardPanes.some((p) => p.key === key)) return { previews, activePane, error: null }
-        // editor tabs: opening a new file retargets the ACTIVE editor pane, not a new split
-        const activeKey = s.activePane[worktreePath]
-        const active = activeKey ? cardPanes.find((p) => p.key === activeKey) : undefined
-        let layouts = s.layouts
+        const activePane = { ...state.activePane, [worktreePath]: key }
+        const shared = {
+          previews,
+          documentNavigation,
+          fileSearchMru: { ...state.fileSearchMru, [worktreePath]: nextMru },
+          activePane,
+          error: null
+        }
+        if (cardPanes.some((pane) => pane.key === key)) return shared
+        const activeKey = state.activePane[worktreePath]
+        const active = activeKey ? cardPanes.find((pane) => pane.key === activeKey) : undefined
+        let layouts = state.layouts
         if (active?.kind === 'preview') {
           cardPanes[cardPanes.indexOf(active)] = { ...active, key, file: relPath }
           panes[worktreePath] = cardPanes
-          const prevLayout = s.layouts[worktreePath]
-          if (prevLayout) layouts = { ...s.layouts, [worktreePath]: replaceLayoutLeafKey(prevLayout, activeKey, key) }
-          return { previews, panes, layouts, activePane, error: null }
+          const previousLayout = state.layouts[worktreePath]
+          if (previousLayout) layouts = { ...state.layouts, [worktreePath]: replaceLayoutLeafKey(previousLayout, activeKey, key) }
+          return { ...shared, panes, layouts }
         }
         cardPanes.push({ key, kind: 'preview', file: relPath })
         panes[worktreePath] = cardPanes
-        // a live split tree must include the new pane or it never renders
-        if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
-          const next = insertLeaf(s.layouts[worktreePath]!, s.activePane[worktreePath], key)
-          if (next) layouts = { ...s.layouts, [worktreePath]: next }
+        const currentLayout = state.layouts[worktreePath]
+        if (currentLayout && !layoutHasLeaf(currentLayout, key)) {
+          const next = insertLeaf(currentLayout, state.activePane[worktreePath], key)
+          if (next) layouts = { ...state.layouts, [worktreePath]: next }
         }
-        return { previews, panes, layouts, activePane, error: null }
+        return { ...shared, panes, layouts }
       })
       persistSessionSoon()
-    } catch (e) {
-      set({ error: String(e) })
+    } catch (error) {
+      set({ error: String(error) })
+    }
+  },
+
+  async reloadOpenPreviews(worktreePath: string, relPaths?: readonly string[]) {
+    const matches = (relPath: string): boolean => relPaths === undefined || relPaths.some(
+      (target) => relPath === target || relPath.startsWith(target + '/')
+    )
+    try {
+      const paths = Object.keys(get().previews[worktreePath] ?? {}).filter(matches)
+      const loaded = await Promise.all(paths.map(async (relPath) => [relPath, await previewFileContent(worktreePath, relPath)] as const))
+      set((state) => {
+        const files = { ...state.previews[worktreePath] }
+        for (const [relPath, content] of loaded) {
+          const existing = files[relPath]
+          if (existing) files[relPath] = { ...content, v: existing.v + 1, mode: existing.mode }
+        }
+        return { previews: { ...state.previews, [worktreePath]: files }, error: null }
+      })
+    } catch (error) {
+      set({ error: String(error) })
+      throw error
     }
   },
 
   async retargetPreview(worktreePath: string, paneKey: string, relPath: string) {
     try {
-      const content = await window.orca.readFile(worktreePath, relPath)
-      const key = `preview:${relPath}`
-      set((s) => {
-        const existing = s.previews[worktreePath]?.[relPath]
+      let content: FileContent | undefined = get().previews[worktreePath]?.[relPath]
+      if (!content) {
+        const request = beginPreviewRequest(worktreePath, relPath)
+        content = await previewFileContent(worktreePath, relPath)
+        if (previewRequests.get(request.key) !== request.token) return
+        previewRequests.delete(request.key)
+      }
+      const key = 'preview:' + relPath
+      set((state) => {
+        const existing = state.previews[worktreePath]?.[relPath]
         const previews = {
-          ...s.previews,
+          ...state.previews,
           [worktreePath]: {
-            ...s.previews[worktreePath],
-            [relPath]: { ...content, v: (existing?.v ?? 0) + 1, mode: existing?.mode ?? defaultPreviewMode(relPath, s.settings) }
+            ...state.previews[worktreePath],
+            [relPath]: { ...content, v: existing?.v ?? 0, mode: existing?.mode ?? defaultPreviewMode(relPath, state.settings) }
           }
         }
-        const panes = { ...s.panes }
+        const panes = { ...state.panes }
         const cardPanes = [...(panes[worktreePath] ?? [])]
-        const idx = cardPanes.findIndex((p) => p.key === paneKey)
-        if (idx === -1 || cardPanes[idx]!.kind !== 'preview') return { error: null }
-        // a pane for that file exists elsewhere already: close ours, focus theirs
-        const other = cardPanes.findIndex((p) => p.key === key && p.file === relPath)
-        let layouts = s.layouts
+        const index = cardPanes.findIndex((pane) => pane.key === paneKey)
+        if (index === -1 || cardPanes[index]?.kind !== 'preview') return { error: null }
+        const other = cardPanes.findIndex((pane) => pane.key === key && pane.file === relPath)
+        let layouts = state.layouts
         if (other !== -1) {
-          cardPanes.splice(idx, 1)
+          cardPanes.splice(index, 1)
           panes[worktreePath] = cardPanes
-          const prevLayout = s.layouts[worktreePath]
-          if (prevLayout) {
-            const pruned = pruneLayoutTo(prevLayout, new Set(cardPanes.map((p) => p.key)))
-            layouts = { ...s.layouts }
+          const previousLayout = state.layouts[worktreePath]
+          if (previousLayout) {
+            const pruned = pruneLayoutTo(previousLayout, new Set(cardPanes.map((pane) => pane.key)))
+            layouts = { ...state.layouts }
             if (pruned) layouts[worktreePath] = pruned
             else delete layouts[worktreePath]
           }
-          return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
+          return { previews, panes, layouts, activePane: { ...state.activePane, [worktreePath]: key }, error: null }
         }
-        cardPanes[idx] = { ...cardPanes[idx]!, key, file: relPath }
+        cardPanes[index] = { ...cardPanes[index], key, file: relPath }
         panes[worktreePath] = cardPanes
-        const prevLayout = s.layouts[worktreePath]
-        if (prevLayout) layouts = { ...s.layouts, [worktreePath]: replaceLayoutLeafKey(prevLayout, paneKey, key) }
-        return { previews, panes, layouts, activePane: { ...s.activePane, [worktreePath]: key }, error: null }
+        const previousLayout = state.layouts[worktreePath]
+        if (previousLayout) layouts = { ...state.layouts, [worktreePath]: replaceLayoutLeafKey(previousLayout, paneKey, key) }
+        const nextMru = [relPath, ...(state.fileSearchMru[worktreePath] ?? []).filter((path) => path !== relPath)].slice(0, 64)
+        return {
+          previews,
+          panes,
+          layouts,
+          fileSearchMru: { ...state.fileSearchMru, [worktreePath]: nextMru },
+          activePane: { ...state.activePane, [worktreePath]: key },
+          error: null
+        }
       })
       persistSessionSoon()
-    } catch (e) {
-      set({ error: String(e) })
+    } catch (error) {
+      set({ error: String(error) })
     }
   },
 
@@ -747,7 +1417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    *  editor pane is open on it, replace its buffer in place (v bump triggers
    *  the pane to adopt the new content without a disk round-trip). */
   async writePreview(worktreePath: string, relPath: string, content: string) {
-    const saved = await window.orca.writeFile(worktreePath, relPath, content)
+    const saved = await window.donwells.writeFile(worktreePath, relPath, content)
     const key = `preview:${relPath}`
     set((s) => {
       const existing = s.previews[worktreePath]?.[relPath]
@@ -774,7 +1444,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode) {
+  async setPreviewMode(worktreePath: string, relPath: string, mode: PreviewMode) {
+    if (mode === 'preview') {
+      try { await flushPreviewModel(worktreePath, relPath) }
+      catch (error) { set({ error: String(error) }); return false }
+    }
     set((s) => {
       const file = s.previews[worktreePath]?.[relPath]
       if (!file || file.mode === mode) return {}
@@ -782,16 +1456,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         previews: { ...s.previews, [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, mode } } }
       }
     })
+    return true
   },
-  openDiff(worktreePath: string, relPath: string) {
-    const key = `diff:${relPath}`
+  openDiff(worktreePath: string, relPath: string, comparison: DiffComparison = 'working') {
+    const key = comparison === 'working' ? `diff:${relPath}` : `diff:${comparison}:${relPath}`
     set((s) => {
       const panes = { ...s.panes }
       const cardPanes = [...(panes[worktreePath] ?? [])]
       const activePane = { ...s.activePane, [worktreePath]: key }
       // already open → focus only
       if (cardPanes.some((p) => p.key === key)) return { activePane, error: null }
-      cardPanes.push({ key, kind: 'diff', file: relPath })
+      cardPanes.push({ key, kind: 'diff', file: relPath, comparison })
       panes[worktreePath] = cardPanes
       let layouts = s.layouts
       if (s.layouts[worktreePath] && !layoutHasLeaf(s.layouts[worktreePath]!, key)) {
@@ -803,9 +1478,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
+  noteBrowserNavigation(worktreePath: string, url: string) {
+    set((s) => {
+      const panes = s.panes[worktreePath]
+      const current = panes?.find((pane) => pane.kind === 'browser')
+      if (!current || current.url === url) return {}
+      return { panes: { ...s.panes, [worktreePath]: panes!.map((pane) => pane === current ? { ...pane, url } : pane) } }
+    })
+    persistSessionSoon()
+  },
+
   /** Open (or retarget) the worktree's single embedded browser pane. */
   openBrowser(worktreePath: string, url: string) {
-    const normalized = /^https?:\/\//.test(url) ? url : `https://${url}`
+    if (!get().repos.some((repo) => repo.worktrees.some((worktree) => worktree.path === worktreePath))) {
+      throw new Error(`No workspace owns ${worktreePath}`)
+    }
+    const normalized = normalizeBrowserUrl(url)
     const key = 'browser:tab'
     set((s) => {
       const panes = { ...s.panes }
@@ -828,21 +1516,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  notePreviewContent(worktreePath: string, relPath: string, content: string) {
+  ackPreviewSave(worktreePath: string, relPath: string, saved: FileContent, sourceEpoch: number) {
     set((s) => {
       const file = s.previews[worktreePath]?.[relPath]
-      if (!file || file.content === content) return {}
+      if (!file || file.v !== sourceEpoch) return {}
       return {
-        previews: {
-          ...s.previews,
-          [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, content } }
-        }
+        previews: { ...s.previews, [worktreePath]: { ...s.previews[worktreePath], [relPath]: { ...file, ...saved } } }
       }
     })
   },
 
-  closePreview(worktreePath: string, relPath?: string) {
+  async closePreview(worktreePath: string, relPath?: string) {
     const closedFiles = relPath !== undefined ? [relPath] : Object.keys(get().previews[worktreePath] ?? {})
+    invalidatePreviewRequestsUnder(worktreePath, relPath)
+    try {
+      await Promise.all(closedFiles.map((file) => flushPreviewModel(worktreePath, file)))
+      for (const file of closedFiles) {
+        const document = getEditorDocument(worktreePath, file)
+        if (document && !document.save.canDispose()) throw new Error(`Unsaved changes remain in ${file}`)
+      }
+    } catch (error) { set({ error: String(error) }); return false }
     set((s) => {
       const panes = { ...s.panes }
       const cardPanes = (panes[worktreePath] ?? []).filter(
@@ -858,6 +1551,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (Object.keys(files).length === 0) delete previews[worktreePath]
         else previews[worktreePath] = files
       }
+      const documentNavigation = { ...s.documentNavigation }
+      if (relPath === undefined) {
+        delete documentNavigation[worktreePath]
+      } else {
+        const targets = { ...documentNavigation[worktreePath] }
+        delete targets[relPath]
+        if (Object.keys(targets).length === 0) delete documentNavigation[worktreePath]
+        else documentNavigation[worktreePath] = targets
+      }
       const activePane = { ...s.activePane }
       if (!cardPanes.some((p) => p.key === activePane[worktreePath])) {
         activePane[worktreePath] = cardPanes[0]?.key ?? ''
@@ -872,10 +1574,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         else delete layouts[worktreePath]
       }
       persistSessionSoon()
-      return { panes, previews, activePane, layouts }
+      return { panes, previews, documentNavigation, activePane, layouts }
     })
     // models for files no longer shown anywhere get disposed (memory ceiling)
     for (const f of closedFiles) disposePreviewModel(worktreePath, f)
+    return true
   },
 
   /** Drop all per-worktree UI state whose worktree no longer belongs to any repo
@@ -893,14 +1596,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       activePane: drop(s.activePane),
       activeTerminal: drop(s.activeTerminal),
       terminalOrder: drop(s.terminalOrder),
-      terminals: drop(s.terminals),
+      terminals: s.terminals,
       layouts: drop(s.layouts),
       statuses: drop(s.statuses),
       explorer: drop(s.explorer),
       previews: drop(s.previews),
+      documentNavigation: drop(s.documentNavigation),
+      fileSearchMru: drop(s.fileSearchMru),
+      gitCommitDrafts: drop(s.gitCommitDrafts),
       busy: drop(s.busy),
-      runningAgents: drop(s.runningAgents)
+      workspaceNavigation: normalizeWorkspaceNavigation(s.workspaceNavigation, s.repos),
     }))
+    for (const terminal of Object.values(get().terminals)) {
+      if (!live.has(terminal.session.worktreePath)) void get().closeTerminal(terminal.session.worktreePath, terminal.session.id)
+    }
+    persistSessionSoon()
   },
 
   async refreshStatuses() {
@@ -909,7 +1619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const r of repos) for (const w of r.worktrees) paths.add(w.path)
     if (paths.size === 0) return
     const statuses: Record<string, WorktreeStatus> = {}
-    const results = await Promise.allSettled([...paths].map((p) => window.orca.gitStatus(p)))
+    const results = await Promise.allSettled([...paths].map((p) => window.donwells.gitStatus(p)))
     let i = 0
     for (const p of paths) {
       const r = results[i++]!
@@ -924,55 +1634,97 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshScan(worktreePath: string) {
     try {
-      const scan = await window.orca.scanWorktree(worktreePath)
+      const scan = await window.donwells.scanWorktree(worktreePath)
       set((s) => ({ scans: { ...s.scans, [worktreePath]: scan } }))
     } catch {
       // lsof/ps unavailable or sandboxed — leave previous scan; segments stay quiet
     }
   },
 
+  async focusAgentSession(sessionId: string) {
+    try {
+      const sessions = await window.donwells.terminalSessions()
+      const session = sessions.find((item) => item.id === sessionId)
+      if (!session) throw new Error('The retained terminal is no longer available.')
+      const run = (await window.donwells.agentList()).find((item) => item.sessionId === sessionId)
+      if (!run || run.workspacePath !== session.worktreePath) throw new Error('The agent no longer owns this terminal.')
+      const repo = get().repos.find((item) => item.worktrees.some((worktree) => worktree.path === session.worktreePath))
+      if (!repo) throw new Error('The workspace is no longer registered.')
+      set((state) => ({
+        ...activateTerminalSession(state, session),
+        activeRepoId: repo.repo.id,
+        runsOpen: false,
+        runningAgents: { ...state.runningAgents, [sessionId]: run }
+      }))
+      persistSessionSoon()
+      return true
+    } catch (error) {
+      set({ error: 'Could not open agent terminal: ' + String(error) })
+      return false
+    }
+  },
+
   async runAgent(worktreePath: string, command: string) {
     const trimmed = command.trim()
     if (!trimmed) return
-    const session = await get().openTerminal(worktreePath)
-    if (!session) return
-    const runningAgents = {
-      ...get().runningAgents,
-      [session.id]: { sessionId: session.id, worktreePath, agent: trimmed, startedAt: new Date().toISOString(), state: 'working' as const }
+    try {
+      const result = await window.donwells.agentStart(worktreePath, trimmed)
+      set((state) => ({
+        ...activateTerminalSession(state, result.session),
+        runningAgents: { ...state.runningAgents, [result.run.sessionId]: result.run }
+      }))
+      persistSessionSoon()
+    } catch (error) {
+      set({ error: 'Agent start failed: ' + String(error) })
     }
-    set({ runningAgents })
-    get().writeTerminal(session.id, `${trimmed}\n`)
   },
 
-  stopAgent(sessionId: string) {
-    get().interruptTerminal(sessionId)
-    // ^C kills the foreground agent; the shell (and PTY) survive, so exit may never
-    // fire — clear the chip optimistically; a still-running process re-renders nothing.
-    const runningAgents = { ...get().runningAgents }
-    delete runningAgents[sessionId]
-    set({ runningAgents })
-    persistSessionSoon()
+  async stopAgent(sessionId: string) {
+    try {
+      const run = await window.donwells.agentInterrupt(sessionId)
+      get().applyAgentRun(run)
+    } catch (error) {
+      set({ error: 'Agent stop failed: ' + String(error) })
+    }
   },
 
-  /** Clear a finished (done/cancelled) agent chip without touching the terminal. */
-  dismissAgent(sessionId: string) {
-    const runningAgents = { ...get().runningAgents }
-    delete runningAgents[sessionId]
-    set({ runningAgents })
-    persistSessionSoon()
+  async dismissAgent(sessionId: string) {
+    try {
+      await window.donwells.agentDismiss(sessionId)
+      get().applyAgentDismissed(sessionId)
+    } catch (error) {
+      set({ error: 'Agent dismissal failed: ' + String(error) })
+    }
+  },
+
+  syncSettings(settings: AppSettings) {
+    const validated = resolveSettings(settings)
+    set((state) => ({
+      settings: validated,
+      settingsRevision: state.settingsRevision + 1,
+      error: null
+    }))
   },
 
   async setSettings(patch: Partial<AppSettings>) {
     try {
-      const settings = await window.orca.setSettings(patch)
-      set({ settings, error: null })
+      const revision = get().settingsRevision
+      const settings = await window.donwells.setSettings(patch)
+      // The main process broadcasts the authoritative snapshot. Apply the
+      // response only when no newer broadcast has already won the race.
+      if (get().settingsRevision === revision) get().syncSettings(settings)
     } catch (e) {
       set({ error: String(e) })
     }
   },
 
-  setPaletteOpen(open: boolean) {
-    set({ paletteOpen: open })
+  setPaletteOpen(open: boolean, mode?: 'commands' | 'files') {
+    set((state) => ({ paletteOpen: open, paletteMode: mode ?? state.paletteMode }))
+  },
+
+  setGitCommitDraft(worktreePath: string, value: string) {
+    set((state) => ({ gitCommitDrafts: { ...state.gitCommitDrafts, [worktreePath]: value } }))
+    persistSessionSoon()
   },
 
   setSettingsOpen(open: boolean) {
@@ -981,6 +1733,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openSettings(section: SettingsSection) {
     set({ settingsOpen: true, settingsSection: section })
+  },
+
+  openRuns(section: RunsSection = get().runsSection) {
+    set({ runsOpen: true, runsSection: section, settingsOpen: false })
+  },
+
+  setRunsOpen(open: boolean) {
+    set({ runsOpen: open })
   },
 
   setSidebarOpen(open: boolean) {
@@ -1010,7 +1770,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  setRightSidebarTab(tab: 'explorer' | 'git') {
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery') {
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
   },
 
@@ -1022,20 +1782,57 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ deleteTarget: path })
   },
 
+  toggleRepoCollapsed(repoId: string) {
+    set((state) => ({
+      workspaceNavigation: toggleNavigationValue(state.workspaceNavigation, 'collapsedRepoIds', repoId)
+    }))
+    persistSessionSoon()
+  },
+
+  toggleWorkspacePinned(path: string) {
+    set((state) => ({
+      workspaceNavigation: toggleNavigationValue(state.workspaceNavigation, 'pinnedPaths', path)
+    }))
+    persistSessionSoon()
+  },
+
+  renameWorkspace(path: string, label: string) {
+    set((state) => ({ workspaceNavigation: renameWorkspaceNavigation(state.workspaceNavigation, path, label) }))
+    persistSessionSoon()
+  },
+
+  hideWorkspace(path: string) {
+    set((state) => ({
+      workspaceNavigation: state.workspaceNavigation.hiddenPaths.includes(path)
+        ? state.workspaceNavigation
+        : { ...state.workspaceNavigation, hiddenPaths: [...state.workspaceNavigation.hiddenPaths, path] },
+      ...(state.activeWorktreePath === path ? { activeWorktreePath: null } : {})
+    }))
+    persistSessionSoon()
+  },
+
+  restoreWorkspace(path?: string) {
+    set((state) => ({ workspaceNavigation: restoreWorkspaceNavigation(state.workspaceNavigation, path) }))
+    persistSessionSoon()
+  },
+
+  moveWorkspace(path: string, delta: -1 | 1) {
+    set((state) => ({
+      workspaceNavigation: moveWorkspaceNavigation(state.workspaceNavigation, state.repos, path, delta)
+    }))
+    persistSessionSoon()
+  },
+
   setActiveRepo(repoId: string | null) {
-    set({ activeRepoId: repoId, activeWorktreePath: null })
-    if (repoId) {
-      const repo = get().repos.find((r) => r.repo.id === repoId)
-      void repo
-    }
+    set({ activeRepoId: repoId, activeWorktreePath: null, runsOpen: false })
     persistSessionSoon()
   },
 
   setActiveWorktree(path: string | null) {
-    set({ activeWorktreePath: path })
+    set({ activeWorktreePath: path, runsOpen: false })
     if (path) {
-      void get().loadExplorer(path)
-      // Orca activation-terminal-prep: every worktree gets a shell ready on first visit.
+      void get().refreshExplorer(path)
+      // upstream activation-terminal-prep: every worktree gets a shell ready on first visit.
       const hasTerminal = (get().panes[path] ?? []).some((p) => p.kind === 'terminal')
       if (!hasTerminal) void get().openTerminal(path)
     }
@@ -1043,7 +1840,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   applyTerminalExit(sessionId: string, _exitCode: number) {
     const s = get()
-    // A dead shell closes its pane — no zombie tabs (VS Code/Orca behavior).
+    if (s.runningAgents[sessionId]) {
+      const terminal = s.terminals[sessionId]
+      if (terminal) {
+        set({ terminals: { ...s.terminals, [sessionId]: { ...terminal, session: { ...terminal.session, exited: true } } } })
+        persistSessionSoon()
+      }
+      return
+    }
+    // A dead shell closes its pane — no zombie tabs (VS Code/upstream behavior).
     const panes: Record<string, Pane[]> = {}
     let ownerWt: string | null = null
     for (const [wt, list] of Object.entries(s.panes)) {
@@ -1082,9 +1887,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (fallback) activeTerminal[wt] = fallback
       }
     }
-    // exit ends the agent run: drop the row so the chip/Stop bar clears
-    const runningAgents = { ...s.runningAgents }
-    delete runningAgents[sessionId]
     terminalBus.dropSession(sessionId)
     set({
       panes,
@@ -1092,7 +1894,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       terminalOrder,
       activePane,
       activeTerminal,
-      runningAgents,
+      closeRequest: s.closeRequest?.sessionId === sessionId ? null : s.closeRequest,
       layouts
     })
     persistSessionSoon()
@@ -1112,53 +1914,70 @@ export const useAppStore = create<AppState>((set, get) => ({
   setError(err: string | null) {
     set({ error: err })
   },
-  applyAgentHook(sessionId: string, state: string, detail: string) {
-    set((s) => {
-      const agent = s.runningAgents[sessionId]
-      if (!agent) return {}
-      const known = ['working', 'permission', 'done', 'note'] as const
-      if (!known.includes(state as (typeof known)[number])) return {}
-      const runningAgents = { ...s.runningAgents, [sessionId]: { ...agent, state: state as (typeof known)[number], detail: detail || undefined } }
-      if (agent.state === state) return {}
-      persistSessionSoon()
+  applyAgentRun(run: RunningAgent) {
+    set((state) => ({
+      runningAgents: { ...state.runningAgents, [run.sessionId]: run }
+    }))
+  },
+
+  applyAgentDismissed(sessionId: string) {
+    const exitCode = get().runningAgents[sessionId]?.exitCode ?? 0
+    set((state) => {
+      const runningAgents = { ...state.runningAgents }
+      delete runningAgents[sessionId]
       return { runningAgents }
     })
+    get().applyTerminalExit(sessionId, exitCode)
   }
 }))
 
-/** Debounced workspace-session persist: per-repo slice of user intent only. */
-let persistTimer: ReturnType<typeof setTimeout> | undefined = undefined
 type WorkspaceSession = NonNullable<PersistedState['workspaceSession']>
-export function persistSessionSoon(): void {
-  clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => {
-    persistTimer = undefined
-    const s = useAppStore.getState()
-    if (!s.activeRepoId) return
-    const repos: WorkspaceSession['repos'] = {}
-    for (const r of s.repos) {
-      const wtPaths = new Set(r.worktrees.map((w) => w.path))
-      const pick = <T,>(rec: Record<string, T>): Record<string, T> =>
-        Object.fromEntries(Object.entries(rec).filter(([p]) => wtPaths.has(p)))
-      repos[r.repo.id] = {
-        panes: pick(s.panes),
-        activePane: pick(s.activePane),
-        activeTerminal: pick(s.activeTerminal),
-        terminalOrder: pick(s.terminalOrder),
-        layouts: pick(s.layouts),
-        activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
-      }
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let persistWrite: Promise<void> = Promise.resolve()
+
+async function saveWorkspaceSnapshot(): Promise<void> {
+  await ensureNavigationHistoryInitialized(async () => (await window.donwells.getWorkspaceSession())?.navigationHistory)
+  const s = useAppStore.getState()
+  const repos: WorkspaceSession['repos'] = {}
+  for (const r of s.repos) {
+    const wtPaths = new Set(r.worktrees.map((w) => w.path))
+    const pick = <T,>(rec: Record<string, T>): Record<string, T> =>
+      Object.fromEntries(Object.entries(rec).filter(([path]) => wtPaths.has(path)))
+    repos[r.repo.id] = {
+      panes: pick(s.panes), activePane: pick(s.activePane), activeTerminal: pick(s.activeTerminal),
+      terminalOrder: pick(s.terminalOrder), layouts: pick(s.layouts),
+      activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
     }
-    void window.orca.saveWorkspaceSession({
-      activeRepoId: s.activeRepoId,
-      repos,
-      runningAgents: s.runningAgents,
-      ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth }
-    })
+  }
+  const worktreePaths = new Set(s.repos.flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)))
+  const snapshot: WorkspaceSession = {
+    activeRepoId: s.activeRepoId,
+    navigationHistory: getPersistedNavigationHistory(),
+    repos,
+    workspaceNav: normalizeWorkspaceNavigation(s.workspaceNavigation, s.repos),
+    gitCommitDrafts: Object.fromEntries(Object.entries(s.gitCommitDrafts).filter(([path]) => worktreePaths.has(path))),
+    fileSearchMru: Object.fromEntries(Object.entries(s.fileSearchMru).filter(([path]) => worktreePaths.has(path))),
+    ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth }
+  }
+  persistWrite = persistWrite.catch(() => {}).then(() => window.donwells.saveWorkspaceSession(snapshot))
+  return persistWrite
+}
+
+export function persistSessionSoon(): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    void saveWorkspaceSnapshot().catch((error) => useAppStore.getState().setError(`Workspace save failed: ${String(error)}`))
   }, 400)
 }
 
-// Dev/E2E seam (Orca's own convention, REBUILD_SPEC §9): window.__store exposes
+export function flushWorkspaceSession(): Promise<void> {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = null
+  return saveWorkspaceSnapshot()
+}
+
+// Dev/E2E seam (upstream's own convention, REBUILD_SPEC §9): window.__store exposes
 // the live store for driving tests and debugging — never referenced by product code.
 declare global {
   interface Window {

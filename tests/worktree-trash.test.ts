@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, utimesSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, readdirSync, symlinkSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
@@ -12,7 +12,7 @@ function sh(cwd: string, ...args: string[]): void {
 }
 
 function makeRepo(): { root: string; path: string } {
-  const root = mkdtempSync(join(tmpdir(), 'orca-trash-'))
+  const root = mkdtempSync(join(tmpdir(), 'donwells-trash-'))
   const path = join(root, 'repo')
   mkdirSync(path)
   sh(path, 'init', '-b', 'main')
@@ -32,7 +32,7 @@ let git: GitWorktrees
 
 beforeEach(() => {
   cleanup.length = 0
-  storeDir = mkdtempSync(join(tmpdir(), 'orca-trash-store-'))
+  storeDir = mkdtempSync(join(tmpdir(), 'donwells-trash-store-'))
   trashDir = join(storeDir, 'trash')
   cleanup.push(storeDir)
   store = new Store(storeDir)
@@ -87,11 +87,16 @@ describe('worktree trash removal', () => {
     expect(existsSync(join(trashDir, trashed[0]!, 'uncommitted.txt'))).toBe(true)
   })
 
-  it('fence: main worktree removal is refused', async () => {
+  it('preserves the main worktree when forced removal targets a symlink alias', async () => {
     const { root, path } = makeRepo()
     cleanup.push(root)
     await git.addRepo(path)
-    await expect(git.removeWorktree(path, path)).rejects.toThrow(/main worktree/)
+    const alias = join(root, 'repo-alias')
+    symlinkSync(path, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    await expect(git.removeWorktree(path, alias, true)).rejects.toThrow()
+    expect(readFileSync(join(path, 'f.txt'), 'utf8')).toBe('one\n')
+    expect(existsSync(join(path, '.git'))).toBe(true)
+    expect(existsSync(trashDir)).toBe(false)
   })
 
   it('fence: witness check refuses a vanished path', () => {
@@ -127,7 +132,7 @@ describe('worktree trash removal', () => {
   })
 
   it('moveToTrash stamps unique destinations', () => {
-    const src = mkdtempSync(join(tmpdir(), 'orca-src-'))
+    const src = mkdtempSync(join(tmpdir(), 'donwells-src-'))
     cleanup.push(src)
     const a = moveToTrash(src, trashDir)
     expect(existsSync(a)).toBe(true)

@@ -1,7 +1,9 @@
-import { execFile } from 'node:child_process'
+import { requireLocalExecutionHost } from '@shared/child-process/execution-host'
+import { runProcess } from '@shared/child-process/run-process'
+import type { ExecutionHost } from '@shared/child-process/process-spec'
 
 export type WorktreePort = { port: number; pid: number; command: string }
-/** Orca ResourceUsageStatusSegment + ports segment data for one worktree. */
+/** upstream ResourceUsageStatusSegment + ports segment data for one worktree. */
 export type WorktreeScan = {
   ports: WorktreePort[]
   /** summed %cpu of worktree processes (instantaneous sample) */
@@ -12,12 +14,13 @@ export type WorktreeScan = {
 
 const MAX_PIDS = 40
 
-function exec(cmd: string, args: string[], timeout: number): Promise<string> {
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, maxBuffer: 1024 * 512 }, (err, stdout) => {
-      resolve(err ? '' : String(stdout))
-    })
-  })
+async function runProbe(program: string, args: string[], timeoutMs: number): Promise<string> {
+  try {
+    const result = await runProcess({ program, args, timeoutMs, maxOutputBytes: 512 * 1024 })
+    return result.stdout
+  } catch {
+    return ''
+  }
 }
 
 /** Parse `lsof -nP -iTCP -sTCP:LISTEN +c0` output → unique (pid, port, command). */
@@ -67,15 +70,22 @@ export function parsePsTable(out: string): Map<number, { cpu: number; rssKB: num
 
 /**
  * Ports + resource usage for ALL processes whose cwd is inside the worktree
- * (Orca's ports + resource status segments). Two single-pass system scans:
+ * (upstream's ports + resource status segments). Two single-pass system scans:
  * `ps -axo pid,%cpu,rss` and `lsof -d cwd` — no per-pid fan-out. Best-effort:
  * missing/sandboxed tools yield an empty scan.
  */
-export async function scanWorktree(worktreePath: string): Promise<WorktreeScan> {
-  const psTable = parsePsTable(await exec('ps', ['-axo', 'pid=,%cpu=,rss='], 4000))
+export async function scanWorktree(
+  worktreePath: string,
+  executionHost: ExecutionHost = { kind: 'local' }
+): Promise<WorktreeScan> {
+  requireLocalExecutionHost(executionHost)
+  // Windows exposes listeners, but not a reliable process cwd. Returning no
+  // ownership is safer than attributing an unrelated local process to a repo.
+  if (process.platform === 'win32') return { ports: [], cpuPercent: 0, memMB: 0 }
+  const psTable = parsePsTable(await runProbe('ps', ['-axo', 'pid=,%cpu=,rss='], 4000))
   if (psTable.size === 0) return { ports: [], cpuPercent: 0, memMB: 0 }
 
-  const cwds = parseLsofCwd(await exec('lsof', ['-d', 'cwd', '-Fn', '+c0'], 6000))
+  const cwds = parseLsofCwd(await runProbe('lsof', ['-d', 'cwd', '-Fn', '+c0'], 6000))
   const pids = [...cwds.entries()]
     .filter(([pid, cwd]) => psTable.has(pid) && (cwd === worktreePath || cwd.startsWith(worktreePath + '/')))
     .map(([pid]) => pid)
@@ -89,7 +99,7 @@ export async function scanWorktree(worktreePath: string): Promise<WorktreeScan> 
     memKB += u.rssKB
   }
 
-  const listeners = parseLsofListeners(await exec('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '+c0'], 4000))
+  const listeners = parseLsofListeners(await runProbe('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '+c0'], 4000))
   const byPort = new Map<number, WorktreePort>()
   for (const { pid, port, command } of listeners) {
     if (!pids.includes(pid)) continue

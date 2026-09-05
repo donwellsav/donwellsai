@@ -1,127 +1,405 @@
 import { useEffect, useRef, useState } from 'react'
-import { modelCache } from '../editor-models'
+import { effectiveEditorFontFamily, effectiveEditorFontSize } from '@shared/settings'
+import {
+  cacheEditorDocument,
+  getEditorDocument,
+  retainEditorDocument,
+  type EditorDocument
+} from '../editor-models'
+import {
+  captureEditorRecoveryViewState,
+  getDocumentViewState,
+  restoreEditorRecoveryViewState,
+  saveDocumentViewState
+} from '../document-view-state'
+import {
+  getEditorRecoveryController,
+  type EditorRecoveryPersistenceStatus
+} from '../editor-recovery'
+import { VersionedEditorSave, type EditorSaveSnapshot } from '../editor-save'
 import { monaco } from '../monaco-setup'
 import { isMarkdownFile, useAppStore } from '../store'
 import { MarkdownPreview } from './MarkdownPreview'
+import { ModalDialog } from './ModalDialog'
+
+const RECOVERY_CHECKPOINT_DELAY_MS = 180
 
 /**
- * One file, one pane: the tab strip lives in the pane title bar (Workbench);
- * this component is pure editor surface. Model cache survives pane remounts,
- * so undo history and agent writes land in place.
+ * One file, one pane. Its cached Monaco model and save controller outlive pane
+ * remounts so undo history, dirty text, and failed saves remain recoverable.
  */
 export function EditorPane({ worktreePath, relPath }: { worktreePath: string; relPath: string }) {
-  const preview = useAppStore((s) => s.previews[worktreePath]?.[relPath])
-  const fontSize = useAppStore((s) => s.settings.fontSize)
-  const fontFamily = useAppStore((s) => s.settings.fontFamily)
-  const editorWordWrap = useAppStore((s) => s.settings.editorWordWrap)
-  const editorMinimap = useAppStore((s) => s.settings.editorMinimap)
-  const editorTabSize = useAppStore((s) => s.settings.editorTabSize)
+  const preview = useAppStore((state) => state.previews[worktreePath]?.[relPath])
+  const navigation = useAppStore((state) => state.documentNavigation[worktreePath]?.[relPath])
+  const settings = useAppStore((state) => state.settings)
   const markdown = isMarkdownFile(relPath)
   const mode = markdown ? preview?.mode ?? 'edit' : 'edit'
-  const notePreviewContent = useAppStore((s) => s.notePreviewContent)
+  const recovery = getEditorRecoveryController()
   const hostRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
-  const modelRef = useRef<monaco.editor.ITextModel | null>(null)
-  const [saveState, setSaveState] = useState<'saving' | 'failed' | string>('')
-  const pendingRef = useRef<{ timer?: ReturnType<typeof setTimeout>; disposed: boolean }>({ disposed: false })
+  const documentRef = useRef<EditorDocument | null>(null)
+  const applyingModelChange = useRef(false)
+  const saveTimerRef = useRef<number | undefined>(undefined)
+  const recoveryTimerRef = useRef<number | undefined>(undefined)
+  const autoSaveRef = useRef({ mode: settings.editorAutoSaveMode, delay: settings.editorAutoSaveDelayMs })
+  const [saveState, setSaveState] = useState<EditorSaveSnapshot | null>(null)
+  const [recoveryStatus, setRecoveryStatus] = useState<EditorRecoveryPersistenceStatus>({ phase: 'idle' })
+  const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false)
+  autoSaveRef.current = { mode: settings.editorAutoSaveMode, delay: settings.editorAutoSaveDelayMs }
 
-  // mount / file swap
+  const scheduleAutoSave = (): void => {
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = undefined
+    if (autoSaveRef.current.mode !== 'after-delay') return
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = undefined
+      const editorDocument = getEditorDocument(worktreePath, relPath)
+      if (editorDocument) void editorDocument.save.flush()
+    }, autoSaveRef.current.delay)
+  }
+
+  const persistRecoveryCheckpoint = (
+    editorDocument: EditorDocument,
+    editor: monaco.editor.IStandaloneCodeEditor | null
+  ): Promise<void> => {
+    if (!editorDocument.save.isDirty()) return Promise.resolve()
+    const snapshot = editorDocument.save.snapshot()
+    if (!snapshot.revision) return Promise.resolve()
+    const captured = editor ? captureEditorRecoveryViewState(editor) : undefined
+    return recovery.checkpoint({
+      workspacePath: worktreePath,
+      relPath,
+      content: snapshot.content,
+      originalRevision: snapshot.revision,
+      bufferVersion: snapshot.bufferVersion,
+      ...(captured === undefined ? {} : { viewState: captured })
+    })
+  }
+
+  const scheduleRecoveryCheckpoint = (editorDocument: EditorDocument): void => {
+    window.clearTimeout(recoveryTimerRef.current)
+    recoveryTimerRef.current = window.setTimeout(() => {
+      recoveryTimerRef.current = undefined
+      void persistRecoveryCheckpoint(editorDocument, editorRef.current).catch(() => undefined)
+    }, RECOVERY_CHECKPOINT_DELAY_MS)
+  }
+
+  useEffect(() => {
+    const synchronize = (): void => {
+      const status = recovery.statusFor({ workspacePath: worktreePath, relPath })
+      const loadError = recovery.getSnapshot().error
+      setRecoveryStatus(status.phase === 'idle' && loadError ? { phase: 'error', error: loadError } : status)
+    }
+    synchronize()
+    return recovery.subscribe(synchronize)
+  }, [recovery, relPath, worktreePath])
+
+  // Store acknowledgements are intentionally absent from this dependency list;
+  // the source epoch observer below decides whether external text can be adopted.
   useEffect(() => {
     const host = hostRef.current
     if (!host || !preview || mode === 'preview') return
-    const uri = monaco.Uri.parse(`file://${worktreePath}/${preview.path}`)
-    let model = modelCache.get(uri.toString())
-    if (!model) {
-      model = monaco.editor.createModel(preview.content, undefined, uri)
-      modelCache.set(uri.toString(), model)
-    }
-    // cached model may be stale while the pane was closed — adopt store truth
-    if (model.getValue() !== preview.content) model.setValue(preview.content)
-    const editor = monaco.editor.create(host, {
-      model,
-      theme: 'donwells-dark',
-      fontSize,
-      fontFamily: fontFamily || "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
-      automaticLayout: true,
-      minimap: { enabled: editorMinimap ?? false },
-      wordWrap: editorWordWrap ?? 'off',
-      stickyScroll: { enabled: true },
-      guides: { indentation: true, bracketPairs: true, highlightActiveIndentation: true },
-      bracketPairColorization: { enabled: true },
-      smoothScrolling: true,
-      cursorSmoothCaretAnimation: 'on',
-      renderWhitespace: 'selection',
-      quickSuggestions: { other: true, comments: false, strings: true },
-      links: true,
-      scrollBeyondLastLine: false,
-      padding: { top: 8 },
-      renderLineHighlight: 'line',
-      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
-      fixedOverflowWidgets: true
-    })
-    editorRef.current = editor
-    modelRef.current = model
-    model.updateOptions({ tabSize: editorTabSize ?? 4 })
-    const pending = pendingRef.current
-    pending.disposed = false
-    const flush = () => {
-      pending.timer = undefined
-      const content = model.getValue()
-      setSaveState('saving')
-      void window.orca
-        .writeFile(worktreePath, relPath, content)
-        .then(() => {
-          notePreviewContent(worktreePath, relPath, content)
-          if (!pending.disposed) setSaveState(new Date().toLocaleTimeString('en-GB', { hour12: false }))
+    let cancelled = false
+    let disposeEditor: (() => void) | undefined
+
+    const mountEditor = async (): Promise<void> => {
+      let editorDocument = getEditorDocument(worktreePath, relPath)
+      let recovered = editorDocument ? undefined : await recovery.draftFor({ workspacePath: worktreePath, relPath })
+      if (cancelled) return
+      const diskPreview = useAppStore.getState().previews[worktreePath]?.[relPath] ?? preview
+      let latestRecoveryViewState = recovered?.viewState
+      let recoveryEditor: monaco.editor.IStandaloneCodeEditor | null = null
+
+      if (!editorDocument) {
+        const separator = worktreePath.endsWith('/') || worktreePath.endsWith('\\') ? '' : '/'
+        const uri = monaco.Uri.file(worktreePath + separator + diskPreview.path)
+        const model = monaco.editor.createModel(recovered?.content ?? diskPreview.content, undefined, uri)
+        const save = new VersionedEditorSave({
+          initial: diskPreview,
+          sourceEpoch: diskPreview.v,
+          initialBufferVersion: Math.max(
+            model.getVersionId(),
+            recovery.bufferVersionFloorFor({ workspacePath: worktreePath, relPath })
+          ),
+          ...(recovered === undefined ? {} : { recovery: recovered }),
+          write: (content, expectedRevision) => window.donwells.writeFile(worktreePath, relPath, content, expectedRevision),
+          onSaveAck: ({ saved, sourceEpoch, savedVersion, currentBufferVersion }) => {
+            useAppStore.getState().ackPreviewSave(worktreePath, relPath, saved, sourceEpoch)
+            window.clearTimeout(recoveryTimerRef.current)
+            recoveryTimerRef.current = undefined
+            if (savedVersion === currentBufferVersion) {
+              void recovery.acknowledgeSaved({ workspacePath: worktreePath, relPath }, savedVersion).catch(() => undefined)
+              return
+            }
+            if (!saved.revision) return
+            latestRecoveryViewState = recoveryEditor
+              ? captureEditorRecoveryViewState(recoveryEditor) ?? latestRecoveryViewState
+              : latestRecoveryViewState
+            void recovery.checkpoint({
+              workspacePath: worktreePath,
+              relPath,
+              content: model.getValue(),
+              originalRevision: saved.revision,
+              bufferVersion: currentBufferVersion,
+              ...(latestRecoveryViewState === undefined ? {} : { viewState: latestRecoveryViewState })
+            }).catch(() => undefined)
+          }
         })
-        .catch(() => {
-          if (!pending.disposed) setSaveState('failed')
-        })
+        editorDocument = {
+          model,
+          save,
+          recovery: {
+            waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath })
+          }
+        }
+        cacheEditorDocument(worktreePath, relPath, editorDocument)
+      } else {
+        editorDocument.recovery ??= {
+          waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath })
+        }
+        const update = editorDocument.save.observeExternal(diskPreview, diskPreview.v)
+        if (update === 'adopted' && editorDocument.model.getValue() !== diskPreview.content) {
+          applyingModelChange.current = true
+          try {
+            editorDocument.model.setValue(diskPreview.content)
+          } finally {
+            applyingModelChange.current = false
+          }
+        }
+      }
+
+      const releaseDocument = retainEditorDocument(worktreePath, relPath)
+      const editor = monaco.editor.create(host, {
+        model: editorDocument.model,
+        fontSize: effectiveEditorFontSize(settings),
+        fontFamily: effectiveEditorFontFamily(settings),
+        automaticLayout: true,
+        minimap: { enabled: settings.editorMinimap },
+        wordWrap: settings.editorWordWrap,
+        stickyScroll: { enabled: settings.editorStickyScroll },
+        guides: { indentation: true, bracketPairs: true, highlightActiveIndentation: true },
+        bracketPairColorization: { enabled: true },
+        smoothScrolling: true,
+        cursorSmoothCaretAnimation: 'on',
+        renderWhitespace: settings.editorRenderWhitespace,
+        quickSuggestions: { other: true, comments: false, strings: true },
+        links: true,
+        readOnly: !editorDocument.save.isWritable(),
+        scrollBeyondLastLine: false,
+        padding: { top: 8 },
+        renderLineHighlight: 'line',
+        scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        fixedOverflowWidgets: true
+      })
+      editorRef.current = editor
+      recoveryEditor = editor
+      documentRef.current = editorDocument
+      editorDocument.model.updateOptions({ tabSize: settings.editorTabSize })
+      const previousViewState = getDocumentViewState(worktreePath, relPath, 'edit')
+      if (previousViewState) editor.restoreViewState(previousViewState)
+      else if (recovered?.viewState) restoreEditorRecoveryViewState(editor, recovered.viewState)
+      latestRecoveryViewState = captureEditorRecoveryViewState(editor) ?? latestRecoveryViewState
+
+      if (navigation && navigation.mode !== 'preview' && navigation.line !== undefined) {
+        const lineNumber = Math.min(Math.max(1, navigation.line), editorDocument.model.getLineCount())
+        const column = Math.min(Math.max(1, navigation.column ?? 1), editorDocument.model.getLineMaxColumn(lineNumber))
+        const position = { lineNumber, column }
+        editor.setPosition(position)
+        editor.revealPositionInCenterIfOutsideViewport(position)
+      }
+
+      const stopStatus = editorDocument.save.subscribe((state) => {
+        setSaveState(state)
+        editor.updateOptions({ readOnly: !editorDocument.save.isWritable() })
+      })
+      const changes = editor.onDidChangeModelContent(() => {
+        if (applyingModelChange.current) return
+        if (!editorDocument.save.edit(editorDocument.model.getValue(), editorDocument.model.getVersionId())) return
+        scheduleRecoveryCheckpoint(editorDocument)
+        scheduleAutoSave()
+      })
+      const captureViewSoon = (): void => {
+        latestRecoveryViewState = captureEditorRecoveryViewState(editor) ?? latestRecoveryViewState
+        if (editorDocument.save.isDirty()) scheduleRecoveryCheckpoint(editorDocument)
+      }
+      const cursorChanges = editor.onDidChangeCursorSelection(captureViewSoon)
+      const scrollChanges = editor.onDidScrollChange(captureViewSoon)
+      const persistBeforeSuspend = (): void => {
+        if (!editorDocument.save.isDirty()) return
+        latestRecoveryViewState = captureEditorRecoveryViewState(editor) ?? latestRecoveryViewState
+        void persistRecoveryCheckpoint(editorDocument, editor).catch(() => undefined)
+      }
+      const persistWhenHidden = (): void => {
+        if (window.document.visibilityState === 'hidden') persistBeforeSuspend()
+      }
+      window.addEventListener('blur', persistBeforeSuspend)
+      window.document.addEventListener('visibilitychange', persistWhenHidden)
+
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = undefined
+        void editorDocument.save.flush()
+      })
+
+      disposeEditor = () => {
+        changes.dispose()
+        cursorChanges.dispose()
+        scrollChanges.dispose()
+        stopStatus()
+        window.removeEventListener('blur', persistBeforeSuspend)
+        window.document.removeEventListener('visibilitychange', persistWhenHidden)
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = undefined
+        window.clearTimeout(recoveryTimerRef.current)
+        recoveryTimerRef.current = undefined
+        const viewState = editor.saveViewState()
+        if (viewState) saveDocumentViewState(worktreePath, relPath, 'edit', viewState)
+        latestRecoveryViewState = captureEditorRecoveryViewState(editor) ?? latestRecoveryViewState
+        if (editorDocument.save.isDirty()) void persistRecoveryCheckpoint(editorDocument, editor).catch(() => undefined)
+        recoveryEditor = null
+        if (autoSaveRef.current.mode === 'after-delay' && editorDocument.save.isDirty()) void editorDocument.save.flush()
+        editor.dispose()
+        releaseDocument()
+        if (editorRef.current === editor) editorRef.current = null
+        if (documentRef.current === editorDocument) documentRef.current = null
+      }
     }
-    const sub = editor.onDidChangeModelContent(() => {
-      setSaveState('saving')
-      clearTimeout(pending.timer)
-      pending.timer = setTimeout(flush, 400)
-    })
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      clearTimeout(pending.timer)
-      flush()
+
+    void mountEditor().catch((error: unknown) => {
+      if (!cancelled) useAppStore.getState().setError('Editor recovery failed to initialize: ' + String(error))
     })
     return () => {
-      sub.dispose()
-      if (pending.timer !== undefined) {
-        // pane switched/closed mid-edit: flush now or keystrokes vanish
-        clearTimeout(pending.timer)
-        flush()
-      }
-      pending.disposed = true
-      editor.dispose()
-      editorRef.current = null
-      modelRef.current = null
+      cancelled = true
+      disposeEditor?.()
     }
+    // Settings update through updateOptions below; source epochs are observed below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worktreePath, relPath, mode])
 
-  // adopt agent IPC writes (equality guard kills the self-write loop)
+  // Agent/store writes are external epochs. Same-epoch acknowledgements are
+  // ignored, and a newer epoch never replaces a dirty model.
   useEffect(() => {
-    const model = modelRef.current
-    if (!model || !preview) return
-    if (model.getValue() !== preview.content) model.setValue(preview.content)
-  }, [preview])
+    if (!preview) return
+    const document = getEditorDocument(worktreePath, relPath)
+    if (!document) return
+    const update = document.save.observeExternal(preview, preview.v)
+    if (update !== 'adopted' || document.model.getValue() === preview.content) return
+    applyingModelChange.current = true
+    try {
+      document.model.setValue(preview.content)
+    } finally {
+      applyingModelChange.current = false
+    }
+  }, [worktreePath, relPath, preview])
 
-  // settings live-apply
+  // Settings live-apply without rebuilding the editor or its undo stack.
   useEffect(() => {
     editorRef.current?.updateOptions({
-      fontSize,
-      fontFamily: fontFamily || "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
-      wordWrap: editorWordWrap ?? 'off',
-      minimap: { enabled: editorMinimap ?? false }
+      fontSize: effectiveEditorFontSize(settings),
+      fontFamily: effectiveEditorFontFamily(settings),
+      wordWrap: settings.editorWordWrap,
+      minimap: { enabled: settings.editorMinimap },
+      stickyScroll: { enabled: settings.editorStickyScroll },
+      renderWhitespace: settings.editorRenderWhitespace
     })
-    modelRef.current?.updateOptions({ tabSize: editorTabSize ?? 4 })
-  }, [fontSize, fontFamily, editorWordWrap, editorMinimap, editorTabSize])
+    documentRef.current?.model.updateOptions({ tabSize: settings.editorTabSize })
+  }, [settings])
+
+  // Changing the save policy applies to an already-dirty cached document too.
+  useEffect(() => {
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = undefined
+    const document = getEditorDocument(worktreePath, relPath)
+    if (settings.editorAutoSaveMode === 'after-delay' && document?.save.isDirty()) scheduleAutoSave()
+    return () => {
+      window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = undefined
+    }
+    // scheduleAutoSave reads live refs and must not restart this effect per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, relPath, settings.editorAutoSaveDelayMs, settings.editorAutoSaveMode, worktreePath])
+
+  useEffect(() => {
+    if (!navigation || navigation.mode === 'preview' || mode === 'preview' || navigation.line === undefined) return
+    const editor = editorRef.current
+    const document = documentRef.current
+    if (!editor || !document) return
+    const lineNumber = Math.min(Math.max(1, navigation.line), document.model.getLineCount())
+    const column = Math.min(
+      Math.max(1, navigation.column ?? 1),
+      document.model.getLineMaxColumn(lineNumber)
+    )
+    const position = { lineNumber, column }
+    editor.setPosition(position)
+    editor.revealPositionInCenterIfOutsideViewport(position)
+    editor.focus()
+  }, [mode, navigation, relPath, worktreePath])
 
   if (!preview) return null
   const rendered = mode === 'preview'
+  const phase = saveState?.phase
+  const hasUnsaved = saveState !== null && saveState.bufferVersion !== saveState.savedVersion
+  const recoveryFailed = recoveryStatus.phase === 'error'
+  const recoveryPending = recoveryStatus.phase === 'pending'
+  const statusText = recoveryFailed
+    ? 'Recovery failed'
+    : phase === 'dirty'
+      ? recoveryStatus.phase === 'protected' ? 'Unsaved · Recoverable' : recoveryPending ? 'Protecting changes…' : 'Unsaved'
+      : phase === 'saving'
+        ? 'Saving…'
+        : phase === 'saved' && recoveryPending
+          ? 'Finalizing recovery…'
+          : phase === 'saved' && saveState?.savedAt !== undefined
+            ? 'Saved ' + new Date(saveState.savedAt).toLocaleTimeString('en-GB', { hour12: false })
+            : phase === 'failed'
+              ? 'Save failed'
+              : phase === 'conflict'
+                ? 'Save conflict'
+                : phase === 'readonly'
+                  ? saveState?.readOnlyReason === 'truncated'
+                    ? 'Read-only · truncated file prefix'
+                    : 'Read-only · safe save unavailable'
+                  : ''
+
+  const retrySave = (): void => {
+    const editorDocument = getEditorDocument(worktreePath, relPath)
+    if (editorDocument) void editorDocument.save.flush()
+  }
+
+  const retryRecovery = (): void => {
+    void recovery.retry({ workspacePath: worktreePath, relPath }).catch(() => undefined)
+  }
+
+  const reloadFromDisk = (): void => {
+    setReloadConfirmationOpen(false)
+    const editorDocument = getEditorDocument(worktreePath, relPath)
+    if (!editorDocument) return
+    window.clearTimeout(recoveryTimerRef.current)
+    recoveryTimerRef.current = undefined
+    const discardedVersion = editorDocument.save.snapshot().bufferVersion
+    const sourceEpoch = useAppStore.getState().previews[worktreePath]?.[relPath]?.v ?? editorDocument.save.snapshot().sourceEpoch
+    void window.donwells.readFile(worktreePath, relPath).then((file) => {
+      const currentEpoch = useAppStore.getState().previews[worktreePath]?.[relPath]?.v
+      if (currentEpoch !== undefined && currentEpoch !== sourceEpoch) {
+        editorDocument.save.reportReloadFailure('File changed again while reload was in progress.')
+        return
+      }
+      if (editorDocument.save.snapshot().bufferVersion !== discardedVersion) {
+        editorDocument.save.reportReloadFailure('The editor changed while reload was in progress; newer text was preserved.')
+        return
+      }
+      if (!editorDocument.save.reload(file, sourceEpoch)) return
+      applyingModelChange.current = true
+      try {
+        if (editorDocument.model.getValue() !== file.content) editorDocument.model.setValue(file.content)
+      } finally {
+        applyingModelChange.current = false
+      }
+      useAppStore.getState().ackPreviewSave(worktreePath, relPath, file, sourceEpoch)
+      void recovery.discardDocument({ workspacePath: worktreePath, relPath }, discardedVersion).catch(() => undefined)
+    }).catch((error: unknown) => editorDocument.save.reportReloadFailure(error))
+  }
+
   return (
     <div className="editor-pane">
       {rendered ? (
@@ -129,20 +407,32 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       ) : (
         <div className="editor-host" ref={hostRef} />
       )}
-      {(!rendered && (saveState || preview?.truncated)) && (
-        <span
-          className={`editor-status-chip${saveState === 'failed' ? ' failed' : ''}`}
-          title={saveState === 'failed' ? 'Could not write the file — see logs' : undefined}
+      {!rendered && statusText && (
+        <div
+          className={`editor-status-chip${recoveryFailed || phase === 'failed' || phase === 'conflict' || (phase === 'readonly' && hasUnsaved) ? ' failed' : ''}`}
+          title={recoveryStatus.error ?? saveState?.error}
         >
-          {saveState === 'saving'
-            ? 'saving…'
-            : saveState === 'failed'
-              ? 'save failed'
-              : saveState
-                ? `saved ${saveState}`
-                : null}
-          {preview.truncated && saveState === '' ? 'read cap 512 KiB' : null}
-        </span>
+          <span role="status" aria-live="polite">{statusText}</span>
+          {phase === 'failed' && (
+            <button type="button" className="editor-status-action" onClick={retrySave}>Retry save</button>
+          )}
+          {recoveryFailed && (
+            <button type="button" className="editor-status-action" onClick={retryRecovery}>Retry recovery</button>
+          )}
+          {(phase === 'failed' || phase === 'conflict' || (phase === 'readonly' && hasUnsaved)) && (
+            <button type="button" className="editor-status-action" onClick={() => setReloadConfirmationOpen(true)}>Reload</button>
+          )}
+        </div>
+      )}
+      {reloadConfirmationOpen && (
+        <ModalDialog className="modal delete-modal" labelledBy="editor-reload-title" onClose={() => setReloadConfirmationOpen(false)}>
+          <h3 id="editor-reload-title" className="modal-title">Discard unsaved changes?</h3>
+          <p>Reloading <strong>{relPath}</strong> replaces the editor buffer with the current file from disk.</p>
+          <div className="modal-actions">
+            <button type="button" className="btn" onClick={() => setReloadConfirmationOpen(false)}>Cancel</button>
+            <button type="button" className="btn btn-danger" onClick={reloadFromDisk}>Discard and reload</button>
+          </div>
+        </ModalDialog>
       )}
     </div>
   )

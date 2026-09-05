@@ -1,28 +1,166 @@
-import { app } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AppSettings, PersistedState, Repo } from '@shared/types'
+import { app } from 'electron'
+import {
+  SETTINGS_SCHEMA_VERSION,
+  resolveSettings,
+  settingsKeysForSection,
+  sparseSettings,
+  validateSettingsPatch,
+  validateSettingsResetRequest
+} from '@shared/settings'
+import type { AppSettings, PersistedState, Repo, SettingKey, SettingsResetRequest } from '@shared/types'
 
 const FILE = 'donwells-data.json'
-export const DEFAULT_SETTINGS: AppSettings = {
+
+const LEGACY_DEFAULT_SETTINGS: Record<string, unknown> = {
   agentCommand: 'codex',
   theme: 'dark',
   fontSize: 13,
-  statusPollMs: 5000,
+  fontFamily: '',
+  cursorStyle: 'block',
+  cursorBlink: true,
   scrollback: 10000,
   copyOnSelect: false,
-  terminalTheme: 'tomorrow-night'
+  terminalTheme: 'tomorrow-night',
+  editorWordWrap: 'off',
+  editorMinimap: false,
+  editorTabSize: 4,
+  markdownPreviewDefault: false,
+  statusPollMs: 5000
 }
-const DEFAULT_STATE: PersistedState = {
-  schemaVersion: 1,
-  repos: [],
-  settings: { agentCommand: 'codex' }
+
+const LEGACY_SETTING_KEYS: Record<string, true> = {
+  agentCommand: true,
+  theme: true,
+  fontSize: true,
+  fontFamily: true,
+  cursorStyle: true,
+  cursorBlink: true,
+  scrollback: true,
+  copyOnSelect: true,
+  terminalTheme: true,
+  editorWordWrap: true,
+  editorMinimap: true,
+  editorTabSize: true,
+  markdownPreviewDefault: true,
+  statusPollMs: true
+}
+
+export type StoreLoadErrorKind = 'corrupt' | 'unsupported-schema' | 'read'
+
+export class StoreLoadError extends Error {
+  readonly kind: StoreLoadErrorKind
+  readonly path: string
+
+  constructor(kind: StoreLoadErrorKind, path: string, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = 'StoreLoadError'
+    this.kind = kind
+    this.path = path
+  }
+}
+
+type LoadedState = { state: PersistedState; migrated: boolean }
+
+
+function validateRepos(value: unknown, path: string): Repo[] {
+  if (!Array.isArray(value)) throw new StoreLoadError('corrupt', path, 'Persisted repos must be an array')
+  for (const repo of value) {
+    if (typeof repo !== 'object' || repo === null || Array.isArray(repo)) {
+      throw new StoreLoadError('corrupt', path, 'Persisted repo must be an object')
+    }
+    if (!('id' in repo) || typeof repo.id !== 'string'
+      || !('path' in repo) || typeof repo.path !== 'string'
+      || !('addedAt' in repo) || typeof repo.addedAt !== 'string') {
+      throw new StoreLoadError('corrupt', path, 'Persisted repo fields are invalid')
+    }
+  }
+  return structuredClone(value)
+}
+
+function validateOptionalOwnedState(envelope: Record<string, unknown>, path: string): void {
+  const retiredNames = envelope.retiredNames
+  if (retiredNames !== undefined) {
+    if (typeof retiredNames !== 'object' || retiredNames === null || Array.isArray(retiredNames)) {
+      throw new StoreLoadError('corrupt', path, 'Persisted retired names must be an object')
+    }
+    for (const names of Object.values(retiredNames)) {
+      if (!Array.isArray(names) || names.some((name) => typeof name !== 'string')) {
+        throw new StoreLoadError('corrupt', path, 'Persisted retired names are invalid')
+      }
+    }
+  }
+
+  const lineage = envelope.worktreeLineage
+  if (lineage !== undefined) {
+    if (typeof lineage !== 'object' || lineage === null || Array.isArray(lineage)) {
+      throw new StoreLoadError('corrupt', path, 'Persisted worktree lineage must be an object')
+    }
+    for (const branches of Object.values(lineage)) {
+      if (typeof branches !== 'object' || branches === null || Array.isArray(branches)
+        || Object.values(branches).some((base) => typeof base !== 'string')) {
+        throw new StoreLoadError('corrupt', path, 'Persisted worktree lineage is invalid')
+      }
+    }
+  }
+
+  const workspaceSession = envelope.workspaceSession
+  if (workspaceSession !== undefined
+    && (typeof workspaceSession !== 'object' || workspaceSession === null || Array.isArray(workspaceSession))) {
+    throw new StoreLoadError('corrupt', path, 'Persisted workspace session must be an object')
+  }
+}
+
+function migrateLegacySettings(value: unknown, path: string): Partial<AppSettings> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new StoreLoadError('corrupt', path, 'Persisted settings must be an object')
+  }
+  const legacy = value as Record<string, unknown>
+  for (const key of Object.keys(legacy)) {
+    if (!Object.hasOwn(LEGACY_SETTING_KEYS, key)) {
+      throw new StoreLoadError('corrupt', path, `Unknown legacy setting: ${key}`)
+    }
+  }
+  const effective = { ...LEGACY_DEFAULT_SETTINGS, ...legacy }
+  if (effective.theme !== 'dark') {
+    throw new StoreLoadError('corrupt', path, 'Legacy theme must be dark')
+  }
+  try {
+    return sparseSettings(resolveSettings({
+      agentCommand: effective.agentCommand,
+      theme: 'dark',
+      terminalFontSize: effective.fontSize,
+      terminalFontFamily: effective.fontFamily,
+      cursorStyle: effective.cursorStyle,
+      cursorBlink: effective.cursorBlink,
+      scrollback: effective.scrollback,
+      copyOnSelect: effective.copyOnSelect,
+      terminalTheme: effective.terminalTheme,
+      editorWordWrap: effective.editorWordWrap,
+      editorMinimap: effective.editorMinimap,
+      editorTabSize: effective.editorTabSize,
+      markdownPreviewDefault: effective.markdownPreviewDefault,
+      statusPollMs: effective.statusPollMs
+    }))
+  } catch (error) {
+    throw new StoreLoadError('corrupt', path, 'Legacy settings contain an invalid value', error)
+  }
 }
 
 /**
- * Lite persistence: one JSON file in userData, atomic rename writes.
- * Deliberately stores only user intent (added repos, settings) — all worktree
- * state is derived live from git, mirroring Orca's "filesystem is truth" model.
+ * Persists user-owned state in one versioned JSON envelope. Settings stay as
+ * sparse overrides; getters resolve them against the canonical defaults.
  */
 export class Store {
   /** Absolute path of the backing JSON file (public for tests/tools). */
@@ -31,55 +169,132 @@ export class Store {
 
   constructor(userDataDir?: string) {
     this.path = join(userDataDir ?? app.getPath('userData'), FILE)
-    this.state = this.load()
+    const loaded = this.load()
+    if (loaded.migrated) this.writeState(loaded.state)
+    this.state = loaded.state
   }
 
-  private load(): PersistedState {
+  private load(): LoadedState {
+    let raw: string
     try {
-      const raw = readFileSync(this.path, 'utf8')
-      const parsed = JSON.parse(raw)
-      if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.repos)) return structuredClone(DEFAULT_STATE)
-      return { ...structuredClone(DEFAULT_STATE), ...parsed }
-    } catch {
-      return structuredClone(DEFAULT_STATE)
+      raw = readFileSync(this.path, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return {
+          state: { schemaVersion: SETTINGS_SCHEMA_VERSION, repos: [], settings: {} },
+          migrated: false
+        }
+      }
+      throw new StoreLoadError('read', this.path, 'Could not read persisted state', error)
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (error) {
+      throw new StoreLoadError('corrupt', this.path, 'Persisted state is not valid JSON', error)
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new StoreLoadError('corrupt', this.path, 'Persisted state must be an object')
+    }
+    const envelope = parsed as Record<string, unknown>
+    const schemaVersion = envelope.schemaVersion
+    if (!Number.isInteger(schemaVersion)) {
+      throw new StoreLoadError('corrupt', this.path, 'Persisted schema version is invalid')
+    }
+    if (schemaVersion !== 1 && schemaVersion !== SETTINGS_SCHEMA_VERSION) {
+      throw new StoreLoadError('unsupported-schema', this.path, `Unsupported persisted schema version: ${String(schemaVersion)}`)
+    }
+
+    const repos = validateRepos(envelope.repos, this.path)
+    validateOptionalOwnedState(envelope, this.path)
+    let settings: Partial<AppSettings>
+    if (schemaVersion === 1) {
+      settings = migrateLegacySettings(envelope.settings, this.path)
+    } else {
+      try {
+        settings = sparseSettings(resolveSettings(envelope.settings))
+      } catch (error) {
+        throw new StoreLoadError('corrupt', this.path, 'Persisted settings contain an invalid value', error)
+      }
+    }
+
+    const state = structuredClone(envelope) as PersistedState
+    state.schemaVersion = SETTINGS_SCHEMA_VERSION
+    state.repos = repos
+    state.settings = settings
+    return { state, migrated: schemaVersion === 1 }
+  }
+
+  /** Write a complete next snapshot before publishing it to in-memory readers. */
+  private writeState(next: PersistedState): void {
+    const dir = dirname(this.path)
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const tmp = `${this.path}.${process.pid}.${randomUUID()}.tmp`
+    let fd: number | undefined
+    try {
+      fd = openSync(tmp, 'wx', 0o600)
+      writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+      fsyncSync(fd)
+      closeSync(fd)
+      fd = undefined
+      renameSync(tmp, this.path)
+    } catch (error) {
+      if (fd !== undefined) closeSync(fd)
+      rmSync(tmp, { force: true })
+      throw error
+    }
+
+    if (process.platform !== 'win32') {
+      let dirFd: number | undefined
+      try {
+        dirFd = openSync(dir, 'r')
+        fsyncSync(dirFd)
+      } catch {
+        // Directory fsync is not supported by every Unix filesystem. The file
+        // contents were already flushed and atomically renamed above.
+      } finally {
+        if (dirFd !== undefined) closeSync(dirFd)
+      }
     }
   }
 
-  /** Atomic-ish save: write temp file then rename over target. */
-  private save(): void {
-    mkdirSync(dirname(this.path), { recursive: true })
-    const tmp = `${this.path}.tmp`
-    writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8')
-    renameSync(tmp, this.path)
+  private commit(next: PersistedState): void {
+    this.writeState(next)
+    this.state = next
   }
 
   listRepos(): Repo[] {
-    return this.state.repos
+    return structuredClone(this.state.repos)
   }
 
   addRepo(repo: Repo): void {
-    if (this.state.repos.some((r) => r.id === repo.id)) return
-    this.state.repos.push(repo)
-    this.save()
+    if (this.state.repos.some((candidate) => candidate.id === repo.id)) return
+    const next = structuredClone(this.state)
+    next.repos.push(structuredClone(repo))
+    this.commit(next)
   }
 
   removeRepo(repoId: string): void {
-    this.state.repos = this.state.repos.filter((r) => r.id !== repoId)
-    delete this.state.retiredNames?.[repoId]
-    this.save()
+    const next = structuredClone(this.state)
+    next.repos = next.repos.filter((repo) => repo.id !== repoId)
+    delete next.retiredNames?.[repoId]
+    this.commit(next)
   }
 
   /** Retired worktree names for a repo (empty set when none). */
   getRetiredNames(repoId: string): Set<string> {
     return new Set(this.state.retiredNames?.[repoId] ?? [])
   }
+
   /** Monotonic retirement: union the given names into the repo's registry. */
   retireNames(repoId: string, names: Iterable<string>): void {
-    if (!this.state.retiredNames) this.state.retiredNames = {}
-    const set = new Set(this.state.retiredNames[repoId] ?? [])
-    for (const n of names) set.add(n)
-    this.state.retiredNames[repoId] = [...set].sort()
-    this.save()
+    const next = structuredClone(this.state)
+    if (!next.retiredNames) next.retiredNames = {}
+    const retired = new Set(next.retiredNames[repoId] ?? [])
+    for (const name of names) retired.add(name)
+    next.retiredNames[repoId] = [...retired].sort()
+    this.commit(next)
   }
 
   /** Worktree lineage for a repo (branch → base at creation). */
@@ -88,40 +303,52 @@ export class Store {
   }
 
   setLineage(repoId: string, lineage: Record<string, string>): void {
-    if (!this.state.worktreeLineage) this.state.worktreeLineage = {}
-    this.state.worktreeLineage[repoId] = lineage
-    this.save()
+    const next = structuredClone(this.state)
+    if (!next.worktreeLineage) next.worktreeLineage = {}
+    next.worktreeLineage[repoId] = structuredClone(lineage)
+    this.commit(next)
   }
+
   getWorkspaceSession(): PersistedState['workspaceSession'] {
-    return this.state.workspaceSession
+    return structuredClone(this.state.workspaceSession)
   }
 
-  setWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): void {
-    this.state.workspaceSession = ws
-    this.save()
-  }
-
-  getAgentCommand(): string {
-    return this.getSettings().agentCommand
-  }
-
-  setAgentCommand(command: string): void {
-    this.state.settings.agentCommand = command
-    this.save()
+  setWorkspaceSession(workspaceSession: NonNullable<PersistedState['workspaceSession']>): void {
+    const next = structuredClone(this.state)
+    next.workspaceSession = structuredClone(workspaceSession)
+    this.commit(next)
   }
 
   getSettings(): AppSettings {
-    return { ...DEFAULT_SETTINGS, ...this.state.settings }
+    return resolveSettings(this.state.settings)
   }
 
-  updateSettings(patch: Partial<AppSettings>): AppSettings {
-    this.state.settings = { ...this.getSettings(), ...patch }
-    this.save()
-    return this.state.settings as AppSettings
+  updateSettings(patch: unknown): AppSettings {
+    const validated = validateSettingsPatch(patch)
+    const settings = resolveSettings({ ...this.state.settings, ...validated })
+    const next = structuredClone(this.state)
+    next.settings = sparseSettings(settings)
+    this.commit(next)
+    return structuredClone(settings)
+  }
+
+  resetSettings(request: SettingsResetRequest): AppSettings {
+    const validated = validateSettingsResetRequest(request)
+    const keys: readonly SettingKey[] = 'keys' in validated
+      ? validated.keys
+      : settingsKeysForSection(validated.section)
+    if (keys.length === 0) return this.getSettings()
+
+    const overrides = { ...this.state.settings }
+    for (const key of keys) delete overrides[key]
+    const next = structuredClone(this.state)
+    next.settings = sparseSettings(resolveSettings(overrides))
+    this.commit(next)
+    return this.getSettings()
   }
 }
 
 /** Stable id from an absolute path. */
-export function idFromPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '').replace(/[^a-zA-Z0-9._/-]/g, '_')
+export function idFromPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '').replace(/[^a-zA-Z0-9._/-]/g, '_')
 }
