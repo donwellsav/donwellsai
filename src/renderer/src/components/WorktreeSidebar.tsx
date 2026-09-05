@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import type { RepoSummary, Worktree, WorktreeStatus } from '@shared/types'
 import { appCommand, appCommandPlatform, formatAppShortcut } from '@shared/app-commands'
 import type { AppCommandId } from '@shared/app-commands'
@@ -15,6 +15,9 @@ import {
 import { Icon } from './Icon'
 
 type WorkspaceEntry = { repo: RepoSummary; worktree: Worktree }
+
+const MIN_SIDEBAR_WIDTH = 240
+const MAX_SIDEBAR_WIDTH = 340
 
 function gitStatusLabel(status: WorktreeStatus | undefined, folder: boolean): string {
   if (folder) return 'Folder workspace — source control is not enabled'
@@ -56,11 +59,15 @@ function StatusLane({ entry }: { entry: WorkspaceEntry }) {
 function WorkspaceActions({
   entry,
   navigation,
+  menuRef,
+  onKeyDown,
   onRename,
   onClose
 }: {
   entry: WorkspaceEntry
   navigation: WorkspaceNavigationState
+  menuRef: RefObject<HTMLDivElement | null>
+  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onRename: () => void
   onClose: () => void
 }) {
@@ -73,7 +80,7 @@ function WorkspaceActions({
   }
 
   return (
-    <div className="workspace-actions-menu" role="menu" aria-label={`Actions for ${pathBasename(path)}`}>
+    <div ref={menuRef} className="workspace-actions-menu" role="menu" aria-label={`Actions for ${pathBasename(path)}`} onKeyDown={onKeyDown}>
       <button role="menuitem" onClick={() => run(() => useAppStore.getState().toggleWorkspacePinned(path))}>
         {pinned ? 'Unpin workspace' : 'Pin workspace'}
       </button>
@@ -113,6 +120,38 @@ function WorktreeCardRow({
   const folder = entry.repo.repo.kind === 'folder'
   const branch = status?.branch || entry.worktree.branch
   const pinned = navigation.pinnedPaths.includes(path)
+  const actionTriggerRef = useRef<HTMLButtonElement>(null)
+  const actionMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!actionOpen) return
+    const frame = requestAnimationFrame(() => actionMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [actionOpen])
+
+  const handleActionMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setActionOpen(false)
+      requestAnimationFrame(() => actionTriggerRef.current?.focus())
+      return
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+    if (!items.length) return
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? items.length - 1
+        : event.key === 'ArrowDown'
+          ? (current + 1) % items.length
+          : (current - 1 + items.length) % items.length
+    event.preventDefault()
+    event.stopPropagation()
+    items[nextIndex]?.focus()
+  }
 
   const commitRename = (): void => {
     useAppStore.getState().renameWorkspace(path, draft)
@@ -121,12 +160,27 @@ function WorktreeCardRow({
 
   return (
     <div className={`wt-card${active ? ' active' : ''}${actionOpen ? ' menu-open' : ''}`} data-worktree-card-active={active || undefined}>
-      <button
+      <div
         className="wt-card-main"
-        data-workspace-row
+        role={renaming ? undefined : 'button'}
+        tabIndex={renaming ? -1 : 0}
+        data-workspace-row={renaming ? undefined : true}
         aria-current={active ? 'page' : undefined}
         title={path}
-        onClick={() => useAppStore.getState().setActiveWorktree(path)}
+        onClick={() => {
+          if (!renaming) useAppStore.getState().setActiveWorktree(path)
+        }}
+        onKeyDown={(event) => {
+          if (renaming) return
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            useAppStore.getState().setActiveWorktree(path)
+          } else if (event.key === 'F2') {
+            event.preventDefault()
+            setDraft(displayName)
+            setRenaming(true)
+          }
+        }}
         onDoubleClick={() => {
           setDraft(displayName)
           setRenaming(true)
@@ -160,17 +214,18 @@ function WorktreeCardRow({
               <>
                 <Icon name="git" size={10} />
                 <span className="wt-branch">{entry.worktree.detached ? `detached ${entry.worktree.head?.slice(0, 8) ?? ''}` : branch || 'branch unavailable'}</span>
-                {entry.worktree.isMain && <span className="badge">main</span>}
               </>
             )}
           </span>
         </span>
         {pinned && <span className="workspace-pin" title="Pinned" aria-label="Pinned">•</span>}
-      </button>
+      </div>
       <button
+        ref={actionTriggerRef}
         className="ws-icon-btn workspace-more"
         aria-label={`Workspace actions for ${displayName}`}
         aria-expanded={actionOpen}
+        aria-haspopup="menu"
         onClick={() => setActionOpen(!actionOpen)}
       >
         ···
@@ -179,6 +234,8 @@ function WorktreeCardRow({
         <WorkspaceActions
           entry={entry}
           navigation={navigation}
+          menuRef={actionMenuRef}
+          onKeyDown={handleActionMenuKeyDown}
           onRename={() => {
             setDraft(displayName)
             setRenaming(true)
@@ -194,23 +251,20 @@ function RepoSection({
   repo,
   entries,
   navigation,
-  query,
   actionPath,
   setActionPath
 }: {
   repo: RepoSummary
   entries: WorkspaceEntry[]
   navigation: WorkspaceNavigationState
-  query: string
   actionPath: string | null
   setActionPath: (path: string | null) => void
 }) {
   const activeWorktreePath = useAppStore((state) => state.activeWorktreePath)
-  const collapsed = !query && navigation.collapsedRepoIds.includes(repo.repo.id)
+  const collapsed = navigation.collapsedRepoIds.includes(repo.repo.id)
   const folder = repo.repo.kind === 'folder'
   const repoLabel = pathBasename(repo.repo.path)
 
-  if (!entries.length && query) return null
   return (
     <section className="repo-section" aria-label={repoLabel}>
       <div className="section-header">
@@ -224,7 +278,7 @@ function RepoSection({
           <span className="section-icon">{folder ? <Icon name="dir" size={10} /> : repoLabel.slice(0, 2).toUpperCase()}</span>
           <span className="section-copy">
             <span className="section-title" title={repo.repo.path}>{repoLabel}</span>
-            <span className="section-count">{entries.length} {entries.length === 1 ? 'workspace' : 'workspaces'}</span>
+            {entries.length > 1 && <span className="section-count">{entries.length} workspaces</span>}
           </span>
         </button>
         {!folder && (
@@ -281,17 +335,17 @@ export function WorktreeSidebar() {
   const sidebarWidth = useAppStore((state) => state.sidebarWidth)
   const settings = useAppStore((state) => state.settings)
   const runsOpen = useAppStore((state) => state.runsOpen)
-  const runsSection = useAppStore((state) => state.runsSection)
   const platform = appCommandPlatform(navigator.platform || navigator.userAgent)
   const shortcutFor = (id: AppCommandId): string | null => {
     const chord = settings.keyboardShortcutOverrides[id] ?? appCommand(id)?.defaultAccelerators[0]
     return chord ? formatAppShortcut(chord, platform) : null
   }
-  const [query, setQuery] = useState('')
   const activeWorktreePath = useAppStore((state) => state.activeWorktreePath)
   const [actionPath, setActionPath] = useState<string | null>(null)
+  const sidebarRef = useRef<HTMLDivElement>(null)
   const [showHidden, setShowHidden] = useState(false)
-  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const maxSidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.3)))
+  const visibleSidebarWidth = Math.min(maxSidebarWidth, Math.max(MIN_SIDEBAR_WIDTH, sidebarWidth))
 
   const entriesByPath = useMemo(() => {
     const entries = new Map<string, WorkspaceEntry>()
@@ -303,30 +357,50 @@ export function WorktreeSidebar() {
 
   const orderedEntries = orderedWorkspacePaths(repos, navigation)
     .flatMap((path) => entriesByPath.get(path) ?? [])
-  const matches = (entry: WorkspaceEntry): boolean => {
-    if (!normalizedQuery) return true
-    const path = entry.worktree.path
-    return [
-      navigation.renames[path],
-      pathBasename(path),
-      path,
-      entry.worktree.branch,
-      pathBasename(entry.repo.repo.path),
-      entry.repo.repo.path
-    ].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
-  }
-  const visibleEntries = orderedEntries.filter((entry) => !navigation.hiddenPaths.includes(entry.worktree.path) && matches(entry))
+  const visibleEntries = orderedEntries.filter((entry) => !navigation.hiddenPaths.includes(entry.worktree.path))
   const pinnedEntries = visibleEntries.filter((entry) => navigation.pinnedPaths.includes(entry.worktree.path))
   const hiddenEntries = orderedEntries.filter((entry) => navigation.hiddenPaths.includes(entry.worktree.path))
   const attentionCount = Object.values(runningAgents).filter(agentNeedsAttention).length
-  const hasGitProjects = repos.some((repo) => repo.repo.kind !== 'folder')
+  useEffect(() => {
+    if (!actionPath) return
+    const dismissOutside = (event: PointerEvent): void => {
+      if (sidebarRef.current && !event.composedPath().includes(sidebarRef.current)) setActionPath(null)
+    }
+    const dismissFromKeyboard = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Escape') setActionPath(null)
+    }
+    const dismissFromBlur = (): void => setActionPath(null)
+    document.addEventListener('pointerdown', dismissOutside)
+    document.addEventListener('keydown', dismissFromKeyboard)
+    window.addEventListener('blur', dismissFromBlur)
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside)
+      document.removeEventListener('keydown', dismissFromKeyboard)
+      window.removeEventListener('blur', dismissFromBlur)
+    }
+  }, [actionPath])
+  const resizeTo = (nextWidth: number): void => {
+    useAppStore.getState().setSidebarWidth(Math.min(maxSidebarWidth, Math.max(MIN_SIDEBAR_WIDTH, nextWidth)))
+  }
+
+  const resizeFromKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const step = event.shiftKey ? 48 : 16
+    let nextWidth: number | undefined
+    if (event.key === 'Home') nextWidth = MIN_SIDEBAR_WIDTH
+    else if (event.key === 'End') nextWidth = maxSidebarWidth
+    else if (event.key === 'ArrowLeft') nextWidth = visibleSidebarWidth - step
+    else if (event.key === 'ArrowRight') nextWidth = visibleSidebarWidth + step
+    if (nextWidth === undefined) return
+    event.preventDefault()
+    resizeTo(nextWidth)
+  }
 
   const handleKeyboardNavigation = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (event.target instanceof HTMLInputElement) return
+    if (!(event.target instanceof HTMLElement) || !event.target.closest('[data-workspace-row]')) return
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-workspace-row]'))
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-workspace-row]'))
     if (!rows.length) return
-    const current = rows.indexOf(document.activeElement as HTMLButtonElement)
+    const current = rows.indexOf(document.activeElement as HTMLElement)
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
@@ -340,44 +414,24 @@ export function WorktreeSidebar() {
 
   return (
     <div
+      ref={sidebarRef}
+      id="workspace-sidebar"
       className="sidebar"
-      style={{ width: sidebarWidth }}
+      style={{ width: visibleSidebarWidth }}
       onKeyDown={handleKeyboardNavigation}
       onMouseDown={(event) => {
         if (!(event.target as HTMLElement).closest('.workspace-actions-menu, .workspace-more')) setActionPath(null)
       }}
     >
       <div className="sidebar-nav">
-        <label className="workspace-search">
-          <Icon name="search" size={14} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter workspaces" aria-label="Filter workspaces" />
-          {query && <button aria-label="Clear workspace filter" onClick={() => setQuery('')}><Icon name="x" size={11} /></button>}
-        </label>
-        <div className="sidebar-shortcuts">
-          <button className="nav-entry" disabled={!activeWorktreePath || runsOpen} title={!activeWorktreePath || runsOpen ? 'Open a workspace to browse files.' : 'Quick Open files'} onClick={() => dispatchAppCommand('quick-open')}>
-            <Icon name="file" size={14} className="nav-entry-icon" /><span>Files</span><kbd>{shortcutFor('quick-open')}</kbd>
-          </button>
-          <button className="nav-entry" onClick={() => dispatchAppCommand('command-palette')}>
-            <Icon name="search" size={14} className="nav-entry-icon" /><span>Commands</span><kbd>{shortcutFor('command-palette')}</kbd>
-          </button>
-        </div>
-        <div className="sidebar-shortcuts">
-          <button className="nav-entry" aria-current={runsOpen && runsSection === 'agents' ? 'page' : undefined} onClick={() => useAppStore.getState().openRuns('agents')}>
-            <Icon name="activity" size={14} className="nav-entry-icon" /><span>Agents</span>
-            {attentionCount > 0 && <span className="nav-entry-badge" title="Sessions needing attention" aria-label={`${attentionCount} need attention`}>{attentionCount}</span>}
-          </button>
-          <button className="nav-entry" aria-current={runsOpen && runsSection !== 'agents' ? 'page' : undefined} onClick={() => useAppStore.getState().openRuns('orchestration')}>
-            <Icon name="clock" size={14} className="nav-entry-icon" /><span>Runs</span>
-          </button>
-        </div>
+        <button className="nav-entry" aria-current={!activeWorktreePath && !runsOpen ? 'page' : undefined} onClick={() => useAppStore.getState().setActiveRepo(null)}><Icon name="dir" size={14} /><span>Projects</span></button>
       </div>
 
       <div className="sidebar-scroll">
-        <div className="sidebar-section-title"><span>Workspaces</span><span>{visibleEntries.length}</span></div>
         {repos.length === 0 ? (
-          <div className="empty-note">No workspaces yet.<br />Add any folder or Git repository.</div>
+          <div className="empty-note">No projects yet. Choose Projects to create or open one.</div>
         ) : visibleEntries.length === 0 ? (
-          <div className="empty-note">{normalizedQuery ? 'No workspaces match this filter.' : 'All workspaces are hidden.'}</div>
+          <div className="empty-note">All workspaces are hidden.</div>
         ) : (
           <>
             {pinnedEntries.length > 0 && (
@@ -401,7 +455,6 @@ export function WorktreeSidebar() {
                 repo={repo}
                 entries={visibleEntries.filter((entry) => entry.repo.repo.id === repo.repo.id && !navigation.pinnedPaths.includes(entry.worktree.path))}
                 navigation={navigation}
-                query={normalizedQuery}
                 actionPath={actionPath}
                 setActionPath={setActionPath}
               />
@@ -411,31 +464,32 @@ export function WorktreeSidebar() {
       </div>
 
       <div className="sidebar-toolbar">
-        <button className="ws-icon-btn" title={hasGitProjects ? 'New worktree' : 'Add a Git repository to create a worktree.'} aria-label="New worktree" disabled={!hasGitProjects} onClick={() => dispatchAppCommand('new-worktree')}><Icon name="plus" size={14} /></button>
-        <button
-          className="ws-icon-btn"
-          title="Add folder or Git repository"
-          onClick={() => dispatchAppCommand('add-repo')}
-        ><Icon name="dir" size={14} /></button>
+        <button className="btn btn-ghost btn-sm" aria-current={runsOpen ? 'page' : undefined} onClick={() => useAppStore.getState().openRuns('agents')}><Icon name="activity" size={14} />Runs{attentionCount > 0 && <span className="nav-entry-badge" title="Sessions needing attention">{attentionCount}</span>}</button>
         {hiddenEntries.length > 0 && (
-          <button className="hidden-workspaces-trigger" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>
-            {hiddenEntries.length} hidden
-          </button>
+          <button className="hidden-workspaces-trigger" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>{hiddenEntries.length} hidden</button>
         )}
         <span className="ws-spacer" />
-        <button className="ws-icon-btn" title={`Settings${shortcutFor('settings') ? ' (' + shortcutFor('settings') + ')' : ''}`} aria-label="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={14} /></button>
+        <button className="btn btn-ghost btn-sm" title={shortcutFor('settings') ?? undefined} onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={14} />Settings</button>
       </div>
       {showHidden && <HiddenWorkspaceRestore entries={hiddenEntries} onClose={() => setShowHidden(false)} />}
       <div
         className="sidebar-resize"
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
+        aria-controls="workspace-sidebar"
         aria-label="Resize workspace sidebar"
+        aria-valuemin={MIN_SIDEBAR_WIDTH}
+        aria-valuemax={maxSidebarWidth}
+        aria-valuenow={Math.round(visibleSidebarWidth)}
+        title="Drag or use arrow keys to resize. Double-click to reset."
+        onDoubleClick={() => resizeTo(280)}
+        onKeyDown={resizeFromKeyboard}
         onMouseDown={(event) => {
           event.preventDefault()
           const startX = event.clientX
-          const startWidth = sidebarWidth
-          const move = (moveEvent: MouseEvent): void => useAppStore.getState().setSidebarWidth(startWidth + moveEvent.clientX - startX)
+          const startWidth = visibleSidebarWidth
+          const move = (moveEvent: MouseEvent): void => resizeTo(startWidth + moveEvent.clientX - startX)
           const up = (): void => {
             window.removeEventListener('mousemove', move)
             window.removeEventListener('mouseup', up)

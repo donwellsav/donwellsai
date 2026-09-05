@@ -59,6 +59,7 @@ function ShortcutRow({
   const [raw, setRaw] = useState(current ?? '')
   const [baseRevision, setBaseRevision] = useState(revision)
   const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,7 +83,7 @@ function ShortcutRow({
   }
 
   const commit = async (revisionAtCommit = baseRevision): Promise<void> => {
-    if (!dirty) return
+    if (!dirty || busy) return
     if (revisionAtCommit !== revision) {
       setStale(true)
       setError('Shortcuts changed elsewhere. Reload or retry against the latest bindings.')
@@ -98,6 +99,7 @@ function ShortcutRow({
       setError(issueMessage(issue))
       return
     }
+    setBusy(true)
     try {
       await onCommit(validateSettingsPatch({ keyboardShortcutOverrides: candidate }))
       setDirty(false)
@@ -105,6 +107,8 @@ function ShortcutRow({
       setError(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -113,7 +117,7 @@ function ShortcutRow({
     [command, platform]
   )
   return (
-    <div className="shortcut-row">
+    <div className="shortcut-row" data-settings-dirty={dirty ? 'true' : undefined} aria-busy={busy}>
       <div className="shortcut-copy">
         <strong>{command.label}</strong>
         <span>{command.id}</span>
@@ -125,6 +129,7 @@ function ShortcutRow({
         <input
           className={`settings-input shortcut-input${error ? ' is-invalid' : ''}`}
           value={raw}
+          disabled={busy}
           placeholder="Use default"
           aria-label={`Custom shortcut for ${command.label}`}
           aria-invalid={Boolean(error)}
@@ -136,7 +141,6 @@ function ShortcutRow({
             setDirty(true)
             setError(null)
           }}
-          onBlur={() => void commit()}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
@@ -158,18 +162,24 @@ function ShortcutRow({
             setError(null)
           }}
         />
-        {current && <button type="button" className="settings-reset-setting" onMouseDown={(event) => event.preventDefault()} onClick={() => {
-          setRaw('')
-          setDirty(true)
-          setError(null)
-        }}>Clear</button>}
+        {(dirty || current) && (
+          <div className="shortcut-row-actions">
+            {raw.length > 0 && <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => {
+              setRaw('')
+              setDirty(true)
+              setError(null)
+            }}>Use default</button>}
+            {dirty && <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={reload}>Discard</button>}
+            {dirty && <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void commit()}>{busy ? 'Applying…' : 'Apply'}</button>}
+          </div>
+        )}
         {error && (
           <div className="settings-inline-error shortcut-error" role="alert">
             <span>{error}</span>
             {stale && (
               <span className="settings-inline-actions">
-                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={reload}>Reload</button>
-                <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+                <button type="button" onClick={reload}>Reload</button>
+                <button type="button" disabled={busy} onClick={() => {
                   setBaseRevision(revision)
                   setStale(false)
                   void commit(revision)
@@ -185,17 +195,28 @@ function ShortcutRow({
 
 export function ShortcutEditor({ settings, revision, onCommit }: { settings: AppSettings; revision: number; onCommit(patch: Partial<AppSettings>): Promise<void> }) {
   const platform = appCommandPlatform(navigator.platform)
+  const [query, setQuery] = useState('')
   const issues = useMemo(() => validateAppShortcutOverrides(settings.keyboardShortcutOverrides), [settings.keyboardShortcutOverrides])
-  const categories = APP_COMMAND_CATEGORIES
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matchingCommands = useMemo(() => APP_COMMANDS.filter((command) => (
+    !normalizedQuery || `${command.label} ${command.id} ${command.category}`.toLocaleLowerCase().includes(normalizedQuery)
+  )), [normalizedQuery])
 
   return (
     <div className="shortcut-editor">
       <div className="shortcut-editor-head">
         <div>
           <strong>Application commands</strong>
-          <span>Focus a field and press a shortcut, or enter a portable chord such as Mod+Shift+P.</span>
+          <span>Focus a field and press a shortcut, then Apply. Conflicts are rejected before anything is saved.</span>
         </div>
         <span className="settings-badge">{platform === 'mac' ? 'macOS' : platform === 'windows' ? 'Windows' : 'Linux'}</span>
+      </div>
+      <div className="shortcut-toolbar">
+        <label>
+          <span className="sr-only">Filter application commands</span>
+          <input className="settings-input" value={query} placeholder="Filter commands or categories" onChange={(event) => setQuery(event.currentTarget.value)} />
+        </label>
+        <span>{matchingCommands.length} of {APP_COMMANDS.length} commands</span>
       </div>
       {issues.length > 0 && (
         <div className="settings-callout settings-callout-error" role="alert">
@@ -203,14 +224,20 @@ export function ShortcutEditor({ settings, revision, onCommit }: { settings: App
           {issues.map((issue, index) => <span key={`${issue.commandId}:${issue.platform ?? 'all'}:${index}`}>{issueMessage(issue)}</span>)}
         </div>
       )}
-      {categories.map((category) => (
-        <section className="shortcut-group" key={category} aria-labelledby={`shortcut-group-${category.replaceAll(' ', '-').toLowerCase()}`}>
-          <h4 id={`shortcut-group-${category.replaceAll(' ', '-').toLowerCase()}`}>{category}</h4>
-          {APP_COMMANDS.filter((command) => command.category === category).map((command) => (
-            <ShortcutRow key={command.id} command={command} overrides={settings.keyboardShortcutOverrides} revision={revision} platform={platform} onCommit={onCommit} />
-          ))}
-        </section>
-      ))}
+      {APP_COMMAND_CATEGORIES.map((category) => {
+        const commands = matchingCommands.filter((command) => command.category === category)
+        if (commands.length === 0) return null
+        const headingId = `shortcut-group-${category.replaceAll(' ', '-').toLowerCase()}`
+        return (
+          <section className="shortcut-group" key={category} aria-labelledby={headingId}>
+            <h4 id={headingId}>{category}</h4>
+            {commands.map((command) => (
+              <ShortcutRow key={command.id} command={command} overrides={settings.keyboardShortcutOverrides} revision={revision} platform={platform} onCommit={onCommit} />
+            ))}
+          </section>
+        )
+      })}
+      {matchingCommands.length === 0 && <div className="settings-state settings-state-empty"><strong>No matching commands</strong><span>Try a command name, category, or command identifier.</span></div>}
     </div>
   )
 }

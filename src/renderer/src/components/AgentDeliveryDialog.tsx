@@ -21,10 +21,14 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
   useEffect(() => {
     let current = true
     setLoading(true)
+    setError(null)
     void window.donwells.agentList().then((runs) => {
       if (current) setAgents(runs)
     }).catch((cause: unknown) => {
-      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current) {
+        setAgents([])
+        setError(cause instanceof Error ? cause.message : String(cause))
+      }
     }).finally(() => { if (current) setLoading(false) })
     const offChanged = window.donwells.on('agent:changed', ({ run }) => {
       if (current) setAgents((previous) => [...previous.filter((item) => item.sessionId !== run.sessionId), run])
@@ -35,9 +39,13 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
     return () => { current = false; offChanged(); offDismissed() }
   }, [refresh])
 
-  const targets = agents.filter((run) => run.workspacePath === attachment.workspacePath && run.liveness === 'live' && (run.activity === 'working' || run.activity === 'waiting'))
+  const targets = useMemo(() => agents.filter((run) => run.workspacePath === attachment.workspacePath && run.liveness === 'live' && (run.activity === 'working' || run.activity === 'waiting')), [agents, attachment.workspacePath])
   const selected = targets.find((run) => run.sessionId === sessionId)
   const bytes = useMemo(() => new TextEncoder().encode(attachment.text).byteLength, [attachment.text])
+
+  useEffect(() => {
+    if (sessionId && !selected) setSessionId('')
+  }, [selected, sessionId])
   const tooLarge = bytes > 64 * 1024
 
   async function deliver(): Promise<void> {
@@ -61,7 +69,7 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
       <div className="agent-delivery-workspace">{attachment.workspacePath}</div>
       <label className="agent-delivery-field" htmlFor={targetId}>
         <span>Destination agent</span>
-        <select id={targetId} value={sessionId} disabled={busy || !!receipt} onChange={(event) => setSessionId(event.target.value)}>
+        <select className="input" id={targetId} value={sessionId} disabled={busy || !!receipt} onChange={(event) => setSessionId(event.target.value)}>
           <option value="">{loading ? 'Loading live agents…' : 'Select a live agent in this workspace'}</option>
           {targets.map((run) => <option key={run.sessionId} value={run.sessionId}>{run.presetId ?? run.command} · {run.activity} · {run.sessionId.slice(0, 8)}</option>)}
         </select>
@@ -75,9 +83,9 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
       {error && <p role="alert" className="agent-delivery-error">{error}</p>}
       {receipt && <p role="status" className="agent-delivery-receipt">{receipt}</p>}
       <div className="modal-actions">
-        <button className="btn" disabled={busy} onClick={onClose}>{receipt ? 'Done' : 'Cancel'}</button>
-        {!receipt && <button className="btn" disabled={busy || loading} onClick={() => { setError(null); setRefresh((value) => value + 1) }}>Refresh agents</button>}
-        {!receipt && <button className="btn btn-primary" disabled={!selected || busy || loading || tooLarge} onClick={() => void deliver()}>{busy ? 'Delivering…' : submit ? 'Confirm and submit' : 'Confirm and paste'}</button>}
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{receipt ? 'Done' : 'Cancel'}</button>
+        {!receipt && <button type="button" className="btn btn-secondary" disabled={busy || loading} onClick={() => setRefresh((value) => value + 1)}>Refresh agents</button>}
+        {!receipt && <button type="button" className="btn btn-primary" disabled={!selected || busy || loading || tooLarge} onClick={() => void deliver()}>{busy ? 'Delivering…' : submit ? 'Confirm and submit' : 'Confirm and paste'}</button>}
       </div>
     </ModalDialog>
   )

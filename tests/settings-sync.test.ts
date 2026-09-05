@@ -22,6 +22,18 @@ afterEach(() => {
 })
 
 describe('renderer settings synchronization', () => {
+  it('reports a failed save without changing the committed setting', async () => {
+    useAppStore.getState().syncSettings(resolveSettings({ terminalFontSize: 18 }))
+    vi.stubGlobal('window', {
+      donwells: { setSettings: vi.fn().mockRejectedValue(new Error('Settings file is read-only')) }
+    })
+
+    const result = await useAppStore.getState().setSettings({ terminalFontSize: 20 })
+
+    expect(result).toEqual({ ok: false, error: 'Settings file is read-only' })
+    expect(useAppStore.getState().settings.terminalFontSize).toBe(18)
+  })
+
   it('does not let an older request response overwrite a newer RPC snapshot', async () => {
     const pending = Promise.withResolvers<AppSettings>()
     vi.stubGlobal('window', {

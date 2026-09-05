@@ -55,7 +55,10 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
     setActionError(null)
     try {
       const removed = await controller.discard(entry)
-      if (!removed) setActionError('This draft changed before it could be discarded. Review the newest recovery first.')
+      if (!removed) {
+        setActionError('This draft changed before it could be discarded. Review the newest recovery first.')
+        return
+      }
       setDiscardTarget(null)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
@@ -78,10 +81,10 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
       {snapshot.error && (
         <div className="recovery-panel-alert" role="alert">
           <span>{snapshot.error}</span>
-          <button type="button" onClick={() => void controller.refresh().catch(() => undefined)}>Retry</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void controller.refresh().catch(() => undefined)}>Retry</button>
         </div>
       )}
-      {actionError && <div className="recovery-panel-alert" role="alert">{actionError}</div>}
+      {actionError && <div className="recovery-panel-alert" role="alert" aria-live="assertive">{actionError}</div>}
       {!snapshot.loading && !snapshot.error && entries.length === 0 && (
         <div className="recovery-panel-state">No unsaved drafts</div>
       )}
@@ -100,10 +103,10 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
                   </span>
                 </div>
                 <div className="recovery-row-actions">
-                  <button type="button" disabled={busy} onClick={() => void restore(entry)}>
-                    Restore
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={busyCheckpointId !== null} onClick={() => void restore(entry)}>
+                    {busy ? 'Restoring…' : 'Restore'}
                   </button>
-                  <button type="button" className="danger" disabled={busy} onClick={() => setDiscardTarget(entry)}>
+                  <button type="button" className="btn btn-ghost btn-sm danger" disabled={busyCheckpointId !== null} onClick={() => setDiscardTarget(entry)}>
                     Discard
                   </button>
                 </div>
@@ -117,7 +120,7 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
         <ModalDialog
           className="modal delete-modal"
           labelledBy="recovery-discard-title"
-          onClose={() => setDiscardTarget(null)}
+          onClose={() => { if (!busyCheckpointId) setDiscardTarget(null) }}
         >
           <h3 className="modal-title" id="recovery-discard-title">Discard recovery draft?</h3>
           <p>
@@ -125,8 +128,8 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
             The file on disk is not changed.
           </p>
           <div className="modal-actions">
-            <button type="button" className="btn" onClick={() => setDiscardTarget(null)}>Cancel</button>
-            <button type="button" className="btn btn-danger" onClick={() => void discard()}>Discard draft</button>
+            <button type="button" className="btn btn-secondary" disabled={busyCheckpointId !== null} onClick={() => setDiscardTarget(null)}>Cancel</button>
+            <button type="button" className="btn btn-danger" disabled={busyCheckpointId !== null} onClick={() => void discard()}>{busyCheckpointId ? 'Discarding…' : 'Discard draft'}</button>
           </div>
         </ModalDialog>
       )}

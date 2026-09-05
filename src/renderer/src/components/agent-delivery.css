@@ -2,33 +2,81 @@
   width: min(780px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   overflow: auto;
+  box-sizing: border-box;
+  color: var(--foreground);
+  font-size: 14px;
 }
-.agent-delivery-caption { color: var(--muted-fg); line-height: 1.5; }
-.agent-delivery-workspace {
+
+.agent-delivery-caption {
+  margin: 10px 0 0;
   color: var(--muted-fg);
-  font-family: var(--font-mono);
-  overflow-wrap: anywhere;
-  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.55;
 }
-.agent-delivery-field { display: grid; gap: 8px; margin: 16px 0; }
+
+.agent-delivery-workspace {
+  margin: 6px 0 16px;
+  color: var(--muted-fg);
+  font: 11px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.agent-delivery-field {
+  display: grid;
+  margin: 16px 0;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 560;
+}
+
 .agent-delivery-field select,
 .agent-delivery-preview {
   width: 100%;
+  box-sizing: border-box;
   color: var(--foreground);
   background: var(--background);
   border: 1px solid var(--input);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font: inherit;
 }
-.agent-delivery-preview-label { margin: 16px 0 8px; color: var(--muted-fg); }
+
+.agent-delivery-field select {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-weight: 430;
+}
+
+.agent-delivery-preview-label {
+  margin: 18px 0 8px;
+  color: var(--muted-fg);
+  font-size: 12px;
+}
+
 .agent-delivery-preview {
   min-height: min(280px, 35vh);
+  padding: 10px 12px;
   resize: vertical;
-  font-family: var(--font-mono);
-  line-height: 1.5;
+  font: 13px/1.6 var(--font-mono);
 }
-.agent-delivery-submit { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
-.agent-delivery-error { color: var(--destructive); overflow-wrap: anywhere; }
-.agent-delivery-receipt { color: var(--status-success); }
+
+.agent-delivery-submit {
+  display: flex;
+  margin-top: 16px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.agent-delivery-error,
+.agent-delivery-receipt {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 2px solid currentColor;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-delivery-error { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 5%, transparent); }
+.agent-delivery-receipt { color: var(--status-success); background: color-mix(in srgb, var(--status-success) 5%, transparent); }
 .agent-delivery-modal .modal-actions { flex-wrap: wrap; }

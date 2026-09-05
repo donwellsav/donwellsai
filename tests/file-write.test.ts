@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
+import { PREVIEW_BYTE_LIMIT } from '../src/main/worktree-files'
 
 function sh(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd })
@@ -114,5 +115,49 @@ describe('GitWorktrees.writeFile', () => {
       content: 'agent whole-file write',
       truncated: false
     })
+  })
+
+  it('flags NUL and invalid UTF-8 content without exposing a writable text revision', async () => {
+    const { git, path } = await repoContext()
+    const unsupportedFiles: Array<{ fileName: string; bytes: Buffer }> = [
+      { fileName: 'nul.txt', bytes: Buffer.from([0x61, 0x00, 0x62]) },
+      { fileName: 'invalid.md', bytes: Buffer.from([0x66, 0x80, 0x6f]) }
+    ]
+
+    for (const { fileName, bytes } of unsupportedFiles) {
+      writeFileSync(join(path, fileName), bytes)
+      const preview = await git.readFile(path, fileName)
+      expect(preview).toMatchObject({ content: '', truncated: false, bytes: bytes.length, binary: true })
+      expect(preview.revision).toBeUndefined()
+      await expect(git.writeFile(path, fileName, 'replacement text')).rejects.toThrow(
+        'Refusing to overwrite binary or unsupported text file'
+      )
+      expect(readFileSync(join(path, fileName))).toEqual(bytes)
+    }
+  })
+
+  it('scans beyond the preview boundary before replacing an existing file', async () => {
+    const { git, path } = await repoContext()
+    const bytes = Buffer.alloc(PREVIEW_BYTE_LIMIT + 128, 0x61)
+    bytes[PREVIEW_BYTE_LIMIT + 64] = 0
+    writeFileSync(join(path, 'late-binary.txt'), bytes)
+
+    const preview = await git.readFile(path, 'late-binary.txt')
+    expect(preview.truncated).toBe(true)
+    expect(preview.binary).toBeUndefined()
+    await expect(git.writeFile(path, 'late-binary.txt', 'replacement text')).rejects.toThrow(
+      'Refusing to overwrite binary or unsupported text file'
+    )
+    expect(readFileSync(join(path, 'late-binary.txt'))).toEqual(bytes)
+  })
+
+  it('accepts valid multi-byte UTF-8 split across binary scan chunks', async () => {
+    const { git, path } = await repoContext()
+    const bytes = Buffer.concat([Buffer.alloc(64 * 1024 - 1, 0x61), Buffer.from('🙂 tail\n')])
+    writeFileSync(join(path, 'unicode.txt'), bytes)
+
+    const saved = await git.writeFile(path, 'unicode.txt', 'replacement\n')
+    expect(saved.content).toBe('replacement\n')
+    expect(saved.binary).toBeUndefined()
   })
 })

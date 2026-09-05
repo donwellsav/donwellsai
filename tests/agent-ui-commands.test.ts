@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { VersionedEditorSave } from '../src/renderer/src/editor-save'
+import { cacheEditorDocument, disposePreviewModel, type EditorModel } from '../src/renderer/src/editor-models'
 import { useAppStore, flushWorkspaceSession } from '../src/renderer/src/store'
 import { executeUiCommand } from '../src/renderer/src/agent-ui-commands'
-import type { PersistedState, RepoSummary, RunningAgent, TerminalSession } from '../src/shared/types'
+import type { FileContent, PersistedState, RepoSummary, RunningAgent, TerminalSession } from '../src/shared/types'
 
 const main = '/repos/demo'
 const feature = '/repos/demo-feature'
@@ -15,6 +17,16 @@ function repoSummary(): RepoSummary {
     ],
     defaultBranch: 'main'
   }
+}
+
+function file(path: string, content: string, revision: string): FileContent {
+  return { path, content, revision, bytes: Buffer.byteLength(content), truncated: false }
+}
+
+function disposableModel(): EditorModel {
+  const model: EditorModel = Object.create(null)
+  model.dispose = vi.fn()
+  return model
 }
 
 /** Reset the store slices the executor touches (no IPC-backed actions here). */
@@ -54,13 +66,13 @@ afterEach(async () => {
 })
 
 describe('executeUiCommand', () => {
-  it('activate by worktree path selects repo + worktree; main path clears worktree', async () => {
+  it('activate by worktree path selects the requested workspace, including main', async () => {
     await executeUiCommand({ op: 'activate', worktreePath: feature })
     expect(useAppStore.getState().activeRepoId).toBe('demo')
     expect(useAppStore.getState().activeWorktreePath).toBe(feature)
 
-    await executeUiCommand({ op: 'activate', worktreePath: main })
-    expect(useAppStore.getState().activeWorktreePath).toBeNull()
+    await expect(executeUiCommand({ op: 'activate', worktreePath: main })).resolves.toEqual({ activeRepoId: 'demo', activeWorktreePath: main })
+    expect(useAppStore.getState().activeWorktreePath).toBe(main)
   })
 
   it('activate rejects paths no repo owns', async () => {
@@ -107,18 +119,19 @@ describe('executeUiCommand', () => {
     expect(useAppStore.getState().panes[main]).toHaveLength(0)
   })
 
-  it('pane.resize clamps to the 15-85 band', async () => {
+  it('pane.resize returns the applied clamp and rejects an unknown split', async () => {
     useAppStore.setState({
       layouts: { [main]: { kind: 'split', dir: 'row', first: { kind: 'leaf', pane: 'term:t1' }, second: { kind: 'leaf', pane: 'browser:tab' } } }
     })
-    await executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 5 })
+    await expect(executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 5 })).resolves.toEqual({ pct: 15 })
     const firstResize = useAppStore.getState().layouts[main]
     if (firstResize?.kind !== 'split') throw new Error('expected split layout')
     expect(firstResize.size).toBe(15)
-    await executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 99 })
+    await expect(executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 0, pct: 99 })).resolves.toEqual({ pct: 85 })
     const secondResize = useAppStore.getState().layouts[main]
     if (secondResize?.kind !== 'split') throw new Error('expected split layout')
     expect(secondResize.size).toBe(85)
+    await expect(executeUiCommand({ op: 'pane.resize', worktreePath: main, splitId: 4, pct: 50 })).rejects.toThrow('No split 4')
   })
 
   it('sidebar left toggles; right opens with tab and width', async () => {
@@ -157,6 +170,87 @@ describe('executeUiCommand', () => {
     expect(s.layouts[main]).toEqual({ kind: 'leaf', pane: 'term:t1' })
   })
 
+
+  it('preview and editor open reject when the requested file cannot be loaded', async () => {
+    const readFile = vi.fn(async () => { throw new Error('missing file') })
+    vi.stubGlobal('window', { donwells: {
+      getWorkspaceSession: async () => null,
+      saveWorkspaceSession: async () => {},
+      closeTerminal: () => {},
+      readFile
+    } })
+
+    await expect(executeUiCommand({ op: 'preview.open', worktreePath: main, relPath: 'missing.txt' })).rejects.toThrow('missing file')
+    await expect(executeUiCommand({ op: 'editor.open', worktreePath: main, relPath: 'missing.txt' })).rejects.toThrow('missing file')
+    expect(readFile).toHaveBeenCalledTimes(2)
+    expect(useAppStore.getState().previews[main]?.['missing.txt']).toBeUndefined()
+  })
+
+  it('split returns the created terminal and rejects before opening without an active pane', async () => {
+    const session: TerminalSession = {
+      id: 't2', worktreePath: main, title: 'zsh', createdAt: '2026-09-04T10:00:00.000Z', exited: false
+    }
+    const openTerminal = vi.fn(async () => session)
+    vi.stubGlobal('window', { donwells: {
+      getWorkspaceSession: async () => null,
+      saveWorkspaceSession: async () => {},
+      closeTerminal: () => {},
+      openTerminal
+    } })
+
+    await expect(executeUiCommand({ op: 'split', worktreePath: main })).resolves.toEqual({ key: 'term:t2', sessionId: 't2' })
+    expect(useAppStore.getState().layouts[main]).toEqual({
+      kind: 'split', dir: 'row', first: { kind: 'leaf', pane: 'term:t1' }, second: { kind: 'leaf', pane: 'term:t2' }
+    })
+
+    useAppStore.setState({ panes: { [main]: [] }, activePane: { [main]: '' }, layouts: {} })
+    await expect(executeUiCommand({ op: 'split', worktreePath: main })).rejects.toThrow('Select a pane before splitting')
+    expect(openTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('editor.write rejects a dirty model before any backend write', async () => {
+    const relPath = 'dirty.txt'
+    const backendWrite = vi.fn(async () => file(relPath, 'agent', 'r2'))
+    vi.stubGlobal('window', { donwells: {
+      getWorkspaceSession: async () => null,
+      saveWorkspaceSession: async () => {},
+      closeTerminal: () => {},
+      writeFile: backendWrite
+    } })
+    const save = new VersionedEditorSave({
+      initial: file(relPath, 'base', 'r1'),
+      sourceEpoch: 1,
+      write: async () => file(relPath, 'local', 'r2')
+    })
+    cacheEditorDocument(main, relPath, { model: disposableModel(), save })
+    save.edit('irreplaceable local edit', 2)
+    try {
+      await expect(executeUiCommand({ op: 'editor.write', worktreePath: main, relPath, content: 'agent' })).rejects.toThrow('unsaved editor changes')
+      expect(backendWrite).not.toHaveBeenCalled()
+    } finally {
+      save.reload(file(relPath, 'base', 'r1'), 2)
+      disposePreviewModel(main, relPath)
+    }
+  })
+
+  it('editor.write guards disk replacement with the observed revision', async () => {
+    const relPath = 'guarded.txt'
+    const writeFile = vi.fn(async (_workspacePath: string, path: string, content: string) => file(path, content, 'r2'))
+    const readFile = vi.fn(async () => { throw new Error('should use the loaded revision') })
+    vi.stubGlobal('window', { donwells: {
+      getWorkspaceSession: async () => null,
+      saveWorkspaceSession: async () => {},
+      closeTerminal: () => {},
+      readFile,
+      writeFile
+    } })
+    useAppStore.setState({ previews: { [main]: { [relPath]: { ...file(relPath, 'base', 'r1'), v: 0, mode: 'edit' } } } })
+
+    await expect(executeUiCommand({ op: 'editor.write', worktreePath: main, relPath, content: 'agent' })).resolves.toEqual({ bytes: 5 })
+    expect(writeFile).toHaveBeenCalledWith(main, relPath, 'agent', 'r1')
+    expect(readFile).not.toHaveBeenCalled()
+    expect(useAppStore.getState().previews[main]?.[relPath]).toMatchObject({ content: 'agent', revision: 'r2' })
+  })
 })
 
 describe('native agent state', () => {

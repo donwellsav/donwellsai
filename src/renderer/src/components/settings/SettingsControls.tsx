@@ -15,7 +15,6 @@ const LIFECYCLE_LABELS = {
   restart: 'Restart required'
 } as const
 
-
 export function formatSettingValue(value: AppSettings[SettingKey]): string {
   if (value === null || value === '') return 'Inherit'
   if (typeof value === 'boolean') return value ? 'On' : 'Off'
@@ -23,16 +22,23 @@ export function formatSettingValue(value: AppSettings[SettingKey]): string {
   return String(value)
 }
 
+function displayOptionLabel(label: string): string {
+  const words = label.replace(/[-_]+/g, ' ')
+  return words.length > 0 ? words[0]!.toLocaleUpperCase() + words.slice(1) : words
+}
+
 export function SettingsField({
   metadata,
   current,
   inheritedValue,
+  resetting = false,
   onReset,
   children
 }: {
   metadata: SettingMetadata
   current: AppSettings[SettingKey]
   inheritedValue?: string
+  resetting?: boolean
   onReset(): void
   children: React.ReactNode
 }) {
@@ -46,43 +52,74 @@ export function SettingsField({
       <div className="settings-field-copy">
         <div className="settings-field-title-line">
           <h3 id={titleId}>{metadata.label}</h3>
-          <span className="settings-badge">Global</span>
-          <span className="settings-badge">{LIFECYCLE_LABELS[metadata.lifecycle]}</span>
+          {metadata.lifecycle !== 'live' && <span className="settings-badge">{LIFECYCLE_LABELS[metadata.lifecycle]}</span>}
         </div>
         <p id={descriptionId}>{metadata.description}</p>
-        <div className="settings-default-line">
-          <span>Default: {formatSettingValue(metadata.default)}</span>
-          {inheritedValue && <span>Effective: {inheritedValue}</span>}
-        </div>
+        {(!isDefault || inheritedValue) && (
+          <div className="settings-default-line">
+            {!isDefault && <span>Default: {formatSettingValue(metadata.default)}</span>}
+            {inheritedValue && <span>Effective: {inheritedValue}</span>}
+          </div>
+        )}
       </div>
       <div className="settings-field-action">
         {children}
-        <button className="settings-reset-setting" type="button" disabled={isDefault} onClick={onReset} aria-label={`Reset ${metadata.label} to default`}>
-          Reset
-        </button>
+        {(!isDefault || resetting) && (
+          <button
+            className="settings-reset-setting"
+            type="button"
+            disabled={resetting}
+            onClick={onReset}
+            aria-label={`Reset ${metadata.label} to default`}
+          >
+            {resetting ? 'Resetting…' : 'Reset to default'}
+          </button>
+        )}
       </div>
     </section>
   )
 }
 
-export function SettingsSwitch({ checked, label, onChange }: { checked: boolean; label: string; onChange(value: boolean): void }) {
+export function SettingsSwitch({
+  checked,
+  label,
+  disabled = false,
+  onChange
+}: {
+  checked: boolean
+  label: string
+  disabled?: boolean
+  onChange(value: boolean): void
+}) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`settings-switch${checked ? ' is-on' : ''}`} onClick={() => onChange(!checked)}>
-      <span className="settings-switch-thumb" />
-    </button>
+    <div className="settings-switch-control">
+      <span aria-hidden="true">{checked ? 'On' : 'Off'}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        className={`settings-switch${checked ? ' is-on' : ''}`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="settings-switch-thumb" />
+      </button>
+    </div>
   )
 }
-
 
 export function SettingsSelect({
   metadata,
   value,
   control,
+  disabled = false,
   onChange
 }: {
   metadata: SettingMetadata
   value: AppSettings[SettingKey]
   control: Extract<SettingControl, { type: 'select' }>
+  disabled?: boolean
   onChange(patch: Partial<AppSettings>): void
 }) {
   const selectedIndex = control.options.findIndex((option) => option.value === value)
@@ -90,19 +127,16 @@ export function SettingsSelect({
     <select
       className="settings-select"
       aria-label={metadata.label}
+      disabled={disabled}
       value={String(selectedIndex)}
       onChange={(event) => {
         const option = control.options[Number(event.currentTarget.value)]
         if (option) onChange(validateSettingsPatch({ [metadata.key]: option.value }))
       }}
     >
-      {control.options.map((option, index) => <option key={`${index}:${String(option.value)}`} value={String(index)}>{option.label}</option>)}
+      {control.options.map((option, index) => <option key={`${index}:${String(option.value)}`} value={String(index)}>{displayOptionLabel(option.label)}</option>)}
     </select>
   )
-}
-
-function draftText(value: AppSettings[SettingKey]): string {
-  return value === null ? '' : String(value)
 }
 
 function parseDraft(control: Extract<SettingControl, { type: 'text' | 'number' }>, raw: string): string | number | null {
@@ -126,9 +160,10 @@ export function SettingsDraftInput({
   revision: number
   onCommit(patch: Partial<AppSettings>): Promise<void>
 }) {
-  const [raw, setRaw] = useState(() => draftText(value))
+  const [raw, setRaw] = useState(() => value === null ? '' : String(value))
   const [baseRevision, setBaseRevision] = useState(revision)
   const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -137,19 +172,20 @@ export function SettingsDraftInput({
       if (revision !== baseRevision) setStale(true)
       return
     }
-    setRaw(draftText(value))
+    setRaw(value === null ? '' : String(value))
     setBaseRevision(revision)
     setStale(false)
     setError(null)
   }, [baseRevision, dirty, revision, value])
 
   const commit = async (revisionAtCommit = baseRevision): Promise<void> => {
-    if (!dirty) return
+    if (!dirty || busy) return
     const draft: SettingsDraft = {
       key: metadata.key,
       value: parseDraft(control, raw),
       baseRevision: revisionAtCommit
     }
+    setBusy(true)
     try {
       const patch = patchFromSettingsDraft(draft, revision)
       await onCommit(patch)
@@ -161,15 +197,17 @@ export function SettingsDraftInput({
         setStale(true)
         setError('This setting changed elsewhere. Reload its current value or retry your edit against the latest settings.')
       } else if (caught instanceof SettingsValidationError) {
-        setError('Enter a valid value within the limits shown for this setting.')
+        setError(caught.message)
       } else {
         setError(caught instanceof Error ? caught.message : String(caught))
       }
+    } finally {
+      setBusy(false)
     }
   }
 
   const reload = (): void => {
-    setRaw(draftText(value))
+    setRaw(value === null ? '' : String(value))
     setBaseRevision(revision)
     setDirty(false)
     setStale(false)
@@ -177,7 +215,7 @@ export function SettingsDraftInput({
   }
 
   return (
-    <div className="settings-draft-control">
+    <div className="settings-draft-control" data-settings-dirty={dirty ? 'true' : undefined} aria-busy={busy}>
       <div className="settings-input-wrap">
         <input
           className={`settings-input${error ? ' is-invalid' : ''}`}
@@ -186,9 +224,10 @@ export function SettingsDraftInput({
           max={control.type === 'number' ? control.max : undefined}
           step={control.type === 'number' ? control.step : undefined}
           maxLength={control.type === 'text' ? control.maxLength : undefined}
-          placeholder={control.type === 'text' ? control.placeholder : undefined}
+          placeholder={control.type === 'text' ? control.placeholder : control.nullable ? 'Inherit' : undefined}
           aria-label={metadata.label}
           aria-invalid={Boolean(error)}
+          disabled={busy}
           value={raw}
           onFocus={() => {
             if (!dirty) setBaseRevision(revision)
@@ -198,7 +237,6 @@ export function SettingsDraftInput({
             setDirty(true)
             setError(null)
           }}
-          onBlur={() => void commit()}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault()
@@ -214,15 +252,22 @@ export function SettingsDraftInput({
           <span className="settings-input-suffix">{Number.isFinite(Number(raw)) ? `${Math.round(Number(raw) * 100)}%` : '—'}</span>
         )}
       </div>
+      {dirty && (
+        <div className="settings-draft-actions">
+          <span>{busy ? 'Saving…' : 'Unsaved change'}</span>
+          <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={reload}>Discard</button>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => void commit()}>{busy ? 'Applying…' : 'Apply'}</button>
+        </div>
+      )}
       {error && (
         <div className="settings-inline-error" role="alert">
           <span>{error}</span>
           {stale && (
             <span className="settings-inline-actions">
-              <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={reload}>Reload</button>
+              <button type="button" onClick={reload}>Reload</button>
               <button
                 type="button"
-                onMouseDown={(event) => event.preventDefault()}
+                disabled={busy}
                 onClick={() => {
                   setBaseRevision(revision)
                   setStale(false)

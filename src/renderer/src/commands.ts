@@ -9,6 +9,7 @@ import { isMarkdownFile, useAppStore } from './store'
 import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
 import { getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
+import { openProjectSetup } from './project-setup'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
   'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'>
@@ -98,6 +99,10 @@ export function dispatchAppCommand(action: string): void {
   }
   if (selectTab(command.id)) return
   switch (command.id) {
+    case 'new-project':
+      state.setPaletteOpen(false)
+      openProjectSetup()
+      break
     case 'add-repo':
       void (async () => {
         const directory = await window.donwells.pickDirectory()

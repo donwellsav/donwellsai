@@ -1,3 +1,4 @@
+import type { ProjectCreationApi } from './project-creation'
 import type { PersistedNavigationHistoryV1 } from './navigation-history'
 import type { ProjectMemoryApi } from './project-memory'
 import type { RecoveryApi } from './editor-recovery'
@@ -149,6 +150,8 @@ export type FileContent = {
   content: string
   truncated: boolean
   bytes: number
+  /** True only when inspected bytes contain NUL or invalid UTF-8; never writable as text. */
+  binary?: boolean
   /** Opaque full-file revision; absent on hosts that cannot guard writes. */
   revision?: string
 }
@@ -395,7 +398,7 @@ export type UiCommand =
 
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
-export type IpcApi = ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+export type IpcApi = ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   meta(): Promise<AppMeta>
   listRepos(): Promise<RepoSummary[]>
   /** Browser control surface (renderer executes on its webviews). */

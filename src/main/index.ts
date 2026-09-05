@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
 import { EditorRecoveryService, registerEditorRecoveryHandlers } from './editor-recovery'
 import type { AppMeta, AppSettings, AttentionState, BrowserCommand, IpcApi, MainEvents, SettingsResetRequest, UiCommand } from '@shared/types'
@@ -195,6 +196,12 @@ function registerIpc(): void {
   ipcMain.handle('attentionInboxAcknowledge', (_e, request: Parameters<IpcApi['attentionInboxAcknowledge']>[0]) => terminalBus.attentionInboxAcknowledge(request))
 
   ipcMain.handle('listRepos', () => git.listAll())
+  ipcMain.handle('getProjectCreationDefaults', () => ({ parentPath: app.getPath('home') }))
+  ipcMain.handle('createProject', async (_e, request: Parameters<IpcApi['createProject']>[0]) => {
+    const summary = await createProject(request, (path) => git.addRepo(path))
+    send('worktree:changed', { repoId: summary.repo.id })
+    return summary
+  })
 
   ipcMain.handle('addRepo', async (_e, dir: string) => {
     const summary = await git.addRepo(dir)
@@ -347,6 +354,9 @@ function createWindow(): void {
   const window = mainWindow
   commandRouter.bind(window.webContents)
   guardBrowserGuests(window)
+  // Documents may open content, never replace the privileged application renderer.
+  window.webContents.on('will-navigate', (event) => event.preventDefault())
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) commandRouter.reset(new Error('Renderer reloaded before the command finished'), true)
   })

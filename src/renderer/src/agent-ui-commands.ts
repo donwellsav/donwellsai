@@ -35,7 +35,7 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
         const repo = s.repos.find((r) => r.worktrees.some((w) => w.path === cmd.worktreePath) || r.repo.path === cmd.worktreePath)
         if (!repo) throw new Error(`no repo owns worktree ${cmd.worktreePath}`)
         s.setActiveRepo(repo.repo.id)
-        s.setActiveWorktree(cmd.worktreePath === repo.repo.path ? null : cmd.worktreePath)
+        s.setActiveWorktree(cmd.worktreePath)
         return { activeRepoId: repo.repo.id, activeWorktreePath: cmd.worktreePath }
       }
       if (cmd.repoId) {
@@ -51,9 +51,11 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       s.selectTerminal(cmd.worktreePath, session.id)
       return { key: `term:${session.id}`, sessionId: session.id }
     }
-    case 'split':
-      await s.splitTerminal(cmd.worktreePath)
-      return {}
+    case 'split': {
+      const session = await s.splitTerminal(cmd.worktreePath)
+      if (!session) throw new Error(useAppStore.getState().error ?? 'Workspace could not be split')
+      return { key: 'term:' + session.id, sessionId: session.id }
+    }
     case 'pane.focus': {
       const pane = (s.panes[cmd.worktreePath] ?? []).find((p) => p.key === cmd.key)
       if (!pane) throw new Error(`no pane ${cmd.key} in ${cmd.worktreePath}`)
@@ -64,24 +66,28 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
     case 'pane.close':
       if (!(await s.closePane(cmd.worktreePath, cmd.key))) throw new Error(useAppStore.getState().error ?? 'Pane could not be closed')
       return {}
-    case 'pane.resize':
-      s.resizeSplit(cmd.worktreePath, cmd.splitId, cmd.pct)
-      return {}
-    case 'preview.open':
-      await s.openPreview(cmd.worktreePath, cmd.relPath)
-      return {}
+    case 'pane.resize': {
+      const pct = s.resizeSplit(cmd.worktreePath, cmd.splitId, cmd.pct)
+      if (pct === null) throw new Error('No split ' + cmd.splitId + ' in ' + cmd.worktreePath)
+      return { pct }
+    }
+    case 'preview.open': {
+      if (!(await s.openPreview(cmd.worktreePath, cmd.relPath))) throw new Error(useAppStore.getState().error ?? 'Preview could not be opened')
+      return { key: 'preview:' + cmd.relPath }
+    }
     case 'preview.close':
       if (!(await s.closePreview(cmd.worktreePath, cmd.relPath))) throw new Error('Editor has unsaved changes')
       return {}
-    case 'editor.open':
-      await s.openPreview(cmd.worktreePath, cmd.relPath)
-      return {}
+    case 'editor.open': {
+      if (!(await s.openPreview(cmd.worktreePath, cmd.relPath, { mode: 'edit' }))) throw new Error(useAppStore.getState().error ?? 'Editor could not be opened')
+      return { key: 'preview:' + cmd.relPath }
+    }
     case 'diff.open':
       s.openDiff(cmd.worktreePath, cmd.relPath)
       return { key: `diff:${cmd.relPath}` }
     case 'editor.write': {
-      await s.writePreview(cmd.worktreePath, cmd.relPath, cmd.content)
-      return { bytes: new TextEncoder().encode(cmd.content).length }
+      const saved = await s.writePreview(cmd.worktreePath, cmd.relPath, cmd.content)
+      return { bytes: saved.bytes }
     }
     case 'editor.read': {
       const files = s.previews[cmd.worktreePath]

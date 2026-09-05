@@ -17,7 +17,7 @@ const EMPTY_WORKSPACE: ExplorerWorkspaceState = {
   directories: {},
   expanded: [],
   selected: null,
-  filter: '',
+
   showHidden: false,
   includeIgnored: false
 }
@@ -35,14 +35,13 @@ function duplicatePath(path: string): string {
 }
 
 function flattenExplorer(workspace: ExplorerWorkspaceState): ExplorerRow[] {
-  const query = workspace.filter.trim().toLocaleLowerCase()
   const rows: ExplorerRow[] = []
   const root = workspace.directories['']?.entries ?? []
   const stack = [...root].reverse().map((entry) => ({ entry, depth: 0 }))
   while (stack.length > 0) {
     const row = stack.pop()
     if (!row) continue
-    if (!query || row.entry.path.toLocaleLowerCase().includes(query)) rows.push(row)
+    rows.push(row)
     if (row.entry.type !== 'dir' || !workspace.expanded.includes(row.entry.path)) continue
     const children = workspace.directories[row.entry.path]?.entries ?? []
     for (let index = children.length - 1; index >= 0; index -= 1) {
@@ -66,7 +65,6 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
   const refreshExplorer = useAppStore((state) => state.refreshExplorer)
   const setExpanded = useAppStore((state) => state.setExplorerExpanded)
   const setSelected = useAppStore((state) => state.setExplorerSelected)
-  const setFilter = useAppStore((state) => state.setExplorerFilter)
   const setVisibility = useAppStore((state) => state.setExplorerVisibility)
   const collapseExplorer = useAppStore((state) => state.collapseExplorer)
   const openPreview = useAppStore((state) => state.openPreview)
@@ -75,6 +73,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
   const [mutationError, setMutationError] = useState('')
   const [mutating, setMutating] = useState(false)
   const treeRef = useRef<HTMLDivElement>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const rows = useMemo(() => flattenExplorer(workspace), [workspace])
   const selectedIndex = rows.findIndex((row) => row.entry.path === workspace.selected)
   const selectedEntry = selectedIndex >= 0 ? rows[selectedIndex]?.entry : undefined
@@ -86,6 +85,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
 
   useEffect(() => {
     if (!contextMenu) return
+    contextMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
     const dismiss = (): void => setContextMenu(null)
     window.addEventListener('pointerdown', dismiss)
     window.addEventListener('blur', dismiss)
@@ -94,6 +94,11 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
       window.removeEventListener('blur', dismiss)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (selectedIndex < 0) return
+    treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]')[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex, workspace.selected])
 
   const openEntryDialog = (kind: EntryDialog['kind'], entry?: FileEntry): void => {
     const base = entry?.type === 'dir' ? entry.path : directoryOf(entry?.path ?? '')
@@ -114,7 +119,12 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
 
   const openContextMenu = (entry: FileEntry | undefined, x: number, y: number): void => {
     if (entry) setSelected(worktreePath, entry.path)
-    setContextMenu({ entry, x, y })
+    const inset = 8
+    setContextMenu({
+      entry,
+      x: Math.min(Math.max(inset, x), Math.max(inset, window.innerWidth - 208)),
+      y: Math.min(Math.max(inset, y), Math.max(inset, window.innerHeight - 208))
+    })
   }
 
   const refreshLoaded = async (): Promise<void> => {
@@ -144,7 +154,9 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const offset = event.key === 'ArrowDown' ? 1 : -1
-      const next = Math.min(rows.length - 1, Math.max(0, index + offset))
+      const next = selectedIndex < 0
+        ? (event.key === 'ArrowDown' ? 0 : rows.length - 1)
+        : Math.min(rows.length - 1, Math.max(0, index + offset))
       const entry = rows[next]?.entry
       if (entry) setSelected(worktreePath, entry.path)
       return
@@ -185,11 +197,13 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
 
   return (
     <div className="explorer-pane">
-      <div className="pane-toolbar explorer-toolbar">
+      <div className="pane-header explorer-toolbar">
         <span className="pane-title">Explorer</span>
-        <button type="button" className="icon-btn" title="New file" aria-label="New file" onClick={() => openEntryDialog('create-file', selectedEntry)}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEntryDialog('create-file', selectedEntry)}>
           <Icon name="plus" size={12} />
+          New file
         </button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEntryDialog('create-directory', selectedEntry)}>New folder</button>
         <button type="button" className="icon-btn" title="Collapse folders" aria-label="Collapse folders" onClick={() => collapseExplorer(worktreePath)}>
           <Icon name="up" size={12} />
         </button>
@@ -198,15 +212,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
         </button>
       </div>
       <div className="explorer-controls">
-        <label className="explorer-filter">
-          <Icon name="search" size={12} />
-          <input
-            value={workspace.filter}
-            aria-label="Filter explorer"
-            placeholder="Filter files"
-            onChange={(event) => setFilter(worktreePath, event.currentTarget.value)}
-          />
-        </label>
+
         <button
           type="button"
           className="explorer-option"
@@ -230,11 +236,14 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
       {root?.phase === 'error' ? (
         <div className="explorer-error" role="alert">
           <span>{root.error}</span>
-          <button type="button" onClick={() => void refreshExplorer(worktreePath)}>Retry</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refreshExplorer(worktreePath)}>Retry</button>
         </div>
       ) : null}
       {root?.phase === 'ready' && rows.length === 0 ? (
-        <div className="explorer-empty">{workspace.filter ? 'No matching loaded files' : 'This workspace is empty'}</div>
+        <div className="explorer-empty">
+          <strong>This workspace is empty</strong>
+          <span>Create a file or folder to start working here.</span>
+        </div>
       ) : null}
       {root?.truncated ? <div className="explorer-notice">Showing the first 4,096 entries.</div> : null}
       <div
@@ -255,7 +264,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
           const expanded = row.entry.type === 'dir' && workspace.expanded.includes(row.entry.path)
           const directory = row.entry.type === 'dir' ? workspace.directories[row.entry.path] : undefined
           return (
-            <div key={row.entry.path}>
+            <div key={row.entry.path} role="none">
               <button
                 id={'explorer-row-' + index}
                 type="button"
@@ -292,11 +301,34 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
       </div>
       {contextMenu ? (
         <div
+          ref={contextMenuRef}
           className="explorer-context-menu"
           role="menu"
           aria-label="Explorer actions"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setContextMenu(null)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setContextMenu(null)
+              treeRef.current?.focus()
+              return
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault()
+            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+            if (items.length === 0) return
+            const current = items.indexOf(document.activeElement as HTMLButtonElement)
+            const next = event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? items.length - 1
+                : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+            items[next]?.focus()
+          }}
         >
           <button type="button" role="menuitem" onClick={() => openEntryDialog('create-file', contextMenu.entry)}>New file…</button>
           <button type="button" role="menuitem" onClick={() => openEntryDialog('create-directory', contextMenu.entry)}>New folder…</button>
@@ -311,9 +343,10 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
           {dialog.kind === 'delete' ? (
             <p>Delete <strong>{dialog.entry?.path}</strong> from this workspace? Folders and their contents are removed permanently.</p>
           ) : (
-            <label className="field">
+            <label className="field modal-field">
               <span>Workspace-relative path</span>
               <input
+                className="input"
                 autoFocus
                 value={dialog.value}
                 onChange={(event) => setDialog({ ...dialog, value: event.currentTarget.value })}
@@ -328,10 +361,10 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
           )}
           {mutationError ? <div className="modal-error" role="alert">{mutationError}</div> : null}
           <div className="modal-actions">
-            <button type="button" className="secondary" disabled={mutating} onClick={() => setDialog(null)}>Cancel</button>
+            <button type="button" className="btn btn-secondary" disabled={mutating} onClick={() => setDialog(null)}>Cancel</button>
             <button
               type="button"
-              className={dialog.kind === 'delete' ? 'danger' : 'primary'}
+              className={dialog.kind === 'delete' ? 'btn btn-danger' : 'btn btn-primary'}
               disabled={mutating || (dialog.kind !== 'delete' && !dialog.value.trim())}
               onClick={() => void submitDialog()}
             >

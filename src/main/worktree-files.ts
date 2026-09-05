@@ -12,6 +12,65 @@ const IMAGE_BYTE_LIMIT = 8 * 1024 * 1024
 const NO_FOLLOW = constants.O_NOFOLLOW ?? 0
 const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/
 
+const BINARY_SCAN_CHUNK_BYTES = 64 * 1024
+
+type Utf8ValidationState = {
+  remaining: number
+  nextMin: number
+  nextMax: number
+  pendingBytes: number
+}
+
+/** Validate UTF-8 without decoding or copying; NUL marks content as unsupported text. */
+function consumeSupportedTextBytes(bytes: Uint8Array, state: Utf8ValidationState): boolean {
+  for (const byte of bytes) {
+    if (state.remaining > 0) {
+      if (byte < state.nextMin || byte > state.nextMax) return false
+      state.remaining -= 1
+      state.pendingBytes += 1
+      state.nextMin = 0x80
+      state.nextMax = 0xbf
+      if (state.remaining === 0) state.pendingBytes = 0
+      continue
+    }
+    if (byte === 0) return false
+    if (byte <= 0x7f) continue
+    state.pendingBytes = 1
+    if (byte >= 0xc2 && byte <= 0xdf) {
+      state.remaining = 1
+      state.nextMin = 0x80
+      state.nextMax = 0xbf
+    } else if (byte === 0xe0) {
+      state.remaining = 2
+      state.nextMin = 0xa0
+      state.nextMax = 0xbf
+    } else if ((byte >= 0xe1 && byte <= 0xec) || (byte >= 0xee && byte <= 0xef)) {
+      state.remaining = 2
+      state.nextMin = 0x80
+      state.nextMax = 0xbf
+    } else if (byte === 0xed) {
+      state.remaining = 2
+      state.nextMin = 0x80
+      state.nextMax = 0x9f
+    } else if (byte === 0xf0) {
+      state.remaining = 3
+      state.nextMin = 0x90
+      state.nextMax = 0xbf
+    } else if (byte >= 0xf1 && byte <= 0xf3) {
+      state.remaining = 3
+      state.nextMin = 0x80
+      state.nextMax = 0xbf
+    } else if (byte === 0xf4) {
+      state.remaining = 3
+      state.nextMin = 0x80
+      state.nextMax = 0x8f
+    } else {
+      return false
+    }
+  }
+  return true
+}
+
 export class WorktreeFileError extends Error {
   constructor(message: string) {
     super(message)
@@ -137,7 +196,43 @@ async function readCurrentRevision(root: string, abs: string, relPath: string): 
   if (!snapshot.stable || snapshot.bytes.length !== snapshot.size) {
     throw new WorktreeFileError(`Write conflict: ${relPath} changed while it was being read`)
   }
+  const validation: Utf8ValidationState = { remaining: 0, nextMin: 0x80, nextMax: 0xbf, pendingBytes: 0 }
+  if (!consumeSupportedTextBytes(snapshot.bytes, validation) || validation.remaining !== 0) {
+    throw new WorktreeFileError(`Refusing to overwrite binary or unsupported text file: ${relPath}`)
+  }
   return revisionOf(snapshot.bytes)
+}
+
+async function assertExistingTextFile(root: string, abs: string, relPath: string): Promise<void> {
+  const handle = await open(abs, constants.O_RDONLY | NO_FOLLOW)
+  try {
+    const before = await handle.stat()
+    if (!before.isFile()) throw new WorktreeFileError(`${relPath} is not a regular file`)
+    await assertPathMatchesDescriptor(abs, root, before, relPath)
+    const validation: Utf8ValidationState = { remaining: 0, nextMin: 0x80, nextMax: 0xbf, pendingBytes: 0 }
+    const buffer = Buffer.allocUnsafe(BINARY_SCAN_CHUNK_BYTES)
+    let position = 0
+    while (position < before.size) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+      if (bytesRead === 0) break
+      if (!consumeSupportedTextBytes(buffer.subarray(0, bytesRead), validation)) {
+        throw new WorktreeFileError(`Refusing to overwrite binary or unsupported text file: ${relPath}`)
+      }
+      position += bytesRead
+    }
+    const after = await handle.stat()
+    if (
+      before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size ||
+      before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || position !== after.size
+    ) {
+      throw new WorktreeFileError(`Write conflict: ${relPath} changed while it was being checked`)
+    }
+    if (validation.remaining !== 0) {
+      throw new WorktreeFileError(`Refusing to overwrite binary or unsupported text file: ${relPath}`)
+    }
+  } finally {
+    await handle.close()
+  }
 }
 
 function sniffImageMime(bytes: Buffer): string | null {
@@ -445,10 +540,20 @@ export class WorktreeFiles {
     const snapshot = await readBoundedDescriptor(abs, root, relPath, PREVIEW_BYTE_LIMIT)
     const truncated = snapshot.size > PREVIEW_BYTE_LIMIT || snapshot.bytes.length > PREVIEW_BYTE_LIMIT
     const visible = snapshot.bytes.subarray(0, PREVIEW_BYTE_LIMIT)
+    const validation: Utf8ValidationState = { remaining: 0, nextMin: 0x80, nextMax: 0xbf, pendingBytes: 0 }
+    let supported = consumeSupportedTextBytes(visible, validation)
+    const visibleTextBytes = visible.length - validation.pendingBytes
+    if (supported && snapshot.bytes.length > visible.length) {
+      supported = consumeSupportedTextBytes(snapshot.bytes.subarray(visible.length), validation)
+    }
+    const binary = !supported || (!truncated && validation.remaining !== 0)
+    if (binary) {
+      return { path: relPath, content: '', truncated, bytes: snapshot.size, binary: true }
+    }
     const complete = !truncated && snapshot.stable && visible.length === snapshot.size
     return {
       path: relPath,
-      content: visible.toString('utf8'),
+      content: visible.subarray(0, visibleTextBytes).toString('utf8'),
       truncated,
       bytes: snapshot.size,
       ...(complete ? { revision: revisionOf(visible) } : {})
@@ -479,6 +584,10 @@ export class WorktreeFiles {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'ENOENT') throw error
       if (expectedRevision !== undefined) throw new WorktreeFileError(`Write conflict: ${relPath} no longer exists`)
+    }
+
+    if (existingMode !== undefined && expectedRevision === undefined) {
+      await assertExistingTextFile(root, abs, relPath)
     }
 
     if (expectedRevision !== undefined) {

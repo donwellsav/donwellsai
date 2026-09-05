@@ -25,7 +25,7 @@ export type NavigationStoreSnapshot = {
   setActiveRepo(repoId: string | null): void
   setActiveWorktree(path: string | null): void
   setActivePane(worktreePath: string, key: string): void
-  openPreview(worktreePath: string, relPath: string, navigation?: NavigationLocation): Promise<void>
+  openPreview(worktreePath: string, relPath: string, navigation?: NavigationLocation): Promise<boolean>
   focusAgentSession(sessionId: string): Promise<boolean>
   setError(error: string | null): void
 }
@@ -135,7 +135,7 @@ async function applyNavigationTarget(target: NavigationTarget): Promise<boolean>
       useAppStore.getState().setActiveWorktree(target.worktreePath)
     }
     if (target.kind === 'file') {
-      await useAppStore.getState().openPreview(target.worktreePath, target.file, target.location)
+      if (!(await useAppStore.getState().openPreview(target.worktreePath, target.file, target.location))) return false
     } else if (target.kind !== 'workspace') {
       useAppStore.getState().setActivePane(target.worktreePath, target.paneKey)
     }

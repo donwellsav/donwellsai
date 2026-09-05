@@ -37,9 +37,23 @@ export function TitlebarTabs() {
   const [renamingKey, setRenamingKey] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const urlInputRef = useRef<HTMLInputElement>(null)
+  const urlPopoverRef = useRef<HTMLDivElement>(null)
+  const urlButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (urlOpen) requestAnimationFrame(() => urlInputRef.current?.focus())
+    if (!urlOpen) return
+    const frame = requestAnimationFrame(() => urlInputRef.current?.focus())
+    const dismissOutside = (event: PointerEvent): void => {
+      if (urlPopoverRef.current && !event.composedPath().includes(urlPopoverRef.current)) setUrlOpen(false)
+    }
+    const dismissFromBlur = (): void => setUrlOpen(false)
+    document.addEventListener('pointerdown', dismissOutside)
+    window.addEventListener('blur', dismissFromBlur)
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('pointerdown', dismissOutside)
+      window.removeEventListener('blur', dismissFromBlur)
+    }
   }, [urlOpen])
 
   if (!activeWorktreePath) return <NavigationControls />
@@ -181,29 +195,44 @@ export function TitlebarTabs() {
       <button className="strip-button" title="New terminal" aria-label="New terminal" onClick={() => void openTerminal(activeWorktreePath)}>
         <Icon name="plus" size={16} />
       </button>
-      <div className="url-popover-anchor">
+      <div ref={urlPopoverRef} className="url-popover-anchor">
         <button
+          ref={urlButtonRef}
           className={`strip-button${urlOpen ? ' active' : ''}`}
           title="Open browser tab"
           aria-label="Open browser tab"
+          aria-expanded={urlOpen}
+          aria-haspopup="dialog"
           onClick={() => setUrlOpen(!urlOpen)}
         >
           <Icon name="globe" size={16} />
         </button>
         {urlOpen && (
-          <div className="url-popover" onKeyDown={(event) => event.stopPropagation()}>
+          <div
+            className="url-popover"
+            role="dialog"
+            aria-label="Open browser tab"
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              setUrlOpen(false)
+              requestAnimationFrame(() => urlButtonRef.current?.focus())
+            }}
+          >
             <input
               ref={urlInputRef}
               className="input url-popover-input"
               placeholder="https://…"
               value={url}
+              aria-label="Address"
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') openUrl()
                 if (event.key === 'Escape') setUrlOpen(false)
               }}
             />
-            <button className="btn btn-primary btn-sm" disabled={!url.trim()} onClick={openUrl}>Go</button>
+            <button className="btn btn-primary btn-sm" disabled={!url.trim()} onClick={openUrl}>Open</button>
           </div>
         )}
       </div>

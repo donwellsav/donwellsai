@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { AttentionInbox } from './components/AttentionInbox'
-import { openAttentionInbox, refreshAttentionInbox, useAttentionInboxMount } from './attention-inbox'
+
 import { WorktreeSidebar } from './components/WorktreeSidebar'
 import { TitlebarTabs } from './components/TitlebarTabs'
 import { Workbench } from './components/Workbench'
@@ -23,19 +22,19 @@ import { ProjectMemoryEditor } from './components/ProjectMemoryEditor'
 import { useProjectMemoryEditor } from './project-memory-editor'
 import { startEditorRecoveryController } from './editor-recovery'
 import { useNavigationHistoryController } from './navigation-controller'
+import { ProjectSetupDialog } from './components/ProjectSetupDialog'
 
 
 export function App() {
   const load = useAppStore((s) => s.load)
   const loading = useAppStore((s) => s.loading)
   const error = useAppStore((s) => s.error)
+  const initializationError = useAppStore((s) => s.initializationError)
   const scans = useAppStore((s) => s.scans)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
-  const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
-  const attentionInbox = useAttentionInboxMount(window.donwells)
   const settings = useAppStore((s) => s.settings)
   const paletteOpen = useAppStore((s) => s.paletteOpen)
   const settingsOpen = useAppStore((s) => s.settingsOpen)
@@ -61,11 +60,9 @@ export function App() {
     // The native runtime is the authority for every agent lifecycle transition.
     const offAgentChanged = window.donwells.on('agent:changed', ({ run }) => {
       useAppStore.getState().applyAgentRun(run)
-      void refreshAttentionInbox()
     })
     const offAgentDismissed = window.donwells.on('agent:dismissed', ({ sessionId }) => {
       useAppStore.getState().applyAgentDismissed(sessionId)
-      void refreshAttentionInbox()
     })
     // Menu accelerators route through the same dispatch as keyboard shortcuts.
     const offMenu = window.donwells.on('menu:action', ({ action }) => dispatchAppCommand(action))
@@ -94,14 +91,6 @@ export function App() {
     }
   }, [load])
 
-  useEffect(() => {
-    const hasUnread = (attentionInbox.snapshot?.unreadCount ?? 0) > 0
-    window.donwells.setAttention({
-      indicator: settings.notificationActivityIndicator && hasUnread,
-      flash: settings.notificationFlashWindow && hasUnread
-    })
-  }, [attentionInbox.snapshot?.unreadCount, settings.notificationActivityIndicator, settings.notificationFlashWindow])
-
   // Live status polling: every statusPollMs refresh worktree statuses for the active repo.
   useEffect(() => {
     if (settings.statusPollMs <= 0) return
@@ -129,46 +118,39 @@ export function App() {
     )
   }
 
+  if (initializationError) {
+    return (
+      <main className="app-layout">
+        <div className="landing"><div className="landing-inner">
+          <h1 className="landing-title">Workspace could not be loaded</h1>
+          <p className="landing-sub">Your saved projects have not been replaced. Retry the connection before continuing.</p>
+          <p className="lifecycle-error" role="alert">{initializationError}</p>
+          <button className="btn btn-primary" onClick={() => void load()}>Retry loading workspace</button>
+        </div></div>
+      </main>
+    )
+  }
+
   return (
     <div className="app-layout">
-      {/* Titlebar strip: traffic-light pad · logo · toggles · terminal tabs · + */}
-      <div className="titlebar">
-        <div className="titlebar-left-pad" />
+      <header className="titlebar">
+        {/Mac/.test(navigator.userAgent) && <div className="titlebar-left-pad" />}
         <div className="titlebar-section">
-          <span className="titlebar-logo"><span className="logo-dot" />donwells.ai</span>
-          <button className="titlebar-icon-button" title="Toggle sidebar" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            <Icon name="panelLeft" size={15} />
-          </button>
+          <button className="titlebar-logo" aria-label="Go to Projects" onClick={() => useAppStore.getState().setActiveRepo(null)}>donwells.ai</button>
+          <button className="titlebar-icon-button" aria-label={sidebarOpen ? 'Hide projects sidebar' : 'Show projects sidebar'} aria-pressed={sidebarOpen} onClick={() => setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={16} /></button>
         </div>
-        <div id="titlebar-tabs">
-          <TitlebarTabs />
-        </div>
-        <div className="titlebar-section">
-          <button className="titlebar-icon-button" title={`Attention inbox (${attentionInbox.snapshot?.unreadCount ?? 0} unread)`} aria-label={`Attention inbox (${attentionInbox.snapshot?.unreadCount ?? 0} unread)`} onClick={openAttentionInbox}>
-            <Icon name="activity" size={15} />
-            {(attentionInbox.snapshot?.unreadCount ?? 0) > 0 && <span>{attentionInbox.snapshot?.unreadCount}</span>}
-          </button>
-          <button
-            className="titlebar-icon-button"
-            title="Toggle right sidebar"
-            style={rightSidebarOpen ? { color: 'var(--foreground)' } : undefined}
-            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-          >
-            <Icon name="panelRight" size={15} />
-          </button>
-        </div>
-      </div>
 
+
+      </header>
       <div className="app-body">
         {sidebarOpen && <WorktreeSidebar />}
-        <div style={{ position: 'relative', flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
-            {activeWorktreePath ? <Workbench /> : <Landing />}
-            <BrowserHosts />
-          </div>
-          {runsOpen && <RunsPanel />}
+        <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
+          {activeWorktreePath && <div id="titlebar-tabs"><TitlebarTabs /></div>}
+          {activeWorktreePath ? <Workbench /> : <Landing />}
+          <BrowserHosts />
         </div>
-        {rightSidebarOpen && <RightSidebar />}
+        {runsOpen && <RunsPanel />}
+        {rightSidebarOpen && !runsOpen && <RightSidebar />}
       </div>
       <div className="status-bar">
         {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
@@ -199,10 +181,10 @@ export function App() {
       <CommandPalette open={paletteOpen} />
       <SettingsModal open={settingsOpen} />
       <CreateWorktreeModal />
+      <ProjectSetupDialog />
       <DeleteWorktreeModal />
       <TerminalCloseDialog />
       <ProjectMemoryEditor />
-      <AttentionInbox />
     </div>
   )
 }

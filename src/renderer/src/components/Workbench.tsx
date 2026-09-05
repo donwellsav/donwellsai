@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react'
+import { useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useAppStore, isMarkdownFile, layoutHasLeaf, type LayoutNode, type Pane } from '../store'
 import { TerminalPane } from './TerminalPane'
 import { MediaPreviewRouter } from './MediaPreviewRouter'
@@ -23,7 +23,7 @@ function LayoutTree({ node, render, onResize }: { node: LayoutNode; render: (pan
 function LayoutNodeView({ node, render, onResize, counter }: { node: LayoutNode; render: (paneKey: string) => ReactNode; onResize: (splitId: number, pct: number) => void; counter: { n: number } }) {
   if (node.kind === 'leaf') return <>{render(node.pane)}</>
   const id = counter.n++
-  const pct = node.size ?? 50
+  const pct = Math.min(85, Math.max(15, node.size ?? 50))
   const startDrag = (e: React.MouseEvent): void => {
     e.preventDefault()
     const container = e.currentTarget.parentElement as HTMLElement
@@ -41,12 +41,40 @@ function LayoutNodeView({ node, render, onResize, counter }: { node: LayoutNode;
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
   }
+  const resizeFromKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const step = event.shiftKey ? 10 : 4
+    let next: number | undefined
+    if (event.key === 'Home') next = 15
+    else if (event.key === 'End') next = 85
+    else if (node.dir === 'row' && event.key === 'ArrowLeft') next = pct - step
+    else if (node.dir === 'row' && event.key === 'ArrowRight') next = pct + step
+    else if (node.dir === 'col' && event.key === 'ArrowUp') next = pct - step
+    else if (node.dir === 'col' && event.key === 'ArrowDown') next = pct + step
+    if (next === undefined) return
+    event.preventDefault()
+    onResize(id, Math.min(85, Math.max(15, next)))
+  }
   return (
     <div className={`split split-${node.dir}`}>
       <div className="split-side" style={{ flex: `0 0 ${pct}%` }}>
         <LayoutNodeView node={node.first} render={render} onResize={onResize} counter={counter} />
       </div>
-      <div className="split-divider" data-dir={node.dir} onMouseDown={startDrag} />
+      <div
+        className="split-divider"
+        data-dir={node.dir}
+        role="separator"
+        tabIndex={0}
+        aria-label={node.dir === 'row' ? 'Resize panes left and right' : 'Resize panes above and below'}
+        aria-orientation={node.dir === 'row' ? 'vertical' : 'horizontal'}
+        aria-valuemin={15}
+        aria-valuemax={85}
+        aria-valuenow={Math.round(pct)}
+        aria-valuetext={`${Math.round(pct)} percent for the first pane`}
+        title="Drag or use arrow keys to resize. Double-click to balance."
+        onDoubleClick={() => onResize(id, 50)}
+        onKeyDown={resizeFromKeyboard}
+        onMouseDown={startDrag}
+      />
       <div className="split-side">
         <LayoutNodeView node={node.second} render={render} onResize={onResize} counter={counter} />
       </div>
@@ -135,6 +163,7 @@ export function Workbench() {
           {pane.kind === 'preview' && pane.file && isMarkdownFile(pane.file) && (
             <button
               className="icon-btn"
+              aria-label={(previewsForWt?.[pane.file]?.mode ?? 'edit') === 'preview' ? 'Edit Markdown source' : 'Preview rendered Markdown'}
               title={(previewsForWt?.[pane.file]?.mode ?? 'edit') === 'preview' ? 'Edit source (⌘⇧V)' : 'Rendered preview (⌘⇧V)'}
               onClick={(e) => {
                 e.stopPropagation()
@@ -182,6 +211,7 @@ export function Workbench() {
                 <span className="agent-state-label">{stateLabel}</span>
                 <button
                   className="icon-btn"
+                  aria-label={settled ? 'Dismiss agent status' : agent.activity === 'stopping' ? 'Stopping agent' : 'Stop agent'}
                   title={settled ? 'Dismiss agent status' : agent.activity === 'stopping' ? 'Stopping agent…' : 'Stop agent'}
                   disabled={!settled && (agent.activity === 'stopping' || agent.liveness !== 'live')}
                   onClick={(event) => {
@@ -197,6 +227,7 @@ export function Workbench() {
           })()}
           <button
             className="icon-btn danger"
+            aria-label={`Close ${labelOf(pane)}`}
             title="Close pane"
             onClick={(e) => {
               e.stopPropagation()

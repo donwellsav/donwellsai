@@ -32,6 +32,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   const preview = useAppStore((state) => state.previews[worktreePath]?.[relPath])
   const navigation = useAppStore((state) => state.documentNavigation[worktreePath]?.[relPath])
   const settings = useAppStore((state) => state.settings)
+  const openPreview = useAppStore((state) => state.openPreview)
   const markdown = isMarkdownFile(relPath)
   const mode = markdown ? preview?.mode ?? 'edit' : 'edit'
   const recovery = getEditorRecoveryController()
@@ -45,6 +46,12 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   const [saveState, setSaveState] = useState<EditorSaveSnapshot | null>(null)
   const [recoveryStatus, setRecoveryStatus] = useState<EditorRecoveryPersistenceStatus>({ phase: 'idle' })
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false)
+  const [reloading, setReloading] = useState(false)
+  const [reloadError, setReloadError] = useState<string | null>(null)
+  const [editorMountError, setEditorMountError] = useState<string | null>(null)
+  const [mountAttempt, setMountAttempt] = useState(0)
+  const [previewRetrying, setPreviewRetrying] = useState(false)
+  const [previewOpenError, setPreviewOpenError] = useState<string | null>(null)
   autoSaveRef.current = { mode: settings.editorAutoSaveMode, delay: settings.editorAutoSaveDelayMs }
 
   const scheduleAutoSave = (): void => {
@@ -103,6 +110,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     let disposeEditor: (() => void) | undefined
 
     const mountEditor = async (): Promise<void> => {
+      setEditorMountError(null)
       let editorDocument = getEditorDocument(worktreePath, relPath)
       let recovered = editorDocument ? undefined : await recovery.draftFor({ workspacePath: worktreePath, relPath })
       if (cancelled) return
@@ -266,7 +274,10 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     }
 
     void mountEditor().catch((error: unknown) => {
-      if (!cancelled) useAppStore.getState().setError('Editor recovery failed to initialize: ' + String(error))
+      if (cancelled) return
+      const message = 'Editor recovery failed to initialize: ' + String(error)
+      setEditorMountError(message)
+      useAppStore.getState().setError(message)
     })
     return () => {
       cancelled = true
@@ -274,7 +285,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     }
     // Settings update through updateOptions below; source epochs are observed below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worktreePath, relPath, mode])
+  }, [worktreePath, relPath, mode, mountAttempt])
 
   // Agent/store writes are external epochs. Same-epoch acknowledgements are
   // ignored, and a newer epoch never replaces a dirty model.
@@ -335,7 +346,42 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     editor.focus()
   }, [mode, navigation, relPath, worktreePath])
 
-  if (!preview) return null
+  const retryOpenPreview = async (): Promise<void> => {
+    if (previewRetrying) return
+    setPreviewRetrying(true)
+    setPreviewOpenError(null)
+    await openPreview(worktreePath, relPath)
+    if (!useAppStore.getState().previews[worktreePath]?.[relPath]) {
+      setPreviewOpenError(useAppStore.getState().error ?? 'The file could not be opened.')
+    }
+    setPreviewRetrying(false)
+  }
+
+  if (!preview) {
+    return (
+      <div className="editor-pane">
+        <div className="diff-error" role={previewOpenError ? 'alert' : 'status'}>
+          <strong>File content unavailable</strong>
+          <span>{previewOpenError ?? 'This editor pane no longer has loaded file content.'}</span>
+          <button type="button" className="btn btn-secondary" disabled={previewRetrying} onClick={() => void retryOpenPreview()}>{previewRetrying ? 'Opening…' : 'Retry opening file'}</button>
+        </div>
+      </div>
+    )
+  }
+  if (editorMountError) {
+    return (
+      <div className="editor-pane">
+        <div className="diff-error" role="alert">
+          <strong>Editor failed to start</strong>
+          <span>{editorMountError}</span>
+          <button type="button" className="btn btn-secondary" onClick={() => {
+            setEditorMountError(null)
+            setMountAttempt((attempt) => attempt + 1)
+          }}>Retry editor</button>
+        </div>
+      </div>
+    )
+  }
   const rendered = mode === 'preview'
   const phase = saveState?.phase
   const hasUnsaved = saveState !== null && saveState.bufferVersion !== saveState.savedVersion
@@ -370,25 +416,38 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     void recovery.retry({ workspacePath: worktreePath, relPath }).catch(() => undefined)
   }
 
-  const reloadFromDisk = (): void => {
-    setReloadConfirmationOpen(false)
+  const reloadFromDisk = async (): Promise<void> => {
+    if (reloading) return
     const editorDocument = getEditorDocument(worktreePath, relPath)
-    if (!editorDocument) return
+    if (!editorDocument) {
+      setReloadError('The editor document is no longer available. Close this dialog and reopen the file.')
+      return
+    }
+    setReloading(true)
+    setReloadError(null)
     window.clearTimeout(recoveryTimerRef.current)
     recoveryTimerRef.current = undefined
     const discardedVersion = editorDocument.save.snapshot().bufferVersion
     const sourceEpoch = useAppStore.getState().previews[worktreePath]?.[relPath]?.v ?? editorDocument.save.snapshot().sourceEpoch
-    void window.donwells.readFile(worktreePath, relPath).then((file) => {
+    try {
+      const file = await window.donwells.readFile(worktreePath, relPath)
       const currentEpoch = useAppStore.getState().previews[worktreePath]?.[relPath]?.v
       if (currentEpoch !== undefined && currentEpoch !== sourceEpoch) {
-        editorDocument.save.reportReloadFailure('File changed again while reload was in progress.')
+        const message = 'File changed again while reload was in progress.'
+        editorDocument.save.reportReloadFailure(message)
+        setReloadError(message)
         return
       }
       if (editorDocument.save.snapshot().bufferVersion !== discardedVersion) {
-        editorDocument.save.reportReloadFailure('The editor changed while reload was in progress; newer text was preserved.')
+        const message = 'The editor changed while reload was in progress; newer text was preserved.'
+        editorDocument.save.reportReloadFailure(message)
+        setReloadError(message)
         return
       }
-      if (!editorDocument.save.reload(file, sourceEpoch)) return
+      if (!editorDocument.save.reload(file, sourceEpoch)) {
+        setReloadError(editorDocument.save.snapshot().error ?? 'The current file could not be adopted safely.')
+        return
+      }
       applyingModelChange.current = true
       try {
         if (editorDocument.model.getValue() !== file.content) editorDocument.model.setValue(file.content)
@@ -396,8 +455,14 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         applyingModelChange.current = false
       }
       useAppStore.getState().ackPreviewSave(worktreePath, relPath, file, sourceEpoch)
-      void recovery.discardDocument({ workspacePath: worktreePath, relPath }, discardedVersion).catch(() => undefined)
-    }).catch((error: unknown) => editorDocument.save.reportReloadFailure(error))
+      await recovery.discardDocument({ workspacePath: worktreePath, relPath }, discardedVersion)
+      setReloadConfirmationOpen(false)
+    } catch (error: unknown) {
+      editorDocument.save.reportReloadFailure(error)
+      setReloadError(String(error))
+    } finally {
+      setReloading(false)
+    }
   }
 
   return (
@@ -425,12 +490,13 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         </div>
       )}
       {reloadConfirmationOpen && (
-        <ModalDialog className="modal delete-modal" labelledBy="editor-reload-title" onClose={() => setReloadConfirmationOpen(false)}>
+        <ModalDialog className="modal delete-modal" labelledBy="editor-reload-title" onClose={() => !reloading && setReloadConfirmationOpen(false)}>
           <h3 id="editor-reload-title" className="modal-title">Discard unsaved changes?</h3>
           <p>Reloading <strong>{relPath}</strong> replaces the editor buffer with the current file from disk.</p>
+          {reloadError && <div className="modal-error" role="alert">{reloadError}</div>}
           <div className="modal-actions">
-            <button type="button" className="btn" onClick={() => setReloadConfirmationOpen(false)}>Cancel</button>
-            <button type="button" className="btn btn-danger" onClick={reloadFromDisk}>Discard and reload</button>
+            <button type="button" className="btn btn-secondary" disabled={reloading} onClick={() => setReloadConfirmationOpen(false)}>Cancel</button>
+            <button type="button" className="btn btn-danger" disabled={reloading} onClick={() => void reloadFromDisk()}>{reloading ? 'Reloading…' : 'Discard and reload'}</button>
           </div>
         </ModalDialog>
       )}

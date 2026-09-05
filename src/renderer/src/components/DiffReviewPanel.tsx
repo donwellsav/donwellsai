@@ -64,6 +64,7 @@ function NoteEditor({
       <label>
         <span>{label}</span>
         <textarea
+          className="input"
           ref={textareaRef}
           value={body}
           maxLength={DIFF_REVIEW_BODY_MAX_LENGTH}
@@ -78,6 +79,7 @@ function NoteEditor({
         <span className={error ? 'diff-review-field-error' : 'diff-review-key-hint'} role={error ? 'alert' : undefined}>
           {error || '⌘↵ save · Esc cancel'}
         </span>
+        <span className="diff-review-editor-count">{body.length.toLocaleString()} / {DIFF_REVIEW_BODY_MAX_LENGTH.toLocaleString()}</span>
         <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={saving}>Cancel</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || !body.trim()}>
           {saving ? 'Saving…' : 'Save note'}
@@ -125,6 +127,7 @@ export function DiffReviewPanel({
   onJump,
   onEditingNoteChange,
   onAttach,
+  onRetry,
   onClose
 }: {
   id: string
@@ -142,6 +145,7 @@ export function DiffReviewPanel({
   onJump(note: DiffReviewNote): void
   onEditingNoteChange(noteId: string | null): void
   onAttach(): void
+  onRetry(): void
   onClose(): void
 }) {
   const rangeTitleId = `${id}-range-title`
@@ -211,7 +215,7 @@ export function DiffReviewPanel({
             <legend className="sr-only">Choose a snapshot side and exact line range</legend>
             <label>
               <span>Side</span>
-              <select value={manualSide} onChange={(event) => {
+              <select className="input" value={manualSide} onChange={(event) => {
                 const side = event.target.value
                 if (side === 'before' || side === 'after') setManualSide(side)
               }}>
@@ -221,11 +225,11 @@ export function DiffReviewPanel({
             </label>
             <label>
               <span>Start</span>
-              <input type="number" min={1} max={manualSide === 'before' ? beforeLines : afterLines} inputMode="numeric" value={manualStart} onChange={(event) => setManualStart(event.target.value)} />
+              <input className="input" type="number" min={1} max={manualSide === 'before' ? beforeLines : afterLines} inputMode="numeric" value={manualStart} onChange={(event) => setManualStart(event.target.value)} />
             </label>
             <label>
               <span>End</span>
-              <input type="number" min={1} max={manualSide === 'before' ? beforeLines : afterLines} inputMode="numeric" value={manualEnd} onChange={(event) => setManualEnd(event.target.value)} />
+              <input className="input" type="number" min={1} max={manualSide === 'before' ? beforeLines : afterLines} inputMode="numeric" value={manualEnd} onChange={(event) => setManualEnd(event.target.value)} />
             </label>
             <button type="button" className="btn btn-secondary btn-sm" onClick={applyManualRange}>Select</button>
           </fieldset>
@@ -262,9 +266,14 @@ export function DiffReviewPanel({
       </div>
 
       <div className="diff-review-list" aria-busy={loading} aria-live="polite">
-        {error && <div className="diff-review-error" role="alert">{error}</div>}
-        {loading ? (
-          <p className="diff-review-muted">Loading review notes…</p>
+        {error ? (
+          <div className="diff-review-error" role="alert">
+            <strong>Review notes unavailable</strong>
+            <span>{error}</span>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={loading} onClick={onRetry}>Retry</button>
+          </div>
+        ) : loading ? (
+          <p className="diff-review-muted" role="status">Loading review notes…</p>
         ) : notes.length === 0 ? (
           <div className="diff-review-empty">
             <strong>No notes yet</strong>
@@ -301,23 +310,23 @@ export function DiffReviewPanel({
                     <StoredContext note={note} />
                     {!editing && (
                       <footer>
-                        <button type="button" disabled={!current} title={current ? 'Jump to the anchored range' : 'The original range is not applied to changed content'} onClick={() => onJump(note)}>
+                        <button type="button" className="btn btn-ghost btn-sm" disabled={!current} title={current ? 'Jump to the anchored range' : 'The original range is not applied to changed content'} onClick={() => onJump(note)}>
                           {current ? 'Jump' : 'Original context'}
                         </button>
-                        <button type="button" onClick={() => onEditingNoteChange(note.id)}>Edit</button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditingNoteChange(note.id)}>Edit</button>
                         {confirmingDelete ? (
                           <span className="diff-review-delete-confirm" role="group" aria-label="Confirm note deletion">
                             <span>Delete permanently?</span>
-                            <button type="button" onClick={() => setDeleteNoteId(null)}>Cancel</button>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDeleteNoteId(null)}>Cancel</button>
                             <button
                               type="button"
-                              className="is-destructive"
+                              className="btn btn-danger btn-sm"
                               disabled={saving}
                               onClick={() => void onDelete(note).then((removed) => { if (removed) setDeleteNoteId(null) })}
                             >Delete</button>
                           </span>
                         ) : (
-                          <button type="button" className="is-destructive" onClick={() => setDeleteNoteId(note.id)}>Delete</button>
+                          <button type="button" className="btn btn-ghost btn-sm is-destructive" onClick={() => setDeleteNoteId(note.id)}>Delete</button>
                         )}
                       </footer>
                     )}

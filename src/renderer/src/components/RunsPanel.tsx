@@ -5,10 +5,6 @@ import { ParallelRunsSection } from './runs/ParallelRunsSection'
 import { ScheduledRunsSection } from './runs/ScheduledRunsSection'
 import './runs/runs.css'
 
-export function reportOperationalRunError(error: unknown): void {
-  useAppStore.getState().setError(error instanceof Error ? error.message : String(error))
-}
-
 export function RunsPanel() {
   const section = useAppStore((state) => state.runsSection)
   const openRuns = useAppStore((state) => state.openRuns)
@@ -36,7 +32,7 @@ export function RunsPanel() {
             aria-selected={section === 'orchestration'}
             onClick={() => openRuns('orchestration')}
           >
-            Parallel
+            Parallel shells
           </button>
           <button
             className={`rs-tab${section === 'automations' ? ' active' : ''}`}
@@ -44,7 +40,7 @@ export function RunsPanel() {
             aria-selected={section === 'automations'}
             onClick={() => openRuns('automations')}
           >
-            Scheduled
+            Scheduled shells
           </button>
         </div>
         <button className="icon-btn" aria-label="Close runs" onClick={() => setRunsOpen(false)}>
@@ -55,9 +51,9 @@ export function RunsPanel() {
         {section === 'agents' ? (
           <AgentsSection />
         ) : section === 'orchestration' ? (
-          <ParallelRunsSection onError={reportOperationalRunError} />
+          <ParallelRunsSection />
         ) : (
-          <ScheduledRunsSection onError={reportOperationalRunError} />
+          <ScheduledRunsSection />
         )}
       </div>
     </section>

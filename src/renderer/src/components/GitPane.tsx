@@ -1,8 +1,9 @@
 import type { GitBranchInfo, GitCommit, GitPathFailure, GitPathOperation, GitPathOperationResult, GitStatusEntry } from '@shared/types'
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { runWithEditorGuard } from '../editor-models'
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
+import { ModalDialog } from './ModalDialog'
 
 type SectionId = 'conflicts' | 'staged' | 'changes' | 'untracked'
 
@@ -20,6 +21,12 @@ type GitSection = {
 }
 
 type ContextMenuState = { x: number; y: number; row: GitRow }
+type GitConfirmation =
+  | { kind: 'discard'; rows: readonly GitRow[]; paths: readonly string[] }
+  | { kind: 'switch-branch'; branch: string }
+  | { kind: 'create-branch'; branch: string }
+  | { kind: 'amend'; message: string }
+  | { kind: 'push'; target: string }
 
 function sectionRows(entries: readonly GitStatusEntry[]): GitSection[] {
   const rows = (section: SectionId, candidates: readonly GitStatusEntry[], stagedComparison: boolean): GitRow[] =>
@@ -78,31 +85,22 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [failures, setFailures] = useState<GitPathFailure[]>([])
-  const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [confirmation, setConfirmation] = useState<GitConfirmation | null>(null)
   const [branches, setBranches] = useState<GitBranchInfo | null>(null)
+  const [branchPickerOpen, setBranchPickerOpen] = useState(false)
   const [branchSearch, setBranchSearch] = useState('')
   const [newBranch, setNewBranch] = useState('')
   const [amend, setAmend] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyBusy, setHistoryBusy] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [history, setHistory] = useState<GitCommit[]>([])
   const [historyCursor, setHistoryCursor] = useState<string | undefined>()
-
+  const historyRequestRef = useRef(0)
   const sections = useMemo(() => sectionRows(status?.entries ?? []), [status?.entries])
-  const query = filter.trim().toLocaleLowerCase()
-  const filteredSections = useMemo(
-    () => sections.map((section) => ({
-      ...section,
-      rows: query.length === 0
-        ? section.rows
-        : section.rows.filter((row) => displayPath(row.entry).toLocaleLowerCase().includes(query))
-    })),
-    [query, sections]
-  )
   const allRows = useMemo(() => sections.flatMap((section) => section.rows), [sections])
-  const displayedRows = useMemo(() => filteredSections.flatMap((section) => section.rows), [filteredSections])
   const selectedRows = useMemo(() => allRows.filter((row) => selected.has(row.id)), [allRows, selected])
   const failureByPath = useMemo(() => new Map(failures.map((failure) => [failure.path, failure.error])), [failures])
   const paneId = useId()
@@ -111,13 +109,17 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   }, [refreshStatuses, worktreePath])
 
   useEffect(() => {
+    historyRequestRef.current += 1
     setSelected(new Set())
     setFailures([])
     setNotice(null)
-    setFilter('')
+    setBranchPickerOpen(false)
     setBranchSearch('')
     setNewBranch('')
+    setConfirmation(null)
     setHistory([])
+    setHistoryError(null)
+    setHistoryBusy(false)
     setHistoryCursor(undefined)
     setHistoryOpen(false)
   }, [worktreePath])
@@ -135,6 +137,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
       setBranches(null)
       return
     }
+    setBranches(null)
     let cancelled = false
     void window.donwells.gitBranches(worktreePath)
       .then((value) => {
@@ -210,12 +213,12 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
     }
   }
 
-  const operate = async (operation: GitPathOperation, rows: readonly GitRow[]): Promise<void> => {
+  const operate = async (operation: GitPathOperation, rows: readonly GitRow[], confirmed = false): Promise<void> => {
     const paths = uniquePaths(rows, operation)
     if (paths.length === 0 || busy) return
-    if (operation === 'discard') {
-      const exact = paths.map((path) => JSON.stringify(path)).join('\n')
-      if (!window.confirm(`Discard local changes for exactly these paths? This cannot be undone.\n\n${exact}`)) return
+    if (operation === 'discard' && !confirmed) {
+      setConfirmation({ kind: 'discard', rows, paths })
+      return
     }
     await runTask(`${operation}:${paths.length}`, async () => {
       let result: GitPathOperationResult
@@ -233,9 +236,12 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
     })
   }
 
-  const switchBranch = async (branch: string): Promise<void> => {
+  const switchBranch = async (branch: string, confirmed = false): Promise<void> => {
     if (!branch || branch === branches?.current || busy) return
-    if (!window.confirm(`Switch this workspace to branch ${JSON.stringify(branch)}? Open files will be saved before checkout.`)) return
+    if (!confirmed) {
+      setConfirmation({ kind: 'switch-branch', branch })
+      return
+    }
     await runTask('checkout', async () => {
       const next = await runWithEditorGuard(worktreePath, undefined, async () => {
         const checkedOut = await window.donwells.gitCheckout(worktreePath, branch)
@@ -243,15 +249,20 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
         return checkedOut
       })
       setBranches(next)
+      setBranchPickerOpen(false)
+      setBranchSearch('')
       setSelected(new Set())
       await refreshStatuses()
     })
   }
 
-  const createBranch = async (): Promise<void> => {
-    const branch = newBranch.trim()
+  const createBranch = async (confirmed = false, requestedBranch?: string): Promise<void> => {
+    const branch = requestedBranch ?? newBranch.trim()
     if (!branch || busy) return
-    if (!window.confirm(`Create and check out branch ${JSON.stringify(branch)}? Open files will be saved first.`)) return
+    if (!confirmed) {
+      setConfirmation({ kind: 'create-branch', branch })
+      return
+    }
     await runTask('create-branch', async () => {
       const next = await runWithEditorGuard(worktreePath, undefined, async () => {
         const created = await window.donwells.gitCreateBranch(worktreePath, branch, branches?.current ?? undefined)
@@ -260,6 +271,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
       })
       setBranches(next)
       setNewBranch('')
+      setBranchPickerOpen(false)
       setSelected(new Set())
       await refreshStatuses()
     })
@@ -267,33 +279,40 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
 
   const loadHistory = async (append: boolean): Promise<void> => {
     if (historyBusy || (append && !historyCursor)) return
+    const generation = ++historyRequestRef.current
     setHistoryBusy(true)
+    setHistoryError(null)
     try {
       const page = await window.donwells.gitHistory(worktreePath, { cursor: append ? historyCursor : undefined, limit: 25 })
+      if (historyRequestRef.current !== generation) return
       setHistory((current) => append ? [...current, ...page.commits] : page.commits)
       setHistoryCursor(page.nextCursor)
-    } catch (error) {
-      reportError(error)
+    } catch (error: unknown) {
+      if (historyRequestRef.current === generation) setHistoryError(errorMessage(error))
     } finally {
-      setHistoryBusy(false)
+      if (historyRequestRef.current === generation) setHistoryBusy(false)
     }
   }
 
   const toggleHistory = (): void => {
     const opening = !historyOpen
     setHistoryOpen(opening)
-    if (opening && history.length === 0) void loadHistory(false)
+    if (opening && (history.length === 0 || historyError)) void loadHistory(false)
   }
 
-  const commit = async (): Promise<void> => {
-    const summary = message.trim()
+  const commit = async (confirmed = false, confirmedMessage?: string): Promise<void> => {
+    const summary = confirmedMessage ?? message.trim()
     if (!summary || busy) return
-    if (amend && !window.confirm('Amend the current commit with this exact message and the staged changes?')) return
+    if (amend && !confirmed) {
+      setConfirmation({ kind: 'amend', message: summary })
+      return
+    }
     await runTask(amend ? 'amend' : 'commit', async () => {
       await window.donwells.gitCommit(worktreePath, summary, { amend })
       setGitCommitDraft(worktreePath, '')
       setAmend(false)
       setHistory([])
+      setHistoryError(null)
       setHistoryCursor(undefined)
       await refreshStatuses()
       if (historyOpen) await loadHistory(false)
@@ -301,10 +320,10 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
     })
   }
 
-  const sync = async (operation: 'fetch' | 'pull' | 'push'): Promise<void> => {
-    if (operation === 'push') {
-      const target = branches?.current ?? status?.branch ?? 'detached HEAD'
-      if (!window.confirm(`Push ${JSON.stringify(target)} to its remote? This publishes local commits.`)) return
+  const sync = async (operation: 'fetch' | 'pull' | 'push', confirmed = false): Promise<void> => {
+    if (operation === 'push' && !confirmed) {
+      setConfirmation({ kind: 'push', target: branches?.current ?? status?.branch ?? 'detached HEAD' })
+      return
     }
     await runTask(operation, async () => {
       if (operation === 'fetch') await window.donwells.gitFetch(worktreePath)
@@ -320,12 +339,23 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
     })
   }
 
+  const confirmGitAction = async (): Promise<void> => {
+    const action = confirmation
+    if (!action || busy) return
+    setConfirmation(null)
+    if (action.kind === 'discard') await operate('discard', action.rows, true)
+    else if (action.kind === 'switch-branch') await switchBranch(action.branch, true)
+    else if (action.kind === 'create-branch') await createBranch(true, action.branch)
+    else if (action.kind === 'amend') await commit(true, action.message)
+    else await sync('push', true)
+  }
+
   const handlePaneKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 'a') {
       const target = event.target as HTMLElement
       if (target.matches('input, textarea')) return
       event.preventDefault()
-      setSelected(new Set(displayedRows.map((row) => row.id)))
+      setSelected(new Set(allRows.map((row) => row.id)))
     } else if (event.key === 'Escape') {
       setSelected(new Set())
       setContextMenu(null)
@@ -370,7 +400,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
 
   return (
     <div className="git-pane" onKeyDown={handlePaneKeyDown}>
-      <div className="git-pane-header">
+      <div className="pane-header git-pane-header">
         <div className="git-pane-title"><Icon name="git" size={15} /><strong>Source control</strong></div>
         <button className="icon-btn" type="button" title="Refresh source control" aria-label="Refresh source control" disabled={busy !== null} onClick={() => void runTask('refresh', refreshGit)}>
           <Icon name="refresh" size={14} />
@@ -383,30 +413,36 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
           <span className="git-sync-state" aria-label={`${status.ahead} commits ahead and ${status.behind} behind`}>
             ↑ {status.ahead} · ↓ {status.behind}
           </span>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={!branches || busy !== null} aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((open) => !open)}>
+            {!branches ? 'Loading branches…' : branchPickerOpen ? 'Close branches' : 'Switch branch'}
+          </button>
         </div>
-        <input className="git-filter-input" value={branchSearch} onChange={(event) => setBranchSearch(event.target.value)} placeholder="Find a local branch" aria-label="Find a local branch" />
-        {branchSearch.length > 0 && (
-          <div className="git-branch-results" role="listbox" aria-label="Local branches">
-            {matchingBranches.length === 0 && <span className="git-muted">No matching branches</span>}
-            {matchingBranches.map((branch) => (
-              <button key={branch} type="button" role="option" aria-selected={branch === branches?.current} disabled={busy !== null || branch === branches?.current} onClick={() => void switchBranch(branch)}>
-                <span>{branch}</span>{branch === branches?.current && <span>Current</span>}
-              </button>
-            ))}
+        {branchPickerOpen && branches && (
+          <div className="git-branch-picker">
+            <input className="input git-filter-input" autoFocus value={branchSearch} onChange={(event) => setBranchSearch(event.target.value)} placeholder="Filter local branches" aria-label="Filter local branches" />
+            <div className="git-branch-results" role="listbox" aria-label="Local branches">
+              {matchingBranches.length === 0 && <span className="git-muted">No matching branches</span>}
+              {matchingBranches.map((branch) => (
+                <button key={branch} type="button" role="option" aria-selected={branch === branches.current} disabled={busy !== null || branch === branches.current} onClick={() => void switchBranch(branch)}>
+                  <span>{branch}</span>{branch === branches.current && <span>Current</span>}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="git-create-branch">
-          <input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createBranch() }} placeholder="New branch name" aria-label="New branch name" />
-          <button className="btn btn-secondary" type="button" disabled={!newBranch.trim() || busy !== null} onClick={() => void createBranch()}>Create</button>
+          <input className="input" value={newBranch} onChange={(event) => setNewBranch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createBranch() }} placeholder="New branch name" aria-label="New branch name" />
+          <button className="btn btn-secondary" type="button" disabled={!newBranch.trim() || busy !== null} onClick={() => void createBranch()}>Create branch</button>
         </div>
         <div className="git-sync-actions" aria-label="Remote actions">
-          <button className="btn btn-ghost" type="button" disabled={busy !== null} onClick={() => void sync('fetch')}>Fetch</button>
-          <button className="btn btn-ghost" type="button" disabled={busy !== null} onClick={() => void sync('pull')}>Pull (ff-only)</button>
-          <button className="btn btn-ghost" type="button" disabled={busy !== null || status.detached} onClick={() => void sync('push')}>Push</button>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null} onClick={() => void sync('fetch')}>Fetch</button>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null} onClick={() => void sync('pull')}>Pull (ff-only)</button>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null || status.detached} onClick={() => void sync('push')}>Push</button>
         </div>
       </div>
 
-      {notice && <div className={failures.length > 0 ? 'git-notice git-notice-error' : 'git-notice'} role="status">{notice}</div>}
+      {busy && <div className="git-notice" role="status">Working… {busy.replace(':', ' · ')}</div>}
+      {notice && <div className={failures.length > 0 ? 'git-notice git-notice-error' : 'git-notice'} role={failures.length > 0 ? 'alert' : 'status'}>{notice}</div>}
       {failures.length > 0 && (
         <ul className="git-failure-list" aria-label="Source control failures">
           {failures.map((failure) => <li key={`${failure.path}:${failure.error}`}><code>{failure.path}</code><span>{failure.error}</span></li>)}
@@ -420,23 +456,18 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
         </div>
       ) : (
         <>
-          <div className="git-list-tools">
-            <input className="git-filter-input" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter changed files" aria-label="Filter changed files" />
-            <span>{displayedRows.length} shown</span>
-          </div>
-
           {selected.size > 0 && (
             <div className="git-selection-bar" aria-label={`${selected.size} selected source control rows`}>
               <strong>{selected.size} selected</strong>
-              <button type="button" disabled={selectedStage === 0 || busy !== null} onClick={() => void operate('stage', selectedRows)}>Stage ({selectedStage})</button>
-              <button type="button" disabled={selectedUnstage === 0 || busy !== null} onClick={() => void operate('unstage', selectedRows)}>Unstage ({selectedUnstage})</button>
-              <button className="git-danger-action" type="button" disabled={selectedDiscard === 0 || busy !== null} onClick={() => void operate('discard', selectedRows)}>Discard ({selectedDiscard})</button>
-              <button type="button" onClick={() => setSelected(new Set())}>Clear</button>
+              <button className="btn btn-secondary btn-sm" type="button" disabled={selectedStage === 0 || busy !== null} onClick={() => void operate('stage', selectedRows)}>Stage ({selectedStage})</button>
+              <button className="btn btn-secondary btn-sm" type="button" disabled={selectedUnstage === 0 || busy !== null} onClick={() => void operate('unstage', selectedRows)}>Unstage ({selectedUnstage})</button>
+              <button className="btn btn-danger btn-sm" type="button" disabled={selectedDiscard === 0 || busy !== null} onClick={() => void operate('discard', selectedRows)}>Discard ({selectedDiscard})</button>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSelected(new Set())}>Clear selection</button>
             </div>
           )}
 
           <div className="git-changes-list" role="listbox" aria-label="Changed files" aria-multiselectable="true">
-            {filteredSections.map((section) => section.rows.length > 0 && (
+            {sections.map((section) => section.rows.length > 0 && (
               <section className={`git-section git-section-${section.id}`} key={section.id} aria-labelledby={`${paneId}-git-${section.id}`}>
                 <div className="git-section-title" id={`${paneId}-git-${section.id}`}>
                   <span>{section.title}</span><span>{section.rows.length}</span>
@@ -467,24 +498,18 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
                         <span>{displayPath(row.entry)}</span>
                       </button>
                       <span className="git-status-code" aria-label={`Git status ${displayCode(row)}`}>{displayCode(row)}</span>
-                      <div className="git-file-actions">
-                        {rowSupports(row, 'stage') && <button type="button" title={`Stage ${row.entry.path}`} aria-label={`Stage ${row.entry.path}`} disabled={busy !== null} onClick={() => void operate('stage', [row])}>+</button>}
-                        {rowSupports(row, 'unstage') && <button type="button" title={`Unstage ${row.entry.path}`} aria-label={`Unstage ${row.entry.path}`} disabled={busy !== null} onClick={() => void operate('unstage', [row])}>−</button>}
-                        {rowSupports(row, 'discard') && <button className="git-danger-action" type="button" title={`Discard ${row.entry.path}`} aria-label={`Discard ${row.entry.path}`} disabled={busy !== null} onClick={() => void operate('discard', [row])}>×</button>}
-                      </div>
                     </div>
                   )
                 })}
               </section>
             ))}
             {allRows.length === 0 && <div className="git-clean-row"><span className="git-clean-dot" />Working tree clean</div>}
-            {allRows.length > 0 && displayedRows.length === 0 && <div className="git-empty-state"><span>No changed files match this filter.</span></div>}
           </div>
         </>
       )}
 
       <div className="git-commit-box">
-        <textarea className="git-commit-input" rows={3} value={message} onChange={(event) => setGitCommitDraft(worktreePath, event.target.value)} placeholder="Commit message" aria-label="Commit message" />
+        <textarea className="input git-commit-input" rows={3} value={message} onChange={(event) => setGitCommitDraft(worktreePath, event.target.value)} placeholder="Commit message" aria-label="Commit message" />
         <label className="git-amend-toggle"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} />Amend current commit</label>
         <button className="btn btn-primary git-commit-button" type="button" disabled={!message.trim() || (!amend && status.staged === 0) || busy !== null} onClick={() => void commit()}>
           {busy === 'commit' || busy === 'amend' ? 'Committing…' : amend ? 'Amend commit' : `Commit ${status.staged || ''}`.trim()}
@@ -503,13 +528,50 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
                 <div><strong>{commitEntry.subject}</strong><span>{commitEntry.author} · {formatCommitDate(commitEntry.authoredAt)}</span></div>
               </article>
             ))}
-            {history.length === 0 && !historyBusy && <div className="git-muted">No commits yet.</div>}
+            {historyError && (
+              <div className="git-empty-state" role="alert">
+                <strong>History unavailable</strong><span>{historyError}</span>
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => void loadHistory(false)}>Retry</button>
+              </div>
+            )}
+            {history.length === 0 && !historyBusy && !historyError && <div className="git-muted">No commits yet.</div>}
             {historyBusy && <div className="git-muted" role="status">Loading history…</div>}
-            {historyCursor && !historyBusy && <button className="btn btn-ghost" type="button" onClick={() => void loadHistory(true)}>Load older commits</button>}
+            {historyCursor && !historyBusy && !historyError && <button className="btn btn-ghost" type="button" onClick={() => void loadHistory(true)}>Load older commits</button>}
           </div>
         )}
       </section>
 
+      {confirmation && (
+        <ModalDialog className="modal git-confirmation" labelledBy="git-confirmation-title" onClose={() => !busy && setConfirmation(null)}>
+          <h3 id="git-confirmation-title" className="modal-title">
+            {confirmation.kind === 'discard' ? 'Discard local changes?'
+              : confirmation.kind === 'switch-branch' ? 'Switch branch?'
+                : confirmation.kind === 'create-branch' ? 'Create and switch branch?'
+                  : confirmation.kind === 'amend' ? 'Amend current commit?'
+                    : 'Publish local commits?'}
+          </h3>
+          {confirmation.kind === 'discard' && (
+            <>
+              <p>The current contents of these exact paths will be discarded permanently:</p>
+              <ul className="git-confirmation-paths">{confirmation.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
+            </>
+          )}
+          {confirmation.kind === 'switch-branch' && <p>Switch this workspace to <strong>{confirmation.branch}</strong>? Open files are saved before checkout.</p>}
+          {confirmation.kind === 'create-branch' && <p>Create and check out <strong>{confirmation.branch}</strong> from <strong>{branches?.current ?? 'the current HEAD'}</strong>? Open files are saved first.</p>}
+          {confirmation.kind === 'amend' && <><p>This rewrites the current commit with the staged changes and this exact message:</p><blockquote>{confirmation.message}</blockquote></>}
+          {confirmation.kind === 'push' && <p>Push <strong>{confirmation.target}</strong> to its configured remote? This publishes local commits outside this app.</p>}
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" disabled={busy !== null} onClick={() => setConfirmation(null)}>Cancel</button>
+            <button type="button" className={confirmation.kind === 'discard' || confirmation.kind === 'amend' ? 'btn btn-danger' : 'btn btn-primary'} disabled={busy !== null} onClick={() => void confirmGitAction()}>
+              {confirmation.kind === 'discard' ? 'Discard permanently'
+                : confirmation.kind === 'switch-branch' ? 'Save and switch'
+                  : confirmation.kind === 'create-branch' ? 'Create and switch'
+                    : confirmation.kind === 'amend' ? 'Amend commit'
+                      : 'Push to remote'}
+            </button>
+          </div>
+        </ModalDialog>
+      )}
       {contextMenu && (
         <div className="git-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
           <button role="menuitem" type="button" onClick={() => { openDiff(contextMenu.row); setContextMenu(null) }}>Open diff</button>

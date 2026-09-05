@@ -10,12 +10,11 @@ import { useAppStore } from '../../store'
 import { ModalDialog } from '../ModalDialog'
 import { RunStatus, formatRunTime, localOperationalTarget, targetDescription } from './RunStatus'
 
-type Props = { onError(error: unknown): void }
 type ScheduleDraft = ScheduledRunInput
-
+type OperationError = { key: string; message: string }
 type Confirmation =
   | { kind: 'delete'; definition: ScheduledRunDefinition }
-  | { kind: 'cancel'; execution: ScheduledExecution }
+  | { kind: 'cancel'; execution: ScheduledExecution; definition: ScheduledRunDefinition }
 
 const COMMON_TIME_ZONES = [
   'UTC',
@@ -49,7 +48,11 @@ function executionMayBeLive(execution: ScheduledExecution): boolean {
   return execution.status === 'running' || execution.status === 'cancelling' || execution.status === 'unverifiable'
 }
 
-export function ScheduledRunsSection({ onError }: Props) {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function ScheduledRunsSection() {
   const repos = useAppStore((state) => state.repos)
   const targets = useMemo(() => {
     const unique = new Map<string, OperationalTarget>()
@@ -62,80 +65,72 @@ export function ScheduledRunsSection({ onError }: Props) {
     return [...unique.values()]
   }, [repos])
   const [definitions, setDefinitions] = useState<ScheduledRunDefinition[]>([])
-  const [query, setQuery] = useState('')
-  const [historyQuery, setHistoryQuery] = useState('')
+
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [history, setHistory] = useState<ScheduledExecution[]>([])
   const [draft, setDraft] = useState<ScheduleDraft | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [operationError, setOperationError] = useState<OperationError | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
 
   const refreshDefinitions = useCallback(async () => {
-    setDefinitions(await window.donwells.scheduledRunsList())
+    try {
+      setDefinitions(await window.donwells.scheduledRunsList())
+      setLoadError(null)
+    } catch (error) {
+      setLoadError(errorMessage(error))
+    }
   }, [])
 
   const refreshHistory = useCallback(async (id: string) => {
-    setHistory(await window.donwells.scheduledRunHistory(id))
+    try {
+      setHistory(await window.donwells.scheduledRunHistory(id))
+      setHistoryError(null)
+    } catch (error) {
+      setHistoryError(errorMessage(error))
+    }
   }, [])
 
   useEffect(() => {
-    void refreshDefinitions().catch(onError)
-  }, [onError, refreshDefinitions])
+    void refreshDefinitions()
+  }, [refreshDefinitions])
 
   useEffect(() => {
     if (!selectedId) {
       setHistory([])
+      setHistoryError(null)
       return
     }
-    void refreshHistory(selectedId).catch(onError)
-  }, [onError, refreshHistory, selectedId, definitions])
+    void refreshHistory(selectedId)
+  }, [refreshHistory, selectedId])
 
   const hasLiveHistory = history.some(executionMayBeLive)
   useEffect(() => {
     if (!selectedId || !hasLiveHistory) return
     const timer = window.setInterval(() => {
-      void Promise.all([refreshDefinitions(), refreshHistory(selectedId)]).catch(onError)
+      void refreshDefinitions()
+      void refreshHistory(selectedId)
     }, 1_500)
     return () => window.clearInterval(timer)
-  }, [hasLiveHistory, onError, refreshDefinitions, refreshHistory, selectedId])
+  }, [hasLiveHistory, refreshDefinitions, refreshHistory, selectedId])
 
   useEffect(() => {
     if (!draft || draft.id || targets.length === 0 || draft.target.root !== '/') return
     setDraft({ ...draft, target: targets[0]! })
   }, [draft, targets])
 
-  const matchingDefinitions = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase()
-    if (!needle) return definitions
-    return definitions.filter((definition) => [
-      definition.name,
-      definition.command,
-      definition.target.label,
-      definition.target.root,
-      scheduleText(definition),
-      definition.lastStatus ?? ''
-    ].some((value) => value.toLocaleLowerCase().includes(needle)))
-  }, [definitions, query])
 
-  const matchingHistory = useMemo(() => {
-    const needle = historyQuery.trim().toLocaleLowerCase()
-    if (!needle) return history
-    return history.filter((execution) => [
-      execution.status,
-      execution.output ?? '',
-      execution.error ?? '',
-      String(execution.exitCode ?? '')
-    ].some((value) => value.toLocaleLowerCase().includes(needle)))
-  }, [history, historyQuery])
-
-  const runAction = async (key: string, action: () => Promise<unknown>): Promise<void> => {
+  const runAction = async <Result,>(key: string, action: () => Promise<Result>, apply: (result: Result) => void): Promise<boolean> => {
     setBusy(key)
+    setOperationError((current) => current?.key === key ? null : current)
     try {
-      await action()
-      await refreshDefinitions()
-      if (selectedId) await refreshHistory(selectedId)
+      apply(await action())
+      return true
     } catch (error) {
-      onError(error)
+      setOperationError({ key, message: errorMessage(error) })
+      return false
     } finally {
       setBusy(null)
     }
@@ -143,11 +138,25 @@ export function ScheduledRunsSection({ onError }: Props) {
 
   const saveDraft = async (): Promise<void> => {
     if (!draft) return
-    await runAction('save', async () => {
-      const saved = await window.donwells.scheduledRunSave(draft)
+    await runAction('save', () => window.donwells.scheduledRunSave(draft), (saved) => {
+      setDefinitions((current) => [saved, ...current.filter((definition) => definition.id !== saved.id)])
       setDraft(null)
       setSelectedId(saved.id)
     })
+  }
+
+  const confirmOperation = async (): Promise<void> => {
+    if (!confirmation) return
+    const current = confirmation
+    const succeeded = current.kind === 'delete'
+      ? await runAction(`delete:${current.definition.id}`, () => window.donwells.scheduledRunDelete(current.definition.id), () => {
+          setDefinitions((definitionsNow) => definitionsNow.filter((definition) => definition.id !== current.definition.id))
+          if (selectedId === current.definition.id) setSelectedId(null)
+        })
+      : await runAction(`cancel:${current.execution.id}`, () => window.donwells.scheduledRunCancel(current.execution.id), (updated) => {
+          setHistory((historyNow) => historyNow.map((execution) => execution.id === updated.id ? updated : execution))
+        })
+    if (succeeded) setConfirmation(null)
   }
 
   const targetChoices = useMemo(() => {
@@ -156,30 +165,43 @@ export function ScheduledRunsSection({ onError }: Props) {
     return targets.some((target) => operationalTargetKey(target) === key) ? targets : [draft.target, ...targets]
   }, [draft, targets])
 
+  const draftValid = Boolean(draft?.name.trim() && draft.command.trim() && (
+    draft.schedule.kind === 'interval'
+      ? draft.schedule.minutes >= 1 && draft.schedule.minutes <= 525_600
+      : draft.schedule.time.length > 0 && draft.schedule.timeZone.trim().length > 0
+  ))
+
   return (
     <div className="op-section">
       <div className="op-section-heading">
         <div>
-          <span className="op-eyebrow">Calendar & interval triggers</span>
-          <h3>Scheduled runs</h3>
-          <p>Finite commands follow each target’s registered execution boundary and never overlap themselves.</p>
+          <span className="op-eyebrow">Finite local automation</span>
+          <h3>Scheduled shells</h3>
+          <p>Run a bounded shell command on an interval or daily wall-clock time. A schedule never overlaps itself.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setDraft(emptyDraft(targets[0]))} disabled={targets.length === 0}>
+        <button type="button" className="btn btn-primary" onClick={() => setDraft(emptyDraft(targets[0]))} disabled={targets.length === 0}>
           New schedule
         </button>
       </div>
 
+      {loadError && (
+        <div className="op-inline-error" role="alert">
+          <span>Could not load schedules: {loadError}</span>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refreshDefinitions()}>Retry</button>
+        </div>
+      )}
+
       {draft && (
-        <div className="op-composer" aria-label={draft.id ? 'Edit scheduled run' : 'Create scheduled run'}>
+        <div className="op-composer" aria-label={draft.id ? 'Edit scheduled shell' : 'Create scheduled shell'}>
           <div className="op-composer-title">
-            <div><span className="op-eyebrow">{draft.id ? 'Editing' : 'New'}</span><h4>{draft.id ? draft.name : 'Schedule a command'}</h4></div>
-            <button className="icon-btn" aria-label="Close schedule editor" onClick={() => setDraft(null)}>×</button>
+            <div><span className="op-eyebrow">{draft.id ? 'Editing schedule' : 'New schedule'}</span><h4>{draft.id ? draft.name : 'Schedule a finite command'}</h4></div>
+            <button type="button" className="icon-btn" aria-label="Discard schedule editor" onClick={() => setDraft(null)}>×</button>
           </div>
           <div className="op-form-grid">
             <label className="modal-field">Name
               <input className="input" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </label>
-            <label className="modal-field">Target
+            <label className="modal-field">Exact target
               <select
                 className="input"
                 value={operationalTargetKey(draft.target)}
@@ -188,13 +210,13 @@ export function ScheduledRunsSection({ onError }: Props) {
                   if (target) setDraft({ ...draft, target })
                 }}
               >
-                {targetChoices.map((target) => <option key={operationalTargetKey(target)} value={operationalTargetKey(target)}>{target.label} · {target.kind}</option>)}
+                {targetChoices.map((target) => <option key={operationalTargetKey(target)} value={operationalTargetKey(target)}>{target.label} · {target.root}</option>)}
               </select>
             </label>
-            <label className="modal-field op-command-field">Command
+            <label className="modal-field op-command-field">Finite shell command
               <textarea className="input op-command-input" rows={3} value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} />
             </label>
-            <label className="modal-field">Schedule
+            <label className="modal-field">Trigger
               <select
                 className="input"
                 value={draft.schedule.kind}
@@ -225,26 +247,24 @@ export function ScheduledRunsSection({ onError }: Props) {
               </>
             )}
           </div>
+          <div className="op-target-fact"><strong>Will run in</strong><span>{targetDescription(draft.target.kind, draft.target.root, draft.target.kind === 'remote' ? draft.target.connectionId : undefined)}</span></div>
+          {operationError?.key === 'save' && <div className="op-inline-error" role="alert">Save failed: {operationError.message}</div>}
           <div className="op-composer-footer">
             <label className="op-switch"><input type="checkbox" checked={draft.enabled ?? true} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enable after saving</label>
-            <button className="btn btn-secondary" onClick={() => setDraft(null)}>Cancel</button>
-            <button className="btn btn-primary" disabled={!draft.name.trim() || !draft.command.trim() || busy === 'save'} onClick={() => void saveDraft()}>{busy === 'save' ? 'Saving…' : 'Save schedule'}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy === 'save'} onClick={() => setDraft(null)}>Discard</button>
+            <button type="button" className="btn btn-primary" disabled={!draftValid || busy === 'save'} onClick={() => void saveDraft()}>{busy === 'save' ? 'Saving…' : 'Save schedule'}</button>
           </div>
         </div>
       )}
 
-      <div className="op-toolbar">
-        <label className="op-search"><span className="sr-only">Search scheduled runs</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search schedules, targets, commands…" /></label>
-        <span className="op-count">{matchingDefinitions.length} of {definitions.length}</span>
-      </div>
-
       <div className="op-list">
-        {matchingDefinitions.map((definition) => {
+        {definitions.map((definition) => {
           const selected = selectedId === definition.id
+          const definitionError = operationError?.key.endsWith(`:${definition.id}`) ? operationError.message : null
           return (
             <article key={definition.id} className={`op-run-card${selected ? ' selected' : ''}`}>
               <div className="op-run-summary">
-                <button className="op-run-main" onClick={() => setSelectedId(selected ? null : definition.id)} aria-expanded={selected}>
+                <button type="button" className="op-run-main" onClick={() => setSelectedId(selected ? null : definition.id)} aria-expanded={selected}>
                   <span className={`op-live-dot${definition.enabled ? ' enabled' : ''}`} aria-hidden="true" />
                   <span className="op-run-copy">
                     <strong>{definition.name}</strong>
@@ -256,15 +276,23 @@ export function ScheduledRunsSection({ onError }: Props) {
                   <span className="op-next">{definition.enabled ? `Next ${formatRunTime(definition.nextRunAt)}` : 'Paused'}</span>
                 </div>
                 <div className="op-actions">
-                  <button className="btn btn-secondary btn-sm" disabled={busy === `enable:${definition.id}`} onClick={() => void runAction(`enable:${definition.id}`, () => window.donwells.scheduledRunSetEnabled(definition.id, !definition.enabled))}>{definition.enabled ? 'Pause' : 'Enable'}</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setDraft({ id: definition.id, name: definition.name, target: definition.target, command: definition.command, schedule: definition.schedule, enabled: definition.enabled })}>Edit</button>
-                  <button className="btn btn-secondary btn-sm" disabled={busy === `run:${definition.id}`} onClick={() => void runAction(`run:${definition.id}`, async () => { await window.donwells.scheduledRunRunNow(definition.id); setSelectedId(definition.id) })}>{busy === `run:${definition.id}` ? 'Starting…' : 'Run now'}</button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy)} onClick={() => void runAction(`enable:${definition.id}`, () => window.donwells.scheduledRunSetEnabled(definition.id, !definition.enabled), (updated) => {
+                    setDefinitions((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
+                  })}>{busy === `enable:${definition.id}` ? 'Saving…' : definition.enabled ? 'Pause' : 'Enable'}</button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy)} onClick={() => setDraft({ id: definition.id, name: definition.name, target: definition.target, command: definition.command, schedule: definition.schedule, enabled: definition.enabled })}>Edit</button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={Boolean(busy)} onClick={() => void runAction(`run:${definition.id}`, () => window.donwells.scheduledRunRunNow(definition.id), (execution) => {
+                    setSelectedId(definition.id)
+                    setHistory((current) => [execution, ...current.filter((entry) => entry.id !== execution.id)])
+                  })}>{busy === `run:${definition.id}` ? 'Starting…' : 'Run now'}</button>
                   <details className="op-more"><summary aria-label={`More actions for ${definition.name}`}>•••</summary><div className="op-more-menu">
-                    <button onClick={() => void runAction(`duplicate:${definition.id}`, () => window.donwells.scheduledRunDuplicate(definition.id))}>Duplicate paused</button>
-                    <button className="danger" onClick={() => setConfirmation({ kind: 'delete', definition })}>Delete…</button>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => void runAction(`duplicate:${definition.id}`, () => window.donwells.scheduledRunDuplicate(definition.id), (copy) => {
+                      setDefinitions((current) => [copy, ...current])
+                    })}>Duplicate paused</button>
+                    <button type="button" className="danger" disabled={Boolean(busy)} onClick={() => setConfirmation({ kind: 'delete', definition })}>Delete…</button>
                   </div></details>
                 </div>
               </div>
+              {definitionError && <div className="op-inline-error" role="alert">Operation failed: {definitionError}</div>}
               {selected && (
                 <div className="op-run-detail">
                   <div className="op-detail-meta">
@@ -273,9 +301,10 @@ export function ScheduledRunsSection({ onError }: Props) {
                     <span><b>Last run</b>{formatRunTime(definition.lastRunAt)}</span>
                   </div>
                   <pre className="op-command">{definition.command}</pre>
-                  <div className="op-history-head"><h4>History</h4><input className="input" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search status, output, exit code…" /></div>
+                  <div className="op-history-head"><h4>Execution history</h4></div>
+                  {historyError && <div className="op-inline-error" role="alert"><span>Could not load history: {historyError}</span><button type="button" className="btn btn-secondary btn-sm" onClick={() => void refreshHistory(definition.id)}>Retry</button></div>}
                   <div className="op-history">
-                    {matchingHistory.map((execution) => (
+                    {history.map((execution) => (
                       <details key={execution.id} className="op-history-row">
                         <summary>
                           <RunStatus status={execution.status} />
@@ -285,34 +314,32 @@ export function ScheduledRunsSection({ onError }: Props) {
                         </summary>
                         <div className="op-log-detail">
                           {execution.error && <p className="op-run-error">{execution.error}</p>}
-                          <pre>{execution.output || 'No output captured.'}</pre>
-                          {executionMayBeLive(execution) && <button className="btn btn-danger btn-sm" onClick={() => setConfirmation({ kind: 'cancel', execution })}>Cancel execution…</button>}
+                          <pre>{execution.output || (execution.status === 'running' ? 'Running; no output captured yet.' : 'No output captured.')}</pre>
+                          {executionMayBeLive(execution) && <button type="button" className="btn btn-danger btn-sm" disabled={Boolean(busy)} onClick={() => setConfirmation({ kind: 'cancel', execution, definition })}>Cancel execution…</button>}
                         </div>
                       </details>
                     ))}
-                    {matchingHistory.length === 0 && <div className="op-empty">No matching execution history.</div>}
+                    {!historyError && history.length === 0 && <div className="op-empty">No execution history yet.</div>}
                   </div>
                 </div>
               )}
             </article>
           )
         })}
-        {matchingDefinitions.length === 0 && <div className="op-empty">{definitions.length === 0 ? 'No schedules yet. Create one for a registered folder or worktree.' : 'No schedules match this search.'}</div>}
+        {definitions.length === 0 && !loadError && <div className="op-empty">No schedules yet. Create one for a registered local folder or worktree.</div>}
       </div>
 
       {confirmation && (
-        <ModalDialog className="modal op-confirm" labelledBy="scheduled-run-confirm-title" onClose={() => setConfirmation(null)}>
-          <span className="op-eyebrow">Confirm operation</span>
-          <h3 id="scheduled-run-confirm-title" className="modal-title">{confirmation.kind === 'delete' ? `Delete “${confirmation.definition.name}”?` : 'Cancel this live execution?'}</h3>
-          <p>{confirmation.kind === 'delete' ? 'The schedule and its bounded execution history will be removed. Running or unverifiable executions cannot be deleted.' : 'The daemon will be asked to stop the finite job. The UI will only report Cancelled after that request is acknowledged.'}</p>
+        <ModalDialog className="modal op-confirm" labelledBy="scheduled-run-confirm-title" onClose={() => { if (!busy) setConfirmation(null) }}>
+          <span className="op-eyebrow">Confirm exact operation</span>
+          <h3 id="scheduled-run-confirm-title" className="modal-title">{confirmation.kind === 'delete' ? `Delete “${confirmation.definition.name}”?` : `Cancel “${confirmation.definition.name}” execution?`}</h3>
+          <p>{confirmation.kind === 'delete' ? 'This permanently removes the schedule and its bounded execution history. Running or unverifiable executions cannot be deleted.' : 'The daemon will be asked to stop this finite command. The UI reports Cancelled only after that request is acknowledged.'}</p>
+          <pre className="op-confirm-command">{confirmation.definition.command}</pre>
+          <p className="op-confirm-fact">{targetDescription(confirmation.definition.target.kind, confirmation.definition.target.root, confirmation.definition.target.kind === 'remote' ? confirmation.definition.target.connectionId : undefined)}</p>
+          {operationError?.key === (confirmation.kind === 'delete' ? `delete:${confirmation.definition.id}` : `cancel:${confirmation.execution.id}`) && <div className="op-inline-error" role="alert">{operationError.message}</div>}
           <div className="modal-actions">
-            <button className="btn" onClick={() => setConfirmation(null)}>Keep</button>
-            <button className="btn btn-danger" onClick={() => {
-              const current = confirmation
-              setConfirmation(null)
-              if (current.kind === 'delete') void runAction(`delete:${current.definition.id}`, () => window.donwells.scheduledRunDelete(current.definition.id))
-              else void runAction(`cancel:${current.execution.id}`, () => window.donwells.scheduledRunCancel(current.execution.id))
-            }}>{confirmation.kind === 'delete' ? 'Delete schedule' : 'Cancel execution'}</button>
+            <button type="button" className="btn" disabled={Boolean(busy)} onClick={() => setConfirmation(null)}>Keep</button>
+            <button type="button" className="btn btn-danger" disabled={Boolean(busy)} onClick={() => void confirmOperation()}>{busy ? (confirmation.kind === 'delete' ? 'Deleting…' : 'Cancelling…') : (confirmation.kind === 'delete' ? 'Delete schedule' : 'Cancel execution')}</button>
           </div>
         </ModalDialog>
       )}

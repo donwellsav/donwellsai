@@ -206,6 +206,8 @@ export function SkillsManager() {
   const [listing, setListing] = useState<SkillPackagesListResult | null>(null)
   const [state, setState] = useState<ManagerState>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [workspaceLoading, setWorkspaceLoading] = useState(true)
   const [sourceKind, setSourceKind] = useState<SkillPackageSource['kind']>('local')
   const [sourceLocation, setSourceLocation] = useState('')
   const [sourceRevision, setSourceRevision] = useState('')
@@ -216,39 +218,46 @@ export function SkillsManager() {
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection | null>(null)
   const [preview, setPreview] = useState<SkillPackageReadResult | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const workspaceSequence = useRef(0)
   const listSequence = useRef(0)
   const previewSequence = useRef(0)
 
-  useEffect(() => {
-    let cancelled = false
-    const loadWorkspaces = async (): Promise<void> => {
-      try {
-        const repositories = await window.donwells.listRepos()
-        if (cancelled) return
-        const seen = new Set<string>()
-        const options: WorkspaceOption[] = []
-        for (const summary of repositories) {
-          const candidates = summary.worktrees.length > 0
-            ? summary.worktrees.map((worktree) => ({ path: worktree.path, label: `${summary.repo.path.split('/').pop() ?? summary.repo.path} · ${worktree.branch}` }))
-            : [{ path: summary.repo.path, label: summary.repo.path.split('/').pop() ?? summary.repo.path }]
-          for (const candidate of candidates) {
-            if (seen.has(candidate.path)) continue
-            seen.add(candidate.path)
-            options.push(candidate)
-          }
-        }
-        setWorkspaces(options)
-        setWorkspacePath((current) => current && options.some((option) => option.path === current) ? current : options[0]?.path ?? '')
-      } catch (caught) {
-        if (!cancelled) {
-          setError(errorMessage(caught))
-          setState('ready')
+  const loadWorkspaces = useCallback(async (): Promise<void> => {
+    const sequence = ++workspaceSequence.current
+    setWorkspaceLoading(true)
+    setWorkspaceError(null)
+    try {
+      const repositories = await window.donwells.listRepos()
+      if (sequence !== workspaceSequence.current) return
+      const seen = new Set<string>()
+      const options: WorkspaceOption[] = []
+      for (const summary of repositories) {
+        const candidates = summary.worktrees.length > 0
+          ? summary.worktrees.map((worktree) => ({ path: worktree.path, label: `${summary.repo.path.split('/').pop() ?? summary.repo.path} · ${worktree.branch}` }))
+          : [{ path: summary.repo.path, label: summary.repo.path.split('/').pop() ?? summary.repo.path }]
+        for (const candidate of candidates) {
+          if (seen.has(candidate.path)) continue
+          seen.add(candidate.path)
+          options.push(candidate)
         }
       }
+      setWorkspaces(options)
+      setWorkspacePath((current) => current && options.some((option) => option.path === current) ? current : options[0]?.path ?? '')
+    } catch (caught) {
+      if (sequence === workspaceSequence.current) {
+        setWorkspaceError(errorMessage(caught))
+        setWorkspaces([])
+        setWorkspacePath('')
+      }
+    } finally {
+      if (sequence === workspaceSequence.current) setWorkspaceLoading(false)
     }
-    void loadWorkspaces()
-    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    void loadWorkspaces()
+    return () => { workspaceSequence.current++ }
+  }, [loadWorkspaces])
 
   const refresh = useCallback(async (): Promise<void> => {
     const sequence = ++listSequence.current
@@ -380,7 +389,7 @@ export function SkillsManager() {
       <div className="skill-packages-targets">
         <label>
           <span>Target workspace</span>
-          <select className="settings-select" value={workspacePath} disabled={workspaces.length === 0 || state !== 'ready'} onChange={(event) => {
+          <select className="settings-select" value={workspacePath} disabled={workspaceLoading || workspaces.length === 0 || state !== 'ready'} onChange={(event) => {
             setWorkspacePath(event.currentTarget.value)
             setPlan(null)
             setSelectedPackage(null)
@@ -403,7 +412,11 @@ export function SkillsManager() {
         </label>
       </div>
 
-      {workspaces.length === 0 ? (
+      {workspaceLoading && workspaces.length === 0 ? (
+        <SettingsState kind="loading" title="Loading authorized workspaces" />
+      ) : workspaceError && workspaces.length === 0 ? (
+        <SettingsState kind="error" title="Could not load authorized workspaces" detail={workspaceError} action={<button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadWorkspaces()}>Retry</button>} />
+      ) : workspaces.length === 0 ? (
         <SettingsState kind="empty" title="No authorized workspace" detail="Add a repository or folder workspace before installing a skill package. Legacy reference documents remain available below." />
       ) : state === 'loading' ? (
         <SettingsState kind="loading" title="Inspecting workspace skills" />

@@ -113,7 +113,6 @@ export function DesignCapturePanel({
       </label>
 
       <footer className="design-capture-actions">
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onClear}>Clear</button>
         <button className="btn btn-secondary btn-sm" type="button" onClick={onReselect}>
           <Icon name="refresh" size={12} />
           Reselect

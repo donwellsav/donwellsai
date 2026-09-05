@@ -24,6 +24,12 @@ export function ModalDialog({ labelledBy, className = 'modal', onClose, children
       aria-labelledby={labelledBy}
       onCancel={(event) => {
         event.preventDefault()
+        const activeElement = event.currentTarget.ownerDocument.activeElement
+        if (activeElement instanceof HTMLSelectElement && activeElement.matches(':open')) {
+          activeElement.blur()
+          activeElement.focus()
+          return
+        }
         onClose()
       }}
       onClick={(event) => {

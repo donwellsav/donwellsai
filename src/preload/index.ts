@@ -3,6 +3,8 @@ import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
   meta: () => ipcRenderer.invoke('meta'),
+  createProject: (request) => ipcRenderer.invoke('createProject', request),
+  getProjectCreationDefaults: () => ipcRenderer.invoke('getProjectCreationDefaults'),
   projectMemoryList: (request) => ipcRenderer.invoke('projectMemoryList', request),
   projectMemoryGet: (request) => ipcRenderer.invoke('projectMemoryGet', request),
   projectMemoryCreate: (request) => ipcRenderer.invoke('projectMemoryCreate', request),

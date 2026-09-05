@@ -421,7 +421,7 @@ export function DiffPane({
 
   return (
     <div className="diff-review-pane">
-      <header className="diff-review-head">
+      <header className="pane-header diff-review-head">
         <span className="diff-review-file-mark"><Icon name="git" size={12} /></span>
         <div className="diff-review-heading">
           <strong title={relPath}>{name}</strong>
@@ -449,16 +449,18 @@ export function DiffPane({
           </button>
           <button
             type="button"
-            className={`icon-btn${sideBySide ? ' active' : ''}`}
+            className={`btn btn-secondary btn-sm diff-review-view-toggle${sideBySide ? ' active' : ''}`}
             aria-label={sideBySide ? 'Use unified diff view' : 'Use side-by-side diff view'}
             title={sideBySide ? 'Unified view' : 'Side-by-side view'}
             onClick={() => setSideBySide((value) => !value)}
           >
             <Icon name="columns" size={12} />
+            <span>{sideBySide ? 'Unified' : 'Side by side'}</span>
           </button>
           {loaded?.sources.after.contents !== null && (
-            <button type="button" className="icon-btn diff-review-editor-action" aria-label="Open file in editor" title="Open in editor" onClick={() => void openPreview(worktreePath, relPath)}>
+            <button type="button" className="btn btn-secondary btn-sm diff-review-editor-action" onClick={() => void openPreview(worktreePath, relPath)}>
               <Icon name="edit" size={12} />
+              <span>Open file</span>
             </button>
           )}
           <button type="button" className="icon-btn" aria-label="Close diff" title="Close diff" onClick={() => void closePane(worktreePath, paneKey)}>
@@ -513,6 +515,7 @@ export function DiffPane({
             onJump={jumpToNote}
             onEditingNoteChange={setEditingNoteId}
             onAttach={openAttachment}
+            onRetry={() => setRefresh((value) => value + 1)}
             onClose={() => setReviewOpen(false)}
           />
         )}

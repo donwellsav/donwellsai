@@ -29,9 +29,10 @@ function seed(): void {
 
 const readFileStub = vi.fn(async (_wt: string, rel: string): Promise<FileContent> => ({
   path: rel,
-  content: `content of ${rel}`,
+  content: 'content of ' + rel,
   bytes: 10 + rel.length,
-  truncated: false
+  truncated: false,
+  revision: rel + ':r1'
 }))
 
 beforeAll(() => {
@@ -42,7 +43,8 @@ beforeAll(() => {
         path: rel,
         content,
         bytes: content.length,
-        truncated: false
+        truncated: false,
+        revision: rel + ':r2'
       }),
       getWorkspaceSession: async () => null,
       saveWorkspaceSession: async () => {},

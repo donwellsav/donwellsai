@@ -70,6 +70,10 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
   const historyRequestRef = useRef(0)
   const [address, dispatchAddress] = useReducer(reduceBrowserAddress, initialUrl, createBrowserAddressState)
   const [history, setHistory] = useState<BrowserHistoryEntry[]>([])
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [historyClearConfirm, setHistoryClearConfirm] = useState(false)
+  const [historyClearing, setHistoryClearing] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1)
   const [loading, setLoading] = useState(false)
@@ -127,19 +131,24 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
   })
   const refreshHistory = useCallback((): void => {
     const generation = ++historyRequestRef.current
+    setHistoryError(null)
     void window.donwells.browserHistoryList().then((entries) => {
-      if (historyRequestRef.current === generation) setHistory(entries)
-    }).catch(() => {
-      // History is optional browsing chrome; a persistence failure must not obscure the page.
+      if (historyRequestRef.current !== generation) return
+      setHistory(entries)
+      setHistoryError(null)
+    }).catch((error: unknown) => {
+      if (historyRequestRef.current === generation) setHistoryError('Browsing history is unavailable: ' + String(error))
     })
   }, [])
 
   const recordHistory = useCallback((entry: { url: string; title: string }): void => {
     const generation = ++historyRequestRef.current
     void window.donwells.browserHistoryRecord(entry).then((entries) => {
-      if (historyRequestRef.current === generation) setHistory(entries)
-    }).catch(() => {
-      // The loaded page remains authoritative even if local history cannot be saved.
+      if (historyRequestRef.current !== generation) return
+      setHistory(entries)
+      setHistoryError(null)
+    }).catch((error: unknown) => {
+      if (historyRequestRef.current === generation) setHistoryError('This page loaded, but local history could not be saved: ' + String(error))
     })
   }, [])
 
@@ -319,14 +328,30 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
     else controller.previous()
   }
 
-  const clearHistory = (): void => {
-    if (!window.confirm('Clear all local browser history? This cannot be undone.')) return
+  const clearHistory = async (): Promise<void> => {
+    if (historyClearing) return
     const generation = ++historyRequestRef.current
-    void window.donwells.browserHistoryClear().then(() => {
+    setHistoryClearing(true)
+    setHistoryError(null)
+    try {
+      await window.donwells.browserHistoryClear()
+      setHistoryClearConfirm(false)
       if (historyRequestRef.current === generation) setHistory([])
-    }).catch(() => {
-      // Keep the visible entries when the main-owned clear could not be verified.
-    })
+    } catch (error: unknown) {
+      if (historyRequestRef.current === generation) setHistoryError('Could not clear browsing history: ' + String(error))
+    } finally {
+      setHistoryClearing(false)
+    }
+  }
+
+  const openInSystemBrowser = async (): Promise<void> => {
+    if (!address.liveUrl) return
+    setActionError(null)
+    try {
+      await window.donwells.openExternal(address.liveUrl)
+    } catch (error: unknown) {
+      setActionError('Could not open the system browser: ' + String(error))
+    }
   }
 
   const changeZoom = useCallback((delta: number): void => {
@@ -522,19 +547,32 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
                   </button>
                 ))}
               </div>
-              {suggestions.length === 0 && !addressError ? (
+              {suggestions.length === 0 && !addressError && !historyError ? (
                 <div className="browser-suggestion-empty">No local history matches</div>
               ) : null}
               {addressError ? <div className="browser-address-error" id={addressErrorId} role="alert">{addressError}</div> : null}
-              {history.length > 0 ? (
+              {historyError ? (
+                <div className="browser-address-error browser-history-error" role="alert">
+                  <span>{historyError}</span>
+                  <button type="button" className="browser-history-clear" onMouseDown={(event) => event.preventDefault()} onClick={refreshHistory}>Retry history</button>
+                </div>
+              ) : null}
+              {history.length > 0 && !historyClearConfirm ? (
                 <button
                   className="browser-history-clear"
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={clearHistory}
+                  onClick={() => setHistoryClearConfirm(true)}
                 >
                   Clear browsing history…
                 </button>
+              ) : null}
+              {historyClearConfirm ? (
+                <div className="browser-history-confirm" role="group" aria-label="Confirm browsing history deletion">
+                  <span>Delete all local browsing history?</span>
+                  <button type="button" className="browser-history-clear" disabled={historyClearing} onMouseDown={(event) => event.preventDefault()} onClick={() => setHistoryClearConfirm(false)}>Cancel</button>
+                  <button type="button" className="browser-history-clear danger" disabled={historyClearing} onMouseDown={(event) => event.preventDefault()} onClick={() => void clearHistory()}>{historyClearing ? 'Clearing…' : 'Clear permanently'}</button>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -585,7 +623,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           aria-label="Open in system browser"
           title="Open in system browser"
           disabled={!address.liveUrl}
-          onClick={() => void window.donwells.openExternal(address.liveUrl)}
+          onClick={() => void openInSystemBrowser()}
         >
           <Icon name="globe" size={12} />
         </button>
@@ -616,6 +654,15 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
             <Icon name="alert" size={13} />
             <span>{designError}</span>
             <button className="icon-btn" type="button" aria-label="Dismiss Design Mode error" onClick={dismissDesignError}>
+              <Icon name="x" size={11} />
+            </button>
+          </div>
+        ) : null}
+        {actionError ? (
+          <div className="browser-design-error" role="alert">
+            <Icon name="alert" size={13} />
+            <span>{actionError}</span>
+            <button className="icon-btn" type="button" aria-label="Dismiss browser action error" onClick={() => setActionError(null)}>
               <Icon name="x" size={11} />
             </button>
           </div>

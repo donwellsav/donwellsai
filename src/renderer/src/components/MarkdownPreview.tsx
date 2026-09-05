@@ -415,7 +415,8 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
   )
   const [toc, setToc] = useState<TocEntry[]>([])
   const [activeHeading, setActiveHeading] = useState<string | null>(null)
-
+  const [renderState, setRenderState] = useState<Readonly<{ phase: 'rendering' | 'ready' | 'error'; error?: string }>>({ phase: 'rendering' })
+  const [renderAttempt, setRenderAttempt] = useState(0)
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
@@ -423,6 +424,9 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
     let cancelled = false
     const listeners: (() => void)[] = []
     const codeColorizations: Promise<void>[] = []
+    setRenderState({ phase: 'rendering' })
+    setToc([])
+    host.replaceChildren()
     void (async () => {
       const { meta, body } = splitFrontMatter(content)
       const needs = scanNeeds(body)
@@ -575,13 +579,20 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
           const press = (): void => {
             void navigator.clipboard.writeText(text).then(() => {
               if (cancelled) return
+              copy.classList.remove('failed')
+              copy.removeAttribute('title')
               copy.textContent = 'copied'
               if (resetTimer !== undefined) window.clearTimeout(resetTimer)
               resetTimer = window.setTimeout(() => {
                 if (!cancelled) copy.textContent = 'copy'
               }, 1200)
             }).catch((error: unknown) => {
-              if (!cancelled) useAppStore.getState().setError(`Could not copy code: ${String(error)}`)
+              if (cancelled) return
+              const message = `Could not copy code: ${String(error)}`
+              copy.classList.add('failed')
+              copy.textContent = 'copy failed'
+              copy.title = message
+              useAppStore.getState().setError(message)
             })
           }
           copy.addEventListener('click', press)
@@ -639,26 +650,23 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
       }
       if (cancelled) return
       finishRender(checkpoint)
+      setRenderState({ phase: 'ready' })
     })().catch((error: unknown) => {
       if (cancelled) return
       failRender(checkpoint)
       setToc([])
-      const alert = document.createElement('div')
-      alert.className = 'md-render-error'
-      alert.setAttribute('role', 'alert')
-      const title = document.createElement('strong')
-      title.textContent = 'Could not render this document'
-      const detail = document.createElement('span')
-      detail.textContent = error instanceof Error ? error.message : String(error)
-      alert.append(title, detail)
-      host.replaceChildren(alert)
+      host.replaceChildren()
+      setRenderState({
+        phase: 'error',
+        error: error instanceof Error ? error.message : String(error)
+      })
     })
 
     return () => {
       cancelled = true
       for (const off of listeners) off()
     }
-  }, [beginRender, content, failRender, finishRender, relPath, worktreePath])
+  }, [beginRender, content, failRender, finishRender, relPath, renderAttempt, worktreePath])
 
   // scroll-spy for the TOC rail
   useEffect(() => {
@@ -684,12 +692,26 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
     return () => scroller.removeEventListener('scroll', onScroll)
   }, [toc])
 
-  const showToc = toc.length >= 3
+  const showToc = renderState.phase === 'ready' && toc.length >= 3
+  const empty = renderState.phase === 'ready' && !content.trim()
 
   return (
-    <div className={`md-wrap${showToc ? ' md-wrap-toc' : ''}`}>
+    <div className={`md-wrap${showToc ? ' md-wrap-toc' : ''}`} aria-busy={renderState.phase === 'rendering'}>
       <div className="md-scroll" ref={scrollRef}>
-        <div ref={hostRef} className="md-preview" />
+        {renderState.phase === 'rendering' && (
+          <div className="md-render-error" role="status"><strong>Rendering preview…</strong><span>Preparing document features and local assets.</span></div>
+        )}
+        {renderState.phase === 'error' && (
+          <div className="md-render-error" role="alert">
+            <strong>Could not render this document</strong>
+            <span>{renderState.error}</span>
+            <button type="button" className="btn btn-secondary" onClick={() => setRenderAttempt((attempt) => attempt + 1)}>Retry preview</button>
+          </div>
+        )}
+        {empty && (
+          <div className="md-render-error" role="status"><strong>Nothing to preview</strong><span>Add Markdown content in the editor to see it rendered here.</span></div>
+        )}
+        <div ref={hostRef} className="md-preview" hidden={renderState.phase !== 'ready' || empty} />
       </div>
       {showToc && (
         <nav className="md-toc" aria-label="Contents">

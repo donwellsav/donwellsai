@@ -2,6 +2,7 @@ export type AppCommandCategory = 'File' | 'Workspace' | 'View' | 'Terminal' | 'S
 export type AppCommandPlatform = 'mac' | 'windows' | 'linux'
 
 export type AppCommandId =
+  | 'new-project'
   | 'add-repo'
   | 'new-worktree'
   | 'quick-open'
@@ -52,7 +53,8 @@ export type AppCommand = {
 }
 
 export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
-  { id: 'add-repo', label: 'Add folder or Git repository…', category: 'File', defaultAccelerators: ['Mod+O'], palette: true },
+  { id: 'new-project', label: 'New project…', category: 'File', defaultAccelerators: ['Mod+Shift+N'], palette: true },
+  { id: 'add-repo', label: 'Open existing folder…', category: 'File', defaultAccelerators: ['Mod+O'], palette: true },
   { id: 'new-worktree', label: 'New worktree', category: 'Workspace', defaultAccelerators: ['Mod+N'], palette: true },
   { id: 'quick-open', label: 'Quick Open…', category: 'File', defaultAccelerators: ['Mod+P'], palette: false, allowWhilePaletteOpen: true },
   { id: 'command-palette', label: 'Show Command Palette…', category: 'View', defaultAccelerators: ['Mod+Shift+P', 'Mod+K'], palette: false, allowWhilePaletteOpen: true },
