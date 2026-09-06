@@ -280,8 +280,10 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 - [ ] **Step 2:** Implement the eight-step migration protocol from the spec. Preserve IDs or an auditable bijection. Verify counts and content hashes before changing the active backend manifest.
 - [ ] **Step 3:** Preserve conflict errors and provenance. Enforce project scope for every backend operation, including direct ID lookup. No runtime dual-write to the old JSON file.
 - [ ] **Step 4:** Test a concurrent old-client write during migration, subprocess death at every cutover boundary, disk full, interruption before/after manifest switch, backend unavailable, duplicate migration and downgrade after new writes. Expose migration diagnosis and export without deleting the old backup.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
 - [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+
+Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four native agents recalling one revision-2 SQLite decision after a packaged app restart. The full 378-test run includes the named memory suites. Disk-full qualification and the other unchecked implementation gates remain outstanding.
 
 **Rollback:** Before cutover reopen original data; after cutover export/reverse-migrate new writes. Never silently restore an outdated backup.
 

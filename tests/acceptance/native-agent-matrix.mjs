@@ -13,14 +13,16 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
-  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }
+  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
 } })
 assert(values.playwright, '--playwright is required')
+const responseTimeout = Number(values['response-timeout-ms'])
+assert(Number.isSafeInteger(responseTimeout) && responseTimeout >= 1000 && responseTimeout <= 180000, 'Response timeout must be between 1000 and 180000 ms')
 assert(!values.sqlite || values.memory, '--sqlite requires --memory')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
-assert(!values.memory || agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id)), 'DSH memory format is not yet qualified')
-assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id))), 'Managed setup supports OMP/Kimi; Hermes uses the isolated native profile')
+assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-profile'], 'DSH memory trial requires a configured native --dsh-profile')
+assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports OMP/Kimi; other agents use native trial overlays')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -80,7 +82,7 @@ try {
       report.migratedMemory = { backend: 'sqlite', entryId: entry.id, revision: updated.revision, originalBackupUnchanged: true, appPids: [previousPid, app.process().pid], postUpgradeWriteRecalledAfterRestart: true }
     }
     for (const id of agentIds) {
-      if (values.managed && id !== 'hermes') continue
+      if (values.managed && ['omp', 'kimi'].includes(id)) continue
       const audit = join(evidence, `${id}-memory-methods.jsonl`)
       const bridge = join(profile, `${id}-memory-bridge.mjs`)
       // Reuse the packaged MCP server; record method names only to prove native calls without retaining payloads.
@@ -95,7 +97,9 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
 }});
 `, { mode: 0o600 })
       const servers = { 'donwells-project-memory': { command: executable, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1' } } }
-      if (id === 'hermes') {
+      if (id === 'deepseek-harness') {
+        writeFileSync(join(profile, 'dsh-memory.patch.yml'), JSON.stringify([{ insert: [{ id: 'donwells-project-memory', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'donwells-project-memory', transport: 'stdio', ...servers['donwells-project-memory'], failOnStartupError: true, reconnect: { enabled: false } } }] }], null, 2) + '\n', { mode: 0o600, flag: 'wx' })
+      } else if (id === 'hermes') {
         mkdirSync(join(resolve(values['hermes-home']), 'profiles'), { recursive: true, mode: 0o700 })
         mkdirSync(hermesProfile, { mode: 0o700 })
         ownsHermesProfile = true
@@ -112,7 +116,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
-    const managedMemory = values.managed && id !== 'hermes'
+    const managedMemory = values.managed && ['omp', 'kimi'].includes(id)
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
     const result = report.agents[id] = { installed: true, executable: provider.executablePath, query: 'not-run', memory: 'not-run', resume: 'not-run' }
@@ -131,7 +135,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         assert.deepEqual(server.args, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', fixture.replace(/^\/var\//, '/private/var/'), '--harness', id, '--user-data', profile])
         result.managedConfiguration = configPath
       }
-      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile']] : []
+      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
       for (const [index, value] of args.entries()) {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
         await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(value)
@@ -145,6 +149,8 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         if (!result.sessionId) await delay(50)
       }
       await page.locator(`[data-pane-key="term:${result.sessionId}"]`).waitFor()
+      result.terminalBackground = await page.locator(`[data-pane-key="term:${result.sessionId}"] .terminal-host-wrap`).evaluate(element => getComputedStyle(element).backgroundColor)
+      assert.equal(result.terminalBackground, 'rgb(22, 22, 29)', 'Fresh terminals must use the Donwells main surface')
       await delay(4000)
       const snapshot = await page.evaluate(async sessionId => window.donwells.attachTerminal(sessionId), result.sessionId)
       const run = (await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)
@@ -177,12 +183,12 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
           result.disposableProjectTrusted = true
         }
         await page.keyboard.type(values.memory
-          ? `Call the ${id === 'kimi' ? 'mcp__donwells-project-memory__memory_search' : 'donwells-project-memory MCP server memory_search'} tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.`
+          ? `Call the ${['kimi', 'deepseek-harness'].includes(id) ? 'mcp__donwells-project-memory__memory_search' : 'donwells-project-memory MCP server memory_search'} tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.`
           : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.', { delay: id === 'hermes' ? 10 : 0 })
         // Native paste-burst protection intentionally turns an immediate Enter into a newline.
         await delay(500)
         await page.keyboard.press('Enter')
-        const deadline = Date.now() + 60000
+        const deadline = Date.now() + responseTimeout
         const outcome = values.memory ? 'memory' : 'query'
         result[outcome] = 'no-verified-response'
         while (Date.now() < deadline) {

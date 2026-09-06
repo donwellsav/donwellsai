@@ -1,0 +1,57 @@
+{
+  "startedAt": "2026-09-06T06:26:01.390Z",
+  "source": {
+    "commit": "8708fe4282b53380c406e6f1772c76e5bf7dc91c",
+    "dirty": true,
+    "contentHash": "b32893fac6f0102643ea6430435814f35c33543b47760e0aef2db8e54de34ad2"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-dsh-profile-07",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-SyiqiF",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "9f3a211012dfab8f72602cc61ccac797a1cd9db746aca0c3b4bb17af6d958a15"
+  },
+  "agents": {
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "sessionId": "f30ec72a-6d8c-4fa2-864b-cb6d22efb4ea",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 10699,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "memoryCalls": [
+        {
+          "method": "memory.list",
+          "ok": true,
+          "pid": 35909
+        }
+      ],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks."
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "d189528b-8fb4-4f93-82fb-734880607a06",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      35731,
+      35810
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": true,
+  "durationMs": 29867.34425
+}

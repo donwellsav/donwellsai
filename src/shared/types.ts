@@ -158,7 +158,7 @@ export type FileContent = {
 
 export type DiffComparison = 'working' | 'staged' | 'unstaged'
 
-export type TerminalThemeName = 'tomorrow-night' | 'dracula' | 'solarized-dark' | 'github-dark'
+export type TerminalThemeName = 'donwells' | 'tomorrow-night' | 'dracula' | 'solarized-dark' | 'github-dark'
 
 /** Stable settings route ids used by the UI and runtime command contract. */
 export type SettingsSection =

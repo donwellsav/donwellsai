@@ -125,5 +125,24 @@
     "failure": "ctx.systemPrompt.getSectionOrder is not a function",
     "nextTrial": "Matching harness 0.1.1-rc.2 declared by the TUI peer dependencies"
   },
-  "admittedToApplication": false
+  "admittedToApplication": false,
+  "matchedTrial": {
+    "harness": "@deepseek-ai/dsh@0.1.1-rc.2",
+    "tui": "@tomowang/dsh-tui@0.8.0",
+    "packageManager": "pnpm 10.33.0",
+    "runtime": "Node.js 24.16.0",
+    "lockPath": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/pnpm-lock.yaml",
+    "lockSha256": "d8c555e2f9352cdd8472a2ed416984c1e8526b09d8d6b9c7323747730a486dbe",
+    "cliEntrySha256": "c0226687bb20f45c603ec6fe50f3de16d1c3510c3a803304ec575ef9bc366c62",
+    "installScriptsEnabled": false,
+    "startupPassed": true,
+    "localFileQueryPassed": true,
+    "migratedMemoryRecallPassed": true,
+    "memoryIntegration": "per-launch --patch overlay with @deepseek-ai/dsh-mcp-client",
+    "model": "Qwen3.8-Flash-Next-oQ4e-mtp",
+    "endpoint": "http://127.0.0.1:8899/v1",
+    "credentialReference": "DONWELLS_DSH_LOCAL_TOKEN (non-secret placeholder for local protocol)",
+    "resumeQualified": false,
+    "productionSetupQualified": false
+  }
 }

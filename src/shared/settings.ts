@@ -30,7 +30,7 @@ type SettingDefinition<K extends SettingKey> = SettingMetadata<K> & {
 
 type SettingDefinitions = { [K in SettingKey]: SettingDefinition<K> }
 
-const terminalThemes = ['tomorrow-night', 'dracula', 'solarized-dark', 'github-dark'] as const
+const terminalThemes = ['donwells', 'tomorrow-night', 'dracula', 'solarized-dark', 'github-dark'] as const
 const themeOptions = ['system', 'dark', 'light'] as const
 const cursorStyles = ['block', 'bar', 'underline'] as const
 const editorWhitespaceModes = ['none', 'boundary', 'selection', 'trailing', 'all'] as const
@@ -53,7 +53,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   cursorBlink: true,
   scrollback: 10000,
   copyOnSelect: false,
-  terminalTheme: 'tomorrow-night',
+  terminalTheme: 'donwells',
   editorFontFamily: null,
   editorFontSize: null,
   editorWordWrap: 'off',

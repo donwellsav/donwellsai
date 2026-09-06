@@ -5,6 +5,33 @@ import type { TerminalThemeName } from '@shared/types'
  * is the xterm.js ITheme. Every palette carries the same key set for total live swaps.
  */
 export const TERMINAL_THEMES: Record<TerminalThemeName, { label: string; swatch: string[]; xterm: Record<string, string> }> = {
+  donwells: {
+    label: 'Donwells',
+    swatch: ['#16161d', '#e28d89', '#a9bd8c', '#94abc8', '#d6b985'],
+    xterm: {
+      background: '#16161d',
+      foreground: '#e8e5e1',
+      cursor: '#e8e5e1',
+      cursorAccent: '#16161d',
+      selectionBackground: '#35353f',
+      black: '#16161d',
+      brightBlack: '#8b8796',
+      red: '#e28d89',
+      green: '#a9bd8c',
+      yellow: '#d6b985',
+      blue: '#94abc8',
+      magenta: '#bba4cb',
+      cyan: '#8ebcbc',
+      white: '#e8e5e1',
+      brightRed: '#efa6a2',
+      brightGreen: '#bfd2a5',
+      brightYellow: '#e7cca0',
+      brightBlue: '#adc2dc',
+      brightMagenta: '#d0b9df',
+      brightCyan: '#a9d3d3',
+      brightWhite: '#faf9f6'
+    }
+  },
   'tomorrow-night': {
     label: 'Tomorrow Night',
     swatch: ['#1d1f21', '#cc6666', '#b5bd68', '#81a2be', '#f0c674'],
@@ -116,13 +143,14 @@ export const TERMINAL_THEMES: Record<TerminalThemeName, { label: string; swatch:
 }
 
 export const TERMINAL_THEME_NAMES: readonly TerminalThemeName[] = Object.freeze<TerminalThemeName[]>([
+  'donwells',
   'tomorrow-night',
   'dracula',
   'solarized-dark',
   'github-dark'
 ])
 
-export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'tomorrow-night'
+export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'donwells'
 
 export const terminalThemeOf = (name: TerminalThemeName | undefined): Record<string, string> =>
   TERMINAL_THEMES[name ?? DEFAULT_TERMINAL_THEME].xterm
