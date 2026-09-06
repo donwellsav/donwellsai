@@ -1,0 +1,176 @@
+{
+  "startedAt": "2026-09-06T08:31:10.021Z",
+  "source": {
+    "commit": "7e4c6146b578d09ab36db236d8b1dbed5bb2de51",
+    "dirty": true,
+    "contentHash": "85866178289568fd9630269a80f6fe5b1a4af374222af2eb897dba5061a54287"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-handoff-profile-17",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-2WaZqI",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "5a48a21f6734c5e525dfe782d5c161351def9f8db346584fe9c774bce45eb6d7",
+    "memoryMcpSha256": "c73ef3ada8cae72657a6d054ff5f4c25dacc7e62723e64d1c2413344098d0534"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-2WaZqI/.omp/mcp.json",
+      "sessionId": "2921e061-62ce-49a6-8bd0-e54522b2f71d",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 77031,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "interface": "tui",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "nativeSetupSession": "112989cd-181d-42ad-9e19-170c7b4c6d16",
+      "existingHermesSettingsPreserved": true,
+      "managedConfiguration": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-c44adf04-a302-4383-95b4-a30e44f310b2/config.yaml",
+      "nativeToolsApproved": 8,
+      "sessionId": "01d5016a-ffef-4d68-aee9-cf3f1099a720",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "mcpProcesses": [
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42668,
+          "ppid": 42623,
+          "pgid": 42668,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42668,
+          "ppid": 42623,
+          "pgid": 42668,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42668,
+          "ppid": 42623,
+          "pgid": 42668,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42668,
+          "ppid": 42623,
+          "pgid": 42668,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41913,
+          "ppid": 41863,
+          "pgid": 41863,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42668,
+          "ppid": 42623,
+          "pgid": 42668,
+          "nodeMode": "1",
+          "bound": true
+        }
+      ],
+      "error": "page.evaluate: Target page, context or browser has been closed",
+      "errorStack": "page.evaluate: Target page, context or browser has been closed\n    at /Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/native-agent-matrix.mjs:272:35",
+      "startup": "failed"
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1302.843125
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "eb3c45f1-1fd0-4132-bf71-9e56c651a071",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      41721,
+      41810
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "handoffSource": {
+    "sessionId": "2921e061-62ce-49a6-8bd0-e54522b2f71d",
+    "contentSha256": "d5a173c21f64f39c17e7902305b023afafdbf238813eb16bfe27169fabb09636"
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-c44adf04-a302-4383-95b4-a30e44f310b2",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": false,
+  "durationMs": 28475.609458
+}
