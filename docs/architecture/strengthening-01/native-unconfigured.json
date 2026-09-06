@@ -1,0 +1,303 @@
+{
+  "startedAt": "2026-09-06T15:31:07.816Z",
+  "source": {
+    "commit": "cf10a416f220dcdd4625c7221762c878d6124d79",
+    "dirty": true,
+    "contentHash": "c782e1b230e6c1fe96556865419f3bc3ac30d982f96052a932e3bc24f6714ad1"
+  },
+  "executable": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-01-native-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-WsBF1f",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "d437c6ac2d153f657536a04005256b28acc4f40cef74e61bba3d83e57becc6d8",
+    "memoryMcpSha256": "f08c2fc2521422a825b60d4472a18f14d2ca8609f7fb68256f584a010f264bd7"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "sessionId": "e5a4f219-348d-48f3-93a3-c12e01855675",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 81116,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "interface": "cli",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "sessionId": "d8fb6ebc-4f80-4262-a9fc-0454190c5a85",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 12626,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "sessionId": "8c736263-8b61-41dd-9903-3698232b0aec",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 1666,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": false,
+      "startup": "unavailable"
+    }
+  },
+  "limitations": [
+    "Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 25838.553583999997
+    }
+  ],
+  "resources": {
+    "method": "After ten seconds without submitted queries. Electron CPU is sampled separately; ps CPU is lifetime average. Only fixture app/daemon descendants included; pre-existing model services excluded.",
+    "electron": [
+      {
+        "cpu": {
+          "cumulativeCPUUsage": 0.663582,
+          "percentCPUUsage": 0.027623372336970823,
+          "idleWakeupsPerSecond": 3
+        },
+        "pid": 86329,
+        "type": "Browser",
+        "creationTime": 1788708668016.934,
+        "memory": {
+          "workingSetSize": 212528,
+          "peakWorkingSetSize": 229760
+        },
+        "sandboxed": false
+      },
+      {
+        "cpu": {
+          "cumulativeCPUUsage": 0.496821,
+          "percentCPUUsage": 0.010540451907796903,
+          "idleWakeupsPerSecond": 19
+        },
+        "pid": 86330,
+        "type": "GPU",
+        "creationTime": 1788708668129.888,
+        "serviceName": "GPU",
+        "memory": {
+          "workingSetSize": 118704,
+          "peakWorkingSetSize": 149504
+        },
+        "sandboxed": true
+      },
+      {
+        "cpu": {
+          "cumulativeCPUUsage": 0.048723,
+          "percentCPUUsage": 0,
+          "idleWakeupsPerSecond": 0
+        },
+        "pid": 86331,
+        "type": "Utility",
+        "creationTime": 1788708668131.048,
+        "serviceName": "network.mojom.NetworkService",
+        "name": "Network Service",
+        "memory": {
+          "workingSetSize": 50192,
+          "peakWorkingSetSize": 50240
+        },
+        "sandboxed": true
+      },
+      {
+        "cpu": {
+          "cumulativeCPUUsage": 0.881353,
+          "percentCPUUsage": 0.006364987712796708,
+          "idleWakeupsPerSecond": 5
+        },
+        "pid": 86333,
+        "type": "Tab",
+        "creationTime": 1788708668208.242,
+        "memory": {
+          "workingSetSize": 260560,
+          "peakWorkingSetSize": 260704
+        },
+        "sandboxed": true
+      }
+    ],
+    "ownedProcesses": [
+      {
+        "pid": 86329,
+        "ppid": 86272,
+        "rssKiB": 212528,
+        "lifetimeCpuPercent": 0,
+        "command": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/MacOS/donwells"
+      },
+      {
+        "pid": 86330,
+        "ppid": 86329,
+        "rssKiB": 118704,
+        "lifetimeCpuPercent": 0,
+        "command": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/Frameworks/donwells.ai Helper.app/Contents/MacOS/donwells.ai Helper"
+      },
+      {
+        "pid": 86331,
+        "ppid": 86329,
+        "rssKiB": 50192,
+        "lifetimeCpuPercent": 0,
+        "command": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/Frameworks/donwells.ai Helper.app/Contents/MacOS/donwells.ai Helper"
+      },
+      {
+        "pid": 86332,
+        "ppid": 86329,
+        "rssKiB": 79792,
+        "lifetimeCpuPercent": 0,
+        "command": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/MacOS/donwells"
+      },
+      {
+        "pid": 86333,
+        "ppid": 86329,
+        "rssKiB": 260560,
+        "lifetimeCpuPercent": 0,
+        "command": "/private/tmp/donwells-strengthen-01-package/mac-arm64/donwells.app/Contents/Frameworks/donwells.ai Helper (Renderer).app/Contents/MacOS/donwells.ai Helper (Renderer)"
+      },
+      {
+        "pid": 86793,
+        "ppid": 86735,
+        "rssKiB": 238976,
+        "lifetimeCpuPercent": 0,
+        "command": "npm exec @playwright/mcp@latest"
+      },
+      {
+        "pid": 86804,
+        "ppid": 86735,
+        "rssKiB": 247600,
+        "lifetimeCpuPercent": 0,
+        "command": "npm exec @modelcontextprotocol/server-sequential-thinking@2025.12.18"
+      },
+      {
+        "pid": 86806,
+        "ppid": 86735,
+        "rssKiB": 238752,
+        "lifetimeCpuPercent": 0,
+        "command": "npm exec @modelcontextprotocol/server-filesystem@2026.1.14"
+      },
+      {
+        "pid": 86812,
+        "ppid": 86735,
+        "rssKiB": 179200,
+        "lifetimeCpuPercent": 0,
+        "command": "node"
+      },
+      {
+        "pid": 86912,
+        "ppid": 86793,
+        "rssKiB": 131248,
+        "lifetimeCpuPercent": 0,
+        "command": "node"
+      },
+      {
+        "pid": 86937,
+        "ppid": 86804,
+        "rssKiB": 75232,
+        "lifetimeCpuPercent": 0,
+        "command": "node"
+      },
+      {
+        "pid": 86956,
+        "ppid": 86806,
+        "rssKiB": 81504,
+        "lifetimeCpuPercent": 0,
+        "command": "node"
+      },
+      {
+        "pid": 87032,
+        "ppid": 86735,
+        "rssKiB": 19344,
+        "lifetimeCpuPercent": 0,
+        "command": "/Users/muzikfirst/.hermes/hermes-agent/venv/bin/python3"
+      },
+      {
+        "pid": 86389,
+        "ppid": 86332,
+        "rssKiB": 6032,
+        "lifetimeCpuPercent": 0,
+        "command": "/bin/zsh"
+      },
+      {
+        "pid": 86469,
+        "ppid": 86332,
+        "rssKiB": 469968,
+        "lifetimeCpuPercent": 0,
+        "command": "/Users/muzikfirst/.bun/bin/omp"
+      },
+      {
+        "pid": 86545,
+        "ppid": 86469,
+        "rssKiB": 89168,
+        "lifetimeCpuPercent": 0,
+        "command": "/Applications/Donwell.app/Contents/MacOS/Donwell"
+      },
+      {
+        "pid": 86546,
+        "ppid": 86469,
+        "rssKiB": 84976,
+        "lifetimeCpuPercent": 0,
+        "command": "/Applications/Donwell.app/Contents/MacOS/Donwell"
+      },
+      {
+        "pid": 86547,
+        "ppid": 86469,
+        "rssKiB": 94400,
+        "lifetimeCpuPercent": 0,
+        "command": "/Applications/Donwell.app/Contents/MacOS/Donwell"
+      },
+      {
+        "pid": 86548,
+        "ppid": 86469,
+        "rssKiB": 100384,
+        "lifetimeCpuPercent": 0,
+        "command": "/opt/homebrew/opt/node@24/bin/node"
+      },
+      {
+        "pid": 86735,
+        "ppid": 86332,
+        "rssKiB": 216896,
+        "lifetimeCpuPercent": 0,
+        "command": "/Users/muzikfirst/.hermes/hermes-agent/venv/bin/python3"
+      },
+      {
+        "pid": 87101,
+        "ppid": 86332,
+        "rssKiB": 509904,
+        "lifetimeCpuPercent": 0,
+        "command": "kimi-code"
+      }
+    ],
+    "daemonPid": 86332
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": false,
+  "durationMs": 25922.887
+}

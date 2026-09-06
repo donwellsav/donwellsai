@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 01 active — strengthening pass requested by the user.** All previous completion claims are reopened for current verification. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 03 active — strengthening pass.** Task 01 is reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -19,14 +19,16 @@ Standing user requirements: terminals are the centerpiece; native OMP, Hermes, K
 
 **Interfaces:** Consumes current app and research snapshots. Produces a pinned component decision record and an installed-build baseline; no production interface changes.
 
-- [ ] **Step 1:** Record checkout, dirty state, OS/hardware, installed artifact path, source/artifact hashes and actual user-data path. Use a temporary test profile; never benchmark by changing real project memory.
-- [ ] **Step 2:** Capture the six spec journeys in the current installed build, noting unsupported steps. Record input/focus latency, app/service RAM, idle CPU, startup and restart behavior separately from model resources.
-- [ ] **Step 3:** For each proposed dependency, record exact release, source SHA, checksum, runtime/model requirements, package licenses/notices, maintenance status, install/remove method and rollback. Fail admission on unresolved redistribution rights.
-- [ ] **Step 4:** Add the smallest Electron live runner around existing smoke infrastructure, with required `--app`, `--profile` and `--evidence` arguments pointing to the actual executable, disposable profile and evidence directory. Reuse `DONWELLS_USER_DATA`; do not enable `DONWELLS_SMOKE` for human journeys. The existing smoke runner launches developer Electron from node_modules and cannot by itself prove packaged acceptance. Record executable hash, source fingerprint and monotonic duration in each result.
-- [ ] **Verification:** Run `pnpm typecheck`, `pnpm test`, and `pnpm package:dir`. Launch the resulting artifact with the acceptance profile and save baseline results. Never report the packaged app as tested without launching it.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Record checkout, dirty state, OS/hardware, installed artifact path, source/artifact hashes and actual user-data path. Use a temporary test profile; never benchmark by changing real project memory.
+- [x] **Step 2:** Capture the six spec journeys in the current installed build, noting unsupported steps. Record input/focus latency, app/service RAM, idle CPU, startup and restart behavior separately from model resources.
+- [x] **Step 3:** For each proposed dependency, record exact release, source SHA, checksum, runtime/model requirements, package licenses/notices, maintenance status, install/remove method and rollback. Fail admission on unresolved redistribution rights.
+- [x] **Step 4:** Add the smallest Electron live runner around existing smoke infrastructure, with required `--app`, `--profile` and `--evidence` arguments pointing to the actual executable, disposable profile and evidence directory. Reuse `DONWELLS_USER_DATA`; do not enable `DONWELLS_SMOKE` for human journeys. The existing smoke runner launches developer Electron from node_modules and cannot by itself prove packaged acceptance. Record executable hash, source fingerprint and monotonic duration in each result.
+- [x] **Verification:** Run `pnpm typecheck`, `pnpm test`, and `pnpm package:dir`. Launch the resulting artifact with the acceptance profile and save baseline results. Never report the packaged app as tested without launching it.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Remove only the temporary profile and trial artifacts. Keep all user data untouched.
+
+**Strengthening evidence:** [current baseline and shipping-byte verification](../../architecture/strengthening-01/README.md). Task 01 strengthened; no other task marked complete.
 
 ### Task 02: SKIPPED by user — retain xterm/FlexLayout
 
