@@ -19,9 +19,10 @@ function fixture(mode = 'normal', scope: 'project' | 'checkout' = 'checkout') {
   const project = join(directory, 'project'), checkout = join(directory, 'linked'), other = join(directory, 'other')
   for (const path of [project, checkout, other]) mkdirSync(path)
   let registered = true
+  let checkoutProject = project
   const resolve = async (path: string) => {
     if (!registered || ![project, checkout, other].includes(path)) throw new Error('Unknown workspace')
-    return { path, projectPath: path === other ? other : project }
+    return { path, projectPath: path === checkout ? checkoutProject : path === other ? other : project }
   }
   const counter = join(directory, 'starts'), writes = join(directory, 'writes'), script = join(directory, 'server.cjs')
   writeFileSync(script, `
@@ -50,8 +51,28 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const definition: ProjectToolDefinition = { id: 'fixture', version: '1', scope, launch: () => ({ program: process.execPath, args: [script, mode, counter, writes] }), operations: { search: operation, get: operation, history: operation, export: operation, write: { ...operation, tool: 'write', readOnly: false } } }
   const tools = new ProjectTools(resolve, [definition], 150)
   owners.push(tools)
-  return { tools, definition, project, checkout, other, resolve, counter, writes, deregister: () => { registered = false } }
+  return { tools, definition, project, checkout, other, resolve, counter, writes, deregister: () => { registered = false }, reassignCheckout: () => { checkoutProject = other } }
 }
+
+it.each(['start', 'search', 'write'])('refuses %s when checkout ownership changes during preparation', async operation => {
+  const f = fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  f.definition.prepare = async () => { entered.resolve(); await release.promise }
+  const pending = operation === 'start' ? f.tools.start(f.checkout, 'fixture') : f.tools.call(f.checkout, 'fixture', operation, { query: 'hello' })
+  const outcome = expect(pending).rejects.toThrow('Tool scope changed during preparation')
+  await entered.promise
+  f.reassignCheckout()
+  release.resolve()
+  await outcome
+  expect(() => readFileSync(f.counter)).toThrow()
+  expect(() => readFileSync(f.writes)).toThrow()
+})
+
+it.each(['search', 'write'])('does not dispatch %s with targets from a previous project registration', async operation => {
+  const f = fixture()
+  f.definition.operations[operation]!.targets = () => { f.reassignCheckout(); return { project: 'previous-project' } }
+  await expect(f.tools.call(f.checkout, 'fixture', operation, { query: 'hello' })).rejects.toThrow('Tool scope changed before request')
+  expect(() => readFileSync(f.writes)).toThrow()
+})
 
 it('deduplicates setup and cancels it before launching a native service', async () => {
   const f = fixture()

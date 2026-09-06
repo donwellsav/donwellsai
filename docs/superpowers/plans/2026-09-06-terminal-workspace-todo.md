@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 04 active — strengthening pass.** Tasks 01 and 03 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 05 active — GUI rebuild.** Tasks 01, 03 and 04 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -78,14 +78,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes canonical project resolution and existing process helpers. Produces ProjectToolScope/ToolServiceState and start/stop/status operations through existing runtime RPC.
 
-- [ ] **Step 1:** Create a bound scope before launching a tool. Separate canonical project key from checkout-specific index key; validate real paths and reject deregistered projects.
-- [ ] **Step 2:** Start one admitted service per required scope, wait for a real readiness response, cap log output, and maintain a bounded restart policy. Deduplicate simultaneous start requests. Expose minimal availability/error/retry controls now; Task 19 consolidates them. Bind requests to an unguessable launch credential or inherited private channel and fence stale service generations; localhost alone is not authentication.
-- [ ] **Step 3:** Bind the permitted memory/index/browser targets server-side. Reject override attempts for search, direct get, export, history and batch calls. Never trust harness attribution as identity.
-- [ ] **Step 4:** Test service crash, readiness timeout, malformed response, scope spoofing, duplicate starts and app shutdown. Retry read-only calls only; return uncertain write/action outcomes without automatic repetition.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-tools.test.ts tests/runtime-rpc.test.ts tests/run-process.test.ts tests/secret-store.test.ts`.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Create a bound scope before launching a tool. Separate canonical project key from checkout-specific index key; validate real paths and reject deregistered projects.
+- [x] **Step 2:** Start one admitted service per required scope, wait for a real readiness response, cap log output, and maintain a bounded restart policy. Deduplicate simultaneous start requests. Expose minimal availability/error/retry controls now; Task 19 consolidates them. Bind requests to an unguessable launch credential or inherited private channel and fence stale service generations; localhost alone is not authentication.
+- [x] **Step 3:** Bind the permitted memory/index/browser targets server-side. Reject override attempts for search, direct get, export, history and batch calls. Never trust harness attribution as identity.
+- [x] **Step 4:** Test service crash, readiness timeout, malformed response, scope spoofing, duplicate starts and app shutdown. Retry read-only calls only; return uncertain write/action outcomes without automatic repetition.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-tools.test.ts tests/runtime-rpc.test.ts tests/run-process.test.ts tests/secret-store.test.ts`.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable the added capability; running terminal agents remain usable. Stop only app-owned services.
+
+**Strengthening evidence:** [scope preparation race, regression and native checks](../../architecture/strengthening-04.md).
 
 ### Task 05: Design tokens and a distinctive primary workspace
 

@@ -105,7 +105,7 @@ export class ProjectTools {
       if (controller.signal.aborted || this.closed) throw new Error('Tool stopped')
       await definition.prepare?.(scope, controller.signal)
       if (controller.signal.aborted || this.closed) throw new Error('Tool stopped')
-      const state = await this.startPrepared(workspacePath, id)
+      const state = await this.startPrepared(workspacePath, id, key)
       this.setupStates.delete(key)
       return state
     }).catch(error => {
@@ -118,8 +118,9 @@ export class ProjectTools {
     return promise
   }
 
-  private async startPrepared(workspacePath: string, id: string): Promise<ToolServiceState> {
+  private async startPrepared(workspacePath: string, id: string, preparedKey: string): Promise<ToolServiceState> {
     const { definition, scope, key } = await this.bound(workspacePath, id)
+    if (key !== preparedKey) throw new Error('Tool scope changed during preparation')
     let service = this.services.get(key)
     if (service?.state.status === 'ready' || service?.state.status === 'starting') {
       await service.ready
@@ -129,7 +130,7 @@ export class ProjectTools {
     if (this.closed) throw new Error('Project tools are shutting down')
     // Recheck after asynchronous cleanup so concurrent restart requests still share one process.
     const current = this.services.get(key)
-    if (current !== service) return this.startPrepared(workspacePath, id)
+    if (current !== service) return this.startPrepared(workspacePath, id, preparedKey)
     const launch = definition.launch(scope)
     const child = spawnProcess({ ...launch, cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env, launch.env), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
     service = { scope, process: child, pending: new Map(), ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
@@ -220,6 +221,7 @@ export class ProjectTools {
     for (const [name, parse] of Object.entries(operation.parameters)) args[name] = parse(input[name])
     for (let attempt = 0; attempt < 2; attempt++) {
       await this.start(workspacePath, id)
+      if ((await this.bound(workspacePath, id)).key !== key) throw new Error('Tool scope changed before request')
       const service = this.services.get(key)!
       try {
         const request = async () => {
