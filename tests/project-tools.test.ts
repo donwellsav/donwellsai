@@ -194,3 +194,24 @@ it('honors a stop while an operation verifies source freshness', async () => {
   await outcome
   expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
 })
+
+it('reports an uncertain write and stops its service when the project is removed before delivery', async () => {
+  const f = fixture()
+  const completed = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  f.definition.operations.write!.run = async (_scope, request) => {
+    const result = await request()
+    completed.resolve()
+    await release.promise
+    return result
+  }
+  const writing = f.tools.call(f.project, 'fixture', 'write', { query: 'hello' })
+  const outcome = expect(writing).rejects.toMatchObject({ code: 'TOOL_OUTCOME_UNCERTAIN' })
+  await completed.promise
+  f.deregister()
+  release.resolve()
+  await outcome
+  expect(readFileSync(f.writes, 'utf8').trim().split('\n')).toHaveLength(1)
+  for (const pid of readFileSync(f.counter, 'utf8').trim().split('\n').map(Number)) {
+    expect(() => process.kill(pid, 0)).toThrow()
+  }
+})

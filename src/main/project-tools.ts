@@ -229,7 +229,7 @@ export class ProjectTools {
           return result
         }
         const result = await (operation.run ? operation.run(scope, request) : request())
-        const fresh = await this.bound(workspacePath, id)
+        const fresh = await this.bound(workspacePath, id).catch(() => { throw new ToolTransportError('Tool scope is no longer available') })
         if (fresh.key !== key || this.services.get(key) !== service || service.state.status !== 'ready') throw new ToolTransportError('Tool scope or generation changed')
         return result
       } catch (error) {

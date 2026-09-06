@@ -1,0 +1,26 @@
+{
+  "sourceCommitBeforeFix": "49c8680008e8a73ffcbd6db256a2195cba724d30",
+  "sha256": {
+    "src/main/project-tools.ts": "41a0a3e6bdfd211242fabe9a72f0c48ff578e6d6a1f6a390616dfcc33f381dad",
+    "src/shared/project-tools.ts": "e996bc70306d61effae7f56a7acf026571298b70fb258bfe0dc1e52e8f03abfe",
+    "tests/project-tools.test.ts": "2d78af6f45e260a11f995cafb77ac04fae140e92072bfff93d0f1e83a5593ad9",
+    "src/main/index.ts": "e088e3659aa48adfe895fcbd763ed445a97f6a76b0417084f4cb58e6ba5c0ef6",
+    "src/main/runtime-rpc.ts": "0b628b96ffcf84b3b84c05cc0a46f05be7a20860d0e167eebdada3a1407b9eec"
+  },
+  "regression": {
+    "before": "Unknown workspace instead of TOOL_OUTCOME_UNCERTAIN after completed write and deregistration",
+    "after": "Uncertain outcome; one write only; owned service terminated"
+  },
+  "verification": [
+    {
+      "log": "/tmp/donwells-task04-required-after.log",
+      "sha256": "682187272d7772b3ddd7541502e71618c4c02bd106f09083056d451ed903a741",
+      "output": "(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n\n RUN  v4.1.11 /Users/muzikfirst/Documents/donwellsai/terminal-foundation\n\n\n Test Files  4 passed (4)\n      Tests  30 passed (30)\n   Start at  09:15:37\n   Duration  1.77s (transform 190ms, setup 0ms, import 270ms, tests 2.39s, environment 0ms)\n\n"
+    },
+    {
+      "log": "/tmp/donwells-task04-typecheck.log",
+      "sha256": "ebe287cb99a00353c5d7f0c5a14bc225ce19c7601c38dea6c426dbdbf4379d70",
+      "output": "$ tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json\n"
+    }
+  ]
+}
