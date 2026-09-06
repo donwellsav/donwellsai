@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-06T02:00:37.065Z",
+  "checkout": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation",
+  "sourceBefore": {
+    "commit": "18eddb407008ae36bd157945987dd00e53cafa36",
+    "dirty": true,
+    "contentHash": "27e63b872efec5f83c51dd9b9d1e9fe38961752bf6a9df594ae76064e691fbbd"
+  },
+  "artifact": {
+    "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "76822c4e03bb0ed875bc8c2d11b8006451354d4f10d6844dbe7e147c1e98046c"
+  },
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "osRelease": "25.6.0",
+    "cpu": "Apple M5 Max",
+    "memoryBytes": 137438953472
+  },
+  "profile": "/private/tmp/donwells-foundation-profile-02",
+  "limitations": [
+    "RPC readiness is not visual or native-agent acceptance.",
+    "One launch is not a performance distribution.",
+    "Process RSS below excludes renderer/GPU/agent/model services.",
+    "Source fingerprint describes this checkout; artifact hashes identify the supplied app but do not alone prove a source/build relationship."
+  ],
+  "sourceAfter": {
+    "commit": "18eddb407008ae36bd157945987dd00e53cafa36",
+    "dirty": true,
+    "contentHash": "27e63b872efec5f83c51dd9b9d1e9fe38961752bf6a9df594ae76064e691fbbd"
+  },
+  "elapsedMs": 904.937709,
+  "checks": {
+    "runtimeReadyMs": 304.829709,
+    "version": "0.3.0",
+    "rendererRpcReady": true,
+    "rendererReadyMs": 395.23970899999995,
+    "mainProcess": "59501 182128  37.4",
+    "packagedLaunch": "passed",
+    "idleDaemonStopped": true,
+    "sourceUnchangedDuringRun": true
+  },
+  "journeys": {
+    "start": "not-run",
+    "collaborate": "not-run",
+    "handoff": "not-run",
+    "understand": "not-run",
+    "build-and-verify": "not-run",
+    "return-and-ship": "not-run"
+  }
+}
