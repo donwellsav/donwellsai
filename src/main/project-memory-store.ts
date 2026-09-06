@@ -15,6 +15,9 @@ import {
 import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
+import type { DatabaseSync } from 'node:sqlite'
+import { migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority } from './project-memory-migration'
+import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from './project-memory-sqlite'
 import {
   PROJECT_MEMORY_MAX_DOCUMENT_BYTES,
   PROJECT_MEMORY_MAX_ENTRIES,
@@ -299,15 +302,17 @@ function nextHistory(stored: StoredProjectMemoryEntry): ProjectMemoryRevision[] 
 export class ProjectMemoryStore {
   readonly path: string
   private document: ProjectMemoryDocument
+  private readonly authority: ProjectMemoryAuthority | null
 
   constructor(userDataDir: string) {
     this.path = join(userDataDir, FILE_NAME)
-    assertJsonAuthority(this.path)
-    this.document = readProjectMemorySnapshot(this.path).document
+    const authority = readProjectMemoryAuthority(userDataDir)
+    this.authority = authority?.state === 'preparing' ? migrateProjectMemory(userDataDir) : authority
+    this.document = this.authority ? this.withSqlite(true, db => readSqliteMemoryDocument(db)) : readProjectMemorySnapshot(this.path).document
   }
 
   list(projectKey: string, options: ProjectMemoryListOptions): { entries: ProjectMemoryEntry[]; total: number } {
-    assertJsonAuthority(this.path)
+    this.refreshProject(projectKey)
     if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > PROJECT_MEMORY_MAX_RESULT_LIMIT) {
       throw new Error(`Project memory result limit must be between 1 and ${PROJECT_MEMORY_MAX_RESULT_LIMIT}`)
     }
@@ -341,6 +346,7 @@ export class ProjectMemoryStore {
 
   create(projectValue: ProjectMemoryProject, entryValue: ProjectMemoryEntry): ProjectMemoryEntry {
     const project = parseProjectMemoryProject(projectValue)
+    this.refreshProject(project.projectKey)
     const entry = parseProjectMemoryEntry(entryValue)
     if (entry.revision !== 1) throw new Error('A new project memory entry must start at revision 1')
     const totalEntries = this.document.projects.reduce((total, candidate) => total + candidate.entries.length, 0)
@@ -444,7 +450,7 @@ export class ProjectMemoryStore {
     stored: StoredProjectMemoryEntry
     index: number
   } {
-    assertJsonAuthority(this.path)
+    this.refreshProject(projectKey)
     const projectDocument = this.document.projects.find((candidate) => candidate.projectKey === projectKey)
     if (!projectDocument) throw new ProjectMemoryNotFoundError(id)
     const index = projectDocument.entries.findIndex((candidate) => candidate.current.id === id)
@@ -466,6 +472,21 @@ export class ProjectMemoryStore {
   }
 
   private commitLockedProject(project: ProjectMemoryDocument['projects'][number]): void {
+    if (this.authority) {
+      const previous = this.document.projects.find(candidate => candidate.projectKey === project.projectKey)
+      const before = new Map(previous?.entries.map(entry => [entry.current.id, entry]))
+      const changed = project.entries.filter(entry => !isDeepStrictEqual(entry, before.get(entry.current.id)))
+      if (changed.length !== 1) throw new Error('Memory mutation must change exactly one entry')
+      const next = changed[0]!
+      const old = before.get(next.current.id)
+      this.withSqlite(false, db => {
+        const identity = { projectKey: project.projectKey, projectPath: project.projectPath }
+        if (old) replaceSqliteMemoryEntry(db, identity, old.current.revision, next)
+        else createSqliteMemoryEntry(db, identity, next)
+      })
+      this.document = { schemaVersion: PROJECT_MEMORY_SCHEMA_VERSION, projects: [project] }
+      return
+    }
     assertJsonAuthority(this.path)
     const current = readProjectMemorySnapshot(this.path).document
     if (!isDeepStrictEqual(current, this.document)) {
@@ -485,5 +506,24 @@ export class ProjectMemoryStore {
     })
     writeDocument(this.path, document)
     this.document = document
+  }
+
+  private refreshProject(projectKey: string): void {
+    if (!this.authority) { assertJsonAuthority(this.path); return }
+    this.document = this.withSqlite(true, db => readSqliteMemoryDocument(db, projectKey))
+  }
+
+  private withSqlite<T>(readOnly: boolean, operation: (db: DatabaseSync) => T): T {
+    const profile = dirname(this.path)
+    const run = () => {
+      const current = readProjectMemoryAuthority(profile)
+      if (current?.state !== 'sqlite' || current.directory !== this.authority?.directory) {
+        throw Object.assign(new Error('Project memory authority changed; reopen the active backend'), { code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
+      }
+      const db = openProjectMemoryDatabase(profile, current, readOnly)
+      try { return operation(db) } finally { db.close() }
+    }
+    // Writes already hold this lock through commitProject; readers fence authority switches too.
+    return readOnly ? withProjectMemoryWriteLock(profile, run) : run()
   }
 }

@@ -1,0 +1,28 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "43d6a0f6962f551a23c8d70d5a76b8dd3dbb3bd1",
+    "dirty": true,
+    "contentHash": "d895da19f7f9296b323c859c96c1cb1b87776a6c2ca18e613d3219a9a5a6cb28"
+  },
+  "profile": "/private/tmp/donwells-cutover-profile-02",
+  "fixture": "/private/tmp/donwells-cutover-profile-02/fixture-tjNnBe",
+  "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+  "appPids": [
+    47098,
+    47174,
+    47199
+  ],
+  "lockOwnerPid": 47136,
+  "maintenanceRejected": true,
+  "killedMigrationProcess": {
+    "pid": 47169,
+    "boundary": "legacy-fenced"
+  },
+  "sqliteRecoveryAndNewWriteRestartPassed": true,
+  "originalBackupUnchanged": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 1983
+}

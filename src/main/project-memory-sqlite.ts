@@ -12,14 +12,17 @@ function assertSchema(db: DatabaseSync): void {
 }
 
 /** Internal migration/export operation; callers must not expose an unscoped database export to agents. */
-export function readSqliteMemoryDocument(db: DatabaseSync) {
+export function readSqliteMemoryDocument(db: DatabaseSync, projectKey?: string) {
   db.exec('BEGIN')
   try {
     assertSchema(db)
     const entries = db.prepare('SELECT current_json,history_json FROM entries WHERE project_key = ? ORDER BY id')
+    const projects = projectKey === undefined
+      ? db.prepare('SELECT project_key,project_path FROM projects ORDER BY project_key').all()
+      : db.prepare('SELECT project_key,project_path FROM projects WHERE project_key = ?').all(projectKey)
     return parseProjectMemoryDocument({
       schemaVersion: PROJECT_MEMORY_SCHEMA_VERSION,
-      projects: db.prepare('SELECT project_key,project_path FROM projects ORDER BY project_key').all().map(project => ({
+      projects: projects.map(project => ({
         projectKey: project.project_key,
         projectPath: project.project_path,
         entries: entries.all(project.project_key!).map(entry => ({ current: JSON.parse(String(entry.current_json)), history: JSON.parse(String(entry.history_json)) }))

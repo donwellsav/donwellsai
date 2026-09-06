@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto'
-import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { type ProjectMemoryDocument } from '@shared/project-memory'
 import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
@@ -24,6 +24,110 @@ function writePrivate(path: string, bytes: string | Buffer, mode = 0o600): void 
   const descriptor = openSync(path, 'wx', mode)
   try { writeFileSync(descriptor, bytes); fsyncSync(descriptor) }
   finally { closeSync(descriptor) }
+}
+
+export type ProjectMemoryAuthority = {
+  schemaVersion: 1
+  state: 'preparing' | 'sqlite'
+  directory: string
+  sourceSha256: string | null
+  contentSha256: string
+}
+
+function privatePath(path: string, directory = false): void {
+  const stat = lstatSync(path)
+  if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()) || (process.platform !== 'win32'
+    && ((stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())))) throw new Error('Unsafe project memory authority path: ' + path)
+}
+
+export function readProjectMemoryAuthority(profile: string): ProjectMemoryAuthority | null {
+  const path = join(profile, 'project-memory-active.json')
+  try { privatePath(path) }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+  let value: ProjectMemoryAuthority
+  try {
+    if (fstatSync(fd).size > 4096) throw new Error('Project memory authority manifest is too large')
+    try { value = JSON.parse(readFileSync(fd, 'utf8')) }
+    catch (error) { throw new Error('Invalid project memory authority manifest', { cause: error }) }
+  } finally { closeSync(fd) }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'contentSha256,directory,schemaVersion,sourceSha256,state'
+    || value.schemaVersion !== 1 || !['preparing', 'sqlite'].includes(value.state)
+    || typeof value.directory !== 'string' || !/^project-memory-migration-[A-Za-z0-9]+$/.test(value.directory)
+    || typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentSha256)
+    || !(value.sourceSha256 === null || typeof value.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sourceSha256))) throw new Error('Invalid project memory authority manifest')
+  return value
+}
+
+export function openProjectMemoryDatabase(profile: string, authority: ProjectMemoryAuthority, readOnly: boolean): DatabaseSync {
+  const directory = join(profile, authority.directory)
+  privatePath(directory, true)
+  const path = join(directory, 'project-memory.sqlite')
+  privatePath(path)
+  return new DatabaseSync(path, { readOnly })
+}
+
+function syncDirectory(path: string): void {
+  if (process.platform === 'win32') return
+  const fd = openSync(path, 'r')
+  try { fsyncSync(fd) } finally { closeSync(fd) }
+}
+
+function publishAuthority(profile: string, value: ProjectMemoryAuthority): void {
+  const path = join(profile, 'project-memory-active.json')
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    writePrivate(temporary, JSON.stringify(value) + '\n')
+    renameSync(temporary, path)
+    syncDirectory(profile)
+  } finally { rmSync(temporary, { force: true }) }
+}
+
+export type MemoryMigrationBoundary = 'candidate-prepared' | 'manifest-prepared' | 'legacy-retired' | 'legacy-fenced' | 'manifest-active'
+
+/** Resume interrupted cutover under the same OS lock used by every current writer. */
+export function migrateProjectMemory(userDataDir: string, onBoundary: (boundary: MemoryMigrationBoundary) => void = () => {}) {
+  const profile = resolve(userDataDir)
+  return withProjectMemoryWriteLock(profile, () => {
+    let authority = readProjectMemoryAuthority(profile)
+    if (!authority) {
+      const prepared = prepareLockedMigration(profile)
+      onBoundary('candidate-prepared')
+      authority = { schemaVersion: 1, state: 'preparing', directory: basename(prepared.directory), sourceSha256: prepared.sourceSha256, contentSha256: digest(JSON.stringify(prepared.projects)) }
+      syncDirectory(prepared.directory)
+      publishAuthority(profile, authority)
+      onBoundary('manifest-prepared')
+    }
+    const db = openProjectMemoryDatabase(profile, authority, true)
+    try {
+      const imported = readSqliteMemoryDocument(db)
+      if (authority.state === 'preparing' && digest(JSON.stringify(projectEvidence(imported))) !== authority.contentSha256) throw new Error('Prepared project memory database changed before cutover')
+    } finally { db.close() }
+    if (authority.state === 'sqlite') return authority
+    const legacy = join(profile, 'project-memory.json')
+    const retired = join(profile, authority.directory, 'retired-source.json')
+    if (authority.sourceSha256 !== null) {
+      try { privatePath(retired) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        privatePath(legacy)
+        renameSync(legacy, retired)
+        syncDirectory(dirname(retired)); syncDirectory(profile)
+      }
+      const snapshot = readProjectMemorySnapshot(retired)
+      if (!snapshot.bytes || digest(snapshot.bytes) !== authority.sourceSha256) throw new Error('Legacy memory changed during cutover; preserved source requires recovery')
+    }
+    onBoundary('legacy-retired')
+    try { mkdirSync(legacy, { mode: 0o700 }) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; privatePath(legacy, true) }
+    // A directory at the old filename rejects old versions' atomic file replacement and JSON reads.
+    syncDirectory(profile)
+    onBoundary('legacy-fenced')
+    authority = { ...authority, state: 'sqlite' }
+    publishAuthority(profile, authority)
+    onBoundary('manifest-active')
+    return authority
+  })
 }
 
 /** Preparation holds the writer fence; no active authority is switched here. */

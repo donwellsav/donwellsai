@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -7,9 +7,63 @@ import { once } from 'node:events'
 import { expect, it } from 'vitest'
 import { PROJECT_MEMORY_MAX_CONTENT_LENGTH, projectMemoryRevisionFromEntry } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
-import { prepareProjectMemoryMigration } from '../src/main/project-memory-migration'
+import { migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
 import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
 import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from '../src/main/project-memory-sqlite'
+
+it.each<MemoryMigrationBoundary>(['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active'])('resumes cutover at %s and routes new API writes exclusively to SQLite', async boundary => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-cutover-'))
+  try {
+    const resolver = async (path: string) => ({ projectKey: (path === '/unrelated' ? 'b' : 'a').repeat(64), projectPath: path === '/unrelated' ? path : '/a' })
+    const old = new ProjectMemoryService(root, resolver)
+    const request = { workspacePath: '/a', kind: 'decision' as const, title: 'Keep across cutover', content: 'shared decision', attribution: { harness: 'omp' } }
+    const first = await old.projectMemoryCreate(request)
+    const beforeSearch = await old.projectMemoryList({ workspacePath: '/a', query: 'cutover' })
+    const source = readFileSync(join(root, 'project-memory.json'))
+    expect(() => migrateProjectMemory(root, reached => { if (reached === boundary) throw new Error('interrupted at ' + reached) })).toThrow('interrupted at')
+    const authority = migrateProjectMemory(root)
+    expect(migrateProjectMemory(root)).toEqual(authority)
+    expect(statSync(join(root, 'project-memory.json')).isDirectory()).toBe(true)
+    const attempted = join(root, 'old-writer.tmp')
+    writeFileSync(attempted, 'stale old writer')
+    expect(() => renameSync(attempted, join(root, 'project-memory.json'))).toThrow()
+    expect(readFileSync(join(root, authority.directory, 'project-memory.json.backup'))).toEqual(source)
+    await expect(old.projectMemoryCreate(request)).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
+    const current = new ProjectMemoryService(root, resolver)
+    expect(await current.projectMemoryList({ workspacePath: '/a', query: 'cutover' })).toEqual(beforeSearch)
+    expect(await current.projectMemoryGet({ workspacePath: '/worktree', id: first.id })).toEqual(first)
+    await expect(current.projectMemoryGet({ workspacePath: '/unrelated', id: first.id })).rejects.toThrow('not found in this project')
+    const updated = await current.projectMemoryUpdate({ ...request, id: first.id, expectedRevision: 1, content: 'new SQLite decision', attribution: { harness: 'kimi' } })
+    const fresh = await current.projectMemoryCreate({ ...request, title: 'SQLite-only creation' })
+    const reopened = new ProjectMemoryService(root, resolver)
+    expect(await reopened.projectMemoryGet({ workspacePath: '/worktree', id: first.id })).toEqual(updated)
+    expect(await reopened.projectMemoryGet({ workspacePath: '/a', id: fresh.id })).toEqual(fresh)
+    await expect(reopened.projectMemoryUpdate({ ...request, id: first.id, expectedRevision: 1 })).rejects.toThrow('revision 2; expected revision 1')
+    expect(readFileSync(join(root, authority.directory, 'project-memory.json.backup'))).toEqual(source)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it('preserves an uncooperative old writer instead of activating a stale import', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-old-writer-'))
+  try {
+    const service = new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
+    await service.projectMemoryCreate({ workspacePath: '/a', kind: 'decision', title: 'Original', content: 'before', attribution: { harness: 'omp' } })
+    let changed = ''
+    expect(() => migrateProjectMemory(root, boundary => {
+      if (boundary !== 'manifest-prepared') return
+      const original = JSON.parse(readFileSync(join(root, 'project-memory.json'), 'utf8'))
+      original.projects[0].entries[0].current.content = 'new old-client write'
+      changed = JSON.stringify(original)
+      const temporary = join(root, 'uncooperative.tmp')
+      writeFileSync(temporary, changed, { mode: 0o600 })
+      renameSync(temporary, join(root, 'project-memory.json'))
+    })).toThrow('Legacy memory changed during cutover')
+    const manifest = JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8'))
+    expect(manifest.state).toBe('preparing')
+    expect(readFileSync(join(root, manifest.directory, 'retired-source.json'), 'utf8')).toBe(changed)
+    expect(() => new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))).toThrow('Legacy memory changed during cutover')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 it('stages private SQLite memory with exact backup, history, archives and project isolation without cutover', async () => {
   const root = mkdtempSync(join(tmpdir(), 'donwells-memory-migration-'))
@@ -146,7 +200,7 @@ it('fences every JSON writer during maintenance and releases the lock when its o
     writeFileSync(join(root, 'project-memory-active.json'), '{unreadable manifest', { mode: 0o600 })
     await expect(first.projectMemoryCreate(request)).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
     await expect(first.projectMemoryList({ workspacePath: '/a' })).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
-    expect(() => new ProjectMemoryService(root, resolveProject)).toThrow('authority changed')
+    expect(() => new ProjectMemoryService(root, resolveProject)).toThrow('Invalid project memory authority manifest')
     expect(readFileSync(source)).toEqual(beforeCutover)
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
