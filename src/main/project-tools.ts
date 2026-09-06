@@ -20,6 +20,7 @@ export type ProjectToolDefinition = {
     readOnly: boolean
     parameters: Record<string, (value: unknown) => unknown>
     targets: (scope: ProjectToolScope) => Record<string, unknown>
+    run?: (scope: ProjectToolScope, request: () => Promise<unknown>) => Promise<unknown>
   }>
 }
 
@@ -221,10 +222,15 @@ export class ProjectTools {
       await this.start(workspacePath, id)
       const service = this.services.get(key)!
       try {
-        const result = await this.request(service, 'tools/call', { name: operation.tool, arguments: { ...args, ...targets } })
+        const request = async () => {
+          if (service.state.status !== 'ready') throw new ToolTransportError('Tool stopped')
+          const result = await this.request(service, 'tools/call', { name: operation.tool, arguments: { ...args, ...targets } })
+          if (!isObject(result) || !Array.isArray(result.content)) throw new ToolTransportError('Malformed tool result')
+          return result
+        }
+        const result = await (operation.run ? operation.run(scope, request) : request())
         const fresh = await this.bound(workspacePath, id)
         if (fresh.key !== key || this.services.get(key) !== service || service.state.status !== 'ready') throw new ToolTransportError('Tool scope or generation changed')
-        if (!isObject(result) || !Array.isArray(result.content)) throw new ToolTransportError('Malformed tool result')
         return result
       } catch (error) {
         if (!(error instanceof ToolTransportError)) throw error

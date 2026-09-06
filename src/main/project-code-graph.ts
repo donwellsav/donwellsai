@@ -4,12 +4,66 @@ import { mkdir, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import { isObject } from '@shared/command-catalog'
+import type { ProjectToolScope } from '@shared/project-tools'
+import type { GitWorktrees } from './git'
 import type { ProjectToolDefinition } from './project-tools'
 
 /** Opt-in, admitted macOS ARM64 release. No installer or agent configuration writes. */
-export function createCodeGraphDefinition(binary: string, cachePath: string): ProjectToolDefinition {
+export function createCodeGraphDefinition(binary: string, cachePath: string, captureSource?: GitWorktrees['handoffSource']): ProjectToolDefinition {
   const env = { CBM_CACHE_DIR: cachePath, CBM_WORKERS: '2', CBM_MEM_BUDGET_MB: '512' }
   let setupQueue = Promise.resolve()
+  type Source = Awaited<ReturnType<GitWorktrees['handoffSource']>>
+  // ponytail: receipts live for this app session; persisted indexes require a
+  // rebuild after restart before their Git-visible source can be certified.
+  const receipts = new Map<string, { source: Source | null; indexedAt: string | null; building: boolean }>()
+  const capture = async (scope: ProjectToolScope): Promise<Source | null> => {
+    try { return await captureSource?.(scope.checkoutPath) ?? null } catch { return null }
+  }
+  const data = (result: unknown): Record<string, unknown> | null => {
+    if (!isObject(result) || result.isError === true) return null
+    if (isObject(result.structuredContent)) return result.structuredContent
+    try {
+      const text = Array.isArray(result.content) && result.content.find(item => isObject(item) && item.type === 'text')
+      const parsed: unknown = text && JSON.parse(text.text)
+      return isObject(parsed) ? parsed : null
+    } catch { return null }
+  }
+  const run = (indexing: boolean) => async (scope: ProjectToolScope, request: () => Promise<unknown>): Promise<unknown> => {
+    let receipt = receipts.get(scope.indexKey)
+    if (indexing) {
+      if (receipt?.building) throw new Error('Code graph rebuild is already running for this checkout')
+      receipt = { source: null, indexedAt: null, building: true }
+      receipts.set(scope.indexKey, receipt)
+    }
+    const sourceAtStart = receipt?.source
+    const buildingAtStart = receipt?.building
+    try {
+      const before = await capture(scope)
+      const result = await request()
+      const value = data(result)
+      const after = await capture(scope)
+      if (indexing && receipt && value?.project === scope.indexKey && value.status === 'indexed' && before && after && before.contentFingerprint === after.contentFingerprint) {
+        receipt.source = after
+        receipt.indexedAt = new Date().toISOString()
+      }
+      if (!value || !isObject(result)) return result
+      const stable = before && after && before.contentFingerprint === after.contentFingerprint
+      const verified = receipt?.source && receipts.get(scope.indexKey) === receipt && (indexing || (!buildingAtStart && !receipt.building && receipt.source === sourceAtStart)) && stable
+      const freshness = {
+        state: verified ? after.contentFingerprint === receipt!.source!.contentFingerprint ? 'current' : 'stale' : 'unknown',
+        indexedAt: receipt?.indexedAt ?? null,
+        sourceRevision: receipt?.source?.sourceRevision ?? null,
+        basis: 'Git-visible source; ignored files and external dependencies are not verified'
+      }
+      const enriched = { ...value, freshness }
+      return { ...result, structuredContent: enriched, content: [
+        { type: 'text', text: JSON.stringify(enriched) },
+        ...(Array.isArray(result.content) ? result.content.filter(item => !isObject(item) || item.type !== 'text') : [])
+      ] }
+    } finally { if (indexing && receipt) receipt.building = false }
+  }
+
   return {
     id: 'code-graph', version: '0.10.8', scope: 'checkout',
     prepare: (scope, signal) => {
@@ -35,9 +89,9 @@ export function createCodeGraphDefinition(binary: string, cachePath: string): Pr
     },
     launch: scope => ({ program: binary, args: ['--ui=false'], env: { ...env, CBM_ALLOWED_ROOT: scope.checkoutPath } }),
     operations: {
-      index: { tool: 'index_repository', readOnly: false, parameters: {}, targets: scope => ({ repo_path: scope.checkoutPath, name: scope.indexKey, persistence: false, mode: 'fast' }) },
+      index: { run: run(true), tool: 'index_repository', readOnly: false, parameters: {}, targets: scope => ({ repo_path: scope.checkoutPath, name: scope.indexKey, persistence: false, mode: 'fast' }) },
       callers: {
-        tool: 'trace_path', readOnly: true,
+        tool: 'trace_path', readOnly: true, run: run(false),
         parameters: { function_name: value => {
           if (typeof value !== 'string' || !value.trim() || value.length > 128 || /[\0\r\n]/.test(value)) throw new Error('Expected a bounded function name')
           return value

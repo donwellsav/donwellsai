@@ -6,18 +6,25 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { ProjectTools, resolveProjectToolScope } from '../../src/main/project-tools'
 import { createCodeGraphDefinition } from '../../src/main/project-code-graph'
+import { GitWorktrees } from '../../src/main/git'
+import { Store } from '../../src/main/store'
 
 it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native graph clients to checkout hashes and preserves siblings on stop', async () => {
   const binary = realpathSync(process.env.DONWELLS_CODE_GRAPH_BINARY!)
   expect(execFileSync('ps', ['-axo', 'comm='], { encoding: 'utf8' }).split('\n').filter(line => line.trim().endsWith('/codebase-memory-mcp'))).toEqual([])
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'donwells-graph-service-')))
   const paths = [join(root, 'a-b'), join(root, 'a/b')]
+  const git = new GitWorktrees(new Store(join(root, 'profile')))
   for (const [index, path] of paths.entries()) {
     mkdirSync(path, { recursive: true })
+    execFileSync('git', ['init', '-b', 'main'], { cwd: path })
     writeFileSync(join(path, 'code.ts'), `export function target() { return ${index} }\nexport function ${index ? 'secondCaller' : 'firstCaller'}() { return target() }\n`)
+    execFileSync('git', ['add', '.'], { cwd: path })
+    execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture'], { cwd: path })
+    await git.addRepo(path)
   }
   const resolveWorkspace = async (path: string) => { if (!paths.includes(path)) throw new Error('Unknown checkout'); return { path, projectPath: path } }
-  const definition = createCodeGraphDefinition(binary, join(root, 'cache'))
+  const definition = createCodeGraphDefinition(binary, join(root, 'cache'), path => git.handoffSource(path))
   const tools = new ProjectTools(resolveWorkspace, [definition], 30000)
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex')
   const report: Record<string, unknown> = { binary, binarySha256: hash(binary), runnerSha256: hash(import.meta.filename), sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), operations: [] }
@@ -34,11 +41,19 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     report.unbuiltIndexRejected = true
     await Promise.all(paths.map(async path => {
       const result = await call(path, 'index')
+      expect(result.freshness.state).toBe('current')
       expect(result.project).toBe((await resolveProjectToolScope(path, resolveWorkspace)).indexKey)
     }))
     const names = (result: any) => result.callers.groups.flatMap((group: any) => group.rows.map((row: any[]) => row[0]))
     expect(names(await call(paths[0]!, 'callers', { function_name: 'target' }))).toEqual(['firstCaller'])
     expect(names(await call(paths[1]!, 'callers', { function_name: 'target' }))).toEqual(['secondCaller'])
+    writeFileSync(join(paths[0]!, 'code.ts'), 'export function target() { return 42 }\nexport function renamedCaller() { return target() }\n')
+    expect((await call(paths[0]!, 'callers', { function_name: 'target' })).freshness.state).toBe('stale')
+    expect((await call(paths[1]!, 'callers', { function_name: 'target' })).freshness.state).toBe('current')
+    expect((await call(paths[0]!, 'index')).freshness.state).toBe('current')
+    const rebuilt = await call(paths[0]!, 'callers', { function_name: 'target' })
+    expect(rebuilt.freshness.state).toBe('current')
+    expect(names(rebuilt)).toEqual(['renamedCaller'])
     await expect(tools.call(paths[0]!, 'code-graph', 'callers', { function_name: 'target', project: (await resolveProjectToolScope(paths[1]!, resolveWorkspace)).indexKey })).rejects.toThrow('not permitted')
     await expect(tools.call(paths[0]!, 'code-graph', 'index', { repo_path: paths[1] })).rejects.toThrow('not permitted')
     await expect(tools.call(root, 'code-graph', 'index', {})).rejects.toThrow('Unknown checkout')

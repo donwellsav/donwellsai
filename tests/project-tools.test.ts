@@ -177,3 +177,20 @@ it('does not restart a pending read after the user stops its service', async () 
   await f.tools.start(f.project, 'fixture')
   expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(2)
 })
+
+it('honors a stop while an operation verifies source freshness', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  f.definition.operations.search!.run = async (_scope, request) => {
+    entered.resolve()
+    await release.promise
+    return request()
+  }
+  const result = f.tools.call(f.project, 'fixture', 'search', { query: 'hello' })
+  const outcome = expect(result).rejects.toThrow('Tool stopped')
+  await entered.promise
+  await f.tools.stop(f.project, 'fixture')
+  release.resolve()
+  await outcome
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+})

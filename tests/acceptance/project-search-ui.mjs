@@ -42,7 +42,15 @@ try {
     assert(!response.isError, JSON.stringify(response))
     const result = response.structuredContent ?? JSON.parse(response.content[0].text)
     assert.deepEqual(result.callers.groups.flatMap(group => group.rows.map(row => row[0])), ['graphCaller'])
-    report.packagedGraph = { indexed: indexed.structuredContent ?? JSON.parse(indexed.content[0].text), callers: result }
+    assert.equal(result.freshness.state, 'current')
+    writeFileSync(join(first, 'graph.ts'), 'export function graphTarget() { return 2 }\nexport function graphRenamedCaller() { return graphTarget() }\n')
+    const stale = await invoke('tool.call', { ...scoped, operation: 'callers', arguments: { function_name: 'graphTarget' } })
+    assert.equal(stale.structuredContent.freshness.state, 'stale')
+    const rebuilt = await invoke('tool.call', { ...scoped, operation: 'index', arguments: {} })
+    assert.equal(rebuilt.structuredContent.freshness.state, 'current')
+    const renamed = await invoke('tool.call', { ...scoped, operation: 'callers', arguments: { function_name: 'graphTarget' } })
+    assert.deepEqual(renamed.structuredContent.callers.groups.flatMap(group => group.rows.map(row => row[0])), ['graphRenamedCaller'])
+    report.packagedGraph = { stale: stale.structuredContent, rebuilt: rebuilt.structuredContent, renamed: renamed.structuredContent, indexed: indexed.structuredContent ?? JSON.parse(indexed.content[0].text), callers: result }
     await invoke('tool.stop', scoped)
   }
   await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()

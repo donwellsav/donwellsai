@@ -509,7 +509,7 @@ app.whenReady().then(() => {
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   const codeGraphBinary = process.env['DONWELLS_CODE_GRAPH_BINARY']
   projectTools = new ProjectTools(resolveToolWorkspace, codeGraphBinary
-    ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'))]
+    ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))]
     : [])
   const handoffs = new ProjectHandoffService(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), git, agentRuntime)
   ipcMain.handle('projectHandoffExport', (_e, ...args: Parameters<IpcApi['projectHandoffExport']>) => handoffs.projectHandoffExport(...args))
