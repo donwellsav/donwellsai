@@ -20,9 +20,20 @@ const report = { binary, binarySha256: sha(binary), runnerSha256: sha(import.met
 const invoke = async (tool, params) => {
   const args = join(root, 'args.json'); writeFileSync(args, JSON.stringify(params))
   const start = performance.now()
-  const { stdout, stderr } = await promisify(execFile)(binary, ['cli', '--json', tool, '--args-file', args], { env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 })
+  const request = promisify(execFile)(binary, ['cli', '--json', tool, '--args-file', args], { env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 })
+  const samples = []
+  const sample = () => {
+    const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8' }).trim().split('\n').map(row => row.trim().split(/\s+/).map(Number))
+    const owned = new Set([request.child.pid])
+    let previous
+    do { previous = owned.size; for (const [pid, parent] of rows) if (owned.has(parent)) owned.add(pid) } while (owned.size !== previous)
+    samples.push({ elapsedMs: performance.now() - start, rssKiB: rows.filter(([pid]) => owned.has(pid)).reduce((sum, row) => sum + row[2], 0) })
+  }
+  const timer = setInterval(sample, 50)
+  let stdout, stderr
+  try { sample(); ({ stdout, stderr } = await request) } finally { clearInterval(timer) }
   const result = JSON.parse(stdout)
-  report.operations.push({ tool, params, elapsedMs: performance.now() - start, result, stderr })
+  report.operations.push({ tool, params, elapsedMs: performance.now() - start, result, stderr, resources: { scope: 'CLI process and live descendants; excludes independently reparented services', sampleIntervalMs: 50, samples, peakRssKiB: Math.max(...samples.map(sample => sample.rssKiB)) } })
   assert(!result.isError, JSON.stringify(result))
   if (result.structuredContent) return result.structuredContent
   const text = result.content.filter(item => item.type === 'text').map(item => item.text).join('\n')
@@ -55,6 +66,10 @@ try {
   const removed = await invoke('query_graph', { project: b.project, query: "MATCH (f:Function) WHERE f.name = 'formatLabel' RETURN f.name" })
   assert.match(removed, /total: 0/)
   report.divergedRenamePassed = true
+  rmSync(join(second, 'format.ts'))
+  await invoke('index_repository', { repo_path: second })
+  assert.match(await invoke('query_graph', { project: b.project, query: "MATCH (f:Function) WHERE f.name = 'formatTitle' RETURN f.name" }), /total: 0/)
+  report.deletedFileRemoved = true
   mkdirSync(source)
   const archive = execFileSync('git', ['archive', '--format=tar', report.sourceCommit, 'src', 'package.json', 'tsconfig.web.json'], { maxBuffer: 32 * 1024 * 1024 })
   execFileSync('tar', ['-xf', '-', '-C', source], { input: archive })
@@ -62,6 +77,8 @@ try {
   const indexed = await invoke('index_repository', { repo_path: source }); assert.equal(indexed.status, 'indexed')
   const real = await trace(indexed.project, 'fuzzyPathMatch')
   assert(callers(real).includes('rankWorkspaceFiles'))
+  const warm = await trace(indexed.project, 'fuzzyPathMatch')
+  assert.deepEqual(callers(warm), callers(real))
   report.realSourceCallerPassed = true
 } catch (error) { report.error = String(error); process.exitCode = 1 }
 finally {

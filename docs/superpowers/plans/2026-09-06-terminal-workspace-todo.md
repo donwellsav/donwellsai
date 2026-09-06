@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: Task 02. Task 01 completed against the current terminal-foundation checkout, with six-journey baseline gaps, measured samples, build checks and explicit dependency admission failures retained. All later task boxes remain uncredited pending their own verification. These task cards preserve the original plan requirements.
+Current position: Tasks 01 and 03 are complete. Task 02 remains open for native IME and VoiceOver; independent Task 04 is next (depends on Task 01). Task 03 chose SQLite/FTS5, codebase-memory-mcp, Playwright MCP and Cua as integration candidates, rejected QMD semantic quality and retained native redistribution gates. Actual native/browser interruption, target isolation, recovery and resource receipts are linked in component-decisions.md. Later tasks require their own current verification.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -51,12 +51,12 @@ Standing user requirements: terminals are the centerpiece; native OMP, Hermes, K
 
 **Interfaces:** Consumes the current ProjectMemoryApi and spec quality targets. Produces exact admitted tool versions and compatibility findings.
 
-- [ ] **Step 1:** Author 50 real project questions and known source references: exact decisions, paraphrases, conflicting/obsolete facts, worktree-specific code and unrelated-project traps. Keep synthetic fixtures separate from user memory.
-- [ ] **Step 2:** Compare Engram to current API semantics: revision conflicts, full history, archive, ID preservation, isolation, backup/import and offline behavior. If critical semantics need a second authoritative ledger, select SQLite/FTS5 behind the existing API instead.
-- [ ] **Step 3:** Exercise QMD local retrieval and codebase-memory-mcp on a temporary copy of this repository. Record first-index time, incremental edits/deletes, warm/cold retrieval, model downloads and resident memory.
-- [ ] **Step 4:** Trial Playwright MCP versus agent-browser for project-app testing and Cua Driver versus Peekaboo on a disposable native-app fixture. Score correct-target actions, interruption, background behavior and permission diagnosis. Pin one default in each category; keep others optional.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-mcp.test.ts`. Candidate evidence must include actual requests/results, not README benchmark numbers.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Author 50 real project questions and known source references: exact decisions, paraphrases, conflicting/obsolete facts, worktree-specific code and unrelated-project traps. Keep synthetic fixtures separate from user memory.
+- [x] **Step 2:** Compare Engram to current API semantics: revision conflicts, full history, archive, ID preservation, isolation, backup/import and offline behavior. If critical semantics need a second authoritative ledger, select SQLite/FTS5 behind the existing API instead.
+- [x] **Step 3:** Exercise QMD local retrieval and codebase-memory-mcp on a temporary copy of this repository. Record first-index time, incremental edits/deletes, warm/cold retrieval, model downloads and resident memory.
+- [x] **Step 4:** Trial Playwright MCP versus agent-browser for project-app testing and Cua Driver versus Peekaboo on a disposable native-app fixture. Score correct-target actions, interruption, background behavior and permission diagnosis. Pin one default in each category; keep others optional.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-mcp.test.ts`. Candidate evidence must include actual requests/results, not README benchmark numbers.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Uninstall trial tools only when installed into the trial directory; do not modify pre-existing user installations.
 
