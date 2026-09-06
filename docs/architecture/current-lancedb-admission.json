@@ -1,0 +1,225 @@
+{
+  "version": "0.38.0",
+  "sourceCommit": "8c68e0c619f2b1febe92e51a29d72c968d24a5c9",
+  "sourceLicense": "Apache-2.0",
+  "sourceLicenseSha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
+  "admission": "isolated unchanged local comparison only; no production redistribution",
+  "runtime": "Node >=22; Darwin arm64 native binding",
+  "models": "reuse pinned Qwen embedding via existing QMD; no new model",
+  "install": "npm --prefix research/tool-trials/lancedb-0.38.0 --omit=optional --ignore-scripts; explicit Darwin arm64 package",
+  "rollback": "remove only the isolated trial installation and derived fixture indexes",
+  "hashes": {
+    "lancedb.tgz": "a08b0dd9e876f17fc1c11faa433c77c59158a304332ac7d81a269ff9e5b63a07",
+    "lancedb-darwin-arm64.tgz": "bb0f5a0c3fbdc4d37aa170e465b01653ad31df7a3a92d9add2bbb8458871a2ee"
+  },
+  "bundledLicenseFamilies": [
+    "Apache License 2.0",
+    "BSD 2-Clause &quot;Simplified&quot; License",
+    "BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License",
+    "BSD Zero Clause License",
+    "Boost Software License 1.0",
+    "Community Data License Agreement Permissive 2.0",
+    "Creative Commons Zero v1.0 Universal",
+    "ISC License",
+    "MIT License",
+    "Mozilla Public License 2.0",
+    "OpenSSL License",
+    "Unicode License v3",
+    "zlib License"
+  ],
+  "notices": {
+    "fc27970eaf88f665bc38fc15570a89174c56e9f8968f995c7d72003f6338c64a.txt": "fc27970eaf88f665bc38fc15570a89174c56e9f8968f995c7d72003f6338c64a",
+    "c216d641655aff7d291e95264cfb0a52ddaaed0e1230379011ea03ca7af5b90c.txt": "c216d641655aff7d291e95264cfb0a52ddaaed0e1230379011ea03ca7af5b90c",
+    "5df02c97d127d59ec10679559b0b1eb85b01280db34271d22591e811a48242bd.txt": "5df02c97d127d59ec10679559b0b1eb85b01280db34271d22591e811a48242bd"
+  },
+  "notExclusivelyMITApache": true,
+  "lockSha256": "e0e90a9aa3b16936af139f0241b9a4467ea2669cbf41c7b9c3c5f34edfcd7e17",
+  "installedPackages": [
+    {
+      "name": "node_modules/@lancedb/lancedb",
+      "version": "0.38.0",
+      "license": "Apache-2.0",
+      "integrity": "sha512-10+Cy0P8GyGg7d6l6AmuruEfFt6sxdCZNFCmhcJyUofvopxCb1yIiFNXsfzjO8Iyh2hijTEuyKTzIi4LGlH6Kw=="
+    },
+    {
+      "name": "node_modules/@lancedb/lancedb-darwin-arm64",
+      "version": "0.38.0",
+      "license": "Apache-2.0",
+      "integrity": "sha512-AOSqmezmLGjv7SjZfDdzYznebdihApjPklhIJJ8cFfMsqYqc1pJtRAM8zWKotbiwLOg31ttIcGIoWbv/0dUJSQ=="
+    },
+    {
+      "name": "node_modules/@opentelemetry/api",
+      "version": "1.9.1",
+      "license": "Apache-2.0",
+      "integrity": "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="
+    },
+    {
+      "name": "node_modules/@swc/helpers",
+      "version": "0.5.23",
+      "license": "Apache-2.0",
+      "integrity": "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="
+    },
+    {
+      "name": "node_modules/@types/command-line-args",
+      "version": "5.2.3",
+      "license": "MIT",
+      "integrity": "sha512-uv0aG6R0Y8WHZLTamZwtfsDLVRnOa+n+n5rEvFWL5Na5gZ8V2Teab/duDPFzIIIhs9qizDpcavCusCLJZu62Kw=="
+    },
+    {
+      "name": "node_modules/@types/command-line-usage",
+      "version": "5.0.4",
+      "license": "MIT",
+      "integrity": "sha512-BwR5KP3Es/CSht0xqBcUXS3qCAUVXwpRKsV2+arxeb65atasuXG9LykC9Ab10Cw3s2raH92ZqOeILaQbsB2ACg=="
+    },
+    {
+      "name": "node_modules/ansi-styles",
+      "version": "4.3.0",
+      "license": "MIT",
+      "integrity": "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="
+    },
+    {
+      "name": "node_modules/apache-arrow",
+      "version": "18.1.0",
+      "license": "Apache-2.0",
+      "integrity": "sha512-v/ShMp57iBnBp4lDgV8Jx3d3Q5/Hac25FWmQ98eMahUiHPXcvwIMKJD0hBIgclm/FCG+LwPkAKtkRO1O/W0YGg=="
+    },
+    {
+      "name": "node_modules/apache-arrow/node_modules/@types/node",
+      "version": "20.19.43",
+      "license": "MIT",
+      "integrity": "sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA=="
+    },
+    {
+      "name": "node_modules/apache-arrow/node_modules/undici-types",
+      "version": "6.21.0",
+      "license": "MIT",
+      "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="
+    },
+    {
+      "name": "node_modules/array-back",
+      "version": "3.1.0",
+      "license": "MIT",
+      "integrity": "sha512-TkuxA4UCOvxuDK6NZYXCalszEzj+TLszyASooky+i742l9TqsOdYCMJJupxRic61hwquNtppB3hgcuq9SVSH1Q=="
+    },
+    {
+      "name": "node_modules/chalk",
+      "version": "4.1.2",
+      "license": "MIT",
+      "integrity": "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="
+    },
+    {
+      "name": "node_modules/chalk-template",
+      "version": "0.4.0",
+      "license": "MIT",
+      "integrity": "sha512-/ghrgmhfY8RaSdeo43hNXxpoHAtxdbskUHjPpfqUWGttFgycUhYPGx3YZBCnUCvOa7Doivn1IZec3DEGFoMgLg=="
+    },
+    {
+      "name": "node_modules/color-convert",
+      "version": "2.0.1",
+      "license": "MIT",
+      "integrity": "sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ=="
+    },
+    {
+      "name": "node_modules/color-name",
+      "version": "1.1.4",
+      "license": "MIT",
+      "integrity": "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="
+    },
+    {
+      "name": "node_modules/command-line-args",
+      "version": "5.2.1",
+      "license": "MIT",
+      "integrity": "sha512-H4UfQhZyakIjC74I9d34fGYDwk3XpSr17QhEd0Q3I9Xq1CETHo4Hcuo87WyWHpAF1aSLjLRf5lD9ZGX2qStUvg=="
+    },
+    {
+      "name": "node_modules/command-line-usage",
+      "version": "7.0.4",
+      "license": "MIT",
+      "integrity": "sha512-85UdvzTNx/+s5CkSgBm/0hzP80RFHAa7PsfeADE5ezZF3uHz3/Tqj9gIKGT9PTtpycc3Ua64T0oVulGfKxzfqg=="
+    },
+    {
+      "name": "node_modules/command-line-usage/node_modules/array-back",
+      "version": "6.2.3",
+      "license": "MIT",
+      "integrity": "sha512-SGDvmg6QTYiTxCBkYVmThcoa67uLl35pyzRHdpCGBOcqFy6BtwnphoFPk7LhJshD+Yk1Kt35WGWeZPTgwR4Fhw=="
+    },
+    {
+      "name": "node_modules/command-line-usage/node_modules/typical",
+      "version": "7.3.0",
+      "license": "MIT",
+      "integrity": "sha512-ya4mg/30vm+DOWfBg4YK3j2WD6TWtRkCbasOJr40CseYENzCUby/7rIvXA99JGsQHeNxLbnXdyLLxKSv3tauFw=="
+    },
+    {
+      "name": "node_modules/find-replace",
+      "version": "3.0.0",
+      "license": "MIT",
+      "integrity": "sha512-6Tb2myMioCAgv5kfvP5/PkZZ/ntTpVK39fHY7WkWBgvbeE+VHd/tZuZ4mrC+bxh4cfOZeYKVPaJIZtZXV7GNCQ=="
+    },
+    {
+      "name": "node_modules/flatbuffers",
+      "version": "24.12.23",
+      "license": "Apache-2.0",
+      "integrity": "sha512-dLVCAISd5mhls514keQzmEG6QHmUUsNuWsb4tFafIUwvvgDjXhtfAYSKOzt5SWOy+qByV5pbsDZ+Vb7HUOBEdA=="
+    },
+    {
+      "name": "node_modules/has-flag",
+      "version": "4.0.0",
+      "license": "MIT",
+      "integrity": "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="
+    },
+    {
+      "name": "node_modules/json-bignum",
+      "version": "0.0.3",
+      "license": null,
+      "integrity": "sha512-2WHyXj3OfHSgNyuzDbSxI1w2jgw5gkWSWhS7Qg4bWXx1nLk3jnbwfUeS0PSba3IzpTUWdHxBieELUzXRjQB2zg=="
+    },
+    {
+      "name": "node_modules/lodash.camelcase",
+      "version": "4.3.0",
+      "license": "MIT",
+      "integrity": "sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA=="
+    },
+    {
+      "name": "node_modules/reflect-metadata",
+      "version": "0.2.2",
+      "license": "Apache-2.0",
+      "integrity": "sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q=="
+    },
+    {
+      "name": "node_modules/supports-color",
+      "version": "7.2.0",
+      "license": "MIT",
+      "integrity": "sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw=="
+    },
+    {
+      "name": "node_modules/table-layout",
+      "version": "4.1.1",
+      "license": "MIT",
+      "integrity": "sha512-iK5/YhZxq5GO5z8wb0bY1317uDF3Zjpha0QFFLA8/trAoiLbQD0HUbMesEaxyzUgDxi2QlcbM8IvqOlEjgoXBA=="
+    },
+    {
+      "name": "node_modules/table-layout/node_modules/array-back",
+      "version": "6.2.3",
+      "license": "MIT",
+      "integrity": "sha512-SGDvmg6QTYiTxCBkYVmThcoa67uLl35pyzRHdpCGBOcqFy6BtwnphoFPk7LhJshD+Yk1Kt35WGWeZPTgwR4Fhw=="
+    },
+    {
+      "name": "node_modules/tslib",
+      "version": "2.8.1",
+      "license": "0BSD",
+      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
+    },
+    {
+      "name": "node_modules/typical",
+      "version": "4.0.0",
+      "license": "MIT",
+      "integrity": "sha512-VAH4IvQ7BDFYglMd7BPRDfLgxZZX4O4TFcRDA6EN5X7erNJJq+McIEp8np9aVtxrCJ6qx4GTYVfOWNjcqwZgRw=="
+    },
+    {
+      "name": "node_modules/wordwrapjs",
+      "version": "5.1.1",
+      "license": "MIT",
+      "integrity": "sha512-0yweIbkINJodk27gX9LBGMzyQdBDan3s/dEAiwBOj+Mf0PPyWL6/rikalkv8EeD0E8jm4o5RXEOrFTP3NXbhJg=="
+    }
+  ]
+}

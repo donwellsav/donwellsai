@@ -2,16 +2,17 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, createReadStream } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
-import { tmpdir } from 'node:os'
+import { tmpdir, cpus, totalmem, release } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 
-const { values } = parseArgs({ options: { package: { type: 'string' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, 'expansion-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
+const { values } = parseArgs({ options: { package: { type: 'string' }, 'lance-package': { type: 'string' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, 'expansion-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
 assert(values.package && values.evidence, '--package and --evidence are required')
+assert(!values['lance-package'] || (values['embedding-model'] && !values.hybrid && !values['expansion-model']), 'Lance comparison uses native RRF and pinned local models')
 assert(!values.hybrid || values['embedding-model'], '--hybrid requires --embedding-model')
-assert(!values['reranking-model'] || values.hybrid, '--reranking-model requires --hybrid')
+assert(!values['reranking-model'] || values.hybrid || values['lance-package'], '--reranking-model requires --hybrid or --lance-package')
 assert(!values['expansion-model'] || (values.hybrid && values['reranking-model']), '--expansion-model requires --hybrid and --reranking-model')
 assert(!values['source-commit'] || /^[a-f0-9]{40}$/.test(values['source-commit']), 'Use a full source commit hash')
 const repository = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
@@ -31,8 +32,11 @@ const root = mkdtempSync(join(tmpdir(), 'donwells-qmd-corpus-'))
 const docs = join(root, 'checkout'); mkdirSync(docs)
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const manifest = []
-let store
-const report = { mode: values['expansion-model'] ? 'expanded-hybrid-with-rerank' : values.hybrid ? values['reranking-model'] ? 'hybrid-with-rerank' : 'hybrid-without-rerank' : values['embedding-model'] ? 'vector' : 'lexical', metric: 'macro gold source-file recall in first five results', corpusSha256: hash(readFileSync(corpusPath)), runnerSha256: hash(readFileSync(new URL(import.meta.url))), corpusVersion: corpus.schemaVersion, repetitions, rows: [] }
+let store, lance, table, llm, rerank, formatQuery
+let retrievalTrace
+const sql = value => "'" + value.replaceAll("'", "''") + "'"
+const referencePrefix = values['lance-package'] ? 'lance://project/' : 'qmd://project/'
+const report = { environment: { platform: process.platform, arch: process.arch, node: process.version, osRelease: release(), cpu: cpus()[0]?.model, memoryBytes: totalmem(), externalProcessesControlled: false, thermalAndPowerState: 'uncontrolled', cacheCondition: 'Fresh derived index, existing downloaded model files; filesystem cache not evicted. Repetitions share one process and loaded models.' }, mode: values['expansion-model'] ? 'expanded-hybrid-with-rerank' : values.hybrid ? values['reranking-model'] ? 'hybrid-with-rerank' : 'hybrid-without-rerank' : values['embedding-model'] ? 'vector' : 'lexical', metric: 'macro gold source-file recall in first five results', corpusSha256: hash(readFileSync(corpusPath)), runnerSha256: hash(readFileSync(new URL(import.meta.url))), corpusVersion: corpus.schemaVersion, repetitions, rows: [] }
 try {
   const sourceCommit = values['source-commit']
   const tracked = execFileSync('git', sourceCommit ? ['ls-tree', '-rz', '--name-only', sourceCommit, '--', 'src', 'docs'] : ['ls-files', '-z', 'src', 'docs'], { cwd: repository }).toString().split('\0').filter(path => /\.(md|ts|tsx|css|json)$/.test(path))
@@ -48,7 +52,7 @@ try {
   report.packageVersion = JSON.parse(readFileSync(join(packagePath, 'package.json'), 'utf8')).version
   assert.equal(report.packageVersion, '2.8.3')
   const { createStore } = await import(pathToFileURL(join(packagePath, 'dist/index.js')).href)
-  if (acceptance) {
+  if (acceptance && !values['lance-package']) {
     // Separate native processes avoid QMD's module-global collection configuration.
     const seedScript = `import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; import {pathToFileURL} from 'node:url';
       const {createStore}=await import(pathToFileURL(process.argv[1]).href);
@@ -80,29 +84,93 @@ try {
     for await (const bytes of createReadStream(path)) digest.update(bytes)
     report[key] = digest.digest('hex')
   }
-  store = await createStore({ dbPath: join(root, 'index.sqlite'), config: { ...(model ? { models: { embed: model, ...(reranker ? { rerank: reranker } : {}), ...(expansion ? { generate: expansion } : {}) } } : {}), collections: { project: { path: docs, pattern: '**/*.{md,ts,tsx,css,json}' } } } })
   let start = performance.now()
-  report.index = await store.update()
-  report.indexMs = performance.now() - start
-  if (model) {
+  if (values['lance-package']) {
+    const lancePath = resolve(values['lance-package'])
+    report.lanceVersion = JSON.parse(readFileSync(join(lancePath, 'package.json'), 'utf8')).version
+    assert.equal(report.lanceVersion, '0.38.0')
+    const { connect, Index, rerankers } = await import(pathToFileURL(join(lancePath, 'dist/index.js')).href)
+    const { chunkDocumentAsync } = await import(pathToFileURL(join(packagePath, 'dist/store.js')).href)
+    const { LlamaCpp, formatDocForEmbedding, formatQueryForEmbedding } = await import(pathToFileURL(join(packagePath, 'dist/llm.js')).href)
+    formatQuery = formatQueryForEmbedding
+    llm = new LlamaCpp({ embedModel: model, ...(reranker ? { rerankModel: reranker } : {}), modelCacheDir: join(root, 'models') })
+    const { getASTBreakPoints } = await import(pathToFileURL(join(packagePath, 'dist/ast.js')).href)
+    assert((await getASTBreakPoints('export function probe() { return 1; }', 'probe.ts')).some(point => point.type.startsWith('ast:')), 'Native chunker grammar must be available')
+    const chunks = []
+    for (const file of manifest) {
+      const body = readFileSync(join(docs, file.path), 'utf8')
+      for (const chunk of await chunkDocumentAsync(body, undefined, undefined, undefined, file.path, 'auto')) {
+        chunks.push({ scope: 'project', path: file.path, text: file.path + '\n' + chunk.text, pos: chunk.pos })
+      }
+    }
+    for (const trap of corpus.traps ?? []) chunks.push({ scope: trap.scope, path: trap.path, text: trap.marker, pos: 0 })
+    report.mode = reranker ? 'lancedb-native-hybrid-local-rerank' : 'lancedb-native-hybrid-rrf'; report.chunking = 'Existing QMD AST-aware chunker; default sizes; path-prefixed text'
+    report.embeddingMs = 0
+    for (let offset = 0; offset < chunks.length; offset += 16) {
+      start = performance.now()
+      const batch = chunks.slice(offset, offset + 16)
+      const vectors = await llm.embedBatch(batch.map(chunk => formatDocForEmbedding(chunk.text, chunk.path, model)))
+      assert(vectors.every(Boolean), 'Missing embedding')
+      batch.forEach((chunk, index) => { chunk.vector = vectors[index].embedding })
+      report.embeddingMs += performance.now() - start
+      if (offset % 160 === 0) console.error(JSON.stringify({ embedded: offset + batch.length, total: chunks.length }))
+    }
+    start = performance.now()
+    lance = await connect(join(root, 'lance'))
+    table = await lance.createTable('documents', chunks)
+    await table.createIndex('text', { config: Index.fts() })
+    rerank = await rerankers.RRFReranker.create()
+    report.index = { files: manifest.length, chunks: chunks.length }; report.indexMs = performance.now() - start
+    for (const trap of corpus.traps ?? []) {
+      const hits = await table.query().where('scope = ' + sql(trap.scope)).fullTextSearch(trap.marker).toArray()
+      assert(hits.some(hit => hit.text === trap.marker), 'Foreign fixture must actually be indexed')
+    }
+    report.foreignFixturesIndexedAndRetrievable = true
+  } else {
+    store = await createStore({ dbPath: join(root, 'index.sqlite'), config: { ...(model ? { models: { embed: model, ...(reranker ? { rerank: reranker } : {}), ...(expansion ? { generate: expansion } : {}) } } : {}), collections: { project: { path: docs, pattern: '**/*.{md,ts,tsx,css,json}' } } } })
+    report.index = await store.update()
+    report.indexMs = performance.now() - start
+    if (model) {
     start = performance.now()
     report.embedding = await store.embed({ collection: 'project' })
     report.embeddingMs = performance.now() - start
+    }
   }
-  const search = query => values.hybrid
+  const search = async query => {
+    if (table) {
+      const vector = await llm.embed(formatQuery(query, model)); assert(vector)
+      let hits = await table.vectorSearch(vector.embedding).where("scope = 'project'").fullTextSearch(query).rerank(rerank).limit(50).toArray()
+      retrievalTrace = { candidates: hits.map(hit => ({ path: hit.path, pos: hit.pos })) }
+      if (reranker) {
+        const ranked = await llm.rerank(query, hits.map((hit, index) => ({ file: String(index), text: hit.text })))
+        assert.notEqual(ranked.model, 'fallback', 'Reranker must actually execute')
+        retrievalTrace.ranked = ranked.results.map(result => ({ path: hits[result.index].path, pos: hits[result.index].pos, score: result.score }))
+        hits = ranked.results.map(result => hits[result.index])
+      }
+      const seen = new Set()
+      return hits.filter(hit => !seen.has(hit.path) && seen.add(hit.path)).slice(0, 5).map(hit => ({ filepath: referencePrefix + hit.path, path: hit.path }))
+    }
+    return values.hybrid
     ? store.search({ ...(expansion ? { query } : { queries: [{ type: 'lex', query }, { type: 'vec', query }] }), collections: ['project'], rerank: Boolean(reranker), limit: 5 })
     : model ? store.searchVector(query, { collection: 'project', limit: 5 }) : store.searchLex(query, { collection: 'project', limit: 5 })
+  }
+  const get = async reference => {
+    if (!table) return store.get(reference, { includeBody: true })
+    assert(reference.startsWith(referencePrefix))
+    const hits = await table.query().where("scope = 'project' AND path = " + sql(reference.slice(referencePrefix.length))).toArray()
+    return hits.length ? hits.map(({ vector, ...hit }) => hit) : { error: 'Source unavailable in this project' }
+  }
   const reference = hit => values.hybrid ? hit.file : hit.filepath
   for (let repetition = 1; repetition <= repetitions; repetition++) for (const row of corpus.questions) {
     start = performance.now()
     const hits = await search(row.question)
     const elapsedMs = performance.now() - start
-    const sources = hits.map(hit => reference(hit).replace(/^qmd:\/\/project\//, ''))
+    const sources = hits.map(hit => reference(hit).slice(referencePrefix.length))
     const rank = sources.findIndex(path => row.expectedSources.includes(path)) + 1
     assert(row.expectedSources.length > 0 && row.expectedSources.length <= 5)
     const recall = new Set(sources.filter(path => row.expectedSources.includes(path))).size / row.expectedSources.length
-    for (const hit of hits) assert(!('error' in await store.get(reference(hit))), 'Unresolvable result citation')
-    report.rows.push({ id: row.id, kind: row.kind, repetition, rank: rank || null, recall, elapsedMs, sources })
+    for (const hit of hits) assert(!('error' in await get(reference(hit))), 'Unresolvable result citation')
+    report.rows.push({ id: row.id, kind: row.kind, repetition, rank: rank || null, recall, elapsedMs, sources, ...(retrievalTrace ? { retrievalTrace } : {}) })
     if (report.rows.length % 10 === 0) console.error(JSON.stringify({ completed: report.rows.length, total: corpus.questions.length * repetitions }))
   }
   report.recallAt5 = report.rows.reduce((sum, row) => sum + row.recall, 0) / report.rows.length
@@ -113,8 +181,8 @@ try {
     report.traps = []
     for (const trap of corpus.traps) {
       const hits = await search(trap.question)
-      const direct = await store.get('qmd://project/' + trap.path, { includeBody: true })
-      const batch = await store.multiGet('qmd://project/' + trap.path, { includeBody: true })
+      const direct = await get(referencePrefix + trap.path)
+      const batch = table ? await Promise.all([get(referencePrefix + trap.path)]) : await store.multiGet(referencePrefix + trap.path, { includeBody: true })
       const leaked = JSON.stringify([hits, direct, batch]).includes(trap.marker)
       report.traps.push({ id: trap.id, scope: trap.scope, leaked, sources: hits.map(reference) })
     }
@@ -131,6 +199,8 @@ try {
   process.exitCode = 1
 } finally {
   await store?.close()
+  await llm?.dispose()
+  table?.close(); lance?.close()
   rmSync(root, { recursive: true, force: true })
 }
 writeFileSync(resolve(values.evidence), JSON.stringify(report, null, 2) + '\n', { flag: 'wx', mode: 0o600 })

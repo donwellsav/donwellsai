@@ -1,0 +1,14 @@
+{
+  "purpose": "Task 11 isolated stronger-embedding comparison after measured candidate-retrieval failures; not product redistribution",
+  "repository": "Qwen/Qwen3-Embedding-4B-GGUF",
+  "sourceCommit": "f4602530db1d980e16da9d7d3a70294cf5c190be",
+  "file": "Qwen3-Embedding-4B-Q8_0.gguf",
+  "bytes": 4279660224,
+  "sha256": "b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d",
+  "licenseDeclaredByPinnedOfficialModelMetadata": "apache-2.0",
+  "modelCardSha256": "f25406a76baf204223bd3b89dd0b7f09f97f1b21ad5bb1fa400617874ca31003",
+  "path": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qwen3-embedding-4b/Qwen3-Embedding-4B-Q8_0.gguf",
+  "runtime": "Existing QMD 2.8.3 node-llama-cpp, existing native LanceDB 0.38.0, local execution",
+  "removal": "Remove this isolated derived model directory; project source and authoritative memory are untouched",
+  "downloadVerified": true
+}
