@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { WorktreeSidebar } from './components/WorktreeSidebar'
+import { WorkspaceShell } from './components/WorkspaceShell'
 import { TitlebarTabs } from './components/TitlebarTabs'
 import { Workbench } from './components/Workbench'
 import { RightSidebar } from './components/RightSidebar'
@@ -12,7 +12,6 @@ import { RunsPanel } from './components/RunsPanel'
 import { BrowserHosts } from './components/BrowserHosts'
 import { DeleteWorktreeModal } from './components/DeleteWorktreeModal'
 import { TerminalCloseDialog } from './components/TerminalCloseDialog'
-import { Icon } from './components/Icon'
 import { useAppStore } from './store'
 import { useAppearance } from './appearance'
 import { dispatchAppCommand, installAppShortcuts } from './commands'
@@ -30,9 +29,6 @@ export function App() {
   const loading = useAppStore((s) => s.loading)
   const error = useAppStore((s) => s.error)
   const initializationError = useAppStore((s) => s.initializationError)
-  const scans = useAppStore((s) => s.scans)
-  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
-  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
   const settings = useAppStore((s) => s.settings)
@@ -133,17 +129,7 @@ export function App() {
 
   return (
     <div className="app-layout">
-      <header className="titlebar">
-        {/Mac/.test(navigator.userAgent) && <div className="titlebar-left-pad" />}
-        <div className="titlebar-section">
-          <button className="titlebar-logo" aria-label="Go to Projects" onClick={() => useAppStore.getState().setActiveRepo(null)}>donwells.ai</button>
-          <button className="titlebar-icon-button" aria-label={sidebarOpen ? 'Hide projects sidebar' : 'Show projects sidebar'} aria-pressed={sidebarOpen} onClick={() => setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={16} /></button>
-        </div>
-
-
-      </header>
-      <div className="app-body">
-        {sidebarOpen && <WorktreeSidebar />}
+      <WorkspaceShell>
         <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
           {activeWorktreePath && <div id="titlebar-tabs"><TitlebarTabs /></div>}
           {activeWorktreePath ? <Workbench /> : <Landing />}
@@ -151,29 +137,7 @@ export function App() {
         </div>
         {runsOpen && <RunsPanel />}
         {rightSidebarOpen && !runsOpen && <RightSidebar />}
-      </div>
-      <div className="status-bar">
-        {activeWorktreePath && <span className="sb-item" title={activeWorktreePath}>{activeWorktreePath.split('/').slice(-2).join('/')}</span>}
-        <span className="sb-spacer" />
-        {(scans[activeWorktreePath ?? '']?.ports ?? []).map((p) => (
-          <button
-            key={p.port}
-            className="sb-port"
-            title={`${p.command} listening on :${p.port} — open in browser pane`}
-            onClick={() => void useAppStore.getState().openBrowser(activeWorktreePath!, `http://localhost:${p.port}`)}
-          >
-            <Icon name="bolt" size={11} /> {p.port}
-          </button>
-        ))}
-        {(() => {
-          const u = scans[activeWorktreePath ?? '']
-          return u && (u.cpuPercent > 0 || u.memMB > 0) ? (
-            <span className="sb-item sb-usage" title={`worktree processes: ${u.cpuPercent}% cpu, ${u.memMB} MB ram`}>
-              <Icon name="activity" size={11} /> {u.cpuPercent}% · {u.memMB}M
-            </span>
-          ) : null
-        })()}
-      </div>
+      </WorkspaceShell>
 
       {error && (
         <div className="toast error" onClick={() => useAppStore.getState().setError(null)}>{error}</div>

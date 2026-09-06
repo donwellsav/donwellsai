@@ -1,29 +1,29 @@
 /* donwells.ai semantic UI tokens. Components consume roles, never mode-specific colors. */
 :root {
-  --background: #0a0a0a;
+  --background: #16161d;
   --editor-surface: #1e1e1e;
-  --foreground: #fafafa;
-  --card: #171717;
-  --popover: #171717;
+  --foreground: #e8e5e1;
+  --card: #1e1e27;
+  --popover: #23232d;
   --card-fg: #fafafa;
   --primary: #e5e5e5;
   --primary-fg: #171717;
   --secondary: #262626;
   --secondary-fg: #fafafa;
   --muted: #262626;
-  --muted-fg: #a1a1a1;
+  --muted-fg: #b5b2bd;
   --accent: #404040;
   --accent-fg: #fafafa;
   --destructive: #ff6568;
   --destructive-fg: #df2225;
   --border: rgb(255 255 255 / 0.07);
   --input: rgb(255 255 255 / 0.15);
-  --ring: #737373;
-  --ws: #2a2a2a;
+  --ring: #d6b985;
+  --ws: #1b1b23;
   --ws-fg: #fafafa;
-  --ws-accent: #353535;
+  --ws-accent: #2b2935;
   --ws-border: rgb(255 255 255 / 0.07);
-  --sidebar: #171717;
+  --sidebar: #1b1b23;
   --status-success: #86efac;
   --status-progress: #d4a300;
   --status-review: #16a34a;
@@ -34,7 +34,7 @@
   --git-modified: #e2c08d;
   --git-deleted: #c74e39;
   --git-untracked: #73c991;
-  --ai-accent: #a78bfa;
+  --ai-accent: #d6b985;
   --chart-1: #8ec5ff;
   --chart-2: #2b7fff;
   --chart-3: #155dfc;

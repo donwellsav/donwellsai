@@ -11,8 +11,8 @@ import { parseArgs } from 'node:util'
 import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
-const hash = value => createHash('sha256').update(value).digest('hex')
-function sourceIdentity() {
+export const hash = value => createHash('sha256').update(value).digest('hex')
+export function sourceIdentity() {
   const git = args => execFileSync('git', args, { cwd: root })
   const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']).toString().split('\0').filter(Boolean)
   const digest = createHash('sha256')
