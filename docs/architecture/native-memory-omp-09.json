@@ -1,0 +1,62 @@
+{
+  "startedAt": "2026-09-06T04:22:53.525Z",
+  "source": {
+    "commit": "ca28f13eb34b16a9137fdef1da4efcfa8aa4260b",
+    "dirty": true,
+    "contentHash": "a7814fa14eb3f03ef96978027a5e0f9792e4b329e6f7d0b7abfb4e4fba524fdf"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-memory-profile-09",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-X07Y0K",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "2247712c2d873234864513c192418283ab0cfe613b0114b288fbddb27333db2c"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "sessionId": "befeb94c-8814-474e-9a5a-a3654563cd30",
+      "liveness": "live",
+      "outputBytes": 81209,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "memoryCalls": [
+        {
+          "method": "memory.list",
+          "ok": true,
+          "pid": 42553
+        }
+      ],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "no-verified-response",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "sessionId": "ba1fe952-443d-4fe9-9c5f-1efa1251dddf",
+      "liveness": "live",
+      "outputBytes": 2045,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks."
+  ],
+  "idleDaemonStopped": true,
+  "durationMs": 52079.582666999995
+}

@@ -12,15 +12,17 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
-  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }
+  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false }
 } })
 assert(values.playwright, '--playwright is required')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
+assert(!values.memory || agentIds.every(id => ['omp', 'kimi'].includes(id)), 'Memory format trial currently supports OMP and Kimi only')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
 const fixture = mkdtempSync(join(tmpdir(), 'donwells-native-agents-'))
 const verificationWord = `native-${randomUUID()}`
+const memoryWord = `memory-${randomUUID()}`
 writeFileSync(join(fixture, 'README.md'), `# Native agent acceptance\n\nVerification word: ${verificationWord}\n`)
 execFileSync('git', ['init', '-b', 'main', fixture], { stdio: 'ignore' })
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)).href)
@@ -45,6 +47,27 @@ try {
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: fixture })
+  if (values.memory) {
+    await invoke('memory.create', { workspacePath: fixture, kind: 'decision', title: 'Native bridge verification', content: memoryWord, attribution: { harness: 'cli' } })
+    for (const id of agentIds) {
+      const audit = join(evidence, `${id}-memory-methods.jsonl`)
+      const bridge = join(profile, `${id}-memory-bridge.mjs`)
+      // Reuse the packaged MCP server; record method names only to prove native calls without retaining payloads.
+      writeFileSync(bridge, `import { appendFileSync } from 'node:fs';
+import { runProjectMemoryMcp } from ${JSON.stringify(pathToFileURL(join(resources, 'dist-cli/cli/project-memory-mcp.js')).href)};
+import { callRuntime } from ${JSON.stringify(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')).href)};
+await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: ${JSON.stringify(id)}, invoke: async (method, params) => {
+  const response = await callRuntime(method, params, ${JSON.stringify(profile)}, 30000);
+  appendFileSync(${JSON.stringify(audit)}, JSON.stringify({ method, ok: response.ok, pid: process.pid }) + '\\n', { mode: 0o600 });
+  if (!response.ok) throw new Error(response.error);
+  return response.result;
+}});
+`, { mode: 0o600 })
+      const directory = join(fixture, id === 'omp' ? '.omp' : '.kimi-code')
+      mkdirSync(directory)
+      writeFileSync(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { 'donwells-project-memory': { command: executable, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1' } } } }, null, 2), { mode: 0o600 })
+    }
+  }
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
@@ -82,7 +105,7 @@ try {
       }
       const text = stripVTControlCharacters(snapshot.scrollback)
       result.diagnostics = ['login', 'authenticate', 'API key', 'error', 'trust'].filter(word => text.toLowerCase().includes(word.toLowerCase()))
-      if (values.query && run?.liveness === 'live') {
+      if ((values.query || values.memory) && run?.liveness === 'live') {
         if (id === 'hermes') {
           const deadline = Date.now() + 30000
           while (true) {
@@ -100,15 +123,31 @@ try {
           await delay(2000)
           result.disposableProjectTrusted = true
         }
-        await page.keyboard.type('Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.')
+        await page.keyboard.type(values.memory
+          ? 'Use the donwells-project-memory MCP server memory_search tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.'
+          : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.')
         // Native paste-burst protection intentionally turns an immediate Enter into a newline.
         await delay(500)
         await page.keyboard.press('Enter')
-        const deadline = Date.now() + 30000
-        result.query = 'no-verified-response'
+        const deadline = Date.now() + 60000
+        const outcome = values.memory ? 'memory' : 'query'
+        result[outcome] = 'no-verified-response'
         while (Date.now() < deadline) {
           const output = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
-          if (output.includes(verificationWord)) { result.query = 'fixture-word-observed'; break }
+          if (values.memory && id === 'kimi' && !result.fixtureMemoryReadApproved && output.includes('Approve mcp__donwells-project-memory__memory_search?') && output.includes('Native bridge verification') && output.includes('1. Approve once')) {
+            // Approve only this disposable fixture's requested read, never a session-wide permission.
+            await input.focus()
+            await page.keyboard.press('Enter')
+            result.fixtureMemoryReadApproved = true
+          }
+          if (output.includes(values.memory ? memoryWord : verificationWord)) {
+            if (values.memory) {
+              const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+              assert(calls.some(call => call.method === 'memory.list' && call.ok), 'Native memory search was not observed')
+              result.memoryCalls = calls
+            }
+            result[outcome] = 'fixture-word-observed'; break
+          }
           if ((await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)?.liveness === 'exited') break
           await delay(250)
         }
@@ -120,7 +159,7 @@ try {
       writeFileSync(join(evidence, `${id}.txt`), stripVTControlCharacters(finalOutput), { mode: 0o600 })
       result.binaryUnchanged = result.executableSha256 === hash(readFileSync(provider.executablePath))
       assert(result.binaryUnchanged, `${id} executable changed during qualification`)
-      console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query }))
+      console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query, memory: result.memory }))
     } catch (error) {
       result.error = error.message
       if (!result.startup) result.startup = 'failed'
@@ -155,6 +194,13 @@ finally {
   }
   report.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
   if (!report.idleDaemonStopped) process.exitCode = 1
+  if (values.query || values.memory) {
+    report.requestedChecksPassed = agentIds.every(id => {
+      const result = report.agents[id]
+      return result && !result.error && result[values.memory ? 'memory' : 'query'] === 'fixture-word-observed'
+    })
+    if (!report.requestedChecksPassed) process.exitCode = 1
+  }
   report.durationMs = performance.now() - start
   writeFileSync(join(evidence, 'native-agents.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
   console.log(JSON.stringify(report, null, 2))
