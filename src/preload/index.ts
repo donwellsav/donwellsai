@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
+  browserView: request => ipcRenderer.invoke('browser:view', request),
+  onBrowserView: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/browser-view').BrowserViewEvent) => callback(message); ipcRenderer.on('browser:view', listener); return () => ipcRenderer.removeListener('browser:view', listener) },
   projectMemoryStorageStatus: () => ipcRenderer.invoke('projectMemoryStorageStatus'),
   projectMemoryStorageAction: action => ipcRenderer.invoke('projectMemoryStorageAction', action),
   meta: () => ipcRenderer.invoke('meta'),

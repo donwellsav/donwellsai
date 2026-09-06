@@ -65,7 +65,7 @@ export type BrowserHostCallbacks = {
   onFindResult?(result: BrowserFindResult): void
 }
 
-const SNAPSHOT_JS = `(() => ({
+export const SNAPSHOT_JS = `(() => ({
   url: location.href,
   title: document.title,
   text: (document.body?.innerText ?? '').slice(0, 20000)

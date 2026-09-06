@@ -1977,3 +1977,12 @@ dialog::backdrop { background: var(--backdrop); }
   .section-count, .badge, .wt-card .wt-meta > span:last-child { display: none; }
   .pane-title-bar { gap: 3px; padding: 0 4px; }
 }
+
+/* Native previews reserve space for controls; DOM z-index cannot cover a WebContentsView. */
+.browser-page { flex-direction: column; }
+.browser-page > .browser-find,
+.browser-page > .browser-design-status,
+.browser-page > .browser-design-error {
+  position: relative; inset: auto; transform: none; order: -1; flex: none;
+  align-self: stretch; width: auto; max-width: none; margin: 4px 8px;
+}

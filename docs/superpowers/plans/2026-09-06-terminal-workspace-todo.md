@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 14 active — browser preview hosting migration.** Tasks 01, 03–13 and 27 are strengthened. Task 02 remains skipped. Tasks 14–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 15 active — agent browser automation and diagnostics.** Tasks 01, 03–14 and 27 are strengthened. Task 02 remains skipped. Tasks 15–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -272,14 +272,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes existing browser operations and project session identity. Produces main-owned WebContentsView preview with equivalent user operations.
 
-- [ ] **Step 1:** Move guest webContents ownership to main. Preserve navigation/history and partition identity; renderer reports only validated bounds and user intent.
-- [ ] **Step 2:** Handle native view bounds, clipping, z-order, menus, dialogs, popups, focus and hidden panes. Keep app chrome and previews visually consistent.
-- [ ] **Step 3:** Port design capture and screenshot behavior through the existing authority path. Do not permit renderer-supplied arbitrary privileged browser commands.
-- [ ] **Step 4:** Test project switch, tab close, browser crash, downloads, denied permissions and native views overlapping dialogs. Reuse the browser RPC regression suite.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/browser-runtime.test.ts tests/browser-runtime-rpc.test.ts tests/browser-routing.test.ts tests/browser-history.test.ts tests/design-capture.test.ts`; run `node tests/browser-view-smoke.cjs`.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Move guest webContents ownership to main. Preserve navigation/history and partition identity; renderer reports only validated bounds and user intent.
+- [x] **Step 2:** Handle native view bounds, clipping, z-order, menus, dialogs, popups, focus and hidden panes. Keep app chrome and previews visually consistent.
+- [x] **Step 3:** Port design capture and screenshot behavior through the existing authority path. Do not permit renderer-supplied arbitrary privileged browser commands.
+- [x] **Step 4:** Test project switch, tab close, browser crash, downloads, denied permissions and native views overlapping dialogs. Reuse the browser RPC regression suite.
+- [x] **Verification:** Run `pnpm exec vitest run tests/browser-runtime.test.ts tests/browser-runtime-rpc.test.ts tests/browser-routing.test.ts tests/browser-history.test.ts tests/design-capture.test.ts`; run `node tests/browser-view-smoke.cjs`.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Preserve browser data partitions; rollback hosting code cannot delete profile data.
+
+**Strengthening evidence:** [main-owned native browser and packaged interaction proof](../../architecture/strengthening-14/README.md).
 
 ### Task 15: Agent browser automation and diagnostics
 

@@ -14,7 +14,7 @@ import {
 } from './design-capture'
 
 type UseDesignCaptureOptions = {
-  webviewRef: RefObject<HTMLWebViewElement | null>
+  webviewRef: RefObject<DesignCaptureWebview | null>
   workspacePath: string
   active: boolean
   ready: boolean

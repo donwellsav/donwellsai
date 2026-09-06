@@ -389,14 +389,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes existing browser operations and project session identity. Produces main-owned WebContentsView preview with equivalent user operations.
 
-- [ ] **Step 1:** Move guest webContents ownership to main. Preserve navigation/history and partition identity; renderer reports only validated bounds and user intent.
-- [ ] **Step 2:** Handle native view bounds, clipping, z-order, menus, dialogs, popups, focus and hidden panes. Keep app chrome and previews visually consistent.
-- [ ] **Step 3:** Port design capture and screenshot behavior through the existing authority path. Do not permit renderer-supplied arbitrary privileged browser commands.
-- [ ] **Step 4:** Test project switch, tab close, browser crash, downloads, denied permissions and native views overlapping dialogs. Reuse the browser RPC regression suite.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/browser-runtime.test.ts tests/browser-runtime-rpc.test.ts tests/browser-routing.test.ts tests/browser-history.test.ts tests/design-capture.test.ts`; run `node tests/browser-view-smoke.cjs`.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Move guest webContents ownership to main. Preserve navigation/history and partition identity; renderer reports only validated bounds and user intent.
+- [x] **Step 2:** Handle native view bounds, clipping, z-order, menus, dialogs, popups, focus and hidden panes. Keep app chrome and previews visually consistent.
+- [x] **Step 3:** Port design capture and screenshot behavior through the existing authority path. Do not permit renderer-supplied arbitrary privileged browser commands.
+- [x] **Step 4:** Test project switch, tab close, browser crash, downloads, denied permissions and native views overlapping dialogs. Reuse the browser RPC regression suite.
+- [x] **Verification:** Run `pnpm exec vitest run tests/browser-runtime.test.ts tests/browser-runtime-rpc.test.ts tests/browser-routing.test.ts tests/browser-history.test.ts tests/design-capture.test.ts`; run `node tests/browser-view-smoke.cjs`.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Preserve browser data partitions; rollback hosting code cannot delete profile data.
+
+**Strengthening evidence:** [main-owned native browser and packaged interaction proof](../../architecture/strengthening-14/README.md).
 
 ### Task 15: Agent browser automation and diagnostics
 
@@ -686,7 +688,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 14 active — browser preview hosting migration.** Tasks 01, 03–13 and 27 are strengthened. Task 02 remains skipped. Tasks 14–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 15 active — agent browser automation and diagnostics.** Tasks 01, 03–14 and 27 are strengthened. Task 02 remains skipped. Tasks 15–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

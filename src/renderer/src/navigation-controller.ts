@@ -121,7 +121,7 @@ export function focusPaneTarget(target = activeNavigationTarget()): void {
     const selector = target.kind === 'terminal'
       ? '.xterm-helper-textarea'
       : target.kind === 'browser'
-        ? 'webview'
+        ? '.browser-view'
         : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], textarea'
     const focusable = pane.querySelector<HTMLElement>(selector)
     ;(focusable ?? pane).focus()

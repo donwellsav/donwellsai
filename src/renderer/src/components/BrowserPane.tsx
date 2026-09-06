@@ -1,3 +1,4 @@
+import { BrowserViewPort } from '../browser-view-port'
 import type { BrowserHistoryEntry } from '@shared/browser-history'
 import type { BrowserShortcutAction } from '@shared/types'
 import {
@@ -20,8 +21,7 @@ import {
 import {
   BrowserCommandRouter,
   WebviewBrowserHost,
-  isBrowserNavigationAbort,
-  type WebviewPort
+  isBrowserNavigationAbort
 } from '../browser-routing'
 import { BrowserFindController, type BrowserFindState } from '../browser-runtime'
 import { useAppStore } from '../store'
@@ -49,7 +49,8 @@ const INITIAL_FIND_STATE: BrowserFindState = {
 export function BrowserPane({ worktreePath, url, router, active, onClose }: BrowserPaneProps) {
   const browserHomeUrl = useAppStore((state) => state.settings.browserHomeUrl) ?? 'http://localhost:3000'
   const searchEngine = useAppStore((state) => state.settings.browserSearchEngine) ?? 'duckduckgo'
-  const webviewRef = useRef<HTMLWebViewElement>(null)
+  const webviewRef = useRef<BrowserViewPort | null>(null)
+  const viewSlotRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<WebviewBrowserHost | null>(null)
   const findControllerRef = useRef<BrowserFindController | null>(null)
   const addressInputRef = useRef<HTMLInputElement>(null)
@@ -160,9 +161,13 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
   }, [refreshHistory])
 
   useLayoutEffect(() => {
-    const element = webviewRef.current
-    if (!element) return
-    const webview = element as unknown as WebviewPort
+    const webview = new BrowserViewPort(worktreePath)
+    webviewRef.current = webview
+    webview.addEventListener('focus', () => {
+      const state = useAppStore.getState()
+      const pane = state.panes[worktreePath]?.find(pane => pane.kind === 'browser')
+      if (pane && state.activeWorktreePath === worktreePath) state.setActivePane(worktreePath, pane.key)
+    })
     const host = new WebviewBrowserHost(worktreePath, webview, {
       onLoading: setLoading,
       onError: setLoadError,
@@ -199,7 +204,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
     )
     hostRef.current = host
     findControllerRef.current = findController
-    const initialNavigation = host.adoptInitialNavigation(initialUrl)
+    const initialNavigation = host.navigate(initialUrl)
     const unregister = router.register(host)
     void initialNavigation.catch((reason: unknown) => {
       if (hostRef.current === host && !isBrowserNavigationAbort(reason)) {
@@ -216,8 +221,34 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
       hostRef.current = null
       findController.close()
       host.dispose()
+      webview.dispose()
+      if (webviewRef.current === webview) webviewRef.current = null
     }
   }, [disposeDesignMode, initialUrl, noteDesignNavigation, recordHistory, router, worktreePath])
+
+  useLayoutEffect(() => {
+    let frame = 0, last = ''
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure) }
+    const measure = () => {
+      const slot = viewSlotRef.current, port = webviewRef.current
+      if (slot && port) {
+        const r = slot.getBoundingClientRect()
+        const overlays = [...document.querySelectorAll<HTMLElement>('dialog[open], [role="dialog"], [role="menu"], .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
+        const blocked = overlays.some(node => { const b = node.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(node).visibility !== 'hidden' })
+        const visible = !blocked && slot.getClientRects().length > 0 && getComputedStyle(slot).visibility !== 'hidden' && r.width > 0 && r.height > 0
+        const rect = visible ? {x:Math.max(0,r.left),y:Math.max(0,r.top),width:Math.max(0,Math.min(r.right,innerWidth)-Math.max(0,r.left)),height:Math.max(0,Math.min(r.bottom,innerHeight)-Math.max(0,r.top))} : null
+        const value = JSON.stringify(rect)
+        if (value !== last) { last = value; port.bounds(rect) }
+      }
+    }
+    const resize = new ResizeObserver(schedule)
+    if (viewSlotRef.current) resize.observe(viewSlotRef.current)
+    const mutations = new MutationObserver(schedule)
+    mutations.observe(document.body, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','open','aria-hidden']})
+    window.addEventListener('resize',schedule); window.addEventListener('scroll',schedule,true)
+    schedule()
+    return () => { resize.disconnect(); mutations.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); cancelAnimationFrame(frame); webviewRef.current?.bounds(null) }
+  }, [worktreePath])
 
   // openBrowser retargets an existing pane; the stable guest follows the new target.
   useEffect(() => {
@@ -634,10 +665,11 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
 
       <div className="browser-page">
         {loading ? <div className="browser-progress" aria-hidden="true"><span /></div> : null}
-        <webview
-          ref={webviewRef}
-          src={initialUrl}
-          partition="persist:donwells-browser"
+        <div
+          ref={viewSlotRef}
+          tabIndex={0}
+          onFocus={() => webviewRef.current?.focus()}
+          aria-label="Browser preview"
           className="browser-view"
           aria-hidden={loadError || empty ? true : undefined}
         />

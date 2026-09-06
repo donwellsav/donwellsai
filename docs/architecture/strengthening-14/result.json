@@ -1,0 +1,94 @@
+{
+  "source": {
+    "commit": "d8ddd53a84be06fcaaba29b20c29f215fa0e7297",
+    "dirty": true,
+    "contentHash": "7c6a05bc27439fc45c64c83732854d3bd3607d871218c9e9d5fa12b8cb948e83"
+  },
+  "artifactSha256": "e1fbdf778ff62318ac105f75455b3d38cc4c68b408947c988857134e3dc7b8da",
+  "open": {
+    "snapshot": {
+      "key": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-view-smoke-C9LKyO/profile/first",
+      "url": "http://127.0.0.1:57174/one",
+      "title": "/one",
+      "text": "Native preview /one\n\nfindcanary findcanary\n\nSecond pagePopup"
+    }
+  },
+  "nativeInitial": [
+    {
+      "id": 2,
+      "url": "http://127.0.0.1:57174/one",
+      "visible": true,
+      "bounds": {
+        "x": 281,
+        "y": 71,
+        "width": 954,
+        "height": 696
+      }
+    }
+  ],
+  "domInitial": {
+    "slots": [
+      {
+        "rect": {
+          "x": 281,
+          "y": 71,
+          "width": 954,
+          "height": 696,
+          "top": 71,
+          "right": 1235,
+          "bottom": 767,
+          "left": 281
+        },
+        "visibility": "visible"
+      }
+    ],
+    "overlays": [
+      {
+        "class": "flexlayout__drag_rect",
+        "rect": {
+          "x": 280,
+          "y": -10000,
+          "width": 92.0390625,
+          "height": 29.1875,
+          "top": -10000,
+          "right": 372.0390625,
+          "bottom": -9970.8125,
+          "left": 280
+        },
+        "visibility": "visible"
+      },
+      {
+        "class": "flexlayout__drag_rect",
+        "rect": {
+          "x": 280,
+          "y": -9970.8125,
+          "width": 81.8515625,
+          "height": 29.1875,
+          "top": -9970.8125,
+          "right": 361.8515625,
+          "bottom": -9941.625,
+          "left": 280
+        },
+        "visibility": "visible"
+      }
+    ]
+  },
+  "mainOwned": true,
+  "resizeClipped": true,
+  "navigationHistory": true,
+  "projectSwitchPreservesGuest": true,
+  "find": true,
+  "nativeAddressShortcut": true,
+  "designCapture": true,
+  "boundedDesignScreenshot": true,
+  "permissionsDenied": true,
+  "downloadLifecycle": true,
+  "privilegedRendererIntentDenied": true,
+  "dialogOcclusion": true,
+  "invalidIntentDenied": true,
+  "popupsDenied": true,
+  "crashVisible": true,
+  "crashRetry": true,
+  "closedTabHidden": true,
+  "idleDaemonStopped": true
+}

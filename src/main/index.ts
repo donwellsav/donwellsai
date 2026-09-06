@@ -21,7 +21,7 @@ import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
-import { BROWSER_PARTITION, configureBrowserPermissions, guardBrowserGuests } from './browser-permissions'
+import { BROWSER_PARTITION, configureBrowserPermissions } from './browser-permissions'
 import { OperationalRunService } from './operational-run-service'
 import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
 import { deliverAgentAttachment } from './agent-delivery'
@@ -29,7 +29,7 @@ import { DiffReviewService } from './diff-review'
 import { existsSync } from 'node:fs'
 import { BrowserHistoryStore } from './browser-history'
 import type { BrowserHistoryRecord } from '@shared/browser-history'
-import { registerBrowserShortcuts } from './browser-shortcuts'
+import { BrowserViews } from './browser-views'
 import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
@@ -66,6 +66,7 @@ let secrets: SecretStore | null = null
 let operationalRuns: OperationalRunService
 let agentRuntime: AgentRuntime
 let mainWindow: BrowserWindow | null = null
+let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
 let projectTools: ProjectTools | undefined
@@ -182,7 +183,14 @@ const commandRouter = new RendererCommandRouter(() => {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
   return mainWindow!.webContents
 })
-const browserControl = (cmd: BrowserCommand): Promise<unknown> => commandRouter.call('browser:command', cmd)
+const browserControl = async (cmd: BrowserCommand): Promise<unknown> => {
+  if (cmd.op === 'eval') {
+    const snapshot = await commandRouter.call('browser:command', { op: 'snapshot', key: cmd.key }) as { key: string }
+    if (!browserViews) throw new Error('Browser views unavailable')
+    return browserViews.evaluate(snapshot.key, cmd.js)
+  }
+  return commandRouter.call('browser:command', cmd)
+}
 const uiControl = (cmd: UiCommand): Promise<unknown> => commandRouter.call('ui:command', cmd)
 
 function runtimeMetadata(): AppMeta {
@@ -362,14 +370,13 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       sandbox: true,
-      nodeIntegration: false,
-      webviewTag: true
+      nodeIntegration: false
     }
   })
 
   const window = mainWindow
   commandRouter.bind(window.webContents)
-  guardBrowserGuests(window)
+  browserViews = new BrowserViews(window, resolveRegisteredWorkspace)
   // Documents may open content, never replace the privileged application renderer.
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -414,7 +421,10 @@ function createWindow(): void {
 app.whenReady().then(() => {
   store = new Store()
   browserHistory = new BrowserHistoryStore(app.getPath('userData'))
-  registerBrowserShortcuts(() => mainWindow?.webContents ?? null)
+  ipcMain.handle('browser:view', (event, request) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !browserViews) throw new Error('Browser request has no authorized owner')
+    return browserViews.request(request)
+  })
   git = new GitWorktrees(store)
   git.setTrashRoot(join(app.getPath('userData'), 'trash'))
   // Daemon owns the PTYs: spawn-if-needed (detached), never killed on app exit —
