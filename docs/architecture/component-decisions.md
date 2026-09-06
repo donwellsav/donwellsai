@@ -1,6 +1,6 @@
 # Component admission and baseline
 
-Status: Task 01 baseline review completed against the **current terminal-foundation implementation**, not the original source. The entries below are historical and must be read with their dated/source-specific receipts; early statements about uninstalled components are not current status.
+Current strengthening-pass decisions: [Task 03 selections and fresh native evidence](strengthening-03/README.md). Current baseline: [Task 01 packaged verification](strengthening-01/README.md). Task 02 is skipped by user instruction; retain xterm/FlexLayout. All entries below are historical, including headings originally called current; consult their source-specific receipts.
 
 ## Current Task 01 review
 

@@ -1,0 +1,122 @@
+{
+  "executable": "/tmp/donwells-engram-trial",
+  "executableSha256": "bc3be0ae3cc7a150a428ac69b0c3d1e561aca82c123d3d0060c17b855ac1896b",
+  "processes": [
+    96839,
+    96867
+  ],
+  "calls": [
+    {
+      "project": "donwells-contract-a",
+      "name": "mem_save",
+      "arguments": {
+        "title": "Contract decision",
+        "content": "original fixture decision",
+        "type": "decision",
+        "capture_prompt": false
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"id\":1,\"judgment_required\":false,\"project\":\"donwells-contract-a\",\"project_path\":\"\",\"project_source\":\"process_override\",\"result\":\"Memory saved: \\\"Contract decision\\\" (decision)\\nSuggested topic_key: decision/contract-decision\",\"review_after\":\"2027-03-06 15:34:37\",\"state\":\"active\",\"sync_id\":\"obs-68dadd64f355b3b2\",\"truncation\":{\"original_bytes\":25,\"limit_bytes\":50000,\"truncated\":false}}"
+          }
+        ]
+      }
+    },
+    {
+      "project": "donwells-contract-a",
+      "name": "mem_update",
+      "arguments": {
+        "id": 1,
+        "content": "first writer decision",
+        "expectedRevision": 1
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"project\":\"donwells-contract-a\",\"project_path\":\"\",\"project_source\":\"process_override\",\"result\":\"Memory updated: #1 \\\"Contract decision\\\" (decision, scope=project)\",\"truncation\":{\"original_bytes\":21,\"limit_bytes\":50000,\"truncated\":false}}"
+          }
+        ]
+      }
+    },
+    {
+      "project": "donwells-contract-a",
+      "name": "mem_update",
+      "arguments": {
+        "id": 1,
+        "content": "stale writer decision",
+        "expectedRevision": 1
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"project\":\"donwells-contract-a\",\"project_path\":\"\",\"project_source\":\"process_override\",\"result\":\"Memory updated: #1 \\\"Contract decision\\\" (decision, scope=project)\",\"truncation\":{\"original_bytes\":21,\"limit_bytes\":50000,\"truncated\":false}}"
+          }
+        ]
+      }
+    },
+    {
+      "project": "donwells-contract-a",
+      "name": "mem_get_observation",
+      "arguments": {
+        "id": 1
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"project\":\"donwells-contract-a\",\"project_path\":\"\",\"project_source\":\"process_override\",\"result\":\"#1 [decision] Contract decision\\nstale writer decision\\nSession: manual-save-donwells-contract-a\\nProject: donwells-contract-a\\nScope: project\\nDuplicates: 1\\nRevisions: 3\\nCreated: 2026-09-06 11:34:37\"}"
+          }
+        ]
+      }
+    }
+  ],
+  "server": {
+    "protocolVersion": "2024-11-05",
+    "serverInfo": {
+      "name": "engram",
+      "version": "0.1.0"
+    }
+  },
+  "updateSchema": {
+    "properties": {
+      "content": {
+        "description": "New content",
+        "type": "string"
+      },
+      "id": {
+        "description": "Observation ID to update",
+        "type": "number"
+      },
+      "scope": {
+        "description": "New scope: project, personal, or global",
+        "type": "string"
+      },
+      "title": {
+        "description": "New title",
+        "type": "string"
+      },
+      "topic_key": {
+        "description": "New topic key (normalized internally)",
+        "type": "string"
+      },
+      "type": {
+        "description": "New type/category",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "type": "object"
+  },
+  "historyToolNames": [],
+  "staleWriteAccepted": true,
+  "staleWriteSurvivesRestart": true,
+  "authorityDecision": "Reject this candidate API as the authoritative backend: stale expectedRevision is ignored and overwrites newer content.",
+  "durationMs": 115,
+  "disposableProfileRemoved": true
+}

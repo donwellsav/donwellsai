@@ -1,0 +1,64 @@
+{
+  "program": "/opt/homebrew/Cellar/node@24/24.16.0/bin/node",
+  "worker": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/out/main/project-document-worker.js",
+  "indexMs": 3528.37125,
+  "status": {
+    "phase": "ready",
+    "job": "274266aa-f5c4-47ce-982f-681a595b2552",
+    "completed": 1,
+    "total": 1,
+    "skipped": 0,
+    "error": null,
+    "mode": "hybrid",
+    "modelBytes": 4918813408,
+    "roots": [
+      {
+        "collection": "e28adc4470a3e2aabdfb056826f3f3ddb3d5e89891291a10f253f0ad67cdc09f",
+        "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-document-model-05mvFW/project",
+        "shared": false
+      }
+    ],
+    "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+  },
+  "firstQueryMs": 662.554333,
+  "restartAndQueryMs": 3853.6194160000005,
+  "first": {
+    "mode": "hybrid",
+    "modelError": null,
+    "hits": [
+      {
+        "source": "document",
+        "id": "document:2662cae46649d0aa6469c56271074300c419b50b35ff76e02685f508fe338ab7:e28adc4470a3e2aabdfb056826f3f3ddb3d5e89891291a10f253f0ad67cdc09f%2Fmemory.md",
+        "title": "memory.md",
+        "path": "memory.md",
+        "line": 1,
+        "excerpt": "memory.md\n# Shared decision\nThe copperorchard project uses SQLite for durable shared memory.\n",
+        "revision": "sha256:1c79f9ffb294f37a8d6f2cb8e92646623358e6f28f3328e9726f8a2aa8fe8f59",
+        "indexedAt": "2026-09-06T15:35:23.448Z",
+        "stale": false,
+        "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-document-model-05mvFW/project"
+      }
+    ]
+  },
+  "recovered": {
+    "mode": "hybrid",
+    "modelError": null,
+    "hits": [
+      {
+        "source": "document",
+        "id": "document:2662cae46649d0aa6469c56271074300c419b50b35ff76e02685f508fe338ab7:e28adc4470a3e2aabdfb056826f3f3ddb3d5e89891291a10f253f0ad67cdc09f%2Fmemory.md",
+        "title": "memory.md",
+        "path": "memory.md",
+        "line": 1,
+        "excerpt": "memory.md\n# Shared decision\nThe copperorchard project uses SQLite for durable shared memory.\n",
+        "revision": "sha256:1c79f9ffb294f37a8d6f2cb8e92646623358e6f28f3328e9726f8a2aa8fe8f59",
+        "indexedAt": "2026-09-06T15:35:23.448Z",
+        "stale": false,
+        "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-document-model-05mvFW/project"
+      }
+    ]
+  },
+  "programSha256": "7bf42b0fd150fdb2d2ffe5e2ae83d2e2fec70411c7694ba59aaf6c145b2c637d",
+  "workerSha256": "6424c2ea2ee581da34992f370dad0b4b203d3096110b41aff87413bbfb971046",
+  "ownedServicesClosed": true
+}

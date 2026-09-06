@@ -1,0 +1,1306 @@
+{
+  "root": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj",
+  "requests": [
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "permissions",
+        "status",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.09368962503504008,
+      "exitCode": 0,
+      "output": {
+        "data": {
+          "source": "local",
+          "permissions": [
+            {
+              "isRequired": true,
+              "isGranted": true,
+              "grantInstructions": "System Settings > Privacy & Security > Screen Recording",
+              "name": "Screen Recording"
+            },
+            {
+              "isRequired": true,
+              "isGranted": true,
+              "grantInstructions": "System Settings > Privacy & Security > Accessibility",
+              "name": "Accessibility"
+            },
+            {
+              "isRequired": false,
+              "isGranted": true,
+              "grantInstructions": "System Settings > Privacy & Security > Accessibility",
+              "name": "Event Synthesizing"
+            }
+          ]
+        },
+        "success": true,
+        "debug_logs": [
+          "[2026-09-06T15:34:53.100Z] DEBUG: Runtime host: local (in-process)"
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "see",
+        "--pid",
+        "99511",
+        "--window-title",
+        "Donwells Control Fixture A",
+        "--tree",
+        "--no-screenshot",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.14346941700205207,
+      "exitCode": 0,
+      "output": {
+        "success": true,
+        "target_receipt": {
+          "process_start_identity_decimal": "1788708892030903",
+          "process_start_identity": 1788708892030903,
+          "window_id": 21600,
+          "pid": 99511
+        },
+        "data": {
+          "application_name": "fixture",
+          "capture_mode": "window",
+          "semantic_scope": "exact_or_requested",
+          "ui_elements": [
+            {
+              "role": "button",
+              "identifier": "A",
+              "is_actionable": true,
+              "is_enabled": true,
+              "id": "elem_1",
+              "bounds": {
+                "height": 42,
+                "x": 239,
+                "width": 242,
+                "y": 806
+              },
+              "label": "Record A",
+              "ax_role": "AXButton",
+              "title": "Record A",
+              "role_description": "button"
+            },
+            {
+              "role": "button",
+              "is_enabled": true,
+              "is_actionable": true,
+              "id": "elem_2",
+              "bounds": {
+                "x": 168,
+                "y": 713,
+                "width": 16,
+                "height": 16
+              },
+              "label": "close button",
+              "ax_role": "AXButton",
+              "role_description": "close button"
+            },
+            {
+              "role": "button",
+              "is_enabled": false,
+              "is_actionable": false,
+              "id": "elem_3",
+              "bounds": {
+                "x": 214,
+                "y": 713,
+                "width": 16,
+                "height": 16
+              },
+              "label": "zoom button",
+              "ax_role": "AXButton",
+              "role_description": "zoom button"
+            },
+            {
+              "role": "button",
+              "is_enabled": false,
+              "is_actionable": false,
+              "id": "elem_5",
+              "bounds": {
+                "x": 191,
+                "y": 713,
+                "width": 16,
+                "height": 16
+              },
+              "label": "minimize button",
+              "ax_role": "AXButton",
+              "role_description": "minimize button"
+            },
+            {
+              "role": "group",
+              "is_actionable": false,
+              "id": "elem_4",
+              "bounds": {
+                "x": 215,
+                "y": 714,
+                "width": 14,
+                "height": 14
+              },
+              "label": "group",
+              "ax_role": "AXGroup",
+              "role_description": "group"
+            },
+            {
+              "role": "menu",
+              "is_enabled": true,
+              "is_actionable": true,
+              "id": "menuitem_7",
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "width": 1728,
+                "height": 33
+              },
+              "label": "menu bar",
+              "ax_role": "AXMenuBar",
+              "role_description": "menu bar",
+              "is_selected": false
+            },
+            {
+              "role": "other",
+              "is_actionable": false,
+              "id": "elem_0",
+              "bounds": {
+                "x": 160,
+                "y": 705,
+                "width": 400,
+                "height": 212
+              },
+              "label": "Donwells Control Fixture A",
+              "ax_role": "AXWindow",
+              "title": "Donwells Control Fixture A",
+              "role_description": "standard window"
+            },
+            {
+              "role": "other",
+              "is_enabled": true,
+              "is_actionable": false,
+              "id": "elem_6",
+              "value": "Donwells Control Fixture A",
+              "bounds": {
+                "x": 242,
+                "y": 713,
+                "width": 176,
+                "height": 16
+              },
+              "label": "Donwells Control Fixture A",
+              "ax_role": "AXStaticText",
+              "role_description": "text"
+            },
+            {
+              "is_actionable": false,
+              "is_selected": false,
+              "ax_role": "AXMenuBarItem",
+              "role_description": "menu bar item",
+              "label": "Apple",
+              "title": "Apple",
+              "id": "menuitem_8",
+              "bounds": {
+                "x": 10,
+                "y": 0,
+                "width": 34,
+                "height": 33
+              },
+              "role": "other",
+              "is_enabled": true
+            },
+            {
+              "is_actionable": false,
+              "is_selected": false,
+              "ax_role": "AXMenuBarItem",
+              "role_description": "menu bar item",
+              "label": "fixture",
+              "title": "fixture",
+              "id": "menuitem_9",
+              "bounds": {
+                "x": 44,
+                "y": 0,
+                "width": 63,
+                "height": 33
+              },
+              "role": "other",
+              "is_enabled": true
+            }
+          ],
+          "snapshot_reusable": true,
+          "screenshot_raw": "",
+          "snapshot_id": "ps1_9ec2f04881a2eef33bf91c2a4b24b8a9",
+          "interactable_count": 3,
+          "window_title": "Donwells Control Fixture A",
+          "element_count": 10,
+          "is_dialog": false,
+          "execution_time": 0.0936959981918335,
+          "ui_map": "/Users/muzikfirst/.peekaboo/snapshots/ps1_9ec2f04881a2eef33bf91c2a4b24b8a9/snapshot.json",
+          "screenshot_annotated": "",
+          "mutation_targeting_available": true
+        },
+        "debug_logs": [
+          "[2026-09-06T15:34:53.174Z] DEBUG: Runtime host: local (in-process)",
+          "[2026-09-06T15:34:53.174Z] VERBOSE [Operation]: Starting operation {hasAnalyzePrompt=false, menubar=false, operation=see_command, app=none, annotate=false, mode=auto}",
+          "[2026-09-06T15:34:53.174Z] VERBOSE [Performance]: Starting timer 'see_command'",
+          "[2026-09-06T15:34:53.176Z] VERBOSE [Capture]: Starting capture and detection phase",
+          "[2026-09-06T15:34:53.267Z] VERBOSE [Capture]: Capture completed successfully {screenshotSize=0, snapshotId=ps1_9ec2f04881a2eef33bf91c2a4b24b8a9, elementCount=10}"
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "action",
+        "AXPress",
+        "--on",
+        "elem_1",
+        "--snapshot",
+        "ps1_9ec2f04881a2eef33bf91c2a4b24b8a9",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.043826916022226214,
+      "exitCode": 1,
+      "output": {
+        "success": false,
+        "effect": "refused",
+        "outcome": {
+          "evidence": "request_refused",
+          "route": "local",
+          "refusal_reason": "foreground_consent_required",
+          "mutation_dispatched": false,
+          "escalation": "correct_request",
+          "retry_safe": true,
+          "requires_fresh_observation": false,
+          "retry_safety": "safe",
+          "effect": "refused",
+          "dispatch_state": "none",
+          "state": "refused"
+        },
+        "data": null,
+        "debug_logs": [],
+        "error": {
+          "message": "Accessibility action AXPress can raise or expose foreground UI and requires --foreground.",
+          "hint": "Re-run with --foreground only when interrupting the user's desktop is acceptable.",
+          "code": "VALIDATION_ERROR",
+          "mutation_dispatched": false,
+          "retry_safe": true
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "action",
+        "AXPress",
+        "--on",
+        "elem_1",
+        "--snapshot",
+        "ps1_9ec2f04881a2eef33bf91c2a4b24b8a9",
+        "--json",
+        "--no-remote",
+        "--foreground"
+      ],
+      "seconds": 0.20525554206687957,
+      "exitCode": 0,
+      "output": {
+        "success": true,
+        "outcome": {
+          "retry_safety": "unsafe",
+          "effect": "unverifiable",
+          "requires_fresh_observation": true,
+          "escalation": "observe_before_retry",
+          "dispatched_unit_count": 1,
+          "route": "local",
+          "state": "dispatched_unverified",
+          "retry_safe": false,
+          "delivery_mechanism": "accessibility_action",
+          "evidence": "delivery_accepted",
+          "delivery_mode": "background",
+          "mutation_dispatched": true,
+          "dispatch_state": "dispatched"
+        },
+        "data": {
+          "target": "elem_1",
+          "executionTime": 0.14074301719665527,
+          "actionName": "AXPress"
+        },
+        "target_receipt": {
+          "process_start_identity": 1788708892030903,
+          "pid": 99511,
+          "process_start_identity_decimal": "1788708892030903",
+          "window_id": 21600
+        },
+        "target_identity": {
+          "process_start_identity_decimal": "1788708892030903",
+          "pid": 99511,
+          "window_id": 21600,
+          "kind": "window"
+        },
+        "effect": "unverifiable",
+        "debug_logs": [
+          "[2026-09-06T15:34:53.369Z] DEBUG: Runtime host: local (in-process)"
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "check_permissions",
+        "{}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 0.030445707961916924,
+      "exitCode": 0,
+      "output": {
+        "accessibility": true,
+        "direct_capture_error": null,
+        "direct_capture_status": "not_checked",
+        "screen_recording": true,
+        "screen_recording_capturable": null,
+        "source": {
+          "attribution": "host",
+          "direct_runtime": false,
+          "disclaim_env": false,
+          "embedded": true,
+          "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+          "host_bundle_id": "",
+          "note": "Embedded mode: these booleans reflect the HOST app's TCC grant (the driver is a child in the host's responsibility chain). No separate driver grant exists or is needed. If a permission is NOT granted, the host app must request it \u2014 the driver never raises its own prompt.",
+          "pid": 99714,
+          "responsible_ppid": 99084
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "get_window_state",
+        "{\"pid\": 99511, \"window_id\": 21600, \"include_screenshot\": false, \"query\": \"Recorded A\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 0.10328425001353025,
+      "exitCode": 0,
+      "output": {
+        "_note": "Prefer `elements` \u2014 `tree_markdown` will continue to work but new fields will only be added to the structured side. Issue #22865: use `max_elements` / `max_depth` to bound the AX walk on apps with very large trees.",
+        "background_input": {
+          "exact_window": {
+            "pid": 99511,
+            "status": "matched",
+            "window_id": 21600
+          },
+          "observation": {
+            "frame_freshness": "unknown",
+            "one_shot_capture": "unavailable"
+          },
+          "routes": [
+            {
+              "route": "accessibility",
+              "status": "available"
+            },
+            {
+              "route": "window_pointer",
+              "status": "available"
+            },
+            {
+              "reason": "same_pid_keyboard_ambiguity",
+              "route": "pid_keyboard",
+              "status": "refused"
+            }
+          ]
+        },
+        "element_count": 106,
+        "elements": [
+          {
+            "depth": 0,
+            "element_index": 0,
+            "element_token": "s00000001:0",
+            "frame": {
+              "h": 212.0,
+              "w": 400.0,
+              "x": 160.0,
+              "y": 705.0
+            },
+            "label": "Donwells Control Fixture A",
+            "role": "AXWindow"
+          },
+          {
+            "depth": 1,
+            "element_index": 1,
+            "element_token": "s00000001:1",
+            "enabled": true,
+            "frame": {
+              "h": 42.0,
+              "w": 242.0,
+              "x": 239.0,
+              "y": 806.0
+            },
+            "label": "Recorded A",
+            "parent_index": 0,
+            "role": "AXButton"
+          }
+        ],
+        "elements_complete": false,
+        "filtered_element_count": 2,
+        "pid": 99511,
+        "returned_element_count": 2,
+        "snapshot_id": "s00000001",
+        "total_element_count": 106,
+        "tree_markdown": "- [0] AXWindow \"Donwells Control Fixture A\" [actions=[raise]]\n  - [1] AXButton \"Recorded A\" [id=A actions=[press]]\n",
+        "window_id": 21600
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "click",
+        "{\"pid\": 99511, \"window_id\": 21600, \"element_token\": \"s00000001:1\", \"delivery_mode\": \"background\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 2.708376666996628,
+      "exitCode": 0,
+      "output": {
+        "delivery": {
+          "mode": "background"
+        },
+        "effect": "unverifiable",
+        "route": "accessibility"
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "see",
+        "--pid",
+        "99511",
+        "--window-title",
+        "Donwells Control Fixture B",
+        "--tree",
+        "--no-screenshot",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.10499779193196446,
+      "exitCode": 0,
+      "output": {
+        "target_receipt": {
+          "process_start_identity": 1788708892030903,
+          "pid": 99511,
+          "process_start_identity_decimal": "1788708892030903",
+          "window_id": 21601
+        },
+        "debug_logs": [
+          "[2026-09-06T15:34:57.534Z] DEBUG: Runtime host: local (in-process)",
+          "[2026-09-06T15:34:57.535Z] VERBOSE [Operation]: Starting operation {annotate=false, menubar=false, hasAnalyzePrompt=false, mode=auto, app=none, operation=see_command}",
+          "[2026-09-06T15:34:57.535Z] VERBOSE [Performance]: Starting timer 'see_command'",
+          "[2026-09-06T15:34:57.536Z] VERBOSE [Capture]: Starting capture and detection phase",
+          "[2026-09-06T15:34:57.579Z] VERBOSE [Capture]: Capture completed successfully {snapshotId=ps1_7a70f17f270ac028ea000b90f68de5b5, elementCount=8, screenshotSize=0}"
+        ],
+        "success": true,
+        "data": {
+          "element_count": 8,
+          "is_dialog": false,
+          "window_title": "Donwells Control Fixture B",
+          "ui_elements": [
+            {
+              "title": "Record B",
+              "role": "button",
+              "is_enabled": true,
+              "identifier": "B",
+              "bounds": {
+                "y": 806,
+                "x": 699,
+                "width": 242,
+                "height": 42
+              },
+              "role_description": "button",
+              "id": "elem_1",
+              "is_actionable": true,
+              "ax_role": "AXButton",
+              "label": "Record B"
+            },
+            {
+              "role": "button",
+              "is_enabled": true,
+              "bounds": {
+                "width": 16,
+                "x": 628,
+                "y": 713,
+                "height": 16
+              },
+              "role_description": "close button",
+              "id": "elem_2",
+              "is_actionable": true,
+              "ax_role": "AXButton",
+              "label": "close button"
+            },
+            {
+              "role": "button",
+              "is_enabled": false,
+              "bounds": {
+                "width": 16,
+                "x": 674,
+                "y": 713,
+                "height": 16
+              },
+              "role_description": "zoom button",
+              "id": "elem_3",
+              "is_actionable": false,
+              "ax_role": "AXButton",
+              "label": "zoom button"
+            },
+            {
+              "role": "button",
+              "is_enabled": false,
+              "bounds": {
+                "width": 16,
+                "x": 651,
+                "y": 713,
+                "height": 16
+              },
+              "role_description": "minimize button",
+              "id": "elem_6",
+              "is_actionable": false,
+              "ax_role": "AXButton",
+              "label": "minimize button"
+            },
+            {
+              "role": "group",
+              "bounds": {
+                "width": 14,
+                "x": 675,
+                "y": 714,
+                "height": 14
+              },
+              "role_description": "group",
+              "id": "elem_4",
+              "is_actionable": false,
+              "ax_role": "AXGroup",
+              "label": "group"
+            },
+            {
+              "role": "group",
+              "bounds": {
+                "width": 14,
+                "x": 675,
+                "y": 714,
+                "height": 14
+              },
+              "role_description": "group",
+              "id": "elem_5",
+              "is_actionable": false,
+              "ax_role": "AXGroup",
+              "label": "group"
+            },
+            {
+              "title": "Donwells Control Fixture B",
+              "role": "other",
+              "bounds": {
+                "width": 400,
+                "x": 620,
+                "y": 705,
+                "height": 212
+              },
+              "role_description": "standard window",
+              "id": "elem_0",
+              "is_actionable": false,
+              "ax_role": "AXWindow",
+              "label": "Donwells Control Fixture B"
+            },
+            {
+              "label": "Donwells Control Fixture B",
+              "role": "other",
+              "is_enabled": true,
+              "bounds": {
+                "width": 175,
+                "x": 702,
+                "y": 713,
+                "height": 16
+              },
+              "role_description": "text",
+              "id": "elem_7",
+              "is_actionable": false,
+              "ax_role": "AXStaticText",
+              "value": "Donwells Control Fixture B"
+            }
+          ],
+          "execution_time": 0.044461965560913086,
+          "snapshot_id": "ps1_7a70f17f270ac028ea000b90f68de5b5",
+          "screenshot_annotated": "",
+          "screenshot_raw": "",
+          "interactable_count": 2,
+          "semantic_scope": "exact_or_requested",
+          "application_name": "fixture",
+          "snapshot_reusable": true,
+          "capture_mode": "window",
+          "mutation_targeting_available": true,
+          "ui_map": "/Users/muzikfirst/.peekaboo/snapshots/ps1_7a70f17f270ac028ea000b90f68de5b5/snapshot.json"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "get_window_state",
+        "{\"pid\": 99511, \"window_id\": 21601, \"include_screenshot\": false, \"query\": \"Record B\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 0.06225445796735585,
+      "exitCode": 0,
+      "output": {
+        "_note": "Prefer `elements` \u2014 `tree_markdown` will continue to work but new fields will only be added to the structured side. Issue #22865: use `max_elements` / `max_depth` to bound the AX walk on apps with very large trees.",
+        "background_input": {
+          "exact_window": {
+            "pid": 99511,
+            "status": "matched",
+            "window_id": 21601
+          },
+          "observation": {
+            "frame_freshness": "unknown",
+            "one_shot_capture": "unavailable"
+          },
+          "routes": [
+            {
+              "route": "accessibility",
+              "status": "available"
+            },
+            {
+              "route": "window_pointer",
+              "status": "available"
+            },
+            {
+              "reason": "same_pid_keyboard_ambiguity",
+              "route": "pid_keyboard",
+              "status": "refused"
+            }
+          ]
+        },
+        "element_count": 106,
+        "elements": [
+          {
+            "depth": 0,
+            "element_index": 0,
+            "element_token": "s00000002:0",
+            "frame": {
+              "h": 212.0,
+              "w": 400.0,
+              "x": 620.0,
+              "y": 705.0
+            },
+            "label": "Donwells Control Fixture B",
+            "role": "AXWindow"
+          },
+          {
+            "depth": 1,
+            "element_index": 1,
+            "element_token": "s00000002:1",
+            "enabled": true,
+            "frame": {
+              "h": 42.0,
+              "w": 242.0,
+              "x": 699.0,
+              "y": 806.0
+            },
+            "label": "Record B",
+            "parent_index": 0,
+            "role": "AXButton"
+          }
+        ],
+        "elements_complete": false,
+        "filtered_element_count": 2,
+        "pid": 99511,
+        "returned_element_count": 2,
+        "snapshot_id": "s00000002",
+        "total_element_count": 106,
+        "tree_markdown": "- [0] AXWindow \"Donwells Control Fixture B\" [actions=[raise]]\n  - [1] AXButton \"Record B\" [id=B actions=[press]]\n",
+        "window_id": 21601
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "click",
+        "{\"pid\": 99511, \"window_id\": 21601, \"element_token\": \"s00000002:1\", \"delivery_mode\": \"background\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 2.6842141249217093,
+      "exitCode": 0,
+      "output": {
+        "delivery": {
+          "mode": "background"
+        },
+        "effect": "unverifiable",
+        "route": "accessibility"
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "action",
+        "AXPress",
+        "--on",
+        "elem_1",
+        "--snapshot",
+        "ps1_7a70f17f270ac028ea000b90f68de5b5",
+        "--foreground",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.2128795840544626,
+      "exitCode": 0,
+      "output": {
+        "target_receipt": {
+          "pid": 99511,
+          "process_start_identity": 1788708892030903,
+          "process_start_identity_decimal": "1788708892030903",
+          "window_id": 21601
+        },
+        "effect": "unverifiable",
+        "data": {
+          "executionTime": 0.1396239995956421,
+          "target": "elem_1",
+          "actionName": "AXPress"
+        },
+        "debug_logs": [
+          "[2026-09-06T15:35:00.395Z] DEBUG: Runtime host: local (in-process)"
+        ],
+        "outcome": {
+          "delivery_mode": "background",
+          "dispatched_unit_count": 1,
+          "escalation": "observe_before_retry",
+          "dispatch_state": "dispatched",
+          "route": "local",
+          "state": "dispatched_unverified",
+          "effect": "unverifiable",
+          "retry_safety": "unsafe",
+          "requires_fresh_observation": true,
+          "mutation_dispatched": true,
+          "evidence": "delivery_accepted",
+          "delivery_mechanism": "accessibility_action",
+          "retry_safe": false
+        },
+        "target_identity": {
+          "pid": 99511,
+          "window_id": 21601,
+          "process_start_identity_decimal": "1788708892030903",
+          "kind": "window"
+        },
+        "success": true
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "click",
+        "{\"pid\": 99511, \"window_id\": 21600, \"element_token\": \"s00000001:1\", \"delivery_mode\": \"background\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 0.022055250010453165,
+      "exitCode": 0,
+      "output": {
+        "code": "window_not_found",
+        "effect": "refused",
+        "pid": 99511,
+        "reason": "WindowServer has no record of window 21600 (closed or stale); re-enumerate windows and re-target",
+        "window_id": 21600
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "action",
+        "AXPress",
+        "--on",
+        "elem_1",
+        "--snapshot",
+        "ps1_9ec2f04881a2eef33bf91c2a4b24b8a9",
+        "--json",
+        "--no-remote",
+        "--foreground"
+      ],
+      "seconds": 0.06703091599047184,
+      "exitCode": 1,
+      "output": {
+        "outcome": {
+          "effect": "refused",
+          "route": "local",
+          "dispatch_state": "none",
+          "escalation": "refresh_target",
+          "refusal_reason": "target_unavailable",
+          "evidence": "request_refused",
+          "requires_fresh_observation": false,
+          "state": "refused",
+          "retry_safety": "safe",
+          "mutation_dispatched": false,
+          "retry_safe": true
+        },
+        "data": null,
+        "effect": "refused",
+        "debug_logs": [
+          "[2026-09-06T15:35:00.626Z] DEBUG: Runtime host: local (in-process)"
+        ],
+        "error": {
+          "hint": "Run 'peekaboo see' again and use the new snapshot ID.",
+          "retry_safe": true,
+          "mutation_dispatched": false,
+          "code": "SNAPSHOT_STALE",
+          "message": "Snapshot is stale: Snapshot 'ps1_9ec2f04881a2eef33bf91c2a4b24b8a9' already drove a mutation whose result requires a fresh observation."
+        },
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo",
+        "see",
+        "--pid",
+        "99812",
+        "--window-title",
+        "Donwells Control Fixture A",
+        "--tree",
+        "--no-screenshot",
+        "--json",
+        "--no-remote"
+      ],
+      "seconds": 0.14083470799960196,
+      "exitCode": 0,
+      "output": {
+        "debug_logs": [
+          "[2026-09-06T15:35:00.796Z] DEBUG: Runtime host: local (in-process)",
+          "[2026-09-06T15:35:00.796Z] VERBOSE [Operation]: Starting operation {mode=auto, hasAnalyzePrompt=false, operation=see_command, app=none, annotate=false, menubar=false}",
+          "[2026-09-06T15:35:00.796Z] VERBOSE [Performance]: Starting timer 'see_command'",
+          "[2026-09-06T15:35:00.798Z] VERBOSE [Capture]: Starting capture and detection phase",
+          "[2026-09-06T15:35:00.885Z] VERBOSE [Capture]: Capture completed successfully {elementCount=10, screenshotSize=0, snapshotId=ps1_ef44d776a1750e735f8ce313eac3c941}"
+        ],
+        "data": {
+          "snapshot_id": "ps1_ef44d776a1750e735f8ce313eac3c941",
+          "capture_mode": "window",
+          "execution_time": 0.0891869068145752,
+          "ui_map": "/Users/muzikfirst/.peekaboo/snapshots/ps1_ef44d776a1750e735f8ce313eac3c941/snapshot.json",
+          "window_title": "Donwells Control Fixture A",
+          "snapshot_reusable": true,
+          "interactable_count": 3,
+          "screenshot_annotated": "",
+          "element_count": 10,
+          "is_dialog": false,
+          "application_name": "fixture",
+          "semantic_scope": "exact_or_requested",
+          "screenshot_raw": "",
+          "ui_elements": [
+            {
+              "id": "elem_1",
+              "ax_role": "AXButton",
+              "role": "button",
+              "title": "Record A",
+              "is_enabled": true,
+              "label": "Record A",
+              "role_description": "button",
+              "identifier": "A",
+              "is_actionable": true,
+              "bounds": {
+                "x": 239,
+                "y": 806,
+                "width": 242,
+                "height": 42
+              }
+            },
+            {
+              "id": "elem_2",
+              "ax_role": "AXButton",
+              "role": "button",
+              "is_enabled": true,
+              "label": "close button",
+              "role_description": "close button",
+              "is_actionable": true,
+              "bounds": {
+                "y": 713,
+                "width": 16,
+                "height": 16,
+                "x": 168
+              }
+            },
+            {
+              "id": "elem_3",
+              "ax_role": "AXButton",
+              "role": "button",
+              "is_enabled": false,
+              "label": "zoom button",
+              "role_description": "zoom button",
+              "is_actionable": false,
+              "bounds": {
+                "y": 713,
+                "width": 16,
+                "height": 16,
+                "x": 214
+              }
+            },
+            {
+              "id": "elem_5",
+              "ax_role": "AXButton",
+              "role": "button",
+              "is_enabled": false,
+              "label": "minimize button",
+              "role_description": "minimize button",
+              "is_actionable": false,
+              "bounds": {
+                "y": 713,
+                "width": 16,
+                "height": 16,
+                "x": 191
+              }
+            },
+            {
+              "id": "elem_4",
+              "ax_role": "AXGroup",
+              "role": "group",
+              "label": "group",
+              "role_description": "group",
+              "is_actionable": false,
+              "bounds": {
+                "y": 714,
+                "width": 14,
+                "height": 14,
+                "x": 215
+              }
+            },
+            {
+              "id": "menuitem_7",
+              "ax_role": "AXMenuBar",
+              "role": "menu",
+              "is_selected": false,
+              "is_enabled": true,
+              "label": "menu bar",
+              "role_description": "menu bar",
+              "is_actionable": true,
+              "bounds": {
+                "y": 0,
+                "width": 1728,
+                "height": 33,
+                "x": 0
+              }
+            },
+            {
+              "id": "elem_0",
+              "ax_role": "AXWindow",
+              "role": "other",
+              "title": "Donwells Control Fixture A",
+              "label": "Donwells Control Fixture A",
+              "role_description": "standard window",
+              "is_actionable": false,
+              "bounds": {
+                "y": 705,
+                "width": 400,
+                "height": 212,
+                "x": 160
+              }
+            },
+            {
+              "id": "elem_6",
+              "ax_role": "AXStaticText",
+              "role": "other",
+              "value": "Donwells Control Fixture A",
+              "is_enabled": true,
+              "label": "Donwells Control Fixture A",
+              "role_description": "text",
+              "is_actionable": false,
+              "bounds": {
+                "y": 713,
+                "width": 176,
+                "height": 16,
+                "x": 242
+              }
+            },
+            {
+              "ax_role": "AXMenuBarItem",
+              "bounds": {
+                "y": 0,
+                "width": 34,
+                "height": 33,
+                "x": 10
+              },
+              "role_description": "menu bar item",
+              "is_actionable": false,
+              "is_selected": false,
+              "label": "Apple",
+              "title": "Apple",
+              "role": "other",
+              "id": "menuitem_8",
+              "is_enabled": true
+            },
+            {
+              "ax_role": "AXMenuBarItem",
+              "bounds": {
+                "y": 0,
+                "width": 63,
+                "height": 33,
+                "x": 44
+              },
+              "role_description": "menu bar item",
+              "is_actionable": false,
+              "is_selected": false,
+              "label": "fixture",
+              "title": "fixture",
+              "role": "other",
+              "id": "menuitem_9",
+              "is_enabled": true
+            }
+          ],
+          "mutation_targeting_available": true
+        },
+        "target_receipt": {
+          "window_id": 21609,
+          "process_start_identity": 1788708893761837,
+          "pid": 99812,
+          "process_start_identity_decimal": "1788708893761837"
+        },
+        "success": true
+      },
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+        "call",
+        "get_window_state",
+        "{\"pid\": 99812, \"window_id\": 21609, \"include_screenshot\": false, \"query\": \"Record A\"}",
+        "--socket",
+        "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-candidates-4otxjtbj/driver.sock"
+      ],
+      "seconds": 0.08977620804216713,
+      "exitCode": 0,
+      "output": {
+        "_note": "Prefer `elements` \u2014 `tree_markdown` will continue to work but new fields will only be added to the structured side. Issue #22865: use `max_elements` / `max_depth` to bound the AX walk on apps with very large trees.",
+        "background_input": {
+          "exact_window": {
+            "pid": 99812,
+            "status": "matched",
+            "window_id": 21609
+          },
+          "observation": {
+            "frame_freshness": "unknown",
+            "one_shot_capture": "unavailable"
+          },
+          "routes": [
+            {
+              "route": "accessibility",
+              "status": "available"
+            },
+            {
+              "route": "window_pointer",
+              "status": "available"
+            },
+            {
+              "reason": "same_pid_keyboard_ambiguity",
+              "route": "pid_keyboard",
+              "status": "refused"
+            }
+          ]
+        },
+        "element_count": 106,
+        "elements": [
+          {
+            "depth": 0,
+            "element_index": 0,
+            "element_token": "s00000001:0",
+            "frame": {
+              "h": 212.0,
+              "w": 400.0,
+              "x": 160.0,
+              "y": 705.0
+            },
+            "label": "Donwells Control Fixture A",
+            "role": "AXWindow"
+          },
+          {
+            "depth": 1,
+            "element_index": 1,
+            "element_token": "s00000001:1",
+            "enabled": true,
+            "frame": {
+              "h": 42.0,
+              "w": 242.0,
+              "x": 239.0,
+              "y": 806.0
+            },
+            "label": "Record A",
+            "parent_index": 0,
+            "role": "AXButton"
+          }
+        ],
+        "elements_complete": false,
+        "filtered_element_count": 2,
+        "pid": 99812,
+        "returned_element_count": 2,
+        "snapshot_id": "s00000001",
+        "total_element_count": 106,
+        "tree_markdown": "- [0] AXWindow \"Donwells Control Fixture A\" [actions=[raise]]\n  - [1] AXButton \"Record A\" [id=A actions=[press]]\n",
+        "window_id": 21609
+      },
+      "stderr": ""
+    }
+  ],
+  "hashes": {
+    "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/peekaboo-4.3.0/peekaboo": "4d51c6906885a24d17c941e9067c0ef5bf5cea3cb2ee7eabc2654289d6506991",
+    "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver": "2cb9be8da6c91bfa6b535a0d777ca61e463996aff9cd769dace2eb840ddd0700"
+  },
+  "passed": true,
+  "peekabooPermissions": {
+    "data": {
+      "source": "local",
+      "permissions": [
+        {
+          "isRequired": true,
+          "isGranted": true,
+          "grantInstructions": "System Settings > Privacy & Security > Screen Recording",
+          "name": "Screen Recording"
+        },
+        {
+          "isRequired": true,
+          "isGranted": true,
+          "grantInstructions": "System Settings > Privacy & Security > Accessibility",
+          "name": "Accessibility"
+        },
+        {
+          "isRequired": false,
+          "isGranted": true,
+          "grantInstructions": "System Settings > Privacy & Security > Accessibility",
+          "name": "Event Synthesizing"
+        }
+      ]
+    },
+    "success": true,
+    "debug_logs": [
+      "[2026-09-06T15:34:53.100Z] DEBUG: Runtime host: local (in-process)"
+    ]
+  },
+  "cuaPermissions": {
+    "accessibility": true,
+    "direct_capture_error": null,
+    "direct_capture_status": "not_checked",
+    "screen_recording": true,
+    "screen_recording_capturable": null,
+    "source": {
+      "attribution": "host",
+      "direct_runtime": false,
+      "disclaim_env": false,
+      "embedded": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/native-control-2026-09-06/cua-driver-0.23.2/cua-driver",
+      "host_bundle_id": "",
+      "note": "Embedded mode: these booleans reflect the HOST app's TCC grant (the driver is a child in the host's responsibility chain). No separate driver grant exists or is needed. If a permission is NOT granted, the host app must request it \u2014 the driver never raises its own prompt.",
+      "pid": 99714,
+      "responsible_ppid": 99084
+    }
+  },
+  "background": {
+    "peekaboo": "requires explicit foreground consent",
+    "cua": "preserved sentinel foreground",
+    "actions": [
+      {
+        "target": "A",
+        "frontmostPid": "99511"
+      },
+      {
+        "target": "A",
+        "frontmostPid": "99812"
+      }
+    ]
+  },
+  "correctTargets": [
+    {
+      "target": "A",
+      "frontmostPid": "99511"
+    },
+    {
+      "target": "A",
+      "frontmostPid": "99812"
+    },
+    {
+      "frontmostPid": "99812",
+      "target": "B"
+    },
+    {
+      "target": "B",
+      "frontmostPid": "99812"
+    }
+  ],
+  "staleTarget": {
+    "code": "window_not_found",
+    "effect": "refused",
+    "pid": 99511,
+    "reason": "WindowServer has no record of window 21600 (closed or stale); re-enumerate windows and re-target",
+    "window_id": 21600
+  },
+  "peekabooStaleTarget": {
+    "outcome": {
+      "effect": "refused",
+      "route": "local",
+      "dispatch_state": "none",
+      "escalation": "refresh_target",
+      "refusal_reason": "target_unavailable",
+      "evidence": "request_refused",
+      "requires_fresh_observation": false,
+      "state": "refused",
+      "retry_safety": "safe",
+      "mutation_dispatched": false,
+      "retry_safe": true
+    },
+    "data": null,
+    "effect": "refused",
+    "debug_logs": [
+      "[2026-09-06T15:35:00.626Z] DEBUG: Runtime host: local (in-process)"
+    ],
+    "error": {
+      "hint": "Run 'peekaboo see' again and use the new snapshot ID.",
+      "retry_safe": true,
+      "mutation_dispatched": false,
+      "code": "SNAPSHOT_STALE",
+      "message": "Snapshot is stale: Snapshot 'ps1_9ec2f04881a2eef33bf91c2a4b24b8a9' already drove a mutation whose result requires a fresh observation."
+    },
+    "success": false
+  },
+  "restartPreparation": "Reaped owned daemon before removing its private stale socket",
+  "serviceRestart": "Fresh target observation works; no action replayed",
+  "cleanup": [
+    {
+      "pid": 99511,
+      "exitCode": -15
+    },
+    {
+      "pid": 99714,
+      "exitCode": -15
+    },
+    {
+      "pid": 99812,
+      "exitCode": -15
+    },
+    {
+      "pid": 318,
+      "exitCode": -15
+    }
+  ]
+}

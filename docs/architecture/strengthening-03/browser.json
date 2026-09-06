@@ -1,0 +1,623 @@
+{
+  "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1",
+  "browser": "/Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+  "browserSha256": "a596b1cfc6353e987fcec8d71a23a28cd6a9e7a6b4e20b908e4c4fcffe51158e",
+  "limitations": [
+    "Local fixture qualification; no existing login/profile or external website used."
+  ],
+  "agentBinarySha256": "b2106ab39db0838e7b1772f7f26f760518de56d09053150c56f9dddf15af997d",
+  "playwright": {
+    "passed": true,
+    "results": [
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "navigate",
+        "elapsedMs": 715.97625,
+        "output": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:54450/a');\n```\n### Page\n- Page URL: http://127.0.0.1:54450/a\n- Page Title: Fixture a\n### Snapshot\n- [Snapshot](.playwright-mcp/page-2026-09-06T15-34-38-337Z.yml)",
+        "snapshot": "- generic [active] [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]\n  - button \"Save task\" [ref=e4]\n  - paragraph [ref=e5]: Project a ready",
+        "snapshotSha256": "d97f71002b344c1839f6c1d87d28e1dc5995613136d6665478bbff9fed4ae464"
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "type",
+        "elapsedMs": 17.841541000000007,
+        "output": "### Ran Playwright code\n```js\nawait page.getByRole('textbox', { name: 'Task name' }).fill('task-0');\n```",
+        "snapshot": ""
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "click",
+        "elapsedMs": 532.0723330000001,
+        "output": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Save task' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:54450/a\n- Page Title: Fixture a\n### Snapshot\n- [Snapshot](.playwright-mcp/page-2026-09-06T15-34-38-888Z.yml)",
+        "snapshot": "- generic [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]: task-0\n  - button \"Save task\" [active] [ref=e4]\n  - paragraph [ref=e5]: Saved task-0 in project a",
+        "snapshotSha256": "aeabe11a93ec31ba50bf6a762f6f8b67ed662c1c99eadfc89b5375e2a9601cf7"
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/b",
+        "operation": "navigate",
+        "elapsedMs": 531.009417,
+        "output": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:54450/b');\n```\n### Page\n- Page URL: http://127.0.0.1:54450/b\n- Page Title: Fixture b\n### Snapshot\n- [Snapshot](.playwright-mcp/page-2026-09-06T15-34-39-419Z.yml)",
+        "snapshot": "- generic [active] [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]\n  - button \"Save task\" [ref=e4]\n  - paragraph [ref=e5]: Project b ready",
+        "snapshotSha256": "7b955b29b067784b708d4f1b2907b514bd1ed044532d1dfff5ed94ebed9be9cc"
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/b",
+        "operation": "type",
+        "elapsedMs": 16.57745799999998,
+        "output": "### Ran Playwright code\n```js\nawait page.getByRole('textbox', { name: 'Task name' }).fill('task-1');\n```",
+        "snapshot": ""
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/b",
+        "operation": "click",
+        "elapsedMs": 524.7100419999999,
+        "output": "### Ran Playwright code\n```js\nawait page.getByRole('button', { name: 'Save task' }).click();\n```\n### Page\n- Page URL: http://127.0.0.1:54450/b\n- Page Title: Fixture b\n### Snapshot\n- [Snapshot](.playwright-mcp/page-2026-09-06T15-34-39-961Z.yml)",
+        "snapshot": "- generic [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]: task-1\n  - button \"Save task\" [active] [ref=e4]\n  - paragraph [ref=e5]: Saved task-1 in project b",
+        "snapshotSha256": "b53017e4b1140ab810bf22389e42afba4f88107dcdf95f9799528abb9ba36410"
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "snapshot",
+        "elapsedMs": 2.977792000000136,
+        "output": "### Page\n- Page URL: http://127.0.0.1:54450/a\n- Page Title: Fixture a\n### Snapshot\n```yaml\n- generic [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]: task-0\n  - button \"Save task\" [active] [ref=e4]\n  - paragraph [ref=e5]: Saved task-0 in project a\n```",
+        "snapshot": ""
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/b",
+        "operation": "snapshot",
+        "elapsedMs": 2.6512079999997695,
+        "output": "### Page\n- Page URL: http://127.0.0.1:54450/b\n- Page Title: Fixture b\n### Snapshot\n```yaml\n- generic [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]: task-1\n  - button \"Save task\" [active] [ref=e4]\n  - paragraph [ref=e5]: Saved task-1 in project b\n```",
+        "snapshot": ""
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "navigate",
+        "elapsedMs": 848.0786250000001,
+        "output": "### Ran Playwright code\n```js\nawait page.goto('http://127.0.0.1:54450/a');\n```\n### Page\n- Page URL: http://127.0.0.1:54450/a\n- Page Title: Fixture a\n### Snapshot\n- [Snapshot](.playwright-mcp/page-2026-09-06T15-34-40-944Z.yml)",
+        "snapshot": "- generic [active] [ref=e1]:\n  - generic [ref=e2]:\n    - text: Task name\n    - textbox \"Task name\" [ref=e3]\n  - button \"Save task\" [ref=e4]\n  - paragraph [ref=e5]: Project a ready",
+        "snapshotSha256": "d97f71002b344c1839f6c1d87d28e1dc5995613136d6665478bbff9fed4ae464"
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/a",
+        "operation": "close",
+        "elapsedMs": 94.5109580000003,
+        "output": "### Result\nNo open tabs. Navigate to a URL to create one.\n### Ran Playwright code\n```js\nawait page.close()\n```",
+        "snapshot": ""
+      },
+      {
+        "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/b",
+        "operation": "close",
+        "elapsedMs": 48.3327919999997,
+        "output": "### Result\nNo open tabs. Navigate to a URL to create one.\n### Ran Playwright code\n```js\nawait page.close()\n```",
+        "snapshot": ""
+      }
+    ],
+    "interruption": {
+      "error": "Error: Tool action outcome is uncertain; inspect before retrying",
+      "code": "TOOL_OUTCOME_UNCERTAIN"
+    },
+    "explicitRestart": true,
+    "siblingPreserved": true
+  },
+  "agentBrowser": {
+    "passed": false,
+    "workflowPassed": true,
+    "namespace": "donwells-trial-1788708877622",
+    "results": [
+      {
+        "session": "a",
+        "args": [
+          "open",
+          "http://127.0.0.1:54450/a"
+        ],
+        "elapsedMs": 1108.2833750000004,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "targetId": "D90528027E9662B68586D7B5E363C794",
+            "title": "Fixture a",
+            "url": "http://127.0.0.1:54450/a"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "fill",
+          "#name",
+          "native-a"
+        ],
+        "elapsedMs": 7.544208999999682,
+        "result": {
+          "success": true,
+          "data": {
+            "filled": "#name",
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            }
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "click",
+          "#save"
+        ],
+        "elapsedMs": 9.667999999999665,
+        "result": {
+          "success": true,
+          "data": {
+            "clicked": "#save",
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            }
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "get",
+          "text",
+          "#result"
+        ],
+        "elapsedMs": 8.307749999999942,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "origin": "http://127.0.0.1:54450/a",
+            "text": "Saved native-a in project a"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "open",
+          "http://127.0.0.1:54450/b"
+        ],
+        "elapsedMs": 1145.6089169999996,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 8987745633902853000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "targetId": "F1964BC677C50A2041B8634899FA9A30",
+            "title": "Fixture b",
+            "url": "http://127.0.0.1:54450/b"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "fill",
+          "#name",
+          "native-b"
+        ],
+        "elapsedMs": 94.93737499999952,
+        "result": {
+          "success": true,
+          "data": {
+            "filled": "#name",
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 8987745633902853000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            }
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "click",
+          "#save"
+        ],
+        "elapsedMs": 9.017917000000125,
+        "result": {
+          "success": true,
+          "data": {
+            "clicked": "#save",
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 8987745633902853000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            }
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "get",
+          "text",
+          "#result"
+        ],
+        "elapsedMs": 6.589249999999993,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 8987745633902853000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "origin": "http://127.0.0.1:54450/b",
+            "text": "Saved native-b in project b"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "get",
+          "text",
+          "#result"
+        ],
+        "elapsedMs": 5.742957999999817,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "origin": "http://127.0.0.1:54450/a",
+            "text": "Saved native-a in project a"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "close"
+        ],
+        "elapsedMs": 5002.218834,
+        "error": "Error: Command failed: /Users/muzikfirst/Documents/donwellsai/research/tool-trials/browser-candidates-2026-09-06/node_modules/agent-browser/bin/agent-browser-darwin-arm64 --namespace donwells-trial-1788708877622 --session a --config /private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/agent-browser.json --executable-path /Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --profile /private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/native-a --idle-timeout 30s --json close\n",
+        "stdout": "",
+        "stderr": "",
+        "killed": true
+      },
+      {
+        "session": "a",
+        "args": [
+          "open",
+          "http://127.0.0.1:54450/slow-a"
+        ],
+        "elapsedMs": 5069.930125,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "targetId": "D90528027E9662B68586D7B5E363C794",
+            "title": "Released fixture",
+            "url": "http://127.0.0.1:54450/slow-a"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "close"
+        ],
+        "elapsedMs": 114.86358299999847,
+        "result": {
+          "success": true,
+          "data": {
+            "closed": true,
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": false,
+                "engine": "chrome",
+                "launchHash": null
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": false,
+              "saveStatus": "not_configured"
+            },
+            "restoreStatus": "not_configured",
+            "saveStatus": "not_configured"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "get",
+          "text",
+          "#result"
+        ],
+        "elapsedMs": 6.823875000000044,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 8987745633902853000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "origin": "http://127.0.0.1:54450/b",
+            "text": "Saved native-b in project b"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "open",
+          "http://127.0.0.1:54450/a"
+        ],
+        "elapsedMs": 2041.7549159999999,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": true,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": false,
+              "saveStatus": "not_attempted"
+            },
+            "targetId": "988EBD529C3924A69C0EA9858470D6EA",
+            "title": "Fixture a",
+            "url": "http://127.0.0.1:54450/a"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "get",
+          "text",
+          "#result"
+        ],
+        "elapsedMs": 8.331749999999374,
+        "result": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "origin": "http://127.0.0.1:54450/a",
+            "text": "Project a ready"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "a",
+        "args": [
+          "close"
+        ],
+        "elapsedMs": 111.51770800000122,
+        "result": {
+          "success": true,
+          "data": {
+            "closed": true,
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": false,
+                "engine": "chrome",
+                "launchHash": null
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": false,
+              "saveStatus": "not_configured"
+            },
+            "restoreStatus": "not_configured",
+            "saveStatus": "not_configured"
+          },
+          "error": null
+        }
+      },
+      {
+        "session": "b",
+        "args": [
+          "close"
+        ],
+        "elapsedMs": 113.7047079999993,
+        "result": {
+          "success": true,
+          "data": {
+            "closed": true,
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": false,
+                "engine": "chrome",
+                "launchHash": null
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": false,
+              "saveStatus": "not_configured"
+            },
+            "restoreStatus": "not_configured",
+            "saveStatus": "not_configured"
+          },
+          "error": null
+        }
+      }
+    ],
+    "interruption": {
+      "interrupted": false,
+      "error": "Error: Command failed: /Users/muzikfirst/Documents/donwellsai/research/tool-trials/browser-candidates-2026-09-06/node_modules/agent-browser/bin/agent-browser-darwin-arm64 --namespace donwells-trial-1788708877622 --session a --config /private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/agent-browser.json --executable-path /Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --profile /private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-candidates-xMraw1/native-a --idle-timeout 30s --json close\n",
+      "closeElapsedMs": 5002.244959,
+      "navigation": {
+        "value": {
+          "success": true,
+          "data": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11844432319560790000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "targetId": "D90528027E9662B68586D7B5E363C794",
+            "title": "Released fixture",
+            "url": "http://127.0.0.1:54450/slow-a"
+          },
+          "error": null
+        },
+        "error": null
+      }
+    },
+    "explicitRestart": true,
+    "siblingPreserved": true
+  }
+}
