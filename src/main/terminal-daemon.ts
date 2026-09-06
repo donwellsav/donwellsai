@@ -13,6 +13,9 @@ import { StringDecoder } from 'node:string_decoder'
 import {
   AGENT_PROVIDER_DEFINITIONS,
   agentProviderForCommand,
+  agentProviderForExecutable,
+  parseAgentExecutable,
+  type AgentExecutable,
   normalizeAgentHookMessage,
   type AgentProviderId,
   type RunningAgent
@@ -41,6 +44,7 @@ export const DAEMON_CAPABILITIES = [
   'daemon-status',
   'idle-shutdown',
   'agent-runs-v1',
+  'agent-argv-v1',
   'agent-hooks-v1',
   'agent-input-v1',
   ATTENTION_INBOX_CAPABILITY
@@ -390,12 +394,13 @@ export class TerminalDaemon {
     command: string,
     requestedProviderId: AgentProviderId | undefined,
     cols: number,
-    rows: number
+    rows: number,
+    launch?: AgentExecutable
   ): { run: RunningAgent; session: TerminalSession } {
     if (!command.trim() || command.includes('\0') || Buffer.byteLength(command) > MAX_AGENT_COMMAND_BYTES) {
       throw new Error('agent command is empty or invalid')
     }
-    const inferredProvider = agentProviderForCommand(command)
+    const inferredProvider = launch ? agentProviderForExecutable(launch.executable) : agentProviderForCommand(command)
     if (requestedProviderId && inferredProvider?.id !== requestedProviderId) {
       throw new Error('agent provider does not match the exact command')
     }
@@ -413,6 +418,7 @@ export class TerminalDaemon {
     }
     const launchPlan = createAgentLaunchPlan({
       command,
+      ...(launch ? { launch } : {}),
       provider,
       binding,
       emitterCommand: this.emitterCommand,
@@ -421,6 +427,7 @@ export class TerminalDaemon {
     })
     const now = new Date().toISOString()
     const run: RunningAgent = {
+      ...(launch ? { launch: structuredClone(launch) } : {}),
       id: runId,
       sessionId,
       workspacePath: cwd,
@@ -448,7 +455,8 @@ export class TerminalDaemon {
     try {
       const session = this.pty.openAgent(cwd, launchPlan.command, cols, rows, {
         id: sessionId,
-        env: launchPlan.env
+        env: launchPlan.env,
+        launch: launchPlan.launch
       })
       this.sequence.set(session.id, 0)
       record.run = { ...record.run, activity: 'working', updatedAt: new Date().toISOString() }
@@ -541,7 +549,8 @@ export class TerminalDaemon {
             String(message['command'] ?? ''),
             providerId,
             Number(message['cols'] ?? 100),
-            Number(message['rows'] ?? 30)
+            Number(message['rows'] ?? 30),
+            message['launch'] === undefined ? undefined : parseAgentExecutable(message['launch'])
           )
           reply(true, result)
           break

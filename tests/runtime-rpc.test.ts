@@ -89,7 +89,8 @@ describe('local RPC authority', () => {
       },
       terminals: undefined,
       agents: {
-        listAgents: () => [{ id: 'codex', available: true }]
+        listAgents: () => [{ id: 'codex', available: true }],
+        start: async (...args: unknown[]) => { observed.agentStart = args; return {} }
       },
       deliverAgentAttachment: async (value: unknown) => { observed.delivery = value; return { submitted: false } },
       skills: {
@@ -121,6 +122,13 @@ describe('local RPC authority', () => {
     const server = new RuntimeRpcServer(socketPath, join(directory, 'runtime.json'), 'token', deps)
     try {
       await server.start()
+      const launch = { executable: '/native agent', args: ['two words', '', '$(literal)'] }
+      expect(await request(socketPath, 'token', 'agent.start', { workspacePath: directory, launch })).toMatchObject({ ok: true })
+      expect(observed.agentStart).toEqual([directory, launch])
+      expect(await request(socketPath, 'token', 'agent.start', { workspacePath: directory, launch, command: 'other' })).toMatchObject({ ok: false })
+      expect(await request(socketPath, 'token', 'agent.start', { workspacePath: directory, launch: { ...launch, env: {} } })).toMatchObject({ ok: false })
+      expect(await request(socketPath, 'token', 'agent.start', { workspacePath: directory })).toMatchObject({ ok: false })
+      expect(observed.agentStart).toEqual([directory, launch])
       expect(await request(socketPath, 'token', 'tool.list', { workspacePath: directory })).toMatchObject({ ok: true, result: [] })
       expect(await request(socketPath, 'token', 'tool.start', { workspacePath: directory, id: 'fixture', program: '/bin/sh' })).toMatchObject({ ok: false, code: 'INVALID_ARGUMENTS' })
       expect(await request(socketPath, 'token', 'tool.call', { workspacePath: directory, id: 'fixture', operation: 'search', arguments: { query: 'hello' } })).toMatchObject({ ok: true })

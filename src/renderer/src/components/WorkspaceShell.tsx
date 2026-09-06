@@ -105,7 +105,14 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           })}
           {navigation.hiddenPaths.length > 0 && <button className="workspace-add-checkout" onClick={() => state().restoreWorkspace()}>Show hidden checkouts ({navigation.hiddenPaths.length})</button>}
         </div>
-        <div className="workspace-project-footer"><span>On your computer</span><button className="workspace-icon-control" aria-label="Refresh projects" onClick={() => dispatchAppCommand('refresh-workspace')}><Icon name="refresh" size={14} /></button></div>
+        <div className="workspace-project-footer">
+          <div className="workspace-project-status">
+            <span>{activePath ? selectedRepo?.repo.kind === 'folder' ? 'Local folder' : status?.conflicts ? `${status.conflicts} conflicts` : changed === null ? 'Reading changes…' : changed === 0 ? 'Working tree clean' : `${changed} changed ${changed === 1 ? 'file' : 'files'}` : 'On your computer'}</span>
+            {scan && <span title="Processes in this checkout">{scan.memMB} MB · {scan.cpuPercent}% CPU</span>}
+            {scan?.ports.map(port => <button key={port.port} title={`${port.command} — open preview`} onClick={() => activePath && void state().openBrowser(activePath, `http://localhost:${port.port}`)}><Icon name="globe" size={12} />Preview :{port.port}</button>)}
+          </div>
+          <button className="workspace-icon-control" aria-label="Refresh projects" onClick={() => dispatchAppCommand('refresh-workspace')}><Icon name="refresh" size={14} /></button>
+        </div>
         <div className="workspace-project-resize" role="separator" aria-label="Resize project navigation" aria-orientation="vertical" aria-valuemin={220} aria-valuemax={340} aria-valuenow={Math.round(Math.min(340, Math.max(220, sidebarWidth)))} tabIndex={0}
           onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId) }}
           onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) state().setSidebarWidth(Math.min(340, Math.max(220, event.clientX - event.currentTarget.parentElement!.getBoundingClientRect().left))) }}
@@ -114,12 +121,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       </aside>}
       <div className="workspace-desk">
         <div className="workspace-surfaces">{children}</div>
-        <footer className="workspace-footing">
-          <span>{activePath ? selectedRepo?.repo.kind === 'folder' ? 'Local folder' : status?.conflicts ? `${status.conflicts} conflicts` : changed === null ? 'Reading changes…' : changed === 0 ? 'Working tree clean' : `${changed} changed ${changed === 1 ? 'file' : 'files'}` : 'Local workspace'}</span>
-          <div className="workspace-footing-spacer" />
-          {scan?.ports.map(port => <button key={port.port} title={`${port.command} — open preview`} onClick={() => activePath && void state().openBrowser(activePath, `http://localhost:${port.port}`)}><Icon name="globe" size={12} />:{port.port}</button>)}
-          {scan && <span title="Processes in this checkout">{scan.memMB} MB · {scan.cpuPercent}% CPU</span>}
-        </footer>
       </div>
     </div>
   </>

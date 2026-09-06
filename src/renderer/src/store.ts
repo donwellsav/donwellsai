@@ -1,3 +1,4 @@
+import type { AgentExecutable } from '@shared/agent-runtime'
 import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
 import { projectRemovalBlockers } from './project-removal'
@@ -326,7 +327,7 @@ type AppState = {
   refreshScan(worktreePath: string): Promise<void>
 
   focusAgentSession(sessionId: string): Promise<boolean>
-  runAgent(worktreePath: string, command: string): Promise<{ ok: true } | { ok: false; error: string }>
+  runAgent(worktreePath: string, command: string | AgentExecutable): Promise<{ ok: true } | { ok: false; error: string }>
   stopAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
   dismissAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
 
@@ -503,6 +504,7 @@ function activateTerminalSession(state: AppState, session: TerminalSession): Par
     activePane: { ...state.activePane, [worktreePath]: key },
     activeTerminal: { ...state.activeTerminal, [worktreePath]: session.id },
     activeWorktreePath: worktreePath,
+    ...(state.docking[worktreePath]?.hidden.includes(key) ? { docking: { ...state.docking, [worktreePath]: { ...state.docking[worktreePath]!, hidden: state.docking[worktreePath]!.hidden.filter(item => item !== key) } } } : {}),
     error: null
   }
 }
@@ -1738,15 +1740,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async runAgent(worktreePath: string, command: string) {
-    const trimmed = command.trim()
+  async runAgent(worktreePath: string, command: string | AgentExecutable) {
+    const trimmed = typeof command === 'string' ? command.trim() : command
     if (!trimmed) {
       const error = 'Enter an agent command.'
       set({ error })
       return { ok: false as const, error }
     }
     try {
-      const result = await window.donwells.agentStart(worktreePath, trimmed)
+      const preset = typeof trimmed === 'string' ? get().agents.find(agent => agent.command === trimmed && agent.executablePath) : undefined
+      const result = await window.donwells.agentStart(worktreePath, preset?.executablePath ? { executable: preset.executablePath, args: [] } : trimmed)
       set((state) => ({
         ...activateTerminalSession(state, result.session),
         runningAgents: { ...state.runningAgents, [result.run.sessionId]: result.run },

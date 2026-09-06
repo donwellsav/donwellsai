@@ -1,9 +1,11 @@
+import { parseAgentExecutable } from '@shared/agent-runtime'
 import { createConnection, type Socket } from 'node:net'
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import type {
   AgentProviderId,
+  AgentExecutable,
   AgentStartResult,
   RunningAgent
 } from '@shared/agent-runtime'
@@ -113,7 +115,7 @@ function isRunningAgent(value: unknown): value is RunningAgent {
 
 function requireRunningAgent(value: unknown): RunningAgent {
   if (!isRunningAgent(value)) throw new Error('terminal daemon returned an invalid agent record')
-  return structuredClone(value)
+  return { ...structuredClone(value), ...(value.launch === undefined ? {} : { launch: parseAgentExecutable(value.launch) }) }
 }
 
 export class DaemonClient {
@@ -414,15 +416,18 @@ export class DaemonClient {
     cwd: string,
     command: string,
     providerId?: AgentProviderId,
+    launch?: AgentExecutable,
     cols = 100,
     rows = 30
   ): Promise<AgentStartResult> {
+    if (launch) await this.requireCapability('agent-argv-v1', 'starting an agent with explicit arguments')
     await this.requireCapability(AGENT_RUNS, 'starting an agent run')
     await this.requireCapability(SEQUENCED_OUTPUT, 'starting an agent run')
     const response = await this.request<{ run: unknown; session: TerminalSession }>('agent.open', {
       cwd,
       command,
       ...(providerId ? { providerId } : {}),
+      ...(launch ? { launch } : {}),
       cols,
       rows
     })

@@ -30,6 +30,8 @@ export function AgentsSection() {
   const stopAgent = useAppStore((state) => state.stopAgent)
   const dismissAgent = useAppStore((state) => state.dismissAgent)
   const [command, setCommand] = useState(defaultCommand)
+  const [directLaunch, setDirectLaunch] = useState(false)
+  const [args, setArgs] = useState<string[]>([])
   const [commandTouched, setCommandTouched] = useState(false)
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
@@ -48,7 +50,7 @@ export function AgentsSection() {
     [presets]
   )
   const unavailablePresets = useMemo(() => presets.filter((preset) => !preset.available), [presets])
-  const selectedPreset = availablePresets.find((preset) => preset.command === command.trim())
+  const selectedPreset = availablePresets.find((preset) => preset.command === command.trim() || preset.executablePath === command.trim())
 
   useEffect(() => {
     if (!commandTouched) setCommand(defaultCommand)
@@ -82,7 +84,7 @@ export function AgentsSection() {
     setLaunching(true)
     setLaunchError(null)
     try {
-      const result = await runAgent(targetPath, trimmed)
+      const result = await runAgent(targetPath, directLaunch ? { executable: trimmed, args } : trimmed)
       if (!result.ok) {
         setLaunchError(result.error)
         return
@@ -112,7 +114,7 @@ export function AgentsSection() {
     setOperation(key)
     setSessionError(run.sessionId, null)
     try {
-      const result = await runAgent(run.workspacePath, run.command)
+      const result = await runAgent(run.workspacePath, run.launch ?? run.command)
       if (!result.ok) {
         setSessionError(run.sessionId, result.error)
         return
@@ -153,7 +155,7 @@ export function AgentsSection() {
             <h3 id="agent-launcher-title">Start an agent</h3>
             <p>Choose an installed harness, verify the exact project, then start it in a real retained terminal.</p>
           </div>
-          <span className="agent-harness-count">{availablePresets.length} available</span>
+          <span className="agent-harness-count">{availablePresets.length} installed</span>
         </div>
 
         <div className={`agent-launch-target${targetPath ? '' : ' is-missing'}`}>
@@ -175,12 +177,14 @@ export function AgentsSection() {
                 aria-checked={selectedPreset?.id === preset.id}
                 className={selectedPreset?.id === preset.id ? 'is-selected' : ''}
                 onClick={() => {
-                  setCommand(preset.command)
+                  setCommand(preset.executablePath ?? preset.command)
+                  setDirectLaunch(true)
+                  setArgs([])
                   setCommandTouched(true)
                   setLaunchError(null)
                 }}
               >
-                <span><strong>{preset.name}</strong><small>{preset.hookSupport.support === 'native' ? 'Live activity' : 'Process status'}</small></span>
+                <span><strong>{preset.name}</strong><small>{preset.hookSupport.support === 'native' ? 'Hook adapter available' : 'Process status only'}</small></span>
                 <code>{preset.command}</code>
               </button>
             ))}
@@ -193,11 +197,13 @@ export function AgentsSection() {
         )}
 
         {unavailablePresets.length > 0 && (
-          <p className="agent-unavailable">Not installed: {unavailablePresets.map((preset) => preset.name).join(', ')}</p>
+          <p className="agent-unavailable">Not found on PATH: {unavailablePresets.map((preset) => preset.name).join(', ')}</p>
         )}
 
+        {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Shared memory not connected</p>}
+        <label><input type="checkbox" checked={directLaunch} onChange={(event) => setDirectLaunch(event.currentTarget.checked)} /> Pass arguments separately</label>
         <label className="agent-command-field" htmlFor="agent-launch-command">
-          <span>Command</span>
+          <span>{directLaunch ? 'Executable' : 'Shell command'}</span>
           <input
             id="agent-launch-command"
             className="input"
@@ -205,7 +211,7 @@ export function AgentsSection() {
             maxLength={4096}
             spellCheck={false}
             autoComplete="off"
-            placeholder="Agent executable and arguments"
+            placeholder={directLaunch ? 'Executable name or full path' : 'Agent executable and arguments'}
             onChange={(event) => {
               setCommand(event.currentTarget.value)
               setCommandTouched(true)
@@ -213,6 +219,17 @@ export function AgentsSection() {
             }}
           />
         </label>
+        {directLaunch && <div className="agent-command-field">
+          <span>Arguments — one per field, no shell quoting</span>
+          {args.map((arg, index) => <div key={index} className="agent-launcher-actions">
+            <input className="input" aria-label={`Argument ${index + 1}`} value={arg} maxLength={4096} spellCheck={false} autoComplete="off" onChange={(event) => {
+              const value = event.currentTarget.value
+              setArgs((current) => current.map((item, at) => at === index ? value : item))
+            }} />
+            <button type="button" className="btn btn-secondary" aria-label={`Remove argument ${index + 1}`} onClick={() => setArgs((current) => current.filter((_, at) => at !== index))}>Remove</button>
+          </div>)}
+          <button type="button" className="btn btn-secondary" disabled={args.length >= 256} onClick={() => setArgs((current) => [...current, ''])}>Add argument</button>
+        </div>}
 
         {launchError && <p className="op-inline-error" role="alert"><strong>Agent did not start.</strong><span>{launchError}</span></p>}
         <div className="agent-launcher-actions">

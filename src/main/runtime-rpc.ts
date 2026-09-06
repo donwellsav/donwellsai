@@ -1,3 +1,4 @@
+import { parseAgentExecutable } from '@shared/agent-runtime'
 import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
@@ -471,7 +472,8 @@ export class RuntimeRpcServer {
       case 'agent.list':
         return { agents: await this.deps.agents.list() }
       case 'agent.start':
-        return this.deps.agents.start(str('workspacePath'), str('command'))
+        if ((params['launch'] !== undefined) === (params['command'] !== undefined)) throw new Error('Supply exactly one of command or launch')
+        return this.deps.agents.start(str('workspacePath'), params['launch'] === undefined ? str('command') : parseAgentExecutable(params['launch']))
       case 'agent.interrupt':
         return this.deps.agents.interrupt(str('sessionId'))
       case 'agent.dismiss':

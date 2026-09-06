@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
-import type { AgentLiveness } from '@shared/agent-runtime'
+import type { AgentLiveness, AgentExecutable } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { windowsSystem32Binary } from '@shared/child-process/windows-system-binary'
@@ -19,6 +19,7 @@ export type PtyEvents = {
 }
 
 export type AgentPtyOptions = {
+  launch?: AgentExecutable
   id: string
   env: NodeJS.ProcessEnv
 }
@@ -123,8 +124,8 @@ export class PtyManager {
         'terminal daemon job capacity reached; reconcile or cancel an existing command job before launching another'
       )
     }
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command]
-    const session = this.spawn(cwd, cols, rows, args, { kind, id: options?.id, env: options?.env })
+    const args = options?.launch?.args ?? (process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command])
+    const session = this.spawn(cwd, cols, rows, args, { kind, id: options?.id, env: options?.env, executable: options?.launch?.executable })
     this.retainedSessions++
     return session
   }
@@ -134,7 +135,7 @@ export class PtyManager {
     cols: number,
     rows: number,
     args: string[],
-    options: { kind: Session['kind']; id?: string; env?: NodeJS.ProcessEnv }
+    options: { kind: Session['kind']; id?: string; env?: NodeJS.ProcessEnv; executable?: string }
   ): TerminalSession {
     const id = options.id ?? randomUUID()
     const env = sanitizedProcessEnv(process.env, {
@@ -148,7 +149,7 @@ export class PtyManager {
       TERM_PROGRAM_VERSION: undefined,
       TERM_SESSION_ID: undefined
     })
-    const executable = options.kind === 'terminal' ? this.shellPath : this.jobShellPath
+    const executable = options.executable ?? (options.kind === 'terminal' ? this.shellPath : this.jobShellPath)
     const proc = pty.spawn(executable, args, {
       name: 'xterm-256color',
       cols,

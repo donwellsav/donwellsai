@@ -1,16 +1,16 @@
 {
-  "startedAt": "2026-09-06T03:36:07.916Z",
+  "startedAt": "2026-09-06T03:49:26.413Z",
   "source": {
-    "commit": "1489614d48b90d20782e1a8df7b4a49c3a45ecd4",
+    "commit": "54bd43eb728a33a6d11bb53ed512f8653a0423da",
     "dirty": true,
-    "contentHash": "8483838be70b1e0642b10e2c190c868bb9b7b31786999257e76d41de84a6c73e"
+    "contentHash": "2ef387d90b10b067904b9501c2822fa3629360e7dcc851978b42a347ef200eb2"
   },
   "artifact": {
     "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
-    "asarSha256": "e51a8f8d1f0c451b5b5f6e1e42fcf2b544ac6687bbf27348aa391b14ab4eaf84"
+    "asarSha256": "95b58e931e76337e9387c0be597d5b414dd7e384e1798db1bade16f0e9eaeb00"
   },
-  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-8f26Ir",
-  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-LYtv3V",
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-E91h8y",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-doa9V6",
   "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
   "checks": {
     "admittedToolRegistry": true,
@@ -62,21 +62,8 @@
             "x": 231,
             "y": 0,
             "width": 409,
-            "height": 354,
+            "height": 384,
             "top": 0,
-            "right": 640,
-            "bottom": 354,
-            "left": 231
-          }
-        },
-        {
-          "name": "workspace-footing",
-          "rect": {
-            "x": 231,
-            "y": 354,
-            "width": 409,
-            "height": 30,
-            "top": 354,
             "right": 640,
             "bottom": 384,
             "left": 231
@@ -84,11 +71,17 @@
         }
       ]
     },
+    "terminalWorkspaceUsesFullHeight": true,
     "keyboardControlsAt200Percent": true,
     "editorUndoRedoSurvives100Moves": true,
     "unsavedEditorRetainsDomAndContentAcross100Moves": true,
     "crashRestartRetainsHiddenLayoutUnsavedDraftAndSessions": true,
     "filesChangesMemoryRecoveryDockWithoutNewProcesses": true,
+    "nativeArgvFromLauncher": {
+      "sessionId": "cc9c69db-45f9-4d59-bff9-7195de486986",
+      "exitCode": 0,
+      "literalArgumentsPreserved": true
+    },
     "idleDaemonStopped": true
   },
   "errors": [],
@@ -96,5 +89,5 @@
     "VoiceOver speech/navigation needs native manual qualification.",
     "This exercises the workspace shell, not all six completed product journeys."
   ],
-  "durationMs": 11266.468209
+  "durationMs": 11934.454833
 }

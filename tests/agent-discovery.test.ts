@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AGENT_PROVIDER_IDS, agentProviderForCommand } from '../src/shared/agent-runtime'
+import { AGENT_PROVIDER_IDS, agentProviderForCommand, agentProviderForExecutable, parseAgentExecutable } from '../src/shared/agent-runtime'
 import { AgentRegistry } from '../src/main/agents/registry'
 
 const directories: string[] = []
@@ -15,7 +15,7 @@ describe('agent registry discovery', () => {
   it('reports every supported preset while resolving only executable PATH entries', () => {
     const bin = mkdtempSync(join(tmpdir(), 'donwells-agent-bin-'))
     directories.push(bin)
-    for (const name of ['codex', 'omp']) {
+    for (const name of ['codex', 'omp', 'hermes', 'kimi', 'dsh']) {
       const executable = join(bin, name)
       writeFileSync(executable, '#!/bin/sh\nexit 99\n', 'utf8')
       chmodSync(executable, 0o755)
@@ -35,6 +35,7 @@ describe('agent registry discovery', () => {
       skillConsumer: { supported: false }
     })
     expect(presets.find((preset) => preset.id === 'claude')).toMatchObject({ available: false })
+    for (const id of ['hermes', 'kimi', 'deepseek-harness']) expect(presets.find(preset => preset.id === id)).toMatchObject({ readiness: { installed: true, launchable: 'unverified', authenticated: 'unknown', memoryConnected: false } })
   })
 
   it('only assigns provider authority to an exact preset command', () => {
@@ -42,4 +43,11 @@ describe('agent registry discovery', () => {
     expect(agentProviderForCommand('opencode --continue')).toBeUndefined()
     expect(agentProviderForCommand('opencode; echo unsafe')).toBeUndefined()
   })
+})
+
+it('validates literal argument lists and identifies executables in spaced paths', () => {
+  const launch = { executable: '/tools/agent bins/名字/kimi', args: ['', 'two words', '$(never executed)', '; literal', 'é'] }
+  expect(parseAgentExecutable(launch)).toEqual(launch)
+  expect(agentProviderForExecutable(launch.executable)?.id).toBe('kimi')
+  for (const invalid of [{ executable: '' }, { executable: 'kimi', args: [1] }, { executable: 'kimi', args: ['bad\0'] }, { executable: 'kimi', env: {} }]) expect(() => parseAgentExecutable(invalid)).toThrow()
 })

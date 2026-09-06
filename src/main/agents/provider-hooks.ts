@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
+  AgentExecutable,
   AgentHookEventKind,
   AgentHookSupport,
   AgentProviderDefinition
@@ -23,6 +24,7 @@ export type AgentHookBinding = {
 }
 
 export type AgentLaunchPlan = {
+  launch?: AgentExecutable
   command: string
   env: NodeJS.ProcessEnv
   hookSupport: AgentHookSupport
@@ -104,6 +106,7 @@ function opencodePluginSource(emitterCommand: readonly string[]): string {
 
 /** Build only per-run overrides; never mutate project or user provider settings. */
 export function createAgentLaunchPlan(options: {
+  launch?: AgentExecutable
   command: string
   provider?: AgentProviderDefinition
   binding: AgentHookBinding
@@ -113,6 +116,10 @@ export function createAgentLaunchPlan(options: {
   platform?: NodeJS.Platform
 }): AgentLaunchPlan {
   const platform = options.platform ?? process.platform
+  const base = { command: options.command, ...(options.launch ? { launch: options.launch } : {}) }
+  const withArguments = (args: string[]) => options.launch
+    ? { ...base, launch: { executable: options.launch.executable, args: [...options.launch.args, ...args] } }
+    : { command: appendArguments(options.command, args, platform) }
   const env: NodeJS.ProcessEnv = {
     [AGENT_HOOK_ENV.socket]: options.binding.socketPath,
     [AGENT_HOOK_ENV.runId]: options.binding.runId,
@@ -122,7 +129,7 @@ export function createAgentLaunchPlan(options: {
   const noCleanup = (): void => {}
   if (!options.provider) {
     return {
-      command: options.command,
+      ...base,
       env,
       hookSupport: unavailableAgentHooks('No documented provider hook adapter matched this exact command.'),
       cleanup: noCleanup
@@ -131,11 +138,7 @@ export function createAgentLaunchPlan(options: {
 
   if (options.provider.id === 'codex') {
     return {
-      command: appendArguments(
-        options.command,
-        codexHookArguments(options.emitterCommand, platform),
-        platform
-      ),
+      ...withArguments(codexHookArguments(options.emitterCommand, platform)),
       env,
       hookSupport: { ...options.provider.hookSupport, events: [...options.provider.hookSupport.events] },
       cleanup: noCleanup
@@ -144,11 +147,7 @@ export function createAgentLaunchPlan(options: {
 
   if (options.provider.id === 'claude') {
     return {
-      command: appendArguments(
-        options.command,
-        claudeHookArguments(options.emitterCommand, platform),
-        platform
-      ),
+      ...withArguments(claudeHookArguments(options.emitterCommand, platform)),
       env,
       hookSupport: { ...options.provider.hookSupport, events: [...options.provider.hookSupport.events] },
       cleanup: noCleanup
@@ -157,7 +156,7 @@ export function createAgentLaunchPlan(options: {
 
   if (options.provider.id !== 'opencode') {
     return {
-      command: options.command,
+      ...base,
       env,
       hookSupport: { ...options.provider.hookSupport, events: [] },
       cleanup: noCleanup
@@ -166,7 +165,7 @@ export function createAgentLaunchPlan(options: {
 
   if (options.inheritedEnv?.['OPENCODE_CONFIG_DIR']) {
     return {
-      command: options.command,
+      ...base,
       env,
       hookSupport: unavailableAgentHooks(
         'The existing OPENCODE_CONFIG_DIR was preserved; a per-run plugin was not injected.'
@@ -187,7 +186,7 @@ export function createAgentLaunchPlan(options: {
   })
   env['OPENCODE_CONFIG_DIR'] = configDir
   return {
-    command: options.command,
+    ...base,
     env,
     hookSupport: { ...options.provider.hookSupport, events: [...options.provider.hookSupport.events] },
     cleanup: () => rmSync(configDir, { recursive: true, force: true })

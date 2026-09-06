@@ -43,12 +43,11 @@
 .workspace-project-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding: 8px 12px 8px 18px; font-size: 10px; color: var(--muted-fg); }
 .workspace-desk { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--background); }
 .workspace-surfaces { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.workspace-footing { min-height: 30px; padding: 6px 14px; display: flex; gap: 15px; align-items: center; border-top: 1px solid var(--border); font: 10px var(--font-mono); color: var(--muted-fg); }
-.workspace-footing button { display: inline-flex; gap: 5px; align-items: center; }
-.workspace-footing-spacer { flex: 1; }
+.workspace-project-status { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.workspace-project-status button { display: inline-flex; gap: 5px; align-items: center; }
 .workspace-frame button:focus-visible, .workspace-frame summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 @media (max-width: 1000px) { .workspace-projects { min-width: 175px; flex-basis: 190px; } }
-@media (max-width: 700px) { .workspace-projects { min-width: 145px; width: 175px !important; flex-basis: 175px !important; max-width: 30vw; } .workspace-rail { width: 56px; flex-basis: 56px; } .workspace-rail > button { width: 40px; } .workspace-project-resize { display: none; } .workspace-surfaces .right-sidebar { position: absolute; inset: 0 0 0 auto; width: min(100%, 320px) !important; min-width: 0; max-width: 100%; z-index: 30; } .workspace-footing { flex-wrap: wrap; } }
+@media (max-width: 700px) { .workspace-projects { min-width: 145px; width: 175px !important; flex-basis: 175px !important; max-width: 30vw; } .workspace-rail { width: 56px; flex-basis: 56px; } .workspace-rail > button { width: 40px; } .workspace-project-resize { display: none; } .workspace-surfaces .right-sidebar { position: absolute; inset: 0 0 0 auto; width: min(100%, 320px) !important; min-width: 0; max-width: 100%; z-index: 30; } }
 @media (prefers-reduced-motion: reduce) { .workspace-frame * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 
 .workspace-project-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 25; touch-action: none; }

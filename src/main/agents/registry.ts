@@ -50,6 +50,7 @@ export class AgentRegistry {
       return {
         ...provider,
         available: executablePath !== undefined,
+        readiness: { installed: executablePath !== undefined, launchable: executablePath ? 'unverified' : 'unavailable', authenticated: 'unknown', memoryConnected: false },
         ...(executablePath ? { executablePath } : {}),
         hookSupport: { ...provider.hookSupport, events: [...provider.hookSupport.events] },
         skillConsumer: { ...provider.skillConsumer }

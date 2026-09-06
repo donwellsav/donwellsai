@@ -122,10 +122,14 @@ try {
   await delay(250)
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
   await capture('workspace-200-percent.png')
-  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-rail, .workspace-desk, .workspace-docking-body, .workspace-footing')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
+  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-rail, .workspace-desk, .workspace-docking-body')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
   for (const { name, rect } of report.checks.zoomLayout.elements) {
     assert(rect.width > 0 && rect.height > 0 && rect.right <= report.checks.zoomLayout.width + 1 && rect.bottom <= report.checks.zoomLayout.height + 1, `${name} is clipped at 200%`)
   }
+  const terminalArea = report.checks.zoomLayout.elements.find(element => element.name === 'workspace-docking-body').rect
+  assert.equal(terminalArea.top, 0)
+  assert.equal(terminalArea.bottom, report.checks.zoomLayout.height)
+  report.checks.terminalWorkspaceUsesFullHeight = true
   for (const name of ['Find a command', 'Terminal', 'Add agent', 'Recover unsaved files']) {
     const button = page.getByRole('button', { name, exact: true })
     await button.focus()
@@ -200,6 +204,26 @@ try {
   }
   assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
   report.checks.filesChangesMemoryRecoveryDockWithoutNewProcesses = true
+  await page.getByRole('button', { name: 'Add agent', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
+  await page.getByLabel('Executable', { exact: true }).fill('/usr/bin/printf')
+  const nativeArgs = ['%s\\n', 'two words', '', '$(not-a-command); 世界']
+  for (let index = 0; index < nativeArgs.length; index++) {
+    await page.getByRole('button', { name: 'Add argument', exact: true }).click()
+    await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(nativeArgs[index])
+  }
+  await page.getByRole('button', { name: 'Start agent & open terminal', exact: true }).click()
+  let nativeRun
+  await until(async () => {
+    nativeRun = (await invoke('agent.list')).agents.find(run => run.launch?.executable === '/usr/bin/printf')
+    return nativeRun?.liveness === 'exited'
+  }, 'native argv process exit')
+  assert.equal(nativeRun.exitCode, 0)
+  assert.deepEqual(nativeRun.launch.args, nativeArgs)
+  const output = await page.evaluate(async id => (await window.donwells.attachTerminal(id)).scrollback, nativeRun.sessionId)
+  assert(output.replaceAll('\r', '').includes('two words\n\n$(not-a-command); 世界\n'))
+  report.checks.nativeArgvFromLauncher = { sessionId: nativeRun.sessionId, exitCode: nativeRun.exitCode, literalArgumentsPreserved: true }
+  await invoke('agent.dismiss', { sessionId: nativeRun.sessionId })
   assert.deepEqual(report.errors, [])
 } catch (error) { report.failure = error.message; process.exitCode = 1 }
 finally {

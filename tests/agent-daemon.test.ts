@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { symlinkSync, existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -244,4 +244,22 @@ describe('daemon-owned finite agent runs', () => {
     expect(await daemon.stopIfIdle()).toBe(true)
     daemons.splice(daemons.indexOf(daemon), 1)
   }, 15_000)
+})
+
+it('runs explicit executable arguments literally through a real PTY', async () => {
+  const { daemon, userDataDir, workspacePath } = await disposableDaemon()
+  const capture = eventCapture(), client = daemonClient(userDataDir, capture.events)
+  const executable = join(workspacePath, 'native agent 节点')
+  symlinkSync(process.execPath, executable)
+  const sentinel = join(workspacePath, 'must-not-exist')
+  const args = ['two words', '', `$(touch ${sentinel})`, '; punctuation', 'é 世界']
+  const launch = { executable, args: ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', '--', ...args] }
+  const started = await client.startAgent(workspacePath, JSON.stringify(launch), undefined, launch)
+  const run = await waitForAgent(client, started.run.sessionId, current => current.liveness === 'exited')
+  expect(run.exitCode).toBe(0)
+  const attached = await client.attach(started.run.sessionId)
+  expect(attached.scrollback).toContain(JSON.stringify(args))
+  expect(existsSync(sentinel)).toBe(false)
+  await client.dismissAgent(started.run.sessionId)
+  await daemon.stopIfIdle()
 })

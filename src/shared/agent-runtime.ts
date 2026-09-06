@@ -8,7 +8,10 @@ export const AGENT_PROVIDER_IDS = [
   'cursor-agent',
   'qwen-code',
   'goose',
-  'omp'
+  'omp',
+  'hermes',
+  'kimi',
+  'deepseek-harness'
 ] as const
 
 export type AgentProviderId = (typeof AGENT_PROVIDER_IDS)[number]
@@ -55,11 +58,13 @@ export type AgentPreset = {
   command: string
   available: boolean
   executablePath?: string
+  readiness?: { installed: boolean; launchable: 'unverified' | 'unavailable'; authenticated: 'unknown'; memoryConnected: false }
   hookSupport: AgentHookSupport
   skillConsumer: AgentSkillConsumer
 }
 
 export type RunningAgent = {
+  launch?: AgentExecutable
   id: string
   sessionId: string
   workspacePath: string
@@ -174,7 +179,23 @@ export const AGENT_PROVIDER_DEFINITIONS: readonly AgentProviderDefinition[] = [
     command: 'omp',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
     skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
-  }
+  },
+  {
+    id: 'hermes', name: 'Hermes', command: 'hermes',
+    hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+  },
+  {
+    id: 'kimi', name: 'Kimi CLI', command: 'kimi',
+    hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+  },
+  {
+    id: 'deepseek-harness', name: 'DeepSeek Harness', command: 'dsh',
+    hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+  },
+
 ]
 
 const AGENT_HOOK_KINDS: Record<AgentHookEventKind, true> = {
@@ -206,10 +227,24 @@ export function normalizeAgentHookMessage(value: unknown): AgentHookMessage | nu
 export function agentProviderForCommand(command: string): AgentProviderDefinition | undefined {
   const trimmed = command.trim()
   if (!trimmed || /[\s;&|<>`$]/.test(trimmed)) return undefined
-  const executable = trimmed.split(/[\\/]/).at(-1)?.replace(/\.(?:cmd|bat|exe)$/i, '').toLowerCase()
-  return AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.command === executable)
+  return agentProviderForExecutable(trimmed)
 }
 
 export function unavailableAgentHooks(reason: string): AgentHookSupport {
   return { support: 'unavailable', events: [], reason }
+}
+
+/** Explicit argv bypasses shell parsing; legacy command strings remain a separate path. */
+export type AgentExecutable = { executable: string; args: string[] }
+export function parseAgentExecutable(value: unknown): AgentExecutable {
+  if (!isRecord(value) || Object.keys(value).some(key => key !== 'executable' && key !== 'args') || typeof value.executable !== 'string' || !value.executable.trim() || value.executable.includes('\0')) throw new Error('Invalid agent executable')
+  const args = value.args ?? []
+  if (!Array.isArray(args) || args.length > 256 || args.some(arg => typeof arg !== 'string' || arg.includes('\0'))) throw new Error('Invalid agent arguments')
+  if (new TextEncoder().encode(JSON.stringify([value.executable, args])).length > 16 * 1024) throw new Error('Agent executable and arguments exceed limit')
+  return { executable: value.executable, args: [...args] }
+}
+
+export function agentProviderForExecutable(path: string): AgentProviderDefinition | undefined {
+  const name = path.split(/[\\/]/).at(-1)?.replace(/\.(?:cmd|bat|exe)$/i, '').toLowerCase()
+  return AGENT_PROVIDER_DEFINITIONS.find(provider => provider.command === name)
 }

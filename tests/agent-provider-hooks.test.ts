@@ -113,3 +113,13 @@ describe('provider hook launch plans', () => {
     })
   })
 })
+
+it('appends native hooks to argv without interpreting user arguments', () => {
+  const launch = { executable: '/Applications/My Tools/codex', args: ['--model', 'literal $(value)'] }
+  const plan = createAgentLaunchPlan({ command: JSON.stringify(launch), launch, provider: provider('codex'), binding, emitterCommand: ['/runtime/emitter'], runtimeDir: runtimeDirectory(), platform: 'darwin' })
+  expect(plan.launch?.executable).toBe(launch.executable)
+  expect(plan.launch?.args.slice(0, 2)).toEqual(launch.args)
+  expect(plan.launch?.args[2]).toBe('-c')
+  expect(plan.hookSupport.support).toBe('native')
+  plan.cleanup()
+})

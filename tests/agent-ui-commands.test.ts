@@ -399,8 +399,11 @@ describe('native agent state', () => {
     expect(focused.activePane[feature]).toBe('term:cli-agent')
     expect(focused.panes[feature]).toHaveLength(1)
     expect(focused.runsOpen).toBe(false)
+    focused.hidePaneView(feature, 'term:cli-agent')
+    expect(useAppStore.getState().docking[feature]?.hidden).toEqual(['term:cli-agent'])
     await focused.focusAgentSession(session.id)
     expect(useAppStore.getState().panes[feature]).toHaveLength(1)
+    expect(useAppStore.getState().docking[feature]?.hidden).toEqual([])
 
     const pending = Promise.withResolvers<TerminalSession[]>()
     window.donwells.terminalSessions = () => pending.promise

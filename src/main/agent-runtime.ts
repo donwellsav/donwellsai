@@ -1,3 +1,4 @@
+import { parseAgentExecutable, agentProviderForExecutable, type AgentExecutable } from '@shared/agent-runtime'
 import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
@@ -86,17 +87,23 @@ export class AgentRuntime {
     this.cachedRuns.delete(sessionId)
   }
 
-  async start(workspacePath: string, command: string): Promise<AgentStartResult> {
-    const normalizedCommand = command.trim()
+  async start(workspacePath: string, command: string | AgentExecutable): Promise<AgentStartResult> {
+    const launch = typeof command === 'string' ? undefined : parseAgentExecutable(command)
+    if (launch) {
+      const executable = this.registry.findExecutable(launch.executable)
+      if (!executable) throw new Error('Agent executable is unavailable')
+      launch.executable = executable
+    }
+    const normalizedCommand = typeof command === 'string' ? command.trim() : JSON.stringify([launch!.executable, ...launch!.args])
     if (!normalizedCommand || normalizedCommand.includes('\0')) throw new Error('agent command is empty or invalid')
     if (normalizedCommand.length > MAX_AGENT_COMMAND_LENGTH) throw new Error('agent command exceeds limit')
     const registrations = await this.options.registeredWorkspaces()
     const cwd = validateAgentWorkspacePath(workspacePath, registrations)
-    const provider = this.registry.providerForCommand(normalizedCommand)
-    if (provider && !this.registry.findExecutable(normalizedCommand)) {
+    const provider = launch ? agentProviderForExecutable(launch.executable) : this.registry.providerForCommand(normalizedCommand)
+    if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
       throw new Error(`${provider.name} executable is unavailable`)
     }
-    const result = await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
+    const result = launch ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch) : await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
     this.observe(result.run)
     return structuredClone(result)
   }
@@ -148,7 +155,8 @@ export type AgentRuntimeDaemonContract = {
   startAgent: (
     cwd: string,
     command: string,
-    providerId?: AgentProviderId
+    providerId?: AgentProviderId,
+    launch?: AgentExecutable
   ) => Promise<AgentStartResult>
   listAgents: () => Promise<RunningAgent[]>
   interruptAgent: (sessionId: string) => Promise<RunningAgent>
