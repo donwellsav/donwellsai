@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, stat, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { parseArgs } from "node:util";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const readJson = async (path) => JSON.parse(await readFile(resolve(root, path), "utf8"));
@@ -65,3 +67,27 @@ for (const required of ["Copyright (c) 2026 Lovecast Inc.", "Permission is hereb
   assert(notices.includes(required), `third-party notice is missing: ${required}`);
 }
 console.log("Package identity, native unpacking, CLI, icons, and notices are ready.");
+
+// Compare actual shipped bytes, not just the packaging configuration.
+const { values } = parseArgs({ options: { resources: { type: 'string' } } });
+if (values.resources) {
+  const require = createRequire(import.meta.url);
+  const asar = require(require.resolve('@electron/asar', { paths: [require.resolve('electron-builder')] }));
+  const packaged = resolve(values.resources), archive = resolve(packaged, 'app.asar');
+  const files = async directory => (await readdir(resolve(root, directory), { recursive: true, withFileTypes: true }))
+    .filter(entry => entry.isFile() && entry.name !== '.DS_Store')
+    .map(entry => resolve(entry.parentPath, entry.name).slice(resolve(root, directory).length + 1));
+  const built = await files('out');
+  const shipped = asar.listPackage(archive).filter(name => name.startsWith('/out/') && !asar.statFile(archive, name.slice(1)).files).map(name => name.slice(5));
+  assert(JSON.stringify(built.sort()) === JSON.stringify(shipped.sort()), 'Packaged application file list differs from the current build');
+  for (const name of built) assert((await readFile(resolve(root, 'out', name))).equals(asar.extractFile(archive, 'out/' + name)), `Stale packaged application file: ${name}`);
+  let resourceCount = 0;
+  for (const { from, to } of config.extraResources) {
+    const names = (await stat(resolve(root, from))).isDirectory() ? await files(from) : [''];
+    for (const name of names) {
+      assert((await readFile(resolve(root, from, name))).equals(await readFile(resolve(packaged, to, name))), `Stale packaged resource: ${to}/${name}`);
+      resourceCount++;
+    }
+  }
+  console.log(`${built.length} application files and ${resourceCount} external resources match the current build.`);
+}
