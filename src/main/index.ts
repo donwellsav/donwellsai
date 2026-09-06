@@ -2,6 +2,7 @@ import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { ProjectTools, resolveProjectToolScope } from './project-tools'
+import { createCodeGraphDefinition } from './project-code-graph'
 import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
 import { configureAgentMemory } from './agents/project-memory-config'
@@ -506,7 +507,10 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
-  projectTools = new ProjectTools(resolveToolWorkspace, [])
+  const codeGraphBinary = process.env['DONWELLS_CODE_GRAPH_BINARY']
+  projectTools = new ProjectTools(resolveToolWorkspace, codeGraphBinary
+    ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'))]
+    : [])
   const handoffs = new ProjectHandoffService(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), git, agentRuntime)
   ipcMain.handle('projectHandoffExport', (_e, ...args: Parameters<IpcApi['projectHandoffExport']>) => handoffs.projectHandoffExport(...args))
   ipcMain.handle('projectHandoffList', (_e, ...args: Parameters<IpcApi['projectHandoffList']>) => handoffs.projectHandoffList(...args))

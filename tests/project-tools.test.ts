@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, rmSy
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProjectTools, resolveProjectToolScope, type ProjectToolDefinition } from '../src/main/project-tools'
+import { createCodeGraphDefinition } from '../src/main/project-code-graph'
+import { ProcessExecutionError } from '../src/shared/child-process/run-process'
 
 const owners: ProjectTools[] = []
 const directories: string[] = []
@@ -48,8 +50,56 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const definition: ProjectToolDefinition = { id: 'fixture', version: '1', scope, launch: () => ({ program: process.execPath, args: [script, mode, counter, writes] }), operations: { search: operation, get: operation, history: operation, export: operation, write: { ...operation, tool: 'write', readOnly: false } } }
   const tools = new ProjectTools(resolve, [definition], 150)
   owners.push(tools)
-  return { tools, project, checkout, other, resolve, counter, writes, deregister: () => { registered = false } }
+  return { tools, definition, project, checkout, other, resolve, counter, writes, deregister: () => { registered = false } }
 }
+
+it('deduplicates setup and cancels it before launching a native service', async () => {
+  const f = fixture()
+  let setups = 0
+  f.definition.prepare = async (_scope, signal) => {
+    setups++
+    await new Promise<void>((_resolve, reject) => {
+      if (signal.aborted) reject(new Error('Setup cancelled'))
+      else signal.addEventListener('abort', () => reject(new Error('Setup cancelled')), { once: true })
+    })
+  }
+  const first = f.tools.start(f.project, 'fixture').catch(error => error)
+  const second = f.tools.start(f.project, 'fixture').catch(error => error)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect(setups).toBe(1)
+  await f.tools.stop(f.project, 'fixture')
+  expect(await first).toBeInstanceOf(Error)
+  expect(await second).toBeInstanceOf(Error)
+  expect(() => readFileSync(f.counter)).toThrow()
+  expect((await f.tools.list(f.project))[0]?.status).toBe('stopped')
+})
+
+it('reports an unadmitted graph executable without launching it or creating its cache', async () => {
+  const f = fixture(), binary = join(f.project, 'unknown-binary'), cache = join(f.project, 'graph-cache')
+  writeFileSync(binary, 'unadmitted')
+  f.definition.prepare = createCodeGraphDefinition(binary, cache).prepare
+  await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow(/admitted|qualified/)
+  expect((await f.tools.list(f.project))[0]?.status).toBe('failed')
+  expect(() => readFileSync(f.counter)).toThrow()
+  expect(() => readFileSync(join(cache, 'config.json'))).toThrow()
+})
+
+it('retains an unverified setup termination across stop, restart and shutdown', async () => {
+  const f = fixture(), entered = Promise.withResolvers<void>()
+  f.definition.prepare = async (_scope, signal) => {
+    entered.resolve()
+    await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(new ProcessExecutionError('termination-unverified', 'Fixture termination unverified')), { once: true }))
+  }
+  const starting = f.tools.start(f.project, 'fixture').catch(error => error)
+  await entered.promise
+  await expect(f.tools.stop(f.project, 'fixture')).rejects.toMatchObject({ kind: 'termination-unverified' })
+  await starting
+  expect((await f.tools.list(f.project))[0]?.status).toBe('failed')
+  await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow('termination could not be verified')
+  await expect(f.tools.close()).rejects.toThrow('could not be stopped')
+  // This fixture never launched a process; its simulated failure deliberately remains quarantined.
+  owners.splice(owners.indexOf(f.tools), 1)
+})
 
 it('shares project identity across linked checkouts while isolating code indexes and unrelated projects', async () => {
   const f = fixture()

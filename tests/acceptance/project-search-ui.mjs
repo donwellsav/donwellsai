@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util'
 import { hash, sourceIdentity, validateOptions } from './workspace-baseline.mjs'
 import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 
-const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, playwright: { type: 'string' } } })
+const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, playwright: { type: 'string' }, 'code-graph-binary': { type: 'string' } } })
 assert(values.playwright)
 const { app: executable, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
@@ -17,10 +17,13 @@ writeFileSync(join(first, 'alpha.ts'), 'const first = 1\nconst second = 2\nconst
 writeFileSync(join(first, '.gitignore'), 'ignored.ts\n')
 writeFileSync(join(first, 'ignored.ts'), '// searchfixture ignored\n')
 writeFileSync(join(second, 'beta.ts'), '// searchfixture second project\n')
+if (values['code-graph-binary']) writeFileSync(join(first, 'graph.ts'), 'export function graphTarget() { return 1 }\nexport function graphCaller() { return graphTarget() }\n')
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)))
 const { callRuntime } = await import(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')))
 const invoke = async (method, params = {}) => { const response = await callRuntime(method, params, profile, 10000); assert(response.ok, response.error); return response.result }
 const env = { ...process.env, DONWELLS_USER_DATA: profile }
+if (values['code-graph-binary']) env.DONWELLS_CODE_GRAPH_BINARY = resolve(values['code-graph-binary'])
+else delete env.DONWELLS_CODE_GRAPH_BINARY
 delete env.ELECTRON_RUN_AS_NODE; delete env.DONWELLS_SMOKE; delete env.ELECTRON_RENDERER_URL
 const report = { source: sourceIdentity(), artifactSha256: hash(readFileSync(join(resources, 'app.asar'))) }
 let app, page
@@ -31,6 +34,17 @@ try {
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: first }); await invoke('repo.add', { dir: second })
+  if (values['code-graph-binary']) {
+    const scoped = { workspacePath: first, id: 'code-graph' }
+    const indexed = await invoke('tool.call', { ...scoped, operation: 'index', arguments: {} })
+    assert(!indexed.isError, JSON.stringify(indexed))
+    const response = await invoke('tool.call', { ...scoped, operation: 'callers', arguments: { function_name: 'graphTarget' } })
+    assert(!response.isError, JSON.stringify(response))
+    const result = response.structuredContent ?? JSON.parse(response.content[0].text)
+    assert.deepEqual(result.callers.groups.flatMap(group => group.rows.map(row => row[0])), ['graphCaller'])
+    report.packagedGraph = { indexed: indexed.structuredContent ?? JSON.parse(indexed.content[0].text), callers: result }
+    await invoke('tool.stop', scoped)
+  }
   await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
   await page.getByRole('button', { name: 'Content search', exact: true }).click()
   await page.evaluate(() => { window.searchEvents = []; window.donwells.on('project-search:hit', event => window.searchEvents.push(event)) })

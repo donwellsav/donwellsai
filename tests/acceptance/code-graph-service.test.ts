@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { ProjectTools, resolveProjectToolScope, type ProjectToolDefinition } from '../../src/main/project-tools'
+import { ProjectTools, resolveProjectToolScope } from '../../src/main/project-tools'
+import { createCodeGraphDefinition } from '../../src/main/project-code-graph'
 
 it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native graph clients to checkout hashes and preserves siblings on stop', async () => {
   const binary = realpathSync(process.env.DONWELLS_CODE_GRAPH_BINARY!)
@@ -16,15 +17,7 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     writeFileSync(join(path, 'code.ts'), `export function target() { return ${index} }\nexport function ${index ? 'secondCaller' : 'firstCaller'}() { return target() }\n`)
   }
   const resolveWorkspace = async (path: string) => { if (!paths.includes(path)) throw new Error('Unknown checkout'); return { path, projectPath: path } }
-  const text = (value: unknown) => { if (typeof value !== 'string' || !value.trim() || value.length > 128) throw new Error('Expected function name'); return value }
-  const definition: ProjectToolDefinition = {
-    id: 'code-graph', version: '0.10.8', scope: 'checkout',
-    launch: scope => ({ program: binary, args: ['--ui=false'], env: { CBM_CACHE_DIR: join(root, 'cache'), CBM_ALLOWED_ROOT: scope.checkoutPath, CBM_WORKERS: '2', CBM_MEM_BUDGET_MB: '512' } }),
-    operations: {
-      index: { tool: 'index_repository', readOnly: false, parameters: {}, targets: scope => ({ repo_path: scope.checkoutPath, name: scope.indexKey, persistence: false, mode: 'fast' }) },
-      callers: { tool: 'trace_path', readOnly: true, parameters: { function_name: text }, targets: scope => ({ project: scope.indexKey, direction: 'inbound', depth: 1, format: 'json', include_evidence: true }) }
-    }
-  }
+  const definition = createCodeGraphDefinition(binary, join(root, 'cache'))
   const tools = new ProjectTools(resolveWorkspace, [definition], 30000)
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex')
   const report: Record<string, unknown> = { binary, binarySha256: hash(binary), runnerSha256: hash(import.meta.filename), sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), operations: [] }
@@ -35,16 +28,10 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     return result
   }
   try {
-    mkdirSync(join(root, 'cache'), { mode: 0o700 })
-    execFileSync(binary, ['config', 'set', 'ui_enabled', 'false'], {
-      env: { ...process.env, CBM_CACHE_DIR: join(root, 'cache') }, timeout: 10000
-    })
-    // Native workers inherit the first daemon environment. Register only these
-    // selected roots in the private cache; requests still bind a checkout hash.
-    for (const path of paths) execFileSync(binary, ['allow-root', path], {
-      env: { ...process.env, CBM_CACHE_DIR: join(root, 'cache') }, timeout: 10000
-    })
     report.start = await Promise.all(paths.map(path => tools.start(path, 'code-graph')))
+    const beforeIndex = await tools.call(paths[0]!, 'code-graph', 'callers', { function_name: 'target' }) as { isError?: boolean }
+    expect(beforeIndex.isError).toBe(true)
+    report.unbuiltIndexRejected = true
     await Promise.all(paths.map(async path => {
       const result = await call(path, 'index')
       expect(result.project).toBe((await resolveProjectToolScope(path, resolveWorkspace)).indexKey)
