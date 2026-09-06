@@ -1,0 +1,115 @@
+{
+  "method": "Ten new processes and fresh profiles; OS file caches were not flushed. This is process-cold, not storage-cold startup.",
+  "samples": [
+    {
+      "runtimeMs": 305.85891599999997,
+      "rendererMs": 406.241208,
+      "evidence": "/tmp/donwells-current-launch-evidence-01/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 306.116167,
+      "rendererMs": 404.33354199999997,
+      "evidence": "/tmp/donwells-current-launch-evidence-02/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 305.614334,
+      "rendererMs": 426.71624999999995,
+      "evidence": "/tmp/donwells-current-launch-evidence-03/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 308.170208,
+      "rendererMs": 412.769625,
+      "evidence": "/tmp/donwells-current-launch-evidence-04/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 306.11383300000006,
+      "rendererMs": 405.05295800000005,
+      "evidence": "/tmp/donwells-current-launch-evidence-05/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 265.19508300000007,
+      "rendererMs": 393.35229200000003,
+      "evidence": "/tmp/donwells-current-launch-evidence-06/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 307.87816699999996,
+      "rendererMs": 408.283458,
+      "evidence": "/tmp/donwells-current-launch-evidence-07/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 269.3098329999999,
+      "rendererMs": 395.68999999999994,
+      "evidence": "/tmp/donwells-current-launch-evidence-08/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 262.704542,
+      "rendererMs": 384.732792,
+      "evidence": "/tmp/donwells-current-launch-evidence-09/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    },
+    {
+      "runtimeMs": 249.37408299999998,
+      "rendererMs": 372.381666,
+      "evidence": "/tmp/donwells-current-launch-evidence-10/baseline.json",
+      "artifact": {
+        "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+        "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+        "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78"
+      },
+      "cleanup": true
+    }
+  ]
+}

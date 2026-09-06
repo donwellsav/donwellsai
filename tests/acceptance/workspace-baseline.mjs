@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawn, execFileSync } from 'node:child_process'
-import { readFileSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { cpus, release, totalmem } from 'node:os'
+import { readFileSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { cpus, release, totalmem, tmpdir } from 'node:os'
 import { resolve, dirname, basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -50,7 +50,7 @@ export function validateOptions(values) {
 
 async function main() {
   const { values } = parseArgs({ options: {
-    app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }
+    app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, playwright: { type: 'string' }
   } })
   const { app, resources, profile, evidence } = validateOptions(values)
   // Exclusive creation refuses existing user data and prior evidence; never auto-delete either.
@@ -70,10 +70,14 @@ async function main() {
   delete env.DONWELLS_SMOKE
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_RENDERER_URL
-  let child, ended = false, childError, output = ''
+  let child, desktop, ended = false, childError, output = ''
   const start = performance.now()
   try {
-    child = spawn(app, [], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    if (values.playwright) {
+      const { _electron } = await import(pathToFileURL(realpathSync(values.playwright)).href)
+      desktop = await _electron.launch({ executablePath: app, env })
+      child = desktop.process()
+    } else child = spawn(app, [], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     child.once('exit', () => { ended = true })
     child.once('error', error => { childError = error; ended = true })
     // Bounded tail is for local diagnostics only, never copy native transcripts into evidence.
@@ -99,10 +103,21 @@ async function main() {
     report.checks.ui = ui.result
     report.checks.mainProcess = execFileSync('ps', ['-p', String(child.pid), '-o', 'pid=,rss=,%cpu='], { encoding: 'utf8' }).trim()
     report.checks.packagedLaunch = 'passed'
+    if (desktop) await measureWorkspace(desktop, callRuntime, profile, evidence, report)
   } catch (error) {
     report.error = error.message
     process.exitCode = 1
   } finally {
+    if (desktop) {
+      try {
+        const sessions = await callRuntime('terminal.list', {}, profile, 10000)
+        assert(sessions.ok && Array.isArray(sessions.result.sessions), 'Could not inspect fixture terminals for cleanup')
+        for (const session of sessions.result.sessions) {
+          const closed = await callRuntime('terminal.close', { sessionId: session.id }, profile, 10000)
+          assert(closed.ok, 'Could not close fixture terminal')
+        }
+      } catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
+    }
     if (child && !ended) {
       child.kill('SIGTERM')
       for (let i = 0; i < 50 && !ended; i++) await delay(100)
@@ -123,6 +138,142 @@ async function main() {
     writeFileSync(join(evidence, 'app.log'), output, { mode: 0o600, flag: 'wx' })
     console.log(JSON.stringify({ evidence, checks: report.checks, error: report.error }, null, 2))
   }
+}
+
+async function measureWorkspace(desktop, callRuntime, profile, evidence, report) {
+  const page = await desktop.firstWindow()
+  page.setDefaultTimeout(15000)
+  const window = await desktop.browserWindow(page)
+  await window.evaluate(win => win.setTitle('Donwells — disposable baseline measurement'))
+  const invoke = async (method, params = {}) => {
+    const response = await callRuntime(method, params, profile, 10000)
+    assert(response.ok, `${method}: ${response.error}`)
+    return response.result
+  }
+  const fixture = realpathSync(mkdtempSync(join(tmpdir(), 'donwells-baseline-project-')))
+  report.fixture = fixture
+  writeFileSync(join(fixture, 'README.md'), '# Baseline fixture\n\nLocal terminal measurements.\n')
+  execFileSync('git', ['init', '-b', 'main', fixture], { stdio: 'ignore' })
+  const registered = await invoke('repo.add', { dir: fixture })
+  const workspacePath = registered.worktrees.find(worktree => realpathSync(worktree.path) === fixture)?.path
+  assert(workspacePath, 'Registered project did not expose its main checkout')
+  const deadline = performance.now() + 15000
+  while (!(await invoke('ui.state')).repos.some(repo => repo.worktrees.includes(workspacePath))) {
+    assert(performance.now() < deadline, 'Fixture registration did not reach the renderer')
+    await delay(50)
+  }
+  await invoke('ui.activate', { worktreePath: workspacePath })
+  await invoke('settings.set', { theme: 'dark' })
+  assert.equal((await invoke('ui.state')).settingsOpen, false, 'Settings obscures the measurement')
+  await page.locator('.xterm-helper-textarea').first().waitFor({ state: 'attached' })
+  const sessions = (await invoke('terminal.list')).sessions
+  assert.equal(sessions.length, 1, 'Expected only the disposable project terminal')
+  const sessionId = sessions[0].id
+  const measurements = await page.evaluate(async sessionId => {
+    const samples = []
+    for (const condition of ['idle', '4KiB-output']) for (let index = 0; index < 200; index++) {
+      if (document.querySelector('.settings-modal')) throw new Error('Settings opened during terminal measurement')
+      const marker = `BASELINE_ECHO_${index}_END`
+      let dispose, timer
+      const start = performance.now()
+      try {
+        await new Promise((resolve, reject) => {
+          let output = ''
+          timer = setTimeout(() => reject(new Error('Local echo timeout')), 5000)
+          dispose = window.donwells.on('terminal:data', event => {
+            if (event.sessionId !== sessionId) return
+            output = (output + event.data).slice(-8192)
+            if (output.includes(marker)) resolve()
+          })
+          // Escaped first character prevents the command echo from satisfying the result.
+          const load = condition === '4KiB-output' ? "printf '%4096s\\n' x; " : ''
+          window.donwells.terminalWrite(sessionId, `${load}printf '\\102ASELINE_ECHO_${index}_END\\n'\r`).catch(reject)
+        })
+        const outputMs = performance.now() - start
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        samples.push({ condition, outputMs, nextFrameMs: performance.now() - start })
+      } finally { clearTimeout(timer); dispose?.() }
+    }
+    return samples
+  }, sessionId)
+  const summary = samples => {
+    const sorted = [...samples].sort((a, b) => a - b)
+    return { count: sorted.length, medianMs: sorted[Math.floor(sorted.length / 2)], p95Ms: sorted[Math.ceil(sorted.length * .95) - 1] }
+  }
+  report.measurements = {
+    terminal: { samples: measurements, conditions: Object.fromEntries(['idle', '4KiB-output'].map(condition => {
+      const samples = measurements.filter(sample => sample.condition === condition)
+      return [condition, { output: summary(samples.map(sample => sample.outputMs)), nextFrame: summary(samples.map(sample => sample.nextFrameMs)) }]
+    })) },
+    method: 'Renderer terminalWrite to matching PTY output event, then two animation frames. This excludes keyboard event dispatch and does not prove xterm paint completion.'
+  }
+  await page.evaluate(id => window.donwells.terminalWrite(id, "stty raw -echo; printf '\\113EY_READY'; /bin/cat\r"), sessionId)
+  const readyDeadline = performance.now() + 5000
+  while (!(await page.evaluate(id => window.donwells.attachTerminal(id), sessionId)).scrollback.includes('KEY_READY')) {
+    assert(performance.now() < readyDeadline, 'Raw echo fixture did not start')
+    await delay(25)
+  }
+  await page.locator('.xterm-helper-textarea').first().focus()
+  await page.evaluate(id => {
+    let start, resolveSample, rejectSample, timer
+    const keydown = event => { if (event.key === 'x' && resolveSample) start = performance.now() }
+    document.addEventListener('keydown', keydown, true)
+    const unsubscribe = window.donwells.on('terminal:data', event => {
+      if (event.sessionId !== id || start === undefined || !event.data.includes('x') || !resolveSample) return
+      const began = start, outputMs = performance.now() - began, done = resolveSample
+      resolveSample = undefined
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); done({ outputMs, nextFrameMs: performance.now() - began }) }))
+    })
+    window.__baselineKeyboard = {
+      arm() {
+        start = undefined
+        this.pending = new Promise((resolve, reject) => { resolveSample = resolve; rejectSample = reject })
+        this.pending.catch(() => {})
+        timer = setTimeout(() => rejectSample(new Error('Keyboard echo timeout')), 5000)
+      },
+      dispose() { clearTimeout(timer); unsubscribe(); document.removeEventListener('keydown', keydown, true) }
+    }
+  }, sessionId)
+  const keyboardSamples = []
+  try {
+    for (let index = 0; index < 200; index++) {
+      await page.evaluate(() => window.__baselineKeyboard.arm())
+      await page.keyboard.press('x')
+      keyboardSamples.push(await page.evaluate(() => window.__baselineKeyboard.pending))
+    }
+  } finally {
+    await page.evaluate(() => { window.__baselineKeyboard.dispose(); delete window.__baselineKeyboard })
+  }
+  report.measurements.keyboard = { samples: keyboardSamples, output: summary(keyboardSamples.map(sample => sample.outputMs)), nextFrame: summary(keyboardSamples.map(sample => sample.nextFrameMs)), method: 'Playwright keyboard input through the focused xterm. Renderer keydown to raw-mode /bin/cat echo; two animation frames also recorded. Physical display latency and xterm paint completion are not measured.' }
+  await invoke('ui.terminal.open', { worktreePath: workspacePath })
+  await page.locator('.flexlayout__tab_button').nth(1).waitFor()
+  const focusSamples = await page.evaluate(async () => {
+    const inputs = [...document.querySelectorAll('.xterm-helper-textarea')]
+    // Pane visibility is controlled through actual dock tabs, not hidden textareas.
+    const tabs = [...document.querySelectorAll('.flexlayout__tab_button')]
+    if (tabs.length < 2 || inputs.length < 2) throw new Error('Two terminal tabs required for focus baseline')
+    const samples = []
+    for (let index = 0; index < 200; index++) {
+      if (document.querySelector('.settings-modal')) throw new Error('Settings opened during tab measurement')
+      const start = performance.now()
+      tabs[index % 2].click()
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      if (!tabs[index % 2].classList.contains('flexlayout__tab_button--selected')) throw new Error('Target tab did not become selected')
+      samples.push(performance.now() - start)
+    }
+    return samples
+  })
+  report.measurements.tabSwitch = { samples: focusSamples, ...summary(focusSamples), method: 'Dock-tab DOM click to two animation frames; keyboard focus qualification remains separate.' }
+  // Sample Electron processes separately from the profile-owned daemon and model services.
+  await delay(3000)
+  await desktop.evaluate(({ app }) => app.getAppMetrics())
+  await delay(1000)
+  report.measurements.idleElectron = await desktop.evaluate(({ app }) => app.getAppMetrics())
+  const runtime = JSON.parse(readFileSync(join(profile, 'terminal-daemon/runtime.json'), 'utf8'))
+  report.measurements.daemon = execFileSync('ps', ['-p', String(runtime.pid), '-o', 'pid=,rss=,%cpu='], { encoding: 'utf8' }).trim()
+  report.measurements.modelResources = 'No model launched by this measurement; existing model services excluded.'
+  assert.equal((await invoke('ui.state')).settingsOpen, false, 'Settings obscured the workspace baseline')
+  writeFileSync(join(evidence, 'workspace.png'), Buffer.from(await window.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'))
 }
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   main().catch(error => { console.error(error.message); process.exitCode = 1 })

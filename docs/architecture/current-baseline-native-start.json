@@ -1,0 +1,99 @@
+{
+  "startedAt": "2026-09-06T11:50:02.863Z",
+  "source": {
+    "commit": "b78d9a5893e335fa50228108a300e8250ff4c7d7",
+    "dirty": true,
+    "contentHash": "4c84473853894c2a28644d16c83103b54dd53139a6e239a0ed7f4ad36d881826"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-current-start-profile-01",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-bCoYv9",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78",
+    "memoryMcpSha256": "45629d23966b28cac233122e603a538f252fea76248718d6512ec51d04f3f6d5"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "sessionId": "f605ed74-ba29-4c44-b90f-ff615c28ac1d",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 84386,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "interface": "cli",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "sessionId": "447976fe-172c-4760-accc-e659d0c73704",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 152,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "sessionId": "bc17898d-3b6d-4f87-842c-9c5378e3465d",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 1666,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "sessionId": "f5adb4d5-a3e3-4c28-98e6-84fa3ef61946",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "exited",
+      "exitCode": 1,
+      "outputBytes": 1933,
+      "startup": "failed",
+      "diagnostics": [
+        "error"
+      ],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 19490.003209
+    }
+  ],
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": false,
+  "durationMs": 19574.914334
+}

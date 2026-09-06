@@ -12,7 +12,7 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
-  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
+  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false }, resources: { type: 'boolean', default: false },
   'hermes-cli': { type: 'boolean', default: false },
   handoff: { type: 'boolean', default: false },
   'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
@@ -392,6 +392,23 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
         } catch { /* The original error remains authoritative if the session is gone. */ }
       }
     }
+  }
+  if (values.resources) {
+    await app.evaluate(({ app }) => app.getAppMetrics())
+    await delay(10000)
+    const daemon = JSON.parse(readFileSync(join(profile, 'terminal-daemon/runtime.json'), 'utf8'))
+    const roots = new Set([app.process().pid, daemon.pid])
+    const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,comm='], { encoding: 'utf8' }).trim().split('\n').map(line => {
+      const [pid, ppid, rssKiB, lifetimeCpuPercent, ...command] = line.trim().split(/\s+/)
+      return { pid: Number(pid), ppid: Number(ppid), rssKiB: Number(rssKiB), lifetimeCpuPercent: Number(lifetimeCpuPercent), command: command.join(' ') }
+    })
+    const parents = new Map(rows.map(row => [row.pid, row.ppid]))
+    const owned = rows.filter(row => {
+      const seen = new Set()
+      for (let pid = row.pid; pid && !seen.has(pid); pid = parents.get(pid)) { if (roots.has(pid)) return true; seen.add(pid) }
+      return false
+    })
+    report.resources = { method: 'After ten seconds without submitted queries. Electron CPU is sampled separately; ps CPU is lifetime average. Only fixture app/daemon descendants included; pre-existing model services excluded.', electron: await app.evaluate(({ app }) => app.getAppMetrics()), ownedProcesses: owned, daemonPid: daemon.pid }
   }
   if (values['native-write'] && report.nativeWrite) {
     const previousPid = app.process().pid

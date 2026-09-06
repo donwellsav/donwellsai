@@ -1,0 +1,31 @@
+{
+  "source": {
+    "commit": "b78d9a5893e335fa50228108a300e8250ff4c7d7",
+    "dirty": true,
+    "contentHash": "36abe358a590272edb2f33662610800d400caa4df9749962c377ae944fad2f6c"
+  },
+  "artifactSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78",
+  "memoryMcpSha256": "45629d23966b28cac233122e603a538f252fea76248718d6512ec51d04f3f6d5",
+  "profile": "/private/tmp/donwells-current-handoff-profile-01",
+  "fixture": "/private/tmp/donwells-current-handoff-profile-01/project-eLzcEI",
+  "sidebarCloseRestoresTerminalInput": true,
+  "nativeMcp": {
+    "receivedRevision": 3,
+    "confirmedRevision": 4,
+    "sessionId": "9a5509c6-2e46-4c66-92e4-42e0b691545a",
+    "pid": 47176,
+    "mcpPid": 47471,
+    "acknowledgmentReplay": true
+  },
+  "exportPreservedConfirmedHandoff": true,
+  "createReviewAccept": true,
+  "staleSourceDisabled": true,
+  "persistedAcrossProcesses": [
+    47065,
+    47596
+  ],
+  "controlsInSidebar": true,
+  "delivery": "confirmed",
+  "idleDaemonStopped": true,
+  "durationMs": 3631.340708
+}

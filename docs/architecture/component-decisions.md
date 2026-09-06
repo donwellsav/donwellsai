@@ -1,6 +1,42 @@
 # Component admission and baseline
 
-Status: Task 01 in progress. The user authorized implementation with “go.” Production replacements have not been selected or installed.
+Status: Task 01 baseline review completed against the **current terminal-foundation implementation**, not the original source. The entries below are historical and must be read with their dated/source-specific receipts; early statements about uninstalled components are not current status.
+
+## Current Task 01 review
+
+- Current checkout: `terminal-foundation`, branch `workspace/terminal-foundation`, base of this review `b78d9a5893e335fa50228108a300e8250ff4c7d7`. Existing changes preserved. The separate `plan-restart` checkout is not used.
+- [Launch/profile/host evidence](current-baseline-launch.json), [ten startup samples](current-baseline-startup.json), [terminal/tab/resource measurements](current-baseline-performance.json), [workspace and recovery](current-baseline-recovery.json), [native startup](current-baseline-native-start.json), [handoff UI](current-baseline-handoff.json).
+- Current checks: typecheck passed; 403 tests passed, three explicit optional tests skipped; `pnpm package:dir` passed. Rebuilt package was launched by the performance runner. No production source changed in this review.
+- The performance runner measures 200 idle and 200 4-KiB-burst terminal IPC/output samples, 200 focused-xterm keyboard/echo samples, and 200 dock-tab click/two-frame samples. It does **not** claim keyboard-to-pixel latency or xterm paint completion. Startup samples use fresh processes/profiles without flushing OS caches. Model processes are excluded; Electron processes and the test-profile daemon are recorded separately.
+- Failed measurement attempts: two runner schema/path assumptions prevented registration detection and were corrected against the existing RPC contract. A completed run with Settings obscuring the workspace was rejected; the runner now verifies no Settings overlay and actual selected-tab changes. Failed local receipts remain under `/tmp/donwells-current-performance-evidence-01` through `03`; final measured receipt is run `06`.
+- Native baseline: OMP, Hermes CLI and Kimi produced startup output. DSH's selected `tui` profile did not exist in the fixture environment; this is a failed configuration/startup observation, not evidence that the application cannot run DSH. No model query was sent. Previous successful configured DSH trials remain historical evidence and are not substituted for this run.
+- The configured native rerun used the already-existing DSH trial home: all four actual agents produced output, executable hashes stayed unchanged, and cleanup passed. [Configured startup and owned process resources](current-baseline-native-start-configured.json). No application or native profile configuration was changed.
+- Task 01 Steps 1, 2 and 4 and the verification commands are recorded. The six-journey baseline explicitly identifies unsupported portions in [the journey matrix](current-baseline-journeys.md); later full-journey acceptance is not claimed. Exact candidate records and explicit admission failures are retained below; unresolved redistribution means not admitted. Focused runner diff and receipt fields reviewed; local Task 01 commit records this evidence. No later task is marked complete.
+
+## Current artifact inspection — admission decisions
+
+[Exact registry metadata, source tags, archive hashes, notice-file hashes and removal boundaries](current-component-artifacts.json). New archives were downloaded to `research/task01-admission`, checked against registry integrity values and inspected without installation or execution. Existing Engram/code-graph/ripgrep artifacts were rehashed in their original locations. Repository maintenance observations are dated to this review and are not a support guarantee. Version discovery is not production admission.
+
+| Component | Exact version | Verified artifact finding | Remaining admission work |
+|---|---|---|---|
+| FlexLayout | 0.10.8 | Registry source commit matches the existing research pin; package includes Caplin MIT license. | Reconcile existing production adoption with all Task 02 fidelity/accessibility gates. |
+| Dockview | 8.2.0 | Registry source commit pinned; both wrapper and matching dockview-core include MIT LICENCE.md. | Enterprise package is excluded. Task 02 decides runtime suitability; no new production adoption. |
+| Ghostty Web | 0.4.0 | Registry source commit pinned; Coder MIT license included. | Existing search-addon failure remains a rejection for replacement until Task 02 demonstrates parity. |
+| Playwright MCP | 0.0.80 | Release tag pinned; Apache-2.0 license included; dependencies pin Playwright/core 1.63.0-alpha-2026-08-31. | Inspect matching browser/runtime distribution, transitive notices, install/remove and scoped-target trial. |
+| agent-browser | 0.36.0 | Release tag pinned; package includes Apache-2.0 plus MPL-2.0 axe-core and other notices; Node >=24. | Review exact reused/bundled boundaries; do not describe the entire distribution as solely MIT/Apache. |
+| Chrome DevTools MCP | 1.8.0 | Registry source commit, Apache-2.0 license and aggregated third-party notice file captured. | Complete notice review and establish need beyond selected browser diagnostics. |
+| Peekaboo | 4.3.0 | Release tag and both npm/native archive checksums verified; native archive includes MIT license and Swift compatibility dylib. | Verify native deployment requirements and redistribution notices for the dylib; runtime trial belongs to Task 03. |
+| Cua Driver | 0.23.2 | Stable release/source pinned; native universal archive matches published SHA-256. Root source LICENSE.md and Rust workspace declare MIT. Archive itself contains no notices. | Resolve full native distribution notices and deployment requirements before trial admission. |
+
+The original notice search missed British-spelled `LICENCE.md`; archive inspection was corrected across all candidates. Dockview and matching core both include MIT notices; the monorepo enterprise package has a separate proprietary license and is excluded.
+
+The Cua update-document example pointed to a tag that returned 404; the stable release was resolved from the repository's release API instead. Exact source pin: `e88e9d899ac5effaeae38619527ebaa46b26ce72`. Native archive inspection and source records are retained in `research/task01-admission/cua-driver-0.23.2`. No installer, permissions request or computer-control action was executed.
+
+Task 01 records acceptance or rejection of the concrete terminal/docking, memory, retrieval, search, browser and computer-control candidates. A rejected artifact is not silently admitted for installation: its unresolved gate is retained for Task 03 or its owning integration task. QMD remains rejected on the measured retrieval quality gate; Engram remains rejected as the authoritative memory store. SQLite reuses the existing runtime. FlexLayout/Dockview/Ghostty package rights permit bounded comparison, but do not establish Task 02 fidelity or accessibility.
+
+LanceDB, ast-grep, tmux, Lazygit, Backlog.md, Hindsight, Graphiti, LightRAG, LadybugDB, DuckDB, CodeMirror, PinchTab, macOS Harness, Lume, Electrobun, Tauri and ACP remain plan leads or conditional fallbacks, not newly selected dependencies. No floating installation or redistribution is admitted. Their owning tasks must first establish need, then record exact artifact/source/runtime/license evidence before execution. Existing Electron/React/xterm/Monaco/Pierre remain the baseline, not new replacement decisions.
+
+## Historical execution evidence
 
 ## Reproducible starting point
 
