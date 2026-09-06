@@ -31,6 +31,7 @@ type Service = {
   pending: Map<string, Pending>
   ready: Promise<void>
   stopping?: Promise<boolean>
+  stopRequested?: boolean
 }
 
 export async function resolveProjectToolScope(path: string, resolveWorkspace: ResolveWorkspace): Promise<ProjectToolScope> {
@@ -194,8 +195,9 @@ export class ProjectTools {
       } catch (error) {
         if (!(error instanceof ToolTransportError)) throw error
         await this.stopOwned(service)
-        service.state = { ...service.state, status: 'failed', detail: error.message }
+        if (!service.stopRequested && !this.closed) service.state = { ...service.state, status: 'failed', detail: error.message }
         if (!operation.readOnly) throw new ToolOutcomeUncertainError('Tool action outcome is uncertain; inspect before retrying')
+        if (service.stopRequested || this.closed) throw new Error('Tool stopped')
         if (attempt > 0) throw error
       }
     }
@@ -205,7 +207,7 @@ export class ProjectTools {
   async stop(workspacePath: string, id: string): Promise<void> {
     const { key } = await this.bound(workspacePath, id)
     const service = this.services.get(key)
-    if (service) await this.stopOwned(service)
+    if (service) { service.stopRequested = true; await this.stopOwned(service) }
   }
 
   private async stopOwned(service: Service): Promise<void> {

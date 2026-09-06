@@ -113,3 +113,17 @@ it('shuts down owned services, rejects pending actions and fences late generatio
   }
   await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow('shutting down')
 })
+
+it('does not restart a pending read after the user stops its service', async () => {
+  const f = fixture('late')
+  await f.tools.start(f.project, 'fixture')
+  const result = f.tools.call(f.project, 'fixture', 'search', { query: 'hello' })
+  const outcome = expect(result).rejects.toThrow('Tool stopped')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  await f.tools.stop(f.project, 'fixture')
+  await outcome
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+  expect((await f.tools.list(f.project))[0]?.status).toBe('stopped')
+  await f.tools.start(f.project, 'fixture')
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(2)
+})

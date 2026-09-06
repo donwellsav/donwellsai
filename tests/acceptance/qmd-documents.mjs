@@ -69,6 +69,15 @@ try {
   await assert.rejects(() => createStore({ dbPath: damaged }))
   assert.deepEqual(readFileSync(damaged), original)
   report.checks.corruptIndexRefusedWithoutOverwrite = true
+  await store.close(); store = null
+  store = await createStore({ dbPath: join(root, 'project.sqlite'), config: { models: { embed: join(root, 'missing-embedding.gguf') }, collections: { project: { path: docs, pattern: '**/*.md', ignore: ['credentials.md'] } } } })
+  let embeddingError, embeddingResult
+  try { embeddingResult = await store.embed({ collection: 'project' }) }
+  catch (error) { embeddingError = String(error) }
+  assert(embeddingError || embeddingResult?.errors > 0, 'An unavailable embedding model must not report success')
+  assert.equal((await store.searchLex('sapphirerecall')).length, 1)
+  report.checks.lexicalAfterMissingModel = true
+  report.unavailableModel = embeddingError ? 'rejected' : 'reported-errors'
   await store.close(); await unrelated.close(); store = null; unrelated = null
   const configA = join(root, 'a.yml'), configB = join(root, 'b.yml')
   writeFileSync(configA, JSON.stringify({ collections: { project: { path: docs, pattern: '**/*.md' } } }))
