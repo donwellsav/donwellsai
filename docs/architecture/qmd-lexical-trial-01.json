@@ -1,0 +1,22 @@
+{
+  "version": "2.8.3",
+  "entrySha256": "f56cd4d8484419e522420e637e47c7be36ae9e8d1008fb338a520123ee0a9387",
+  "mode": "lexical",
+  "checks": {
+    "exclusionsAndSymlink": true,
+    "separateIndexLookupIsolation": true,
+    "editRenameDelete": true,
+    "reopenUnicode": true,
+    "corruptIndexRefusedWithoutOverwrite": true
+  },
+  "timingsMs": {
+    "firstIndex": 7.809082999999987,
+    "coldSearch": 1.7938329999999922,
+    "warmSearch": 0.5224580000000003,
+    "editIndex": 0.9899580000000014,
+    "deleteIndex": 0.5952500000000072
+  },
+  "sharedProcessConfigIsolation": false,
+  "productionAdmitted": false,
+  "lexicalChecksPassed": true
+}
