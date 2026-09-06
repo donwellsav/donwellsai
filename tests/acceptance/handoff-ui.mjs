@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -25,7 +25,7 @@ const invoke = async (method, params = {}) => {
 }
 const env = { ...process.env, DONWELLS_USER_DATA: profile }
 delete env.ELECTRON_RUN_AS_NODE; delete env.DONWELLS_SMOKE; delete env.ELECTRON_RENDERER_URL
-const report = { source: sourceIdentity(), artifactSha256: hash(readFileSync(join(resources, 'app.asar'))), profile, fixture }
+const report = { source: sourceIdentity(), artifactSha256: hash(readFileSync(join(resources, 'app.asar'))), memoryMcpSha256: hash(readFileSync(join(resources, 'dist-cli/cli/project-memory-mcp.js'))), profile, fixture }
 let app
 const start = performance.now()
 try {
@@ -37,7 +37,10 @@ try {
   await invoke('repo.add', { dir: fixture })
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const source = await invoke('agent.start', { workspacePath: fixture, command: '/bin/cat' })
-  const receiver = await invoke('agent.start', { workspacePath: fixture, command: '/bin/cat' })
+  const requestPath = join(profile, 'handoff-request.json'), resultPath = join(profile, 'handoff-receipt.json')
+  const quote = value => `'${value.replaceAll("'", `'\\''`)}'`
+  const command = [process.execPath, resolve('tests/fixtures/handoff-mcp-receiver.mjs'), executable, join(resources, 'dist-cli/cli/index.js'), profile, fixture, requestPath, resultPath].map(quote).join(' ')
+  const receiver = await invoke('agent.start', { workspacePath: fixture, command })
   await page.getByRole('button', { name: 'Project memory', exact: true }).click()
   await page.locator('.handoff-panel > summary').click()
   const panel = page.locator('.handoff-panel')
@@ -62,10 +65,20 @@ try {
   await review.getByLabel('Receiving session').selectOption(receiver.run.sessionId)
   await review.getByRole('button', { name: 'Accept handoff' }).click()
   await review.getByText(`Accepted by ${receiver.run.sessionId}`, { exact: true }).waitFor()
-  const [accepted] = await list()
+  let [accepted] = await list()
   assert.equal(accepted.state, 'accepted')
   assert.equal(accepted.delivery, 'not-sent')
   assert.equal(accepted.revision, 2)
+  writeFileSync(requestPath + '.tmp', JSON.stringify({ id: accepted.id, expectedRevision: accepted.revision }), { mode: 0o600 })
+  renameSync(requestPath + '.tmp', requestPath)
+  const deadline = Date.now() + 20000
+  while (!existsSync(resultPath)) { assert(Date.now() < deadline, 'Native MCP receipt missing'); await delay(100) }
+  report.nativeMcp = JSON.parse(readFileSync(resultPath, 'utf8'))
+  ;[accepted] = await list()
+  assert.equal(accepted.delivery, 'confirmed')
+  assert.equal(accepted.revision, 4)
+  await panel.getByRole('button', { name: 'Refresh handoffs' }).click()
+  await review.getByText(/Delivery: confirmed/).waitFor()
   await panel.evaluate(element => { element.scrollTop = 0 })
   await page.screenshot({ path: join(evidence, 'handoff-sidebar.png') })
   for (const run of (await invoke('agent.list')).agents) await invoke('agent.stop', { sessionId: run.sessionId })

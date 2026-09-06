@@ -1,3 +1,4 @@
+import type { AgentSessionCredential } from '../shared/agent-runtime.js'
 import { once } from 'node:events'
 import { resolve } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -15,6 +16,7 @@ import {
   PROJECT_MEMORY_MAX_TAGS,
   PROJECT_MEMORY_MAX_TITLE_LENGTH,
   PROJECT_MEMORY_RPC_METHODS,
+  parseProjectMemoryIdentifier,
   parseProjectMemoryArchiveRequest,
   parseProjectMemoryCreateRequest,
   parseProjectMemoryGetRequest,
@@ -68,7 +70,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod,
+  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -76,6 +78,7 @@ export type ProjectMemoryMcpSessionOptions = {
   workspacePath: string
   harness: string
   invoke: ProjectMemoryMcpInvoke
+  credential?: AgentSessionCredential
   serverVersion?: string
 }
 
@@ -101,6 +104,16 @@ type McpTool = {
     openWorldHint: boolean
   }
 }
+
+const HANDOFF_MCP_TOOLS: readonly McpTool[] = ['receive', 'acknowledge'].map(action => ({
+  name: `handoff_${action}`,
+  title: action === 'receive' ? 'Receive accepted handoff' : 'Acknowledge handoff receipt',
+  description: action === 'receive'
+    ? 'Retrieve an exact handoff already accepted for this native session. Supply the handoff ID and accepted revision from its sidebar review. Delivery becomes uncertain before this tool returns. After reading the returned context, call handoff_acknowledge with its ID and returned revision before continuing. Do not blindly retry an uncertain delivery; inspect it in the sidebar.'
+    : 'Confirm that this native session received and read the saved handoff context. Supply the ID and revision returned by handoff_receive. Confirms receipt only, not task completion. Repeating the same acknowledgment is safe.',
+  inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1, maxLength: 256 }, expectedRevision: { type: 'integer', minimum: 1 } }, required: ['id', 'expectedRevision'] },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: action === 'acknowledge', openWorldHint: false }
+}))
 
 const KIND_SCHEMA = {
   type: 'string',
@@ -357,11 +370,13 @@ export class ProjectMemoryMcpSession {
   private readonly harness: string
   private readonly invoke: ProjectMemoryMcpInvoke
   private readonly serverVersion: string
+  private readonly credential?: AgentSessionCredential
   private state: SessionState = 'new'
 
   constructor(options: ProjectMemoryMcpSessionOptions) {
     this.workspacePath = parseProjectMemoryWorkspacePath(options.workspacePath, 'pinned workspace')
     this.harness = parseProjectMemoryHarness(options.harness, 'pinned harness')
+    this.credential = options.credential ? { ...options.credential } : undefined
     this.invoke = options.invoke
     this.serverVersion = options.serverVersion ?? '1.0.0'
     if (this.serverVersion.length === 0 || this.serverVersion.length > 128) {
@@ -466,11 +481,13 @@ export class ProjectMemoryMcpSession {
         validateMeta(input, 'tools/list params')
         if (input.cursor !== undefined) throw new Error('This static tool list does not accept a cursor')
       }
-      return rpcSuccess(id, { tools: PROJECT_MEMORY_MCP_TOOLS })
+      return rpcSuccess(id, { tools: this.tools() })
     } catch (error) {
       return rpcFailure(id, JSON_RPC_INVALID_PARAMS, error instanceof Error ? error.message : 'Invalid tools/list params')
     }
   }
+
+  private tools(): readonly McpTool[] { return this.credential ? [...PROJECT_MEMORY_MCP_TOOLS, ...HANDOFF_MCP_TOOLS] : PROJECT_MEMORY_MCP_TOOLS }
 
   private async callTool(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
     let name: string
@@ -487,7 +504,7 @@ export class ProjectMemoryMcpSession {
     } catch (error) {
       return rpcFailure(id, JSON_RPC_INVALID_PARAMS, error instanceof Error ? error.message : 'Invalid tools/call params')
     }
-    if (!PROJECT_MEMORY_MCP_TOOLS.some((tool) => tool.name === name)) {
+    if (!this.tools().some((tool) => tool.name === name)) {
       return rpcFailure(id, JSON_RPC_INVALID_PARAMS, `Unknown tool: ${name}`)
     }
     try {
@@ -500,6 +517,14 @@ export class ProjectMemoryMcpSession {
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
     switch (name) {
+      case 'handoff_receive':
+      case 'handoff_acknowledge': {
+        allowedKeys(input, ['id', 'expectedRevision'], 'handoff arguments')
+        const id = parseProjectMemoryIdentifier(input.id, 'handoff id')
+        if (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) throw new Error('Invalid handoff revision')
+        if (!this.credential) throw new Error('Handoffs require a native session credential')
+        return this.invoke(name === 'handoff_receive' ? 'handoff.receive' : 'handoff.acknowledge', { workspacePath: this.workspacePath, credential: this.credential, id, expectedRevision: input.expectedRevision })
+      }
       case 'memory_search': {
         allowedKeys(input, ['query', 'kinds', 'includeArchived', 'limit'], 'memory_search arguments')
         const request = parseProjectMemoryListRequest({ workspacePath: this.workspacePath, ...input })

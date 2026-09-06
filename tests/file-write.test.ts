@@ -137,6 +137,23 @@ describe('GitWorktrees.writeFile', () => {
     writeFileSync(join(path, 'f.txt'), 'later edit')
     expect(await service.projectHandoffAccept(path, handoff.id, 1, 'receiver', 'claim')).toEqual(accepted)
     expect(await service.projectHandoffList(path)).toHaveLength(1)
+    const credential = { runId: 'run', sessionId: 'receiver', token: 'fixture-secret' }
+    const authenticate = async (value: typeof credential) => {
+      if (value.token !== credential.token) throw new Error('Invalid credential')
+      return sessions.find(run => run.sessionId === value.sessionId)!
+    }
+    await expect(service.receive(authenticate, { ...credential, token: 'wrong' }, path, handoff.id, 2)).rejects.toThrow('Invalid credential')
+    await expect(service.receive(authenticate, credential, path, handoff.id, 2)).rejects.toThrow('source changed')
+    writeFileSync(join(path, 'f.txt'), 'one\n')
+    await expect(service.receive(authenticate, { ...credential, sessionId: 'foreign' }, path, handoff.id, 2)).rejects.toThrow('another project')
+    const delivered = await service.receive(authenticate, credential, path, handoff.id, 2)
+    expect(delivered).toMatchObject({ delivery: 'uncertain', revision: 3 })
+    expect((await service.projectHandoffGet(path, handoff.id)).handoff).toEqual(delivered)
+    await expect(service.receive(authenticate, credential, path, handoff.id, 3)).rejects.toThrow('not ready')
+    await expect(service.acknowledge(authenticate, credential, path, handoff.id, 2)).rejects.toThrow('pending delivery')
+    const confirmed = await service.acknowledge(authenticate, credential, path, handoff.id, 3)
+    expect(confirmed).toMatchObject({ delivery: 'confirmed', revision: 4 })
+    expect(await service.acknowledge(authenticate, credential, path, handoff.id, 3)).toEqual(confirmed)
   })
 
   it('round-trips new and existing files inside the worktree', async () => {

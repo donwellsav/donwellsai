@@ -248,3 +248,6 @@ export function agentProviderForExecutable(path: string): AgentProviderDefinitio
   const name = path.split(/[\\/]/).at(-1)?.replace(/\.(?:cmd|bat|exe)$/i, '').toLowerCase()
   return AGENT_PROVIDER_DEFINITIONS.find(provider => provider.command === name)
 }
+
+/** Inherited per-run credential; never include in public RunningAgent records. */
+export type AgentSessionCredential = { runId: string; sessionId: string; token: string }

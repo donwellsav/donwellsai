@@ -1,7 +1,7 @@
 'use strict'
 
 const { spawnSync } = require('node:child_process')
-const { writeFileSync } = require('node:fs')
+const { writeFileSync, renameSync } = require('node:fs')
 const { join } = require('node:path')
 
 const mode = process.argv[2]
@@ -28,6 +28,10 @@ if (mode === 'hook' || mode === 'wrong-hook' || mode === 'permission-wait') {
   } else {
     process.exitCode = emitted.status ?? 6
   }
+} else if (mode === 'binding') {
+  writeFileSync(process.argv[3] + '.tmp', JSON.stringify({ runId: process.env.DONWELLS_AGENT_HOOK_RUN_ID, sessionId: process.env.DONWELLS_AGENT_HOOK_SESSION_ID, token: process.env.DONWELLS_AGENT_HOOK_TOKEN }), { mode: 0o600 })
+  renameSync(process.argv[3] + '.tmp', process.argv[3])
+  setInterval(() => {}, 1_000)
 } else if (mode === 'wait') {
   const markerPath = process.argv[3]
   console.log('AGENT_READY')

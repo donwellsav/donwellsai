@@ -1,3 +1,5 @@
+import type { ProjectHandoffService } from './project-handoff'
+import type { AgentSessionCredential } from '@shared/agent-runtime'
 import { parseAgentExecutable } from '@shared/agent-runtime'
 import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
@@ -79,6 +81,7 @@ export type RpcDeps = {
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
   projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'>
+  handoffs: Pick<ProjectHandoffService, 'receive' | 'acknowledge'>
   projectMemory: ProjectMemoryApi
   diffReview: {
     list: DiffReviewApi['diffReviewList']
@@ -467,6 +470,10 @@ export class RuntimeRpcServer {
       case 'browser.history.clear':
         this.deps.browserHistory.clear()
         return {}
+      case 'handoff.receive':
+        return this.deps.handoffs.receive(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
+      case 'handoff.acknowledge':
+        return this.deps.handoffs.acknowledge(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
       case 'agent.providers':
         return { providers: this.deps.agents.listAgents() }
       case 'agent.list':

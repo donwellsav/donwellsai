@@ -110,6 +110,29 @@ const project = {
 }
 
 describe('project memory MCP protocol', () => {
+  it('pins handoff tools to an inherited credential and never advertises its secret', async () => {
+    const credential = { runId: 'native-run', sessionId: 'native-session', token: 'private-fixture-token' }
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    const session = new ProjectMemoryMcpSession({ workspacePath: primaryWorkspace, harness: 'omp', credential, invoke: async (method, params) => { calls.push({ method, params: validateCommandParams(method, params) }); return { delivery: 'uncertain', revision: 3 } } })
+    await initialize(session, 1)
+    const listed = await exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/list' })
+    expect(JSON.stringify(listed)).toContain('handoff_receive')
+    expect(JSON.stringify(listed)).not.toContain(credential.token)
+    const call = (args: Record<string, unknown>, name = 'handoff_receive') => exchange(session, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } })
+    expect(toolValue(await call({ id: 'handoff', expectedRevision: 2 }))).toMatchObject({ delivery: 'uncertain' })
+    expect(calls).toEqual([{ method: 'handoff.receive', params: { workspacePath: primaryWorkspace, credential, id: 'handoff', expectedRevision: 2 } }])
+    for (const extra of [{ credential: { ...credential, sessionId: 'other' } }, { workspacePath: '/other' }, { sessionId: 'other' }]) {
+      expect(await call({ id: 'handoff', expectedRevision: 2, ...extra })).toMatchObject({ result: { isError: true } })
+    }
+    expect(calls).toHaveLength(1)
+    await call({ id: 'handoff', expectedRevision: 3 }, 'handoff_acknowledge')
+    expect(calls[1]?.method).toBe('handoff.acknowledge')
+    const unbound = new ProjectMemoryMcpSession({ workspacePath: primaryWorkspace, harness: 'omp', invoke: async () => { throw new Error('Must not invoke') } })
+    await initialize(unbound, 1)
+    expect(JSON.stringify(await exchange(unbound, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).not.toContain('handoff_receive')
+    expect(await exchange(unbound, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'handoff_receive', arguments: { id: 'handoff', expectedRevision: 2 } } })).toHaveProperty('error')
+  })
+
   it('implements lifecycle, ping, tool discovery, notifications, and JSON-RPC errors', async () => {
     const session = new ProjectMemoryMcpSession({
       workspacePath: primaryWorkspace,

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import type {
+  AgentSessionCredential,
   AgentProviderId,
   AgentExecutable,
   AgentStartResult,
@@ -485,6 +486,13 @@ export class DaemonClient {
   async interruptAgent(sessionId: string): Promise<RunningAgent> {
     await this.requireCapability(AGENT_RUNS, 'interrupting an agent run')
     const response = await this.request<{ run: unknown }>('agent.interrupt', { sessionId })
+    return requireRunningAgent(response.run)
+  }
+
+  async authenticateAgent(binding: AgentSessionCredential): Promise<RunningAgent> {
+    if (!binding || typeof binding !== 'object' || Object.keys(binding).length !== 3 || ['runId', 'sessionId', 'token'].some(key => typeof binding[key as keyof AgentSessionCredential] !== 'string' || !binding[key as keyof AgentSessionCredential] || binding[key as keyof AgentSessionCredential].length > 256)) throw new Error('Invalid agent session credential')
+    await this.requireCapability('agent-session-auth-v1', 'authenticating a native agent session')
+    const response = await this.request<{ run: unknown }>('agent.authenticate', { runId: binding.runId, sessionId: binding.sessionId, hookToken: binding.token })
     return requireRunningAgent(response.run)
   }
 

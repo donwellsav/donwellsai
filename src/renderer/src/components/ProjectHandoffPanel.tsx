@@ -18,9 +18,11 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const [questions, setQuestions] = useState('')
   const [steps, setSteps] = useState('')
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
   const claimKeys = useRef(new Map<string, string>())
+  useEffect(() => setCopied(false), [selected?.handoff.id, selected?.handoff.revision])
   useEffect(() => {
     let cancelled = false
     void window.donwells.projectHandoffList(workspacePath).then(value => { if (!cancelled) setItems(value) }, cause => { if (!cancelled) setError(String(cause)) })
@@ -67,6 +69,12 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         })}>Accept handoff</button>
       </>}
       {selected.handoff.acceptedBySessionId && <p>Accepted by {selected.handoff.acceptedBySessionId}</p>}
+      {selected.handoff.state === 'accepted' && selected.handoff.delivery === 'not-sent' && <button className="btn btn-secondary btn-sm" disabled={busy || selected.stale} onClick={() => void operate(async () => {
+        await navigator.clipboard.writeText(`Receive the handoff accepted for this session using handoff_receive with ${JSON.stringify({ id: selected.handoff.id, expectedRevision: selected.handoff.revision })}. Read the returned context, then call handoff_acknowledge with its id and returned revision before continuing. If either tool is unavailable, reconnect this session to the project's Donwells memory MCP server. Do not repeat an uncertain receive; inspect its state first.`)
+        setCopied(true)
+      })}>{copied ? 'Instructions copied' : 'Copy receiving instructions'}</button>}
+      {selected.handoff.delivery === 'uncertain' && <p role="status">Receipt is unconfirmed. Inspect the receiving terminal and its tool result before continuing. A delivery attempt cannot be blindly repeated.</p>}
+
       {selected.handoff.state !== 'superseded' && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
         await window.donwells.projectHandoffSupersede(workspacePath, selected.handoff.id, selected.handoff.revision)
         setSelected(await window.donwells.projectHandoffGet(workspacePath, selected.handoff.id))

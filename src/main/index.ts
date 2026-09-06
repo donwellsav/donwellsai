@@ -543,6 +543,7 @@ app.whenReady().then(() => {
       browserHistory,
       diffReview,
       projectMemory,
+      handoffs,
       projectTools,
       meta: async () => runtimeMetadata(),
       onChanged: (repoId) => send('worktree:changed', { repoId }),

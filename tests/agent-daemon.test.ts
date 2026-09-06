@@ -147,6 +147,24 @@ it('stops a native TUI that consumes Ctrl-C and retains its output until dismiss
 })
 
 describe('daemon-owned finite agent runs', () => {
+  it('authenticates the inherited session credential without exposing it in agent records', async () => {
+    const { daemon, userDataDir, workspacePath } = await disposableDaemon()
+    const client = daemonClient(userDataDir, eventCapture().events)
+    const path = join(userDataDir, 'binding.json')
+    const started = await client.startAgent(workspacePath, fixtureCommand('binding', path))
+    await waitFor(() => existsSync(path))
+    const binding = JSON.parse(readFileSync(path, 'utf8'))
+    expect((await client.authenticateAgent(binding)).sessionId).toBe(started.run.sessionId)
+    expect(JSON.stringify(await client.listAgents()).includes(binding.token)).toBe(false)
+    await expect(client.authenticateAgent({ ...binding, token: 'wrong' })).rejects.toThrow('Invalid agent session credential')
+    await expect(client.authenticateAgent({ ...binding, sessionId: 'another' })).rejects.toThrow('Invalid agent session credential')
+    await client.stopAgent(started.run.sessionId)
+    await waitForAgent(client, started.run.sessionId, run => run.liveness === 'exited')
+    await expect(client.authenticateAgent(binding)).rejects.toThrow('Invalid agent session credential')
+    await client.dismissAgent(started.run.sessionId)
+    expect(await daemon.stopIfIdle()).toBe(true)
+  })
+
   it('authenticates scoped hook events, rejects a wrong token, and never exposes daemon authority', async () => {
     const { daemon, userDataDir, workspacePath } = await disposableDaemon()
     const capture = eventCapture()

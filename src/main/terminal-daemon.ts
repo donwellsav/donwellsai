@@ -47,6 +47,7 @@ export const DAEMON_CAPABILITIES = [
   'agent-argv-v1',
   'agent-stop-v1',
   'agent-hooks-v1',
+  'agent-session-auth-v1',
   'agent-input-v1',
   ATTENTION_INBOX_CAPABILITY
 ] as const
@@ -559,6 +560,12 @@ export class TerminalDaemon {
         case 'agent.list':
           reply(true, { runs: [...this.agentsBySession.values()].map((record) => cloneRun(record.run)) })
           break
+        case 'agent.authenticate': {
+          const binding = this.authenticateHook(message)
+          if (!binding || this.pty.liveness(binding.record.run.sessionId) !== 'live') throw new Error('Invalid agent session credential')
+          reply(true, { run: cloneRun(binding.record.run) })
+          break
+        }
         case 'agent.get': {
           const record = this.agentsBySession.get(String(message['sessionId']))
           if (!record) throw new Error('unknown agent session')

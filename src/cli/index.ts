@@ -22,7 +22,9 @@ async function runMemoryMcp(argv: readonly string[]): Promise<number> {
       } else memoryArgs.push(argument)
     }
     const options = parseProjectMemoryMcpArguments(memoryArgs)
-    await runProjectMemoryMcp({ ...options, invoke: async (method, params) => {
+    const { DONWELLS_AGENT_HOOK_RUN_ID: runId, DONWELLS_AGENT_HOOK_SESSION_ID: sessionId, DONWELLS_AGENT_HOOK_TOKEN: token } = process.env
+    const credential = runId && sessionId && token ? { runId, sessionId, token } : undefined
+    await runProjectMemoryMcp({ ...options, credential, invoke: async (method, params) => {
       const envelope = await callRuntime(method, params, userData ?? defaultUserData(), 30_000)
       if (!envelope.ok) throw new CliFailure(envelope.code ?? 'MEMORY_FAILED', envelope.error ?? 'Project memory request failed')
       return envelope.result

@@ -3,6 +3,8 @@ import type { ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } fro
 import type { ProjectToolScope } from '@shared/project-tools'
 import type { GitWorktrees } from './git'
 import type { AgentRuntime } from './agent-runtime'
+import type { AgentSessionCredential } from '@shared/agent-runtime'
+import type { DaemonClient } from './daemon-client'
 import { closeSync, lstatSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -88,9 +90,14 @@ export class ProjectHandoffStore {
   }
 
   confirmDelivery(projectKey: string, id: string, expectedRevision: number, sessionId: string): ProjectHandoff {
-    return this.change(projectKey, id, expectedRevision, handoff => {
-      if (handoff.state !== 'accepted' || handoff.acceptedBySessionId !== sessionId || handoff.delivery !== 'uncertain') throw new Error('Handoff has no matching pending delivery')
-      return { ...handoff, delivery: 'confirmed' }
+    return this.transaction(db => {
+      const { handoff } = this.read(db, projectKey, id)
+      if (handoff.state !== 'accepted' || handoff.acceptedBySessionId !== sessionId) throw new Error('Handoff has no matching pending delivery')
+      if (handoff.delivery === 'confirmed' && handoff.revision === expectedRevision + 1) return handoff
+      if (handoff.delivery !== 'uncertain' || handoff.revision !== expectedRevision) throw new Error('Handoff has no matching pending delivery')
+      const next = parseProjectHandoff({ ...handoff, delivery: 'confirmed', revision: handoff.revision + 1 })
+      db.prepare('UPDATE handoffs SET document=? WHERE project=? AND id=?').run(JSON.stringify(next), projectKey, id)
+      return next
     })
   }
 
@@ -159,6 +166,26 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     if (status.stale) throw new Error('Handoff source changed or is unavailable; review and save a fresh handoff')
     await this.session(scope, sessionId, true)
     return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
+  }
+
+  /** Tool delivery returns the saved context only to its authenticated receiving session.
+   * Uncertainty is durable before the response leaves this process. */
+  async receive(authenticate: DaemonClient['authenticateAgent'], credential: AgentSessionCredential, workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff> {
+    const run = await authenticate(credential)
+    const scope = await this.resolveScope(workspacePath)
+    if ((await this.resolveScope(run.workspacePath)).projectKey !== scope.projectKey) throw new Error('Agent session belongs to another project')
+    const status = await this.projectHandoffGet(scope.checkoutPath, id)
+    if (status.stale) throw new Error('Handoff source changed or is unavailable; inspect before delivery')
+    await authenticate(credential)
+    return this.store.beginDelivery(scope.projectKey, id, expectedRevision, run.sessionId)
+  }
+
+  /** A separate tool invocation acknowledges receipt; PTY writes cannot call this path. */
+  async acknowledge(authenticate: DaemonClient['authenticateAgent'], credential: AgentSessionCredential, workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff> {
+    const run = await authenticate(credential)
+    const scope = await this.resolveScope(workspacePath)
+    if ((await this.resolveScope(run.workspacePath)).projectKey !== scope.projectKey) throw new Error('Agent session belongs to another project')
+    return this.store.confirmDelivery(scope.projectKey, id, expectedRevision, run.sessionId)
   }
 
   async projectHandoffSupersede(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff> {
