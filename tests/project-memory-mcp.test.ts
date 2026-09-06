@@ -13,6 +13,7 @@ import {
   parseProjectMemoryUpdateRequest,
   type ProjectMemoryRpcMethod
 } from '../src/shared/project-memory'
+import { validateCommandParams } from '../src/shared/command-catalog'
 import { ProjectMemoryService } from '../src/main/project-memory'
 import {
   PROJECT_MEMORY_MCP_MAX_MESSAGE_BYTES,
@@ -83,6 +84,7 @@ function toolValue(response: Record<string, unknown>): unknown {
 
 function serviceInvoker(service: ProjectMemoryService): ProjectMemoryMcpInvoke {
   return async (method: ProjectMemoryRpcMethod, params: Record<string, unknown>) => {
+    params = validateCommandParams(method, params)
     switch (method) {
       case PROJECT_MEMORY_RPC_METHODS.list:
         return service.projectMemoryList(parseProjectMemoryListRequest(params))

@@ -133,6 +133,13 @@ describe('CLI argument contract', () => {
     expect(() => validateCommandParams('ui.runs.open', { section: 'activity' })).toThrow()
   })
 
+  it('accepts empty optional memory tags for both create and replacement', () => {
+    const params = { workspacePath: '/project', kind: 'decision', title: 'Choice', content: 'Use shared memory', tags: [], attribution: { harness: 'omp' } }
+    expect(validateCommandParams('memory.create', params).tags).toEqual([])
+    expect(validateCommandParams('memory.update', { ...params, id: 'entry', expectedRevision: 1 }).tags).toEqual([])
+    expect(() => validateCommandParams('parallel.retry', { id: 'run', taskIds: [] })).toThrow('Invalid string list')
+  })
+
   it('bounds nested object parameters and rejects duplicate list values', () => {
     let nested: Record<string, unknown> = {}
     for (let index = 0; index < 40; index += 1) nested = { nested }
