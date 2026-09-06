@@ -11,6 +11,7 @@ export type ProcessFailureKind =
   | 'exit'
   | 'timeout'
   | 'output-limit'
+  | 'output-handler'
   | 'cancelled'
   | 'termination-unverified'
   | 'unsupported-host'
@@ -46,6 +47,8 @@ export type ProcessSpec = {
   input?: string
   maxOutputBytes?: number
   signal?: AbortSignal
+  /** Synchronous streaming consumer. Throwing terminates the owned process tree. */
+  onStdout?: (chunk: Buffer | string) => void
   detached?: boolean
   windowsVerbatimArguments?: boolean
   stdio?: SpawnOptions['stdio']

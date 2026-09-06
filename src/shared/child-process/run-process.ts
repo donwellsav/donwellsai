@@ -125,6 +125,8 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     ? `process timed out after ${timeoutMs}ms`
     : kind === 'output-limit'
       ? `process output exceeded ${maxOutputBytes} bytes`
+      : kind === 'output-handler'
+        ? 'process output consumer failed'
       : 'process cancelled'
   const reportStopped = async (): Promise<void> => {
     const kind = stopping
@@ -169,7 +171,12 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     return promise
   }
 
-  child.stdout?.on('data', (chunk: Buffer | string) => stdout.write(chunk))
+  child.stdout?.on('data', (chunk: Buffer | string) => {
+    stdout.write(chunk)
+    if (stopping || settled) return
+    try { spec.onStdout?.(chunk) }
+    catch { terminate('output-handler') }
+  })
   child.stderr?.on('data', (chunk: Buffer | string) => stderr.write(chunk))
   for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.on('error', () => {})
 

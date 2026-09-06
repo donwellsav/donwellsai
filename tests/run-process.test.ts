@@ -21,6 +21,26 @@ function delay(ms: number): Promise<void> {
 }
 
 describe('safe child-process boundary', () => {
+  it('streams output before exit and terminates safely when the consumer cancels or throws', async () => {
+    for (const throws of [false, true]) {
+      const controller = new AbortController()
+      let observed = ''
+      const error = await runProcess({
+        program: process.execPath,
+        args: ['-e', "process.stdout.write('ready'); setInterval(() => {}, 1000)"],
+        signal: controller.signal,
+        timeoutMs: 1000,
+        onStdout: chunk => {
+          observed += chunk.toString()
+          if (throws) throw new Error('consumer failed')
+          controller.abort()
+        }
+      }).catch(error => error)
+      expect(observed).toBe('ready')
+      expectProcessError(error, throws ? 'output-handler' : 'cancelled')
+    }
+  })
+
   it('passes adversarial argv literally without shell interpretation', async () => {
     const values = ['space value', 'quote"value', '$HOME', 'semi;colon', 'amp&ersand', 'line1\nline2']
     const result = await runProcess({
