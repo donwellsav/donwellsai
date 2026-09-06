@@ -61,3 +61,32 @@ ownership was checked without controlling the user's desktop. TypeScript/build p
 Still open for Task 19: native history/task-tool configuration integration, remaining
 setup failure qualification and complete catalog/resource/repair review. The plan
 and task checklist remain at 19; no whole-task completion is claimed.
+
+## Native history and task-tool configuration
+
+AgentsView binary/root selections and the Backlog.md binary now use the same
+project configuration. The app's history IPC/RPC routes remain stable across
+configuration changes. History owns finite native indexing jobs; Stop terminates
+that project's history worker, and changing configuration closes it before
+replacement. Disabling/re-enabling retains the archive. The existing Backlog
+adapter reads the current project selection before verifying the admitted binary;
+a previously opened board remains an ordinary terminal session.
+
+`native-configuration-result.json`: packaged run verified, idle daemon stopped.
+Settings configured Backlog without environment flags, and its native task adapter
+returned the fixture task. A separately registered native-history project selected
+both native roots in Settings, indexed a real prior OMP/Ornith transcript, retained
+search after restart, and refused history access from the unconfigured project.
+The screenshot was inspected. Package: `/tmp/donwells-strengthen-19-package-native/mac-arm64/donwells.app`.
+After that run, a display-only correction labels a saved Backlog path as configured
+instead of not configured; native availability remains verified by the task adapter.
+
+Nineteen history/doctor/task tests passed with the admitted native executables,
+including both OMP and DeepSeek canaries, disable/re-enable retention, restart,
+and current Backlog selection. The initial doctor test incorrectly rejected the
+macOS `/tmp` alias of a registered `/private/tmp` fixture; the fixture resolver now
+canonicalizes aliases like the production resolver. No production confinement was
+weakened. Latest broader run: 43 passed, two optional native checks skipped in that
+run; the native history check had passed separately. Build/typecheck passed.
+
+Task 19 still remains active for the final catalog, repair and resource review.

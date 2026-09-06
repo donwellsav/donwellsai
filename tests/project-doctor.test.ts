@@ -62,10 +62,12 @@ it('retries the actual readiness operation after failure and reports corrupt con
   f.fail(false); await f.doctor.retry(f.project, 'documents')
   expect(f.checks()).toBe(2)
   const report = await f.doctor.inspect(f.other)
+  await f.doctor.start(f.other, 'documents')
   await writeFile(report.configurationPath, '{"token":"do-not-expose",broken')
   const corrupt = await f.doctor.inspect(f.other)
   expect(corrupt.problem).toContain('Cannot read')
   expect(JSON.stringify(corrupt)).not.toContain('do-not-expose')
+  await f.doctor.stop(f.other, 'documents')
   await expect(f.doctor.configure(f.other, report.configuration, null)).rejects.toThrow()
   expect(await readFile(report.configurationPath, 'utf8')).toContain('do-not-expose')
 })
@@ -109,4 +111,34 @@ it('waits for an in-flight configuration write before shutdown completes', async
   try { await new Promise(resolve => setTimeout(resolve, 20)); expect(closed).toBe(false) }
   finally { release.resolve(); await outcome; await closing; write.mockRestore() }
   expect(JSON.parse(await readFile(saved.configurationPath, 'utf8')).disabled).toEqual(['documents'])
+})
+
+it.skipIf(!process.env.DONWELLS_HISTORY_BINARY)('configures native history, retains its archive on disable and restores the selected roots after restart', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'doctor-native-history-'))); roots.push(root)
+  const project = await realpath('/tmp/donwells-strengthen-27-native/project')
+  const create = () => {
+    const doctor = new ProjectDoctor(root, async path => { const canonical = await realpath(path); if (canonical !== project) throw new Error('Unregistered'); return { path: canonical, projectPath: project } }, () => ({ referenceRoots: [], disabled: [] }), () => [])
+    doctors.push(doctor); return doctor
+  }
+  const doctor = create(), initial = await doctor.inspect(project)
+  const selected = await doctor.configure(project, { ...initial.configuration, historyBinary: process.env.DONWELLS_HISTORY_BINARY, historyOmpRoots: ['/tmp/donwells-strengthen-27-native'], historyDshRoots: ['/tmp/donwells-strengthen-09-dsh-ornith-home/sessions'] }, null)
+  await doctor.historyIndex(project)
+  expect((await doctor.historySearch(project, 'HISTORY_ORNITH_27')).hits.length).toBeGreaterThan(0)
+  expect((await doctor.historySearch(project, 'HISTORY_DSH_27')).hits.length).toBeGreaterThan(0)
+  const disabled = await doctor.configure(project, { ...selected.configuration, disabled: ['history'] }, selected.revision)
+  await expect(doctor.historySearch(project, 'HISTORY_ORNITH_27')).rejects.toThrow('enable')
+  await doctor.close()
+  const restarted = create(), restored = await restarted.inspect(project)
+  expect(restored.revision).toBe(disabled.revision)
+  expect(restored.configuration.historyOmpRoots).toEqual(selected.configuration.historyOmpRoots)
+  await restarted.configure(project, { ...restored.configuration, disabled: [] }, restored.revision)
+  // Re-enable reads the retained derived archive without reindexing or a daemon.
+  expect((await restarted.historySearch(project, 'HISTORY_ORNITH_27')).hits.length).toBeGreaterThan(0)
+}, 60000)
+
+it('refuses a non-admitted history executable before running it', async () => {
+  const f = await fixture(), report = await f.doctor.inspect(f.project)
+  await f.doctor.configure(f.project, { ...report.configuration, historyBinary: process.execPath }, null)
+  await expect(f.doctor.historyIndex(f.project)).rejects.toThrow('admitted AgentsView')
+  await f.doctor.stop(f.project, 'history')
 })

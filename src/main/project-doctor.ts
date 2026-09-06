@@ -1,3 +1,4 @@
+import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from './project-session-history'
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -10,6 +11,7 @@ import { redactDesignCaptureSecrets } from '@shared/design-capture'
 export class ProjectDoctor {
   private readonly files = new WorktreeFiles()
   private readonly owners = new Map<string, Promise<ProjectTools>>()
+  private readonly histories = new Map<string, ProjectSessionHistory>()
   private readonly revisions = new Map<string, string | null>()
   private readonly changing = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>()
   private closed = false
@@ -17,7 +19,8 @@ export class ProjectDoctor {
     private readonly directory: string,
     private readonly resolveWorkspace: (path: string) => Promise<{ path: string; projectPath: string }>,
     private readonly defaults: (projectPath: string) => ProjectToolConfiguration,
-    private readonly definitions: (config: ProjectToolConfiguration, projectPath: string) => ProjectToolDefinition[]
+    private readonly definitions: (config: ProjectToolConfiguration, projectPath: string) => ProjectToolDefinition[],
+    private readonly historyCache = join(directory, 'history')
   ) {}
 
   private async location(path: string) {
@@ -70,6 +73,7 @@ export class ProjectDoctor {
     const availableDiskBytes = await statfs(scope.directory).then(info => info.bavail * info.bsize, () => null)
     let services: ProjectDoctorReport['services'] = []
     if (!problem) try { services = await (await this.owner(path)).list(path) } catch (error) { problem = redactDesignCaptureSecrets(String(error)) }
+    if (configuration.historyBinary && !configuration.disabled.includes('history')) services.push({ id: 'history', status: await this.histories.get(scope.projectKey)?.isIndexing(path).catch(() => false) ? 'starting' : 'stopped', version: SESSION_HISTORY_VERSION, detail: 'Finite native indexing job; Reindex verifies the selected binary and roots.' })
     return { workspacePath: scope.projectPath, configuration, revision, configurationPath: join(scope.directory, 'tools.json'), problem, resources, availableDiskBytes,
       services: services.map(service => ({ ...service, detail: service.detail ? redactDesignCaptureSecrets(service.detail) : null })) }
   }
@@ -82,10 +86,11 @@ export class ProjectDoctor {
     try {
       const current = await this.read(scope.directory, scope.projectPath)
       if (current.revision !== expectedRevision) throw new Error('Tool configuration changed; reload before applying')
-      await (await this.owners.get(scope.projectKey))?.close()
+      await Promise.all([(async () => (await this.owners.get(scope.projectKey))?.close())(), this.histories.get(scope.projectKey)?.close()])
       // Keep failed termination owners retained: their close must succeed before any replacement can launch.
       this.owners.delete(scope.projectKey)
       this.revisions.delete(scope.projectKey)
+      this.histories.delete(scope.projectKey)
       if ((await this.location(path)).projectKey !== scope.projectKey) throw new Error('Project changed while configuring tools')
       if (current.content !== null) await this.files.createWorkspaceEntry(scope.directory, { kind: 'file', path: `tools-backup-${randomUUID()}.json`, content: current.content })
       const content = JSON.stringify(configuration, null, 2) + '\n'
@@ -98,12 +103,42 @@ export class ProjectDoctor {
   async list(path: string) { return (await this.owner(path)).list(path) }
   async start(path: string, id: string) { return (await this.owner(path)).start(path, id) }
   async call(path: string, id: string, operation: string, input: unknown) { return (await this.owner(path)).call(path, id, operation, input) }
-  async stop(path: string, id: string) { return (await this.owner(path)).stop(path, id) }
-  async retry(path: string, id: string) { const owner = await this.owner(path); await owner.stop(path, id); return owner.start(path, id) }
+  async stop(path: string, id: string) {
+    const scope = await this.location(path)
+    if (id === 'history') { await this.histories.get(scope.projectKey)?.close(); this.histories.delete(scope.projectKey); return }
+    const existing = this.owners.get(scope.projectKey)
+    if (existing) await (await existing).stop(path, id)
+  }
+  async configuration(path: string): Promise<ProjectToolConfiguration> {
+    const owner = await this.owner(path), scope = await this.location(path)
+    const selected = await this.read(scope.directory, scope.projectPath)
+    if (this.closed || this.changing.has(scope.projectKey) || await this.owners.get(scope.projectKey) !== owner || selected.revision !== this.revisions.get(scope.projectKey)) throw new Error('Project tool configuration changed while reading')
+    return selected.configuration
+  }
+  private async history(path: string): Promise<ProjectSessionHistory> {
+    const scope = await this.location(path), config = await this.configuration(path)
+    if (this.closed || this.changing.has(scope.projectKey)) throw new Error('History is stopped for configuration changes')
+    if (!config.historyBinary || config.disabled.includes('history')) throw new Error('Configure and enable the admitted session history engine first')
+    let history = this.histories.get(scope.projectKey)
+    if (!history) {
+      history = new ProjectSessionHistory({ binary: config.historyBinary, cache: this.historyCache, roots: { omp: config.historyOmpRoots ?? [], 'deepseek-harness': config.historyDshRoots ?? [] } }, async requested => {
+        const current = await resolveProjectToolScope(requested, this.resolveWorkspace)
+        if (current.projectKey !== scope.projectKey) throw new Error('History belongs to another project')
+        return current
+      })
+      this.histories.set(scope.projectKey, history)
+    }
+    return history
+  }
+  async historyIndex(path: string) { return (await this.history(path)).index(path) }
+  async historySearch(path: string, query: string) { return (await this.history(path)).search(path, query) }
+  async historyGet(path: string, id: string) { return (await this.history(path)).get(path, id) }
+
+  async retry(path: string, id: string) { if (id === 'history') { await this.stop(path, id); await this.historyIndex(path); return { id, status: 'stopped' as const, version: SESSION_HISTORY_VERSION, detail: 'Native history index updated' } } const owner = await this.owner(path); await owner.stop(path, id); return owner.start(path, id) }
   async close() {
     this.closed = true
     await Promise.all([...this.changing.values()].map(change => change.promise))
-    const results = await Promise.allSettled([...this.owners.values()].map(async owner => (await owner).close()))
+    const results = await Promise.allSettled([...this.owners.values()].map(async owner => (await owner).close()).concat([...this.histories.values()].map(history => history.close())))
     if (results.some(result => result.status === 'rejected')) throw new Error('Some project tools could not be stopped')
   }
 }

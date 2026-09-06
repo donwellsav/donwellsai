@@ -3,7 +3,6 @@ import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
-import { ProjectSessionHistory } from './project-session-history'
 import { resolveProjectToolScope } from './project-tools'
 import { ProjectDoctor } from './project-doctor'
 import { parseProjectToolConfiguration } from '@shared/project-doctor'
@@ -76,7 +75,6 @@ let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
 let projectTools: ProjectDoctor | undefined
-let sessionHistory: ProjectSessionHistory | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
@@ -462,7 +460,11 @@ app.whenReady().then(() => {
     },
     join(__dirname, 'terminal-daemon-entry.js')
   )
-  const projectTasks = new ProjectTaskCoordination(store, terminalBus)
+  const projectTasks = new ProjectTaskCoordination(store, terminalBus, async path => {
+    if (!projectTools) throw new Error('Project tools are not ready')
+    const config = await projectTools.configuration(path)
+    return config.disabled.includes('backlog') ? undefined : config.backlogBinary
+  })
   agentRuntime = new AgentRuntime(terminalBus, {
     requireTask: (path, id) => projectTasks.requireTask(path, id),
     registeredWorkspaces: async () => (await git.listAll()).flatMap<AgentWorkspaceRegistration>((summary) => [
@@ -539,20 +541,20 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
-  const historyBinary = process.env['DONWELLS_HISTORY_BINARY']
-  if (historyBinary) {
-    const roots: unknown = JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] ?? '{"omp":[],"deepseek-harness":[]}')
-    if (!roots || typeof roots !== 'object' || Array.isArray(roots) || Object.keys(roots).some(key => !['omp', 'deepseek-harness'].includes(key))) throw new Error('Invalid session history roots')
-    const selected = roots as Record<string, unknown>
-    for (const key of ['omp', 'deepseek-harness']) if (!Array.isArray(selected[key]) || selected[key].length > 16 || selected[key].some((path: unknown) => typeof path !== 'string' || !path || path.length > 4096)) throw new Error('Invalid session history roots')
-    sessionHistory = new ProjectSessionHistory({ binary: historyBinary, cache: join(app.getPath('userData'), 'project-tools', 'history'), roots: selected as { omp: string[]; 'deepseek-harness': string[] } }, path => resolveProjectToolScope(path, resolveToolWorkspace))
+  const sessionHistory = {
+    index: (path: string) => projectTools!.historyIndex(path),
+    search: (path: string, query: string) => projectTools!.historySearch(path, query),
+    get: (path: string, id: string) => projectTools!.historyGet(path, id)
   }
-  const history = () => { if (!sessionHistory) throw new Error('Session history unavailable: configure the admitted engine and selected native session roots'); return sessionHistory }
-  ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => history().index(path))
-  ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => history().search(path, query))
-  ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => history().get(path, id))
+  ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => sessionHistory.index(path))
+  ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => sessionHistory.search(path, query))
+  ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => sessionHistory.get(path, id))
   projectTools = new ProjectDoctor(join(app.getPath('userData'), 'project-tools', 'configuration'), resolveToolWorkspace, projectPath => parseProjectToolConfiguration({
     codeGraphBinary: process.env['DONWELLS_CODE_GRAPH_BINARY'],
+    historyBinary: process.env['DONWELLS_HISTORY_BINARY'],
+    backlogBinary: process.env['DONWELLS_BACKLOG_BINARY'],
+    historyOmpRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').omp ?? [],
+    historyDshRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}')['deepseek-harness'] ?? [],
     qmdPackage: process.env['DONWELLS_DOCUMENT_QMD_PACKAGE'],
     lancePackage: process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE'],
     browserPackage: process.env['DONWELLS_BROWSER_TOOL_PACKAGE'],
@@ -567,7 +569,7 @@ app.whenReady().then(() => {
     ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
     ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph', createHash('sha256').update(projectPath).digest('hex')), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
-  ])
+  ], join(app.getPath('userData'), 'project-tools', 'history'))
   ipcMain.handle('projectDoctorInspect', (_e, path: string) => projectTools!.inspect(path))
   ipcMain.handle('projectDoctorConfigure', (_e, path: string, config: unknown, revision: string | null) => projectTools!.configure(path, config, revision))
   ipcMain.handle('projectDoctorRetry', (_e, path: string, id: string) => projectTools!.retry(path, id))
@@ -646,7 +648,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', (event) => {
   if (projectTools && !toolsClosed) {
     event.preventDefault()
-    closingTools ??= Promise.all([projectTools.close(), sessionHistory?.close()]).catch(() => {
+    closingTools ??= projectTools.close().catch(() => {
       dialog.showErrorBox('Tool shutdown incomplete', 'An owned tool process could not be confirmed stopped. Check it before starting another instance.')
     }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
     return

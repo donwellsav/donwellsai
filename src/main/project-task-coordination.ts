@@ -19,7 +19,7 @@ const TOOLS = {
 
 /** Native task files remain authoritative; the app stores only the project's opt-in. */
 export class ProjectTaskCoordination {
-  constructor(private readonly store: Store, private readonly terminals: DaemonClient, private readonly backlogBinary = process.env.DONWELLS_BACKLOG_BINARY, private readonly registry = new AgentRegistry()) {}
+  constructor(private readonly store: Store, private readonly terminals: DaemonClient, private readonly backlogBinary: string | ((path: string) => Promise<string | undefined>) | undefined = process.env.DONWELLS_BACKLOG_BINARY, private readonly registry = new AgentRegistry()) {}
 
   private async workspace(path: string) {
     const scope = await resolveRegisteredProjectWorkspace(this.store, path)
@@ -28,8 +28,8 @@ export class ProjectTaskCoordination {
     return { ...scope, repo }
   }
 
-  private async binary(tool: 'lazygit' | 'backlog'): Promise<string> {
-    const candidate = tool === 'backlog' ? this.backlogBinary : this.registry.findExecutable('lazygit')
+  private async binary(tool: 'lazygit' | 'backlog', workspacePath: string): Promise<string> {
+    const candidate = tool === 'backlog' ? typeof this.backlogBinary === 'function' ? await this.backlogBinary(workspacePath) : this.backlogBinary : this.registry.findExecutable('lazygit')
     if (!candidate) throw new Error(`${tool} is not configured`)
     const path = await realpath(candidate)
     const info = await stat(path)
@@ -50,7 +50,7 @@ export class ProjectTaskCoordination {
       try { const file = await files.readFile(scope.path, config); if (!file.binary && !file.truncated) configured = true } catch {}
     }
     if (!configured) throw new Error('Initialize Backlog.md in this checkout using its native CLI first')
-    const result = await runProcess({ program: await this.binary('backlog'), args, cwd: scope.path,
+    const result = await runProcess({ program: await this.binary('backlog', path), args, cwd: scope.path,
       env: sanitizedProcessEnv(process.env, { BACKLOG_CWD: scope.path }), timeoutMs: 10000, maxOutputBytes: 256 * 1024 })
     if ((await this.workspace(path)).repo.taskAuthority !== 'backlog.md') throw new Error('Project task authority changed during native read')
     return JSON.parse(result.stdout)
@@ -59,7 +59,7 @@ export class ProjectTaskCoordination {
   async inspect(path: string): Promise<ProjectTasksInspection> {
     const scope = await this.workspace(path)
     const tools = await Promise.all((['lazygit', 'backlog'] as const).map(async id => {
-      try { return { id, version: TOOLS[id].version, available: true, path: await this.binary(id) } }
+      try { return { id, version: TOOLS[id].version, available: true, path: await this.binary(id, path) } }
       catch (error) { return { id, version: TOOLS[id].version, available: false, problem: String(error) } }
     }))
     const result: ProjectTasksInspection = { authority: scope.repo.taskAuthority ?? null, tools, tasks: [] }
@@ -94,7 +94,7 @@ export class ProjectTaskCoordination {
       const state = await this.inspect(path)
       if (!state.authority || state.problem) throw new Error(state.problem ?? 'Choose Backlog.md as the task authority first')
     }
-    const program = await this.binary(tool)
+    const program = await this.binary(tool, path)
     await this.workspace(path)
     return this.terminals.openJob(scope.path, shellCommand(tool === 'backlog' ? ['/usr/bin/env', `BACKLOG_CWD=${scope.path}`, program, 'board'] : [program], process.platform))
   }

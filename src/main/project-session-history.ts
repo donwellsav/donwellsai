@@ -173,6 +173,8 @@ export class ProjectSessionHistory {
     return { id, agent: String(row.agent), nativeId, source: String(row.file_path), cwd: String(row.cwd), indexedAt, resume: row.agent === 'omp' ? { executable: 'omp', args: ['--resume', String(row.file_path)] } : row.agent === 'deepseek-harness' && dshId ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId] } : null, messages: messages.map(message => ({ ordinal: Number(message.ordinal), role: String(message.role), content: String(message.content) })), untrusted: true }
   }
 
+  async isIndexing(path: string): Promise<boolean> { return this.queue.has((await this.bound(path)).scope.indexKey) }
+
   async close(): Promise<void> {
     this.closed = true
     const stopped = await Promise.all([...this.children].map(child => forceTerminateProcessTree(child)))

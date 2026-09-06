@@ -65,3 +65,13 @@ it('uses existing confined file operations for OpenSpec proposal artifacts and p
  await files.createWorkspaceEntry(f.repo,{path,kind:'file',content});expect((await files.readFile(f.repo,path)).content).toBe(content)
  await expect(files.createWorkspaceEntry(f.repo,{path,kind:'file',content:'overwrite'})).rejects.toThrow();expect((await files.readFile(f.repo,path)).content).toBe(content)
 })
+
+it.skipIf(!process.env.DONWELLS_BACKLOG_BINARY)('rechecks the project-selected native executable instead of retaining a launch-time path', async () => {
+ const f=await fixture();let selected:string|undefined=process.env.DONWELLS_BACKLOG_BINARY
+ const paths:string[]=[]
+ const service=new ProjectTaskCoordination(f.store,f.terminals,async path=>{paths.push(path);return selected},new AgentRegistry({env:{PATH:''}}))
+ expect((await service.inspect(f.repo)).tools.find(tool=>tool.id==='backlog')?.available).toBe(true)
+ selected=undefined
+ expect((await service.inspect(f.repo)).tools.find(tool=>tool.id==='backlog')?.available).toBe(false)
+ expect(paths).toEqual([f.repo,f.repo]);expect(f.launches).toEqual([])
+})

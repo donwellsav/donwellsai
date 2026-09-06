@@ -27,7 +27,7 @@ export function ProjectToolsSettings() {
     finally { setBusy(false) }
   }
   if (!workspacePath) return <p>Select a project to configure its tools.</p>
-  return <section className="project-tool-settings" aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
+  return <section className="project-tool-settings" aria-busy={busy} aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
     <h3>Project tools</h3>
     <p>Use installed, admitted tools. Changing configuration stops this project’s tool services and preserves a backup. Native agent authentication stays with each CLI.</p>
     {error && <p role="alert">{error}</p>}
@@ -39,7 +39,7 @@ export function ProjectToolsSettings() {
       {INTEGRATED_PROJECT_TOOLS.map(tool => {
         const service = report.services.find(value => value.id === tool.id)
         return <details key={tool.id}>
-          <summary>{tool.name} · {draft.disabled.includes(tool.id) ? 'disabled' : service?.status ?? 'not configured'}</summary>
+          <summary>{tool.name} · {draft.disabled.includes(tool.id) ? 'disabled' : service?.status ?? (tool.id === 'backlog' && report.configuration.backlogBinary ? 'configured' : 'not configured')}</summary>
           <p>Admitted version: {tool.version}. {tool.scope}.</p>
           <p>{tool.models}</p>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void window.donwells.openExternal(tool.source)}>Source</button>
@@ -52,14 +52,15 @@ export function ProjectToolsSettings() {
             </label>
           })}
           {tool.id === 'documents' && <label>Shared reference folders, one per line<textarea className="settings-input" style={{ width: '100%' }} disabled={busy} value={draft.referenceRoots.join('\n')} onChange={event => setDraft({ ...draft, referenceRoots: event.target.value.split('\n') })} /></label>}
+          {tool.id === 'history' && (['historyOmpRoots', 'historyDshRoots'] as const).map(key => <label key={key} style={{ display: 'block' }}>{key === 'historyOmpRoots' ? 'OMP session roots' : 'DeepSeek session roots'}, one per line<textarea className="settings-input" disabled={busy} value={(draft[key] ?? []).join('\n')} onChange={event => setDraft({ ...draft, [key]: event.target.value.split('\n') })} /></label>)}
           {service?.detail && <p role="status">{service.detail}</p>}
-          <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty || !service} onClick={() => void run(() => window.donwells.projectDoctorRetry(workspacePath, tool.id))}>Retry readiness</button>
-          <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty || !service} onClick={() => void run(() => window.donwells.projectToolStop(workspacePath, tool.id))}>Stop service</button>
+          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty || !service} onClick={() => void run(() => window.donwells.projectDoctorRetry(workspacePath, tool.id))}>{tool.id === 'history' ? 'Reindex sessions' : 'Retry readiness'}</button>}
+          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={dirty || !service} onClick={() => void window.donwells.projectToolStop(workspacePath, tool.id).then(async () => { const value = await window.donwells.projectDoctorInspect(workspacePath); if (useAppStore.getState().activeWorktreePath === workspacePath) accept(value) }).catch(error => setError(redactDesignCaptureSecrets(String(error))))}>Stop service</button>}
         </details>
       })}
       {(dirty || (report.problem && report.revision)) && <>
         <details open><summary>Configuration changes</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{Object.keys({ ...report.configuration, ...draft }).filter(key => JSON.stringify(report.configuration[key as keyof ProjectToolConfiguration]) !== JSON.stringify(draft[key as keyof ProjectToolConfiguration])).map(key => redactDesignCaptureSecrets(`${key}\n− ${JSON.stringify(report.configuration[key as keyof ProjectToolConfiguration] ?? null)}\n+ ${JSON.stringify(draft[key as keyof ProjectToolConfiguration] ?? null)}`)).join('\n\n')}</pre></details>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={busy || (Boolean(report.problem) && report.revision === null)} onClick={() => void run(() => window.donwells.projectDoctorConfigure(workspacePath, { ...draft, referenceRoots: draft.referenceRoots.filter(Boolean) }, report.revision))}>Apply configuration and stop services</button>
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy || (Boolean(report.problem) && report.revision === null)} onClick={() => void run(() => window.donwells.projectDoctorConfigure(workspacePath, { ...draft, referenceRoots: draft.referenceRoots.filter(Boolean), historyOmpRoots: draft.historyOmpRoots?.filter(Boolean), historyDshRoots: draft.historyDshRoots?.filter(Boolean) }, report.revision))}>Apply configuration and stop services</button>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setDraft(report.configuration)}>Discard changes</button>
       </>}
     </>}
