@@ -72,7 +72,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call',
+  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -132,6 +132,13 @@ const CODE_MCP_TOOLS: readonly McpTool[] = [
     annotations: { readOnlyHint: action !== 'index', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
   }))
 ]
+
+const DOCUMENT_MCP_TOOLS: readonly McpTool[] = (['status', 'index', 'search', 'get', 'multi_get', 'pause'] as const).map(action => ({
+  name: `documents_${action}`, title: `Project documents: ${action}`,
+  description: ({ status: 'Inspect optional document retrieval availability and active indexing progress. A paused service stays paused.', index: 'Start indexing this checkout and explicitly selected shared references. Only derived indexes change. Poll documents_status; documents_pause cancels and releases models. Inspect uncertain outcomes before retrying.', search: 'Search scoped local project documents. Preserve lexical/hybrid mode, citation IDs and stale markers; index matches are not durable memory facts.', get: 'Read current source lines using a scoped citation ID. Stale results must not be described as current indexed evidence.', multi_get: 'Read up to five scoped citation IDs. Source references cannot grant access to another project or an unselected root.', pause: 'Stop this checkout document service, cancel indexing and release its models. Source documents and durable memory remain intact.' })[action],
+  inputSchema: { type: 'object', additionalProperties: false, properties: action === 'search' ? { query: { type: 'string', minLength: 1, maxLength: 1000 } } : action === 'get' ? { id: { type: 'string', maxLength: 8192 }, fromLine: { type: 'integer', minimum: 1, maximum: 1000000 }, maxLines: { type: 'integer', minimum: 1, maximum: 400 } } : action === 'multi_get' ? { ids: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string', maxLength: 8192 } } } : {}, required: action === 'search' ? ['query'] : action === 'get' ? ['id'] : action === 'multi_get' ? ['ids'] : [] },
+  annotations: { readOnlyHint: action !== 'index' && action !== 'pause', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
+}))
 
 const KIND_SCHEMA = {
   type: 'string',
@@ -505,7 +512,7 @@ export class ProjectMemoryMcpSession {
     }
   }
 
-  private tools(): readonly McpTool[] { return [...PROJECT_MEMORY_MCP_TOOLS, ...CODE_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
+  private tools(): readonly McpTool[] { return [...PROJECT_MEMORY_MCP_TOOLS, ...CODE_MCP_TOOLS, ...DOCUMENT_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
 
   private async callTool(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
     let name: string
@@ -527,10 +534,10 @@ export class ProjectMemoryMcpSession {
     }
     try {
       const result = await this.executeTool(name, argumentsValue)
-      if (name === 'code_graph_index' || name === 'code_graph_callers') {
-        const native = record(result, 'graph result')
-        if (!Array.isArray(native.content)) throw new Error('Malformed graph result')
-        if (Buffer.byteLength(JSON.stringify(native)) > PROJECT_MEMORY_MCP_MAX_RESPONSE_BYTES) throw new Error('Graph response exceeds the MCP limit; narrow the query')
+      if (['code_graph_index', 'code_graph_callers', 'documents_index', 'documents_search', 'documents_get', 'documents_multi_get'].includes(name)) {
+        const native = record(result, 'tool result')
+        if (!Array.isArray(native.content)) throw new Error('Malformed tool result')
+        if (Buffer.byteLength(JSON.stringify(native)) > PROJECT_MEMORY_MCP_MAX_RESPONSE_BYTES) throw new Error('Tool response exceeds the MCP limit; narrow the query')
         return rpcSuccess(id, native)
       }
       return rpcSuccess(id, toolSuccess(result))
@@ -541,6 +548,28 @@ export class ProjectMemoryMcpSession {
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
     switch (name) {
+      case 'documents_status': {
+        allowedKeys(input, [], 'document status arguments')
+        const tools = await this.invoke('tool.list', { workspacePath: this.workspacePath })
+        if (!Array.isArray(tools)) throw new Error('Invalid project tool list')
+        const service = tools.find(tool => tool?.id === 'documents') ?? null
+        if (service?.status !== 'ready') return { available: service !== null, service }
+        const native = record(await this.invoke('tool.call', { workspacePath: this.workspacePath, id: 'documents', operation: 'status', arguments: {} }), 'document status')
+        if (native.isError) throw new Error(JSON.stringify(native.content))
+        return { available: true, service, progress: native.structuredContent }
+      }
+      case 'documents_pause':
+        allowedKeys(input, [], 'document pause arguments')
+        await this.invoke('tool.stop', { workspacePath: this.workspacePath, id: 'documents' })
+        return { paused: true }
+      case 'documents_index':
+      case 'documents_search':
+      case 'documents_get':
+      case 'documents_multi_get': {
+        const operation = name === 'documents_search' ? 'query' : name === 'documents_multi_get' ? 'multiGet' : name.slice('documents_'.length)
+        allowedKeys(input, operation === 'query' ? ['query'] : operation === 'get' ? ['id', 'fromLine', 'maxLines'] : operation === 'multiGet' ? ['ids'] : [], 'document arguments')
+        return this.invoke('tool.call', { workspacePath: this.workspacePath, id: 'documents', operation, arguments: input })
+      }
       case 'code_search': {
         allowedKeys(input, ['query', 'language', 'maxResults', 'showHidden', 'includeIgnored'], 'code_search arguments')
         return this.invoke('file.searchContent', validateCommandParams('file.searchContent', { workspacePath: this.workspacePath, showHidden: false, includeIgnored: false, ...input }))

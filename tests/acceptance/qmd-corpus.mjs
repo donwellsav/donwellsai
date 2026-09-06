@@ -8,7 +8,8 @@ import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 
-const { values } = parseArgs({ options: { package: { type: 'string' }, 'lance-package': { type: 'string' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, 'expansion-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
+const { values } = parseArgs({ options: { package: { type: 'string' }, 'lance-package': { type: 'string' }, 'production-index': { type: 'boolean' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, 'expansion-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
+assert(!values['production-index'] || values['lance-package'], '--production-index requires --lance-package')
 assert(values.package && values.evidence, '--package and --evidence are required')
 assert(!values['lance-package'] || (values['embedding-model'] && !values.hybrid && !values['expansion-model']), 'Lance comparison uses native RRF and pinned local models')
 assert(!values.hybrid || values['embedding-model'], '--hybrid requires --embedding-model')
@@ -32,7 +33,7 @@ const root = mkdtempSync(join(tmpdir(), 'donwells-qmd-corpus-'))
 const docs = join(root, 'checkout'); mkdirSync(docs)
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const manifest = []
-let store, lance, table, llm, rerank, formatQuery
+let store, lance, table, llm, rerank, formatQuery, nativeIndex
 let retrievalTrace
 const sql = value => "'" + value.replaceAll("'", "''") + "'"
 const referencePrefix = values['lance-package'] ? 'lance://project/' : 'qmd://project/'
@@ -85,7 +86,24 @@ try {
     report[key] = digest.digest('hex')
   }
   let start = performance.now()
-  if (values['lance-package']) {
+  if (values['production-index']) {
+    const modulePath = join(repository, 'src/main/project-document-index.ts')
+    report.engineSha256 = hash(readFileSync(modulePath))
+    const { openProjectDocumentIndex } = await import(pathToFileURL(modulePath).href)
+    const config = { qmdPackage: packagePath, lancePackage: resolve(values['lance-package']), database: join(root, 'native-index'), embeddingModel: model, rerankingModel: reranker }
+    const foreign = await openProjectDocumentIndex({ ...config, collections: [...new Set(corpus.traps.map(trap => hash(trap.scope)))] })
+    try {
+      for (const scope of new Set(corpus.traps.map(trap => trap.scope))) {
+        const traps = corpus.traps.filter(trap => trap.scope === scope)
+        await foreign.replace(hash(scope), traps.map(trap => ({ path: trap.path, content: trap.marker, revision: hash(trap.marker) })))
+        for (const trap of traps) assert((await foreign.search(trap.marker)).hits.some(hit => hit.collection === hash(scope) && hit.path === trap.path))
+      }
+    } finally { await foreign.close() }
+    nativeIndex = await openProjectDocumentIndex({ ...config, collections: [hash('project')] })
+    report.index = await nativeIndex.replace(hash('project'), manifest.map(file => ({ path: file.path, content: readFileSync(join(docs, file.path), 'utf8'), revision: file.sha256 })), (completed, total) => { if (completed % 160 === 0 || completed === total) console.error(JSON.stringify({ embedded: completed, total })) })
+    report.embeddingMs = report.index.embeddingMs; report.indexMs = report.index.indexMs
+    report.foreignFixturesIndexedAndRetrievable = true; report.mode = 'production-lancedb-native-hybrid-local-rerank'
+  } else if (values['lance-package']) {
     const lancePath = resolve(values['lance-package'])
     report.lanceVersion = JSON.parse(readFileSync(join(lancePath, 'package.json'), 'utf8')).version
     assert.equal(report.lanceVersion, '0.38.0')
@@ -137,6 +155,10 @@ try {
     }
   }
   const search = async query => {
+    if (nativeIndex) {
+      const result = await nativeIndex.search(query); assert.equal(result.mode, 'hybrid', result.modelError)
+      return result.hits.map(hit => ({ filepath: referencePrefix + hit.path }))
+    }
     if (table) {
       const vector = await llm.embed(formatQuery(query, model)); assert(vector)
       let hits = await table.vectorSearch(vector.embedding).where("scope = 'project'").fullTextSearch(query).rerank(rerank).limit(50).toArray()
@@ -155,12 +177,20 @@ try {
     : model ? store.searchVector(query, { collection: 'project', limit: 5 }) : store.searchLex(query, { collection: 'project', limit: 5 })
   }
   const get = async reference => {
+    if (nativeIndex) {
+      assert(reference.startsWith(referencePrefix))
+      return await nativeIndex.get(hash('project'), reference.slice(referencePrefix.length)) ?? { error: 'Source unavailable in this project' }
+    }
     if (!table) return store.get(reference, { includeBody: true })
     assert(reference.startsWith(referencePrefix))
     const hits = await table.query().where("scope = 'project' AND path = " + sql(reference.slice(referencePrefix.length))).toArray()
     return hits.length ? hits.map(({ vector, ...hit }) => hit) : { error: 'Source unavailable in this project' }
   }
   const reference = hit => values.hybrid ? hit.file : hit.filepath
+  if (nativeIndex) {
+    start = performance.now(); await search(corpus.questions[0].question); report.coldFirstQueryMs = performance.now() - start
+    report.warmRepetitions = repetitions
+  }
   for (let repetition = 1; repetition <= repetitions; repetition++) for (const row of corpus.questions) {
     start = performance.now()
     const hits = await search(row.question)
@@ -182,7 +212,7 @@ try {
     for (const trap of corpus.traps) {
       const hits = await search(trap.question)
       const direct = await get(referencePrefix + trap.path)
-      const batch = table ? await Promise.all([get(referencePrefix + trap.path)]) : await store.multiGet(referencePrefix + trap.path, { includeBody: true })
+      const batch = (table || nativeIndex) ? await Promise.all([get(referencePrefix + trap.path)]) : await store.multiGet(referencePrefix + trap.path, { includeBody: true })
       const leaked = JSON.stringify([hits, direct, batch]).includes(trap.marker)
       report.traps.push({ id: trap.id, scope: trap.scope, leaked, sources: hits.map(reference) })
     }
@@ -198,6 +228,7 @@ try {
   report.error = String(error)
   process.exitCode = 1
 } finally {
+  await nativeIndex?.close()
   await store?.close()
   await llm?.dispose()
   table?.close(); lance?.close()

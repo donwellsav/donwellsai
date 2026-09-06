@@ -202,7 +202,8 @@ describe('project memory MCP protocol', () => {
           { name: 'code_search' },
           { name: 'code_graph_status' },
           { name: 'code_graph_index' },
-          { name: 'code_graph_callers' }
+          { name: 'code_graph_callers' },
+          ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` }))
         ]
       }
     })
@@ -477,6 +478,11 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'callers', arguments: { function_name: 'target' } } })
   await call('code_graph_index')
   expect(calls.at(-1)?.params.operation).toBe('index')
+  expect(toolValue(await call('documents_status'))).toEqual({ available: false, service: null })
+  expect(await call('documents_search', { query: 'needle' })).toMatchObject({ result: native })
+  expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'documents', operation: 'query', arguments: { query: 'needle' } } })
+  await call('documents_pause')
+  expect(calls.at(-1)).toEqual({ method: 'tool.stop', params: { workspacePath: primaryWorkspace, id: 'documents' } })
   const count = calls.length
   for (const [name, args] of [
     ['code_search', { query: 'needle', workspacePath: '/other' }],
@@ -484,9 +490,13 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
     ['code_graph_callers', { function_name: 'target', project: 'other' }],
     ['code_graph_callers', { function_name: 'a\nb' }],
     ['code_graph_index', { repo_path: '/other' }],
-    ['code_graph_status', { id: 'other' }]
+    ['code_graph_status', { id: 'other' }],
+    ['documents_search', { query: 'needle', workspacePath: '/other' }],
+    ['documents_get', { id: 'reference', root: '/other' }],
+    ['documents_pause', { id: 'other' }]
   ] as const) expect(await call(name, args)).toMatchObject({ result: { isError: true } })
   expect(calls).toHaveLength(count)
   graphError = true
+  expect(await call('documents_get', { id: 'reference' })).toMatchObject({ result: { isError: true, content: [{ text: 'Missing index' }] } })
   expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: { isError: true, content: [{ text: 'Missing index' }] } })
 })

@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'elect
 import { join } from 'node:path'
 import { ProjectTools, resolveProjectToolScope } from './project-tools'
 import { createCodeGraphDefinition } from './project-code-graph'
+import { createDocumentDefinition } from './project-documents'
 import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
 import { configureAgentMemory } from './agents/project-memory-config'
@@ -508,9 +509,12 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   const codeGraphBinary = process.env['DONWELLS_CODE_GRAPH_BINARY']
-  projectTools = new ProjectTools(resolveToolWorkspace, codeGraphBinary
-    ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))]
-    : [])
+  const documentPackage = process.env['DONWELLS_DOCUMENT_QMD_PACKAGE']
+  const lancePackage = process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE']
+  projectTools = new ProjectTools(resolveToolWorkspace, [
+    ...(codeGraphBinary ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
+    ...(documentPackage && lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: documentPackage, lancePackage, embeddingModel: process.env['DONWELLS_DOCUMENT_EMBEDDING_MODEL'], rerankingModel: process.env['DONWELLS_DOCUMENT_RERANKING_MODEL'], references: process.env['DONWELLS_DOCUMENT_REFERENCES'] })] : [])
+  ])
   ipcMain.handle('projectToolsList', (_e, ...args: Parameters<IpcApi['projectToolsList']>) => projectTools!.list(...args))
   ipcMain.handle('projectToolCall', (_e, ...args: Parameters<IpcApi['projectToolCall']>) => projectTools!.call(...args))
   ipcMain.handle('projectToolStop', (_e, ...args: Parameters<IpcApi['projectToolStop']>) => projectTools!.stop(...args))
