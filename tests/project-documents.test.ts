@@ -80,10 +80,19 @@ it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKA
     expect((await call(b!, 'query', { query: 'sharedreference' })).hits).toEqual([])
     for (const query of ['neverindexsecret', 'neverindexhidden', 'neverindexignored', 'neverindexgenerated', 'violetmeadow']) expect((await call(a!, 'query', { query })).hits).toEqual([])
     await expect(call(b!, 'get', { id: hit.id })).rejects.toThrow('another checkout')
+    const foreignHit = (await call(b!, 'query', { query: 'violetmeadow' })).hits[0]
+    await expect(call(a!, 'multiGet', { ids: [hit.id, foreignHit.id] })).rejects.toThrow('another checkout')
     await expect(call(a!, 'query', { query: 'copperorchard', root: b })).rejects.toThrow('not permitted')
     await writeFile(join(a!, 'mémoire.md'), 'currentorchard\n')
     expect(await call(a!, 'get', { id: hit.id })).toMatchObject({ content: 'currentorchard\n', stale: true })
     expect((await call(a!, 'multiGet', { ids: [hit.id] })).documents).toHaveLength(1)
+    await rm(join(a!, 'mémoire.md'))
+    await symlink(join(b!, 'private.md'), join(a!, 'mémoire.md'))
+    await expect(call(a!, 'get', { id: hit.id })).rejects.toThrow()
+    await expect(call(a!, 'multiGet', { ids: [hit.id] })).rejects.toThrow()
+    expect((await call(a!, 'query', { query: 'copperorchard' })).hits).toEqual([])
+    await rm(join(a!, 'mémoire.md'))
+    await writeFile(join(a!, 'mémoire.md'), 'currentorchard\n')
     await rename(join(a!, 'mémoire.md'), join(a!, 'renamed.md'))
     expect((await call(a!, 'query', { query: 'copperorchard' })).hits).toEqual([])
     await rebuild(a!)
@@ -116,10 +125,20 @@ it.skipIf(!process.env.DONWELLS_DOCUMENT_EMBEDDING_MODEL || !process.env.DONWELL
     start = performance.now(); const first = await call('query', { query: 'copperorchard shared memory' }); evidence.firstQueryMs = performance.now() - start
     expect(first).toMatchObject({ mode: 'hybrid', hits: [{ path: 'memory.md', stale: false }] })
     expect(await call('get', { id: first.hits[0].id })).toMatchObject({ content: expect.stringContaining('SQLite'), stale: false })
+    start = performance.now(); const warm = await call('query', { query: 'copperorchard shared memory' }); evidence.warmQueryMs = performance.now() - start
+    expect(warm).toMatchObject({ mode: 'hybrid', hits: [{ path: 'memory.md', stale: false }] })
     await tools.stop(project, 'documents')
     start = performance.now(); const recovered = await call('query', { query: 'copperorchard shared memory' }); evidence.restartAndQueryMs = performance.now() - start
     expect(recovered).toMatchObject({ mode: 'hybrid', hits: [{ path: 'memory.md', stale: false }] })
     evidence.first = first; evidence.recovered = recovered
+    await rm(join(project, 'memory.md'))
+    await expect(call('get', { id: first.hits[0].id })).rejects.toThrow()
+    expect((await call('query', { query: 'copperorchard shared memory' })).hits).toEqual([])
+    start = performance.now(); await call('index')
+    await expect.poll(async () => (await call('status')).phase, { timeout: 15000 }).toBe('ready')
+    evidence.deleteIndexMs = performance.now() - start
+    expect(await call('query', { query: 'copperorchard shared memory' })).toMatchObject({ mode: 'unindexed', hits: [] })
+    evidence.deletedSourceUnavailableBeforeAndAfterReindex = true
     const archive = worker.includes('.asar/') ? worker.slice(0, worker.indexOf('.asar/') + 5) : null
     for (const [key, path] of [['programSha256', program], [archive ? 'workerArchiveSha256' : 'workerSha256', archive ?? worker]]) {
       const hash = createHash('sha256'); for await (const bytes of createReadStream(path!)) hash.update(bytes); evidence[key!] = hash.digest('hex')
