@@ -10,8 +10,7 @@ import {
   parseProjectMemoryGetRequest,
   parseProjectMemoryHistoryRequest,
   parseProjectMemoryListRequest,
-  parseProjectMemoryUpdateRequest,
-  type ProjectMemoryRpcMethod
+  parseProjectMemoryUpdateRequest
 } from '../src/shared/project-memory'
 import { validateCommandParams } from '../src/shared/command-catalog'
 import { ProjectMemoryService } from '../src/main/project-memory'
@@ -83,7 +82,7 @@ function toolValue(response: Record<string, unknown>): unknown {
 }
 
 function serviceInvoker(service: ProjectMemoryService): ProjectMemoryMcpInvoke {
-  return async (method: ProjectMemoryRpcMethod, params: Record<string, unknown>) => {
+  return async (method, params) => {
     params = validateCommandParams(method, params)
     switch (method) {
       case PROJECT_MEMORY_RPC_METHODS.list:
@@ -199,7 +198,11 @@ describe('project memory MCP protocol', () => {
           { name: 'memory_record' },
           { name: 'memory_replace' },
           { name: 'memory_archive' },
-          { name: 'memory_history' }
+          { name: 'memory_history' },
+          { name: 'code_search' },
+          { name: 'code_graph_status' },
+          { name: 'code_graph_index' },
+          { name: 'code_graph_callers' }
         ]
       }
     })
@@ -231,7 +234,7 @@ describe('project memory MCP protocol', () => {
         createId: () => 'shared-memory'
       }
     )
-    const calls: Array<{ method: ProjectMemoryRpcMethod; params: Record<string, unknown> }> = []
+    const calls: Array<{ method: Parameters<ProjectMemoryMcpInvoke>[0]; params: Record<string, unknown> }> = []
     const invokeService = serviceInvoker(service)
     const invoke: ProjectMemoryMcpInvoke = async (method, params) => {
       calls.push({ method, params })
@@ -451,4 +454,37 @@ describe('project memory MCP protocol', () => {
     expect(JSON.parse(oversized!)).toMatchObject({ error: { code: -32600 } })
     expect(invoked).toBe(false)
   })
+})
+
+it('pins code tools to the MCP checkout and preserves native graph errors and freshness', async () => {
+  const calls: { method: string; params: Record<string, unknown> }[] = []
+  let graphError = false
+  const native = { content: [{ type: 'text', text: '{"freshness":{"state":"stale"}}' }], structuredContent: { freshness: { state: 'stale' } } }
+  const session = new ProjectMemoryMcpSession({ workspacePath: primaryWorkspace, harness: 'kimi', invoke: async (method, params) => {
+    calls.push({ method, params })
+    if (method === 'tool.list') return []
+    if (method === 'tool.call') return graphError ? { isError: true, content: [{ type: 'text', text: 'Missing index' }] } : native
+    return { hits: [], truncated: false, skipped: 0 }
+  } })
+  await initialize(session, 1)
+  const call = (name: string, args: Record<string, unknown> = {}) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
+  expect(toolValue(await call('code_search', { query: 'needle', maxResults: 10 }))).toMatchObject({ hits: [] })
+  expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'needle', maxResults: 10, showHidden: false, includeIgnored: false } })
+  expect(toolValue(await call('code_graph_status'))).toEqual({ available: false, service: null })
+  expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: native })
+  expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'callers', arguments: { function_name: 'target' } } })
+  await call('code_graph_index')
+  expect(calls.at(-1)?.params.operation).toBe('index')
+  const count = calls.length
+  for (const [name, args] of [
+    ['code_search', { query: 'needle', workspacePath: '/other' }],
+    ['code_search', { query: 'needle', maxResults: 1001 }],
+    ['code_graph_callers', { function_name: 'target', project: 'other' }],
+    ['code_graph_callers', { function_name: 'a\nb' }],
+    ['code_graph_index', { repo_path: '/other' }],
+    ['code_graph_status', { id: 'other' }]
+  ] as const) expect(await call(name, args)).toMatchObject({ result: { isError: true } })
+  expect(calls).toHaveLength(count)
+  graphError = true
+  expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: { isError: true, content: [{ text: 'Missing index' }] } })
 })

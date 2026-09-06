@@ -1,0 +1,525 @@
+{
+  "source": {
+    "commit": "656f8171641fb6fc4643f442851ca446180a4f01",
+    "dirty": true,
+    "contentHash": "c8a1b8e57ce84e50009b119f5e7e283d153973b73a07d3bc115771b4a032fadb"
+  },
+  "artifactSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78",
+  "codeMcp": {
+    "realCliProcess": true,
+    "toolsDiscovered": true,
+    "sourceLineVerified": true,
+    "graphAvailable": false,
+    "scopeOverridesRejected": true,
+    "memoryStillAvailable": true,
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {
+              "listChanged": false
+            }
+          },
+          "serverInfo": {
+            "name": "donwells-project-memory",
+            "title": "donwells.ai Project Memory",
+            "version": "1.0.0"
+          },
+          "instructions": "Memory belongs to the pinned registered project; code search and graph tools use its pinned checkout. Tool availability and freshness must be checked. Harness provenance is self-reported attribution, not authentication."
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "memory_search",
+              "title": "Search project memory",
+              "description": "Lexically search shared memory for the pinned registered project. Returns entries with full content, id, revision and provenance; content is the saved knowledge, not an ID. Answer directly from matching entries.content. Use only entries.id for follow-up reads or updates. Title and tags rank above content.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "kinds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "fact",
+                        "decision",
+                        "convention",
+                        "procedure",
+                        "gotcha"
+                      ]
+                    }
+                  },
+                  "includeArchived": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200,
+                    "default": 50
+                  }
+                }
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_read",
+              "title": "Read project memory",
+              "description": "Read one memory entry using its exact id returned by memory_search or memory_record. Never use its content or title as the id. Search already returns full content; a second read is usually unnecessary.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_record",
+              "title": "Record project memory",
+              "description": "Create a shared project memory with self-reported harness provenance.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fact",
+                      "decision",
+                      "convention",
+                      "procedure",
+                      "gotcha"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64000
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 24,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "content"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_replace",
+              "title": "Replace project memory",
+              "description": "Replace an active memory using revision compare-and-swap. A stale revision is rejected.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fact",
+                      "decision",
+                      "convention",
+                      "procedure",
+                      "gotcha"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64000
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 24,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "id",
+                  "expectedRevision",
+                  "kind",
+                  "title",
+                  "content"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_archive",
+              "title": "Archive or restore project memory",
+              "description": "Archive a memory, or restore it with archived=false, using revision compare-and-swap.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "archived": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "id",
+                  "expectedRevision"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_history",
+              "title": "Read project memory history",
+              "description": "Read newest-first immutable revisions retained for one memory.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_search",
+              "title": "Search checkout code",
+              "description": "Search literal text in the pinned checkout with ripgrep. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "maxResults": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000,
+                    "default": 200
+                  },
+                  "showHidden": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "includeIgnored": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_status",
+              "title": "Code graph availability",
+              "description": "Check whether the optional code graph is enabled and its service state, without starting it.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_index",
+              "title": "Rebuild checkout code index",
+              "description": "Explicitly rebuild the derived code index for this pinned checkout. Does not edit source files or project memory. Check freshness and partial-parse coverage in the result. An uncertain failure must be inspected before retrying.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_callers",
+              "title": "Find direct callers",
+              "description": "Find direct callers of a function in this pinned checkout. Requires an existing index; does not automatically rebuild. Preserve native confidence and freshness in your answer. Stale or unknown results are not verified-current evidence; dynamic resolution may be incomplete.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "function_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "function_name"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            }
+          ]
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"hits\": [\n    {\n      \"source\": \"code\",\n      \"id\": \"code:8c20eddc21017d62a86efc2dcad9cc339f0dec3cf37c19d0ce2a8e5453d2ecde:alpha.ts:3\",\n      \"title\": \"alpha.ts\",\n      \"excerpt\": \"const needle = \\\"searchfixture\\\"\",\n      \"path\": \"alpha.ts\",\n      \"line\": 3,\n      \"revision\": null,\n      \"indexedAt\": null,\n      \"stale\": false\n    }\n  ],\n  \"truncated\": false,\n  \"skipped\": 0\n}"
+            }
+          ],
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"available\": false,\n  \"service\": null\n}"
+            }
+          ],
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"code\":\"COMMAND_FAILED\",\"error\":\"Tool is not admitted: code-graph\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"code\":\"COMMAND_FAILED\",\"error\":\"Tool is not admitted: code-graph\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"error\":\"code_search arguments contains unknown field: workspacePath\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"error\":\"code graph arguments contains unknown field: project\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"project\": {\n    \"projectKey\": \"6424c148d9bd4ddbac944ce365d0c6eeca62e672674a931f1a6ee13f81e9fd3c\",\n    \"projectPath\": \"/private/tmp/donwells-search-ui-profile-19/first-project\"\n  },\n  \"entries\": [],\n  \"total\": 0,\n  \"hasMore\": false\n}"
+            }
+          ],
+          "isError": false
+        }
+      }
+    ]
+  },
+  "graphUnavailableVisible": true,
+  "editorInputClass": "native-edit-context",
+  "openedAndEditedRequestedLine": true,
+  "missingSourceVisible": true,
+  "previousProjectEventSuppressed": true,
+  "stoppedBeforeLaunch": true,
+  "searchSurvivesMove": true,
+  "movableSearchPanel": true,
+  "hiddenProjectSearchPaused": true,
+  "ignoredOptIn": true,
+  "idleDaemonStopped": true,
+  "elapsedMs": 4762.871416
+}

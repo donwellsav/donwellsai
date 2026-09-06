@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -34,6 +34,45 @@ try {
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: first }); await invoke('repo.add', { dir: second })
+  const codeCalls = [
+    ['code_search', { query: 'searchfixture' }],
+    ['code_graph_status', {}],
+    ['code_graph_index', {}],
+    ['code_graph_callers', { function_name: 'graphTarget' }],
+    ['code_search', { query: 'searchfixture', workspacePath: second }],
+    ['code_graph_callers', { function_name: 'graphTarget', project: 'other' }],
+    ['memory_search', {}]
+  ]
+  const packets = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'code-acceptance', version: '1' } } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ...codeCalls.map(([name, args], index) => ({ jsonrpc: '2.0', id: index + 3, method: 'tools/call', params: { name, arguments: args } }))
+  ]
+  const mcpOutput = await new Promise((resolve, reject) => {
+    const child = execFile(executable, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', first, '--harness', 'custom', '--user-data', profile], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 45000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => error ? reject(error) : resolve(stdout))
+    child.stdin.end(packets.map(packet => JSON.stringify(packet)).join('\n') + '\n')
+  })
+  const mcpResponses = String(mcpOutput).trim().split('\n').map(line => JSON.parse(line))
+  const responseFor = id => { const response = mcpResponses.find(response => response.id === id); assert(response && !response.error, JSON.stringify(response)); return response.result }
+  for (const name of ['code_search', 'code_graph_status', 'code_graph_index', 'code_graph_callers', 'memory_search']) assert(responseFor(2).tools.some(tool => tool.name === name))
+  const sourceHits = JSON.parse(responseFor(3).content[0].text)
+  assert.equal(sourceHits.hits.length, 1)
+  assert.equal(sourceHits.hits[0].path, 'alpha.ts')
+  assert.equal(sourceHits.hits[0].line, 3)
+  assert.equal(JSON.parse(responseFor(4).content[0].text).available, !!values['code-graph-binary'])
+  if (values['code-graph-binary']) {
+    assert.equal(responseFor(5).structuredContent.freshness.state, 'current')
+    assert.equal(responseFor(6).structuredContent.freshness.state, 'current')
+    assert.deepEqual(responseFor(6).structuredContent.callers.groups.flatMap(group => group.rows.map(row => row[0])), ['graphCaller'])
+  } else {
+    assert.equal(responseFor(5).isError, true)
+    assert.equal(responseFor(6).isError, true)
+  }
+  assert.equal(responseFor(7).isError, true)
+  assert.equal(responseFor(8).isError, true)
+  assert.equal(responseFor(9).isError, false)
+  report.codeMcp = { realCliProcess: true, toolsDiscovered: true, sourceLineVerified: true, graphAvailable: !!values['code-graph-binary'], scopeOverridesRejected: true, memoryStillAvailable: true, responses: mcpResponses }
   if (values['code-graph-binary']) {
     const scoped = { workspacePath: first, id: 'code-graph' }
     const indexed = await invoke('tool.call', { ...scoped, operation: 'index', arguments: {} })

@@ -5,7 +5,7 @@ import { isAbsolute } from 'node:path'
 import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { isObject } from '@shared/command-catalog'
-import type { ProjectToolScope } from '@shared/project-tools'
+import { parseCodeGraphFunctionName, type ProjectToolScope } from '@shared/project-tools'
 import type { GitWorktrees } from './git'
 import type { ProjectToolDefinition } from './project-tools'
 
@@ -92,10 +92,7 @@ export function createCodeGraphDefinition(binary: string, cachePath: string, cap
       index: { run: run(true), tool: 'index_repository', readOnly: false, parameters: {}, targets: scope => ({ repo_path: scope.checkoutPath, name: scope.indexKey, persistence: false, mode: 'fast' }) },
       callers: {
         tool: 'trace_path', readOnly: true, run: run(false),
-        parameters: { function_name: value => {
-          if (typeof value !== 'string' || !value.trim() || value.length > 128 || /[\0\r\n]/.test(value)) throw new Error('Expected a bounded function name')
-          return value
-        } },
+        parameters: { function_name: parseCodeGraphFunctionName },
         targets: scope => ({ project: scope.indexKey, direction: 'inbound', depth: 1, format: 'json', include_evidence: true })
       }
     }

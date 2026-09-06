@@ -1,3 +1,5 @@
+import { validateCommandParams } from '../shared/command-catalog.js'
+import { parseCodeGraphFunctionName } from '../shared/project-tools.js'
 import type { AgentSessionCredential } from '../shared/agent-runtime.js'
 import { once } from 'node:events'
 import { resolve } from 'node:path'
@@ -70,7 +72,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge',
+  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -114,6 +116,22 @@ const HANDOFF_MCP_TOOLS: readonly McpTool[] = ['receive', 'acknowledge'].map(act
   inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1, maxLength: 256 }, expectedRevision: { type: 'integer', minimum: 1 } }, required: ['id', 'expectedRevision'] },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: action === 'acknowledge', openWorldHint: false }
 }))
+
+const CODE_MCP_TOOLS: readonly McpTool[] = [
+  {
+    name: 'code_search', title: 'Search checkout code',
+    description: 'Search literal text in the pinned checkout with ripgrep. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { query: { type: 'string', minLength: 1, maxLength: 1000 }, maxResults: { type: 'integer', minimum: 1, maximum: 1000, default: 200 }, showHidden: { type: 'boolean', default: false }, includeIgnored: { type: 'boolean', default: false } }, required: ['query'] },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  ...(['status', 'index', 'callers'] as const).map(action => ({
+    name: `code_graph_${action}`,
+    title: action === 'status' ? 'Code graph availability' : action === 'index' ? 'Rebuild checkout code index' : 'Find direct callers',
+    description: action === 'status' ? 'Check whether the optional code graph is enabled and its service state, without starting it.' : action === 'index' ? 'Explicitly rebuild the derived code index for this pinned checkout. Does not edit source files or project memory. Check freshness and partial-parse coverage in the result. An uncertain failure must be inspected before retrying.' : 'Find direct callers of a function in this pinned checkout. Requires an existing index; does not automatically rebuild. Preserve native confidence and freshness in your answer. Stale or unknown results are not verified-current evidence; dynamic resolution may be incomplete.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'callers' ? { function_name: { type: 'string', minLength: 1, maxLength: 128 } } : {}, ...(action === 'callers' ? { required: ['function_name'] } : {}) },
+    annotations: { readOnlyHint: action !== 'index', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
+  }))
+]
 
 const KIND_SCHEMA = {
   type: 'string',
@@ -469,7 +487,7 @@ export class ProjectMemoryMcpSession {
         title: 'donwells.ai Project Memory',
         version: this.serverVersion
       },
-      instructions: 'Project memory is scoped to the pinned registered project. Harness provenance is self-reported attribution, not authentication.'
+      instructions: 'Memory belongs to the pinned registered project; code search and graph tools use its pinned checkout. Tool availability and freshness must be checked. Harness provenance is self-reported attribution, not authentication.'
     })
   }
 
@@ -487,7 +505,7 @@ export class ProjectMemoryMcpSession {
     }
   }
 
-  private tools(): readonly McpTool[] { return this.credential ? [...PROJECT_MEMORY_MCP_TOOLS, ...HANDOFF_MCP_TOOLS] : PROJECT_MEMORY_MCP_TOOLS }
+  private tools(): readonly McpTool[] { return [...PROJECT_MEMORY_MCP_TOOLS, ...CODE_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
 
   private async callTool(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
     let name: string
@@ -509,6 +527,12 @@ export class ProjectMemoryMcpSession {
     }
     try {
       const result = await this.executeTool(name, argumentsValue)
+      if (name === 'code_graph_index' || name === 'code_graph_callers') {
+        const native = record(result, 'graph result')
+        if (!Array.isArray(native.content)) throw new Error('Malformed graph result')
+        if (Buffer.byteLength(JSON.stringify(native)) > PROJECT_MEMORY_MCP_MAX_RESPONSE_BYTES) throw new Error('Graph response exceeds the MCP limit; narrow the query')
+        return rpcSuccess(id, native)
+      }
       return rpcSuccess(id, toolSuccess(result))
     } catch (error) {
       return rpcSuccess(id, toolError(error))
@@ -517,6 +541,24 @@ export class ProjectMemoryMcpSession {
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
     switch (name) {
+      case 'code_search': {
+        allowedKeys(input, ['query', 'maxResults', 'showHidden', 'includeIgnored'], 'code_search arguments')
+        return this.invoke('file.searchContent', validateCommandParams('file.searchContent', { workspacePath: this.workspacePath, showHidden: false, includeIgnored: false, ...input }))
+      }
+      case 'code_graph_status': {
+        allowedKeys(input, [], 'code graph status arguments')
+        const tools = await this.invoke('tool.list', { workspacePath: this.workspacePath })
+        if (!Array.isArray(tools)) throw new Error('Invalid project tool list')
+        const service = tools.find(tool => tool?.id === 'code-graph') ?? null
+        return { available: service !== null, service }
+      }
+      case 'code_graph_index':
+      case 'code_graph_callers': {
+        const callers = name === 'code_graph_callers'
+        allowedKeys(input, callers ? ['function_name'] : [], 'code graph arguments')
+        const args = callers ? { function_name: parseCodeGraphFunctionName(input.function_name) } : {}
+        return this.invoke('tool.call', { workspacePath: this.workspacePath, id: 'code-graph', operation: callers ? 'callers' : 'index', arguments: args })
+      }
       case 'handoff_receive':
       case 'handoff_acknowledge': {
         allowedKeys(input, ['id', 'expectedRevision'], 'handoff arguments')

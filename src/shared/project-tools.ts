@@ -26,3 +26,8 @@ export type ProjectSearchHit = {
 
 export type ProjectCodeSearchRequest = { query: string; showHidden: boolean; includeIgnored: boolean; maxResults?: number }
 export type ProjectCodeSearchResult = { hits: ProjectSearchHit[]; truncated: boolean; skipped: number }
+
+export function parseCodeGraphFunctionName(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > 128 || /[\0\r\n]/.test(value)) throw new Error('Expected a bounded function name')
+  return value
+}
