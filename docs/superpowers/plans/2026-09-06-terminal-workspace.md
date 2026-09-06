@@ -312,14 +312,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes scoped QMD service and selected document roots. Produces ProjectSearchHit document results and source retrieval bound to the same project.
 
-- [ ] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
-- [ ] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
-- [ ] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
-- [ ] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
+- [x] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
+- [x] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
+- [x] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Delete/rebuild derived indexes only; authoritative source documents and durable decisions remain untouched.
+
+**Current evidence:** [document service qualification](../../architecture/current-document-service.md), [production corpus](../../architecture/current-document-production-corpus.json), [packaged worker](../../architecture/current-document-packaged-service.json). Uses the named LanceDB fallback with QMD chunking/local models after QMD standalone retrieval failed the frozen corpus. Existing native fusion is reused. Configuration/progress are available through the scoped service and agent MCP; interactive setup and unified search remain Tasks 19 and 13.
 
 ### Task 12: Code graph, ripgrep and structural search
 
@@ -660,7 +662,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current task: **11 — Document retrieval fallback qualification** (depends on completed 03 and 04). Task 02 remains open for native IME and VoiceOver. Tasks 01, 03, 04 and 12 are complete. Execute against `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, preserving existing implementation and uncommitted work. The separate `plan-restart` checkout is not the execution target.
+Current task: **02 — Native terminal IME and VoiceOver qualification**. Task 02 remains open for native IME and VoiceOver. Tasks 01, 03, 04, 11 and 12 are complete. Execute against `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, preserving existing implementation and uncommitted work. The separate `plan-restart` checkout is not the execution target.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: Tasks 01, 03, 04 and 12 are complete. Task 02 remains open for native IME and VoiceOver; Task 11 is active on its named LanceDB fallback, using the frozen corpus. The temporary Japanese input source and dictation language were removed after an unverified IME attempt. Task 03 chose SQLite/FTS5, codebase-memory-mcp, Playwright MCP and Cua as integration candidates, rejected QMD semantic quality and retained native redistribution gates. Actual native/browser interruption, target isolation, recovery and resource receipts are linked in component-decisions.md. Later tasks require their own current verification.
+Current position: Tasks 01, 03, 04, 11 and 12 are complete. Task 02 remains open for native IME and VoiceOver; Task 11 passed the frozen corpus and packaged-worker checks using its named LanceDB fallback. The temporary Japanese input source and dictation language were removed after an unverified IME attempt. Task 03 chose SQLite/FTS5, codebase-memory-mcp, Playwright MCP and Cua as integration candidates, rejected QMD semantic quality and retained native redistribution gates. Actual native/browser interruption, target isolation, recovery and resource receipts are linked in component-decisions.md. Later tasks require their own current verification.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -189,14 +189,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes scoped QMD service and selected document roots. Produces ProjectSearchHit document results and source retrieval bound to the same project.
 
-- [ ] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
-- [ ] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
-- [ ] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
-- [ ] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
+- [x] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
+- [x] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
+- [x] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Delete/rebuild derived indexes only; authoritative source documents and durable decisions remain untouched.
+
+**Current evidence:** [document service qualification](../../architecture/current-document-service.md), [production corpus](../../architecture/current-document-production-corpus.json), [packaged worker](../../architecture/current-document-packaged-service.json). Uses the named LanceDB fallback with QMD chunking/local models after QMD standalone retrieval failed the frozen corpus. Existing native fusion is reused. Configuration/progress are available through the scoped service and agent MCP; interactive setup and unified search remain Tasks 19 and 13.
 
 ### Task 12: Code graph, ripgrep and structural search
 
