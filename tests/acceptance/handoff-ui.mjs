@@ -37,6 +37,18 @@ try {
   await invoke('repo.add', { dir: fixture })
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const source = await invoke('agent.start', { workspacePath: fixture, command: '/bin/cat' })
+  await page.getByRole('button', { name: 'Agent sessions', exact: true }).click()
+  await page.getByRole('button', { name: 'Resume terminal', exact: true }).click()
+  const terminalSelector = `[data-pane-key="term:${source.run.sessionId}"] .xterm-helper-textarea`
+  await page.locator(terminalSelector).focus()
+  for (const closeUsing of ['button', 'rail']) {
+    await page.getByRole('button', { name: 'Project memory', exact: true }).click()
+    await page.getByRole('button', { name: closeUsing === 'button' ? 'Close workspace panel' : 'Project memory', exact: true }).click()
+    await page.waitForFunction(selector => document.activeElement === document.querySelector(selector), terminalSelector, { timeout: 3000 })
+  }
+  await page.keyboard.type('sidebar-focus-check\n')
+  await page.waitForFunction(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback.includes('sidebar-focus-check'), source.run.sessionId)
+  report.sidebarCloseRestoresTerminalInput = true
   const requestPath = join(profile, 'handoff-request.json'), resultPath = join(profile, 'handoff-receipt.json')
   const quote = value => `'${value.replaceAll("'", `'\\''`)}'`
   const command = [process.execPath, resolve('tests/fixtures/handoff-mcp-receiver.mjs'), executable, join(resources, 'dist-cli/cli/index.js'), profile, fixture, requestPath, resultPath].map(quote).join(' ')

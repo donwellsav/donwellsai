@@ -74,9 +74,7 @@ export function RightSidebar() {
   }
 
   const closePanel = (): void => {
-    const returnFocus = document.querySelector<HTMLElement>('.pane-active, .titlebar-search')
     setRightSidebarOpen(false)
-    requestAnimationFrame(() => returnFocus?.focus())
   }
 
   return (

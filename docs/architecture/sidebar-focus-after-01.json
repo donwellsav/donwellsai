@@ -1,0 +1,31 @@
+{
+  "source": {
+    "commit": "61b1b561f04e4939efd102c19db83db104fc8665",
+    "dirty": true,
+    "contentHash": "3cd3710da9ceef1d419c851d89b581fa23828912555e60d8211df1e113489bb6"
+  },
+  "artifactSha256": "d87e37972e007303ab4682f9417b313bae1614e5cb18154d4741321b3c04e00b",
+  "memoryMcpSha256": "c73ef3ada8cae72657a6d054ff5f4c25dacc7e62723e64d1c2413344098d0534",
+  "profile": "/private/tmp/donwells-sidebar-focus-after-profile",
+  "fixture": "/private/tmp/donwells-sidebar-focus-after-profile/project-noQiT6",
+  "sidebarCloseRestoresTerminalInput": true,
+  "nativeMcp": {
+    "receivedRevision": 3,
+    "confirmedRevision": 4,
+    "sessionId": "ed2e932d-2304-44d8-9839-be9c7020b48b",
+    "pid": 17792,
+    "mcpPid": 18097,
+    "acknowledgmentReplay": true
+  },
+  "exportPreservedConfirmedHandoff": true,
+  "createReviewAccept": true,
+  "staleSourceDisabled": true,
+  "persistedAcrossProcesses": [
+    17134,
+    18211
+  ],
+  "controlsInSidebar": true,
+  "delivery": "confirmed",
+  "idleDaemonStopped": true,
+  "durationMs": 5531.145291999999
+}

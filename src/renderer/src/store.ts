@@ -1842,7 +1842,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setRightSidebarOpen(open: boolean) {
+    const wasOpen = get().rightSidebarOpen
     set({ rightSidebarOpen: open })
+    if (wasOpen && !open && typeof document !== 'undefined') requestAnimationFrame(() => {
+      const state = get(), path = state.activeWorktreePath
+      const key = path ? state.activePane[path] : undefined
+      if (state.rightSidebarOpen || !key) return
+      const pane = document.querySelector<HTMLElement>(`[data-pane-key="${CSS.escape(key)}"]`)
+      ;(pane?.querySelector<HTMLElement>('.xterm-helper-textarea, .monaco-editor textarea') ?? pane)?.focus()
+    })
   },
 
   setSidebarWidth(w: number) {
