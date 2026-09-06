@@ -1,0 +1,78 @@
+[
+  {
+    "version": 2,
+    "receipt": "/tmp/donwells-strengthen-21-handoff-native-v2-evidence/native-agents.json",
+    "requestedChecksPassed": false,
+    "idleDaemonStopped": true,
+    "agents": {
+      "omp": {
+        "memory": "handoff-step-completed",
+        "error": null,
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      },
+      "kimi": {
+        "memory": "no-verified-response",
+        "error": null,
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      }
+    }
+  },
+  {
+    "version": 3,
+    "receipt": "/tmp/donwells-strengthen-21-handoff-native-v3-evidence/native-agents.json",
+    "requestedChecksPassed": false,
+    "idleDaemonStopped": true,
+    "agents": {
+      "omp": {
+        "memory": "handoff-step-completed",
+        "error": null,
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      },
+      "kimi": {
+        "memory": "no-verified-response",
+        "error": null,
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      }
+    }
+  },
+  {
+    "version": 4,
+    "receipt": "/tmp/donwells-strengthen-21-handoff-native-v4-evidence/native-agents.json",
+    "requestedChecksPassed": false,
+    "idleDaemonStopped": true,
+    "agents": {
+      "omp": {
+        "memory": "handoff-step-completed",
+        "error": null,
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      },
+      "kimi": {
+        "memory": "not-run",
+        "error": "page.evaluate: Target page, context or browser has been closed",
+        "fixtureApproved_handoff_receive": null,
+        "fixtureApproved_handoff_acknowledge": null
+      }
+    }
+  },
+  {
+    "version": 5,
+    "receipt": "/tmp/donwells-strengthen-21-handoff-native-v5-evidence/native-agents.json",
+    "requestedChecksPassed": false,
+    "idleDaemonStopped": true,
+    "agents": {
+      "omp": {
+        "memory": "handoff-step-completed",
+        "error": null
+      },
+      "kimi": {
+        "memory": "not-run",
+        "error": "page.evaluate: Target page, context or browser has been closed"
+      }
+    }
+  }
+]

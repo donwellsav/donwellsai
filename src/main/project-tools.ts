@@ -268,7 +268,22 @@ export class ProjectTools {
     service.state = { ...service.state, status: 'stopped', detail: null }
     for (const pending of service.pending.values()) pending.reject(new ToolTransportError('Tool stopped'))
     service.pending.clear()
-    service.stopping ??= forceTerminateProcessTree(service.process).then(stopped => { if (stopped) service.stopped?.(); return stopped })
+    service.stopping ??= (async () => {
+      const child = service.process
+      // MCP EOF lets native services close detached children such as Chromium.
+      // Windows retains taskkill tree ownership; POSIX still verifies its private group below.
+      if (process.platform !== 'win32' && child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>(resolve => {
+          const finish = () => { clearTimeout(timer); child.removeListener('close', finish); resolve() }
+          const timer = setTimeout(finish, 2000)
+          child.once('close', finish)
+          child.stdin?.end()
+        })
+      }
+      const stopped = await forceTerminateProcessTree(child)
+      if (stopped) service.stopped?.()
+      return stopped
+    })()
     if (!await service.stopping) {
       service.state = { ...service.state, status: 'failed', detail: 'Tool termination could not be verified' }
       throw new Error(service.state.detail!)

@@ -109,3 +109,38 @@ Physical system sleep was not induced on the user's workstation; window visibili
 and explicit reconnect recovery are the exercised fallback. Native foreground input
 can leave its target foreground when interrupted; the control receipt retains that
 limit rather than claiming background control for unsupported Electron targets.
+
+
+## Native handoff remains open
+
+The source OMP wrote the requested fixture file. Initial Kimi trials stopped at
+native approval; later Kimi and DSH trials lost the Playwright page before recipient
+handoff execution. These failures are retained in `native-handoff-before.json`,
+`native-handoff-retries.json` and `native-handoff-dsh-failure.json`. Each owned
+daemon was cleaned up. A separate 30-second idle app probe remained open; native
+keyboard modifier flags were zero. The inspected OMP fixture transcript contained
+only the requested file-write tool call. A subsequent main-process inspection proved
+the BrowserWindow was still alive at the page error. Debug logging captured a
+Chromium debugging WebSocket disconnect (1006); app quit followed during test
+cleanup. This is an unresolved automation connection failure, not proof of an
+app shutdown.
+Unverified approval-driver edits were removed; the preexisting Kimi code-search
+runner changes were preserved. No native handoff completion is claimed here.
+
+
+## Managed browser shutdown
+
+`browser-cleanup-before.json` identifies the managed Chrome by its live ancestry
+under the exact app process, then proves it survives the old MCP hard-stop path.
+The probe terminates only that identified browser after recording the failure.
+`browser-cleanup.json` passes against ASAR
+`7fa541721f4b0572332d29ca87807f8fcd4b9af1256bbe664c4e87bae589d1fc`:
+the MCP service receives EOF, closes its detached Chromium child, and then the
+existing process-group termination check verifies quiescence. EOF gets at most
+two seconds; an uncooperative service is still force-stopped. Windows retains its
+existing taskkill path. Unexpected parent crashes remain a separate recovery gate.
+
+Replay with `tests/acceptance/browser-process-cleanup.mjs` and the existing
+`--app`, `--profile`, `--evidence`, `--playwright`, `--package` (Playwright MCP),
+and `--browser` arguments. The 22 lifecycle tests and typecheck passed. The browser
+build runner now sets its verification flag only after its final GUI checks.

@@ -1,0 +1,20 @@
+{
+  "source": {
+    "commit": "b95f871f2f184a5589cbfdc49614a74872d2c087",
+    "dirty": true,
+    "contentHash": "9f7f4ddb05d7c52e186bb1d4edab199dd85d968a731da8adfb5f0049665cc3fe"
+  },
+  "artifactSha256": "66c4f144b049d9e69cc378bd0f5cfbe70fdec913983bd3c4ece5a2c9a90c057f",
+  "fixture": "/private/tmp/donwells-strengthen-21-browser-owner-v2-profile/fixture",
+  "model": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
+  "url": "http://127.0.0.1:51561/",
+  "sourceBefore": "16b1decac3fc9cbd0cd8790593d05f09ec8cf513f6f427c96f405fbfdb433c39",
+  "ownedBrowser": {
+    "pid": 47820,
+    "parent": 47797,
+    "args": "/Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --disable-blink-features=AutomationControlled --user-data-dir=/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/playwright_chromiumdev_profile-4iuPj0 --remote-debugging-pipe --no-startup-window"
+  },
+  "browserSurvivedStop": true,
+  "error": "AssertionError [ERR_ASSERTION]: Managed browser survived tool stop\n\n1 !== 0\n\n    at file:///private/tmp/donwells21-browser-owner.mjs:40:9",
+  "idleDaemonStopped": true
+}

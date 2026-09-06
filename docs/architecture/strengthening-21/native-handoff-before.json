@@ -1,0 +1,92 @@
+{
+  "startedAt": "2026-09-06T23:02:57.941Z",
+  "source": {
+    "commit": "be05dbda1fabce8f3bb3c091f5cba9f7559f408d",
+    "dirty": true,
+    "contentHash": "d3a6255faaac9b4d8bcf317ff3ba56979a80408bb415a0707a4d12540aea2a5a"
+  },
+  "executable": "/private/tmp/donwells-strengthen-21-package-search/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-21-handoff-native-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-KS3QAR",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "66c4f144b049d9e69cc378bd0f5cfbe70fdec913983bd3c4ece5a2c9a90c057f",
+    "memoryMcpSha256": "28735cb760ab110c25060a550db942f769461a9155c16198055edaee67495321"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-KS3QAR/.omp/mcp.json",
+      "nativeArguments": [
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ],
+      "sessionId": "7a3be7e5-8d7f-4f37-a5ca-003a9c5cf5f6",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 90716,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "no-verified-response",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-KS3QAR/.kimi-code/mcp.json",
+      "nativeArguments": [],
+      "sessionId": "aa942c0a-c08b-49d5-8a3b-580d7976fc36",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2387,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1259.107958
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "d57527b0-9331-47e0-9256-9b530c25f59c",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      12061,
+      12190
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "handoffSource": {
+    "sessionId": "7a3be7e5-8d7f-4f37-a5ca-003a9c5cf5f6",
+    "contentSha256": "8725373b87879fe7ebb442476a0914304e092f95def49551f99533f6cbd37fa2"
+  },
+  "handoff": {
+    "id": "323728b9-48e7-4dd7-9dea-843147fc7a21",
+    "from": "7a3be7e5-8d7f-4f37-a5ca-003a9c5cf5f6",
+    "to": "aa942c0a-c08b-49d5-8a3b-580d7976fc36"
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": false,
+  "durationMs": 200332.763125
+}

@@ -29,6 +29,8 @@ function fixture(mode = 'normal', scope: 'project' | 'checkout' = 'checkout') {
 const fs = require('node:fs'), readline = require('node:readline');
 const mode = process.argv[2], counter = process.argv[3], writes = process.argv[4];
 fs.appendFileSync(counter, process.pid+'\\n');
+if(mode==='graceful')process.stdin.on('end',()=>{fs.appendFileSync(writes,'closed\\n');process.exit(0)});
+if(mode==='ignore-eof')setInterval(()=>{},1000);
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line); if(!m.id)return;
  const send=result=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
@@ -242,6 +244,19 @@ it('allows deliberate stop and reattach without weakening automatic crash limits
   f.definition.stopped=()=>{const pids=readFileSync(f.counter,'utf8').trim().split('\n').map(Number);expect(()=>process.kill(pids.at(-1)!,0)).toThrow();stopped++}
   for(let i=0;i<4;i++){await f.tools.start(f.project,'fixture');await f.tools.stop(f.project,'fixture')}
   expect(stopped).toBe(4)
+})
+
+it.skipIf(process.platform === 'win32')('allows native EOF cleanup and bounds an uncooperative service', async () => {
+  const graceful = fixture('graceful')
+  await graceful.tools.start(graceful.project, 'fixture')
+  await graceful.tools.stop(graceful.project, 'fixture')
+  expect(readFileSync(graceful.writes, 'utf8')).toBe('closed\n')
+  const stubborn = fixture('ignore-eof')
+  await stubborn.tools.start(stubborn.project, 'fixture')
+  const started = Date.now()
+  await stubborn.tools.stop(stubborn.project, 'fixture')
+  expect(Date.now() - started).toBeLessThan(4000)
+  expect(() => process.kill(Number(readFileSync(stubborn.counter, 'utf8').trim()), 0)).toThrow()
 })
 
 it('observes an existing service without starting or restarting it', async () => {
