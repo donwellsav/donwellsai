@@ -13,6 +13,8 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
+import { withProjectMemoryWriteLock } from './project-memory-lock'
 import {
   PROJECT_MEMORY_MAX_DOCUMENT_BYTES,
   PROJECT_MEMORY_MAX_ENTRIES,
@@ -124,6 +126,15 @@ function emptyDocument(): ProjectMemoryDocument {
 function errorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
   return typeof error.code === 'string' ? error.code : undefined
+}
+
+/** Any cutover manifest fences this legacy JSON implementation, including a corrupt manifest. */
+export function assertJsonAuthority(path: string): void {
+  try { lstatSync(join(dirname(path), 'project-memory-active.json')) }
+  catch (error) { if (errorCode(error) === 'ENOENT') return; throw error }
+  throw Object.assign(new Error('Project memory authority changed; reopen the active backend instead of the legacy JSON snapshot'), {
+    code: 'PROJECT_MEMORY_BACKEND_CHANGED'
+  })
 }
 
 export function readProjectMemorySnapshot(path: string): { document: ProjectMemoryDocument; bytes: Buffer | null } {
@@ -291,10 +302,12 @@ export class ProjectMemoryStore {
 
   constructor(userDataDir: string) {
     this.path = join(userDataDir, FILE_NAME)
+    assertJsonAuthority(this.path)
     this.document = readProjectMemorySnapshot(this.path).document
   }
 
   list(projectKey: string, options: ProjectMemoryListOptions): { entries: ProjectMemoryEntry[]; total: number } {
+    assertJsonAuthority(this.path)
     if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > PROJECT_MEMORY_MAX_RESULT_LIMIT) {
       throw new Error(`Project memory result limit must be between 1 and ${PROJECT_MEMORY_MAX_RESULT_LIMIT}`)
     }
@@ -431,6 +444,7 @@ export class ProjectMemoryStore {
     stored: StoredProjectMemoryEntry
     index: number
   } {
+    assertJsonAuthority(this.path)
     const projectDocument = this.document.projects.find((candidate) => candidate.projectKey === projectKey)
     if (!projectDocument) throw new ProjectMemoryNotFoundError(id)
     const index = projectDocument.entries.findIndex((candidate) => candidate.current.id === id)
@@ -448,6 +462,18 @@ export class ProjectMemoryStore {
   }
 
   private commitProject(project: ProjectMemoryDocument['projects'][number]): void {
+    withProjectMemoryWriteLock(dirname(this.path), () => this.commitLockedProject(project))
+  }
+
+  private commitLockedProject(project: ProjectMemoryDocument['projects'][number]): void {
+    assertJsonAuthority(this.path)
+    const current = readProjectMemorySnapshot(this.path).document
+    if (!isDeepStrictEqual(current, this.document)) {
+      this.document = current
+      throw Object.assign(new Error('Project memory changed in another writer; read the current memory and retry'), {
+        code: 'PROJECT_MEMORY_CHANGED', retryable: true
+      })
+    }
     const index = this.document.projects.findIndex((candidate) => candidate.projectKey === project.projectKey)
     const projects = this.document.projects.slice()
     if (index < 0) projects.push(project)

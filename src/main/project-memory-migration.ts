@@ -3,7 +3,8 @@ import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFi
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { parseProjectMemoryDocument, type ProjectMemoryDocument } from '@shared/project-memory'
-import { readProjectMemorySnapshot } from './project-memory-store'
+import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
+import { withProjectMemoryWriteLock } from './project-memory-lock'
 
 function digest(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -24,12 +25,15 @@ function writePrivate(path: string, bytes: string | Buffer, mode = 0o600): void 
   finally { closeSync(descriptor) }
 }
 
-/** Prepare and verify an isolated destination. This does not switch the active authority.
- * Cutover must hold the maintenance fence from snapshot through manifest publication.
- */
+/** Preparation holds the writer fence; no active authority is switched here. */
 export function prepareProjectMemoryMigration(userDataDir: string) {
   const profile = resolve(userDataDir)
+  return withProjectMemoryWriteLock(profile, () => prepareLockedMigration(profile))
+}
+
+function prepareLockedMigration(profile: string) {
   const sourcePath = join(profile, 'project-memory.json')
+  assertJsonAuthority(sourcePath)
   const source = readProjectMemorySnapshot(sourcePath)
   mkdirSync(profile, { recursive: true, mode: 0o700 })
   const directory = mkdtempSync(join(profile, 'project-memory-migration-'))

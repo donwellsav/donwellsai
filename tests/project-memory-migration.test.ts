@@ -2,11 +2,13 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import { expect, it } from 'vitest'
 import { PROJECT_MEMORY_MAX_CONTENT_LENGTH } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
 import { prepareProjectMemoryMigration } from '../src/main/project-memory-migration'
+import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
 
 it('stages private SQLite memory with exact backup, history, archives and project isolation without cutover', async () => {
   const root = mkdtempSync(join(tmpdir(), 'donwells-memory-migration-'))
@@ -64,4 +66,54 @@ it('stages private SQLite memory with exact backup, history, archives and projec
     expect(empty.sourceSha256).toBeNull()
     expect(empty.projects).toEqual([])
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it('fences every JSON writer during maintenance and releases the lock when its owning process dies', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-lock-'))
+  let child: ReturnType<typeof spawn> | undefined
+  try {
+    const resolveProject = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
+    const first = new ProjectMemoryService(root, resolveProject)
+    const stale = new ProjectMemoryService(root, resolveProject)
+    const request = { workspacePath: '/a', kind: 'decision' as const, title: 'Kept decision', content: 'first writer', attribution: { harness: 'omp' } }
+    await first.projectMemoryCreate(request)
+    const source = join(root, 'project-memory.json')
+    const original = readFileSync(source)
+    await expect(stale.projectMemoryCreate({ ...request, content: 'stale writer' })).rejects.toMatchObject({ code: 'PROJECT_MEMORY_CHANGED' })
+    expect(readFileSync(source)).toEqual(original)
+    withProjectMemoryWriteLock(root, () => {})
+    child = spawn(process.execPath, ['--input-type=module', '-e', `
+      import { DatabaseSync } from 'node:sqlite';
+      const db = new DatabaseSync(process.argv[1]);
+      db.exec('BEGIN EXCLUSIVE');
+      console.log('locked');
+      setTimeout(() => { db.close(); process.exit(0); }, 10000);
+    `, join(root, 'project-memory.lock.sqlite')], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const ready = await Promise.race([
+      once(child.stdout!, 'data').then(([data]) => String(data)),
+      once(child, 'exit').then(() => { throw new Error('Lock owner exited before readiness') })
+    ])
+    expect(ready).toContain('locked')
+    await expect(first.projectMemoryCreate(request)).rejects.toMatchObject({ code: 'PROJECT_MEMORY_MAINTENANCE' })
+    expect(() => prepareProjectMemoryMigration(root)).toThrow('maintenance')
+    expect(readFileSync(source)).toEqual(original)
+    const exited = once(child, 'exit')
+    child.kill('SIGKILL')
+    await exited
+    await first.projectMemoryCreate({ ...request, content: 'after owner exit' })
+    expect(prepareProjectMemoryMigration(root).projects[0].entries).toBe(2)
+    const beforeCutover = readFileSync(source)
+    writeFileSync(join(root, 'project-memory-active.json'), '{unreadable manifest', { mode: 0o600 })
+    await expect(first.projectMemoryCreate(request)).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
+    await expect(first.projectMemoryList({ workspacePath: '/a' })).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
+    expect(() => new ProjectMemoryService(root, resolveProject)).toThrow('authority changed')
+    expect(readFileSync(source)).toEqual(beforeCutover)
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit')
+      child.kill('SIGKILL')
+      await exited
+    }
+    rmSync(root, { recursive: true, force: true })
+  }
 })
