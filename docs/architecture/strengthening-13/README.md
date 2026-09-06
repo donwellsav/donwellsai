@@ -1,0 +1,13 @@
+# Task 13 strengthening
+
+Files, Code, Documents and Memory now share the existing search panel and shortcut (Cmd/Ctrl+Shift+F). Sessions explicitly remains unavailable until Task 27. Source filters and query survive panel movement. Results show source, reason, revision and freshness when supplied. File and memory results are bounded; the panel pages 25 rows at a time. Quick Open remains available.
+
+Existing project-scoped APIs supply all results. Obsolete streamed code results are fenced by request and checkout. Pending document queries are serialized per panel and obsolete queued queries are skipped, without terminating another caller's shared model service. Document indexing is explicit, with progress and pause controls. Opening a result revalidates source files or reads the current memory revision; document excerpts use the scoped service get operation.
+
+Keyboard qualification exposed two shared navigation defects: the terminal's duplicate Find handler intercepted Shift+F, and pane cycling changed selection without moving input focus. Find now uses the command catalog. Pane cycling reuses the navigation focus helper, recognizes Monaco's native editing element, and fences delayed focus against a changed target. Cached editors focus after their dock is revealed.
+
+55 focused tests passed; TypeScript passed. The actual packaged workflow passed code open-at-line/edit/save, missing source, previous-project and obsolete-query suppression, cancellation before launch, moving the panel, hidden-project pause, 35-file pagination, Home/End/Enter, cached editor reopening, next/previous pane input focus, and explicit keyboard copy/paste of one source into a terminal receiver. That receiver is a bounded cat fixture; native model continuation is separately qualified in Task 10.
+
+The memory test changed revision 1 to revision 2 after the search and verified that opening showed revision 2's content. Documents were explicitly indexed and opened with QMD/Lance lexical fallback visibly labelled. Semantic quality is qualified separately in Task 11. The native graph sidebar also passed stale marking, rebuild, renamed caller, scope fencing and shutdown. Screenshot inspected: controls stay in the sidepanel and the terminal retains its full content height below one pane strip. The stopped cat fixture is labelled Failed because it was deliberately terminated.
+
+Artifact: `/tmp/donwells-strengthen-13-package-navigation/mac-arm64/donwells.app`. ASAR SHA-256 `add18f6ea4a50b08c11de7f2cf16be43b305cb872da04ad5195005e965fc6f05`. Package checker matched 718 application files and 29 external resources. The receipt records the precommit source hash. Owned agents, terminals and idle daemon were stopped. No normal user profile was changed.

@@ -45,6 +45,7 @@ export type AppCommandId =
   | 'settings'
   | 'show-agents'
   | 'next-waiting-session'
+  | 'show-project-search'
   | 'show-project-memory'
   | 'show-editor-recovery'
   | 'show-parallel-runs'
@@ -63,6 +64,7 @@ export type AppCommand = {
 }
 
 export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
+  { id: 'show-project-search', label: 'Search project…', category: 'View', defaultAccelerators: ['Mod+Shift+F'], palette: true, rendererOnly: true },
   { id: 'next-waiting-session', label: 'Next waiting session', category: 'Agent', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'new-project', label: 'New project…', category: 'File', defaultAccelerators: ['Mod+Shift+N'], palette: true },
   { id: 'add-repo', label: 'Open existing folder…', category: 'File', defaultAccelerators: ['Mod+O'], palette: true },

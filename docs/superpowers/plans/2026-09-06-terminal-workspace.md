@@ -370,14 +370,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes ProjectSearchHit results. Produces source-grouped search and safe open-at-location behavior.
 
-- [ ] **Step 1:** Add Files, Code, Documents and Memory to one search entry. Enable Sessions when Task 27 becomes available, with a visible unavailable state until then; optional history support must not block core search. Show why each match appeared and its source/freshness.
-- [ ] **Step 2:** Cancel obsolete queries and suppress responses from the previous project. Keep navigation focus and query text stable during result streaming.
-- [ ] **Step 3:** Open files at line/revision where available, show missing/changed source clearly, and offer refresh for stale indexes. Do not attach entire result sets to an agent automatically.
-- [ ] **Step 4:** Test slow-old/fast-new result ordering, project switch during query, missing files, pagination and keyboard navigation.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-search.test.ts tests/document-navigation.test.ts tests/editor-tabs.test.ts`; run keyboard-only source-to-agent workflow.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Add Files, Code, Documents and Memory to one search entry. Enable Sessions when Task 27 becomes available, with a visible unavailable state until then; optional history support must not block core search. Show why each match appeared and its source/freshness.
+- [x] **Step 2:** Cancel obsolete queries and suppress responses from the previous project. Keep navigation focus and query text stable during result streaming.
+- [x] **Step 3:** Open files at line/revision where available, show missing/changed source clearly, and offer refresh for stale indexes. Do not attach entire result sets to an agent automatically.
+- [x] **Step 4:** Test slow-old/fast-new result ordering, project switch during query, missing files, pagination and keyboard navigation.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-search.test.ts tests/document-navigation.test.ts tests/editor-tabs.test.ts`; run keyboard-only source-to-agent workflow.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Retain existing Quick Open shortcut until the unified path passes equivalent navigation checks.
+
+**Strengthening evidence:** [unified search and packaged keyboard workflow](../../architecture/strengthening-13/README.md).
 
 ### Task 14: Browser preview hosting migration
 
@@ -682,7 +684,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 13 active — unified search and source navigation.** Tasks 01 and 03–12 are strengthened. Task 02 remains skipped. Tasks 13–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 27 active — native session history and AgentsView integration.** Tasks 01 and 03–13 are strengthened. Task 02 remains skipped. Tasks 14–28 remain reopened; Task 27 runs next to enable Sessions before browser work. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

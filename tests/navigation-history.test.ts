@@ -134,6 +134,8 @@ describe('navigation command shortcuts', () => {
   it('registers conflict-free platform shortcuts for history, MRU, and the global navigator', () => {
     expect(validateAppShortcutOverrides({})).toEqual([])
     const match = createAppShortcutMatcher({}, 'mac')
+    expect(match({ key: 'f', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })?.id).toBe('show-project-search')
+    expect(match({ key: 'f', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false })?.id).toBe('find')
 
     expect(match({ key: 'ArrowLeft', metaKey: false, ctrlKey: false, altKey: true, shiftKey: false })?.id)
       .toBe('navigate-back')

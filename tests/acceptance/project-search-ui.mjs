@@ -93,7 +93,7 @@ try {
     await invoke('tool.stop', scoped)
   }
   await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
-  await page.getByRole('button', { name: 'Content search', exact: true }).click()
+  await page.getByRole('button', { name: 'Project search', exact: true }).click()
   await page.evaluate(() => { window.searchEvents = []; window.donwells.on('project-search:hit', event => window.searchEvents.push(event)) })
   const query = page.getByRole('searchbox', { name: 'Search text', exact: true })
   const results = page.getByRole('list', { name: 'Content matches' })
@@ -185,19 +185,105 @@ try {
   report.searchSurvivesMove = true
   report.movableSearchPanel = true
   await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
-  await page.getByRole('button', { name: 'Content search', exact: true }).click()
+  await page.getByRole('button', { name: 'Project search', exact: true }).click()
   await page.evaluate(() => { window.searchEvents = [] })
   await page.getByRole('searchbox', { name: 'Search text', exact: true }).fill('search')
   await delay(500)
   assert.equal(await page.evaluate(path => window.searchEvents.filter(event => event.workspacePath === path).length, second), 0)
   report.hiddenProjectSearchPaused = true
   report.ignoredOptIn = true
+  const panel = page.getByRole('region', { name: 'Project search', exact: true })
+  const choose = async name => panel.getByRole('group', { name: 'Search sources' }).getByRole('button', { name, exact: true }).click()
+  await page.keyboard.press('Meta+Shift+f')
+  await page.waitForFunction(() => document.activeElement?.getAttribute('type') === 'search')
+  for (let i = 0; i < 35; i++) writeFileSync(join(first, `paginated-${String(i).padStart(2, '0')}.txt`), 'Small source file\n')
+  await choose('Files')
+  await query.fill('paginated')
+  await panel.getByRole('button', { name: 'Show more · 25 of 35', exact: true }).waitFor()
+  assert.equal(await results.getByRole('button').count(), 25)
+  await panel.getByRole('button', { name: 'Show more · 25 of 35', exact: true }).click()
+  assert.equal(await results.getByRole('button').count(), 35)
+  await app.evaluate(({ BrowserWindow }, event) => BrowserWindow.getAllWindows()[0].webContents.send('project-search:hit', event), oldEvent)
+  await delay(100)
+  assert.equal(await results.getByRole('button').count(), 35)
+  report.obsoleteQueryEventSuppressed = true
+  await query.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('End')
+  assert.match(await page.evaluate(() => document.activeElement.textContent), /paginated-34/)
+  await page.keyboard.press('Home'); await page.keyboard.press('Enter')
+  await page.waitForFunction(() => document.activeElement?.closest('.monaco-editor'))
+  report.filePaginationAndKeyboardOpen = true
+  const receiver = await invoke('agent.start', { workspacePath: first, command: '/bin/cat' })
+  await page.getByRole('button', { name: 'Agent sessions', exact: true }).click()
+  await page.getByRole('button', { name: 'Open terminal', exact: true }).click()
+  await page.keyboard.press('Meta+Shift+f')
+  await page.waitForFunction(() => document.activeElement?.getAttribute('type') === 'search')
+  await results.getByRole('button').first().waitFor()
+  report.keyboardStage = 'open-source'
+  report.beforeSourceKey = await page.evaluate(() => ({ tag: document.activeElement?.tagName, type: document.activeElement?.getAttribute('type'), text: document.activeElement?.textContent?.slice(0, 100) }))
+  await page.keyboard.press('ArrowDown')
+  report.afterSourceArrow = await page.evaluate(() => ({ tag: document.activeElement?.tagName, type: document.activeElement?.getAttribute('type'), text: document.activeElement?.textContent?.slice(0, 100) }))
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => document.activeElement?.closest('.monaco-editor'), undefined, { timeout: 3000 })
+  report.keyboardStage = 'copy-source'
+  await page.keyboard.press('Meta+a'); await page.keyboard.press('Meta+c')
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await page.keyboard.press('Meta+Alt+ArrowRight'); await delay(80)
+    if (await page.evaluate(id => document.activeElement?.closest('[data-pane-key]')?.getAttribute('data-pane-key') === `term:${id}`, receiver.run.sessionId)) break
+  }
+  assert(await page.evaluate(id => document.activeElement?.closest('[data-pane-key]')?.getAttribute('data-pane-key') === `term:${id}`, receiver.run.sessionId))
+  await page.keyboard.press('Meta+Alt+ArrowLeft')
+  await page.waitForFunction(() => document.activeElement?.closest('.monaco-editor'))
+  await page.keyboard.press('Meta+Alt+ArrowRight')
+  await page.waitForFunction(id => document.activeElement?.closest('[data-pane-key]')?.getAttribute('data-pane-key') === `term:${id}`, receiver.run.sessionId)
+  report.previousAndNextPaneFocus = true
+  report.keyboardStage = 'paste-to-receiver'
+  await page.keyboard.press('Meta+v')
+  await page.waitForFunction(async id => (await window.donwells.attachTerminal(id)).scrollback.includes('Small source file'), receiver.run.sessionId)
+  report.keyboardSourceToTerminal = { sessionId: receiver.run.sessionId, explicitSingleFileCopy: true, fixture: 'cat receiver; native model continuation separately qualified in Task 10' }
+  await invoke('agent.stop', { sessionId: receiver.run.sessionId })
+  await page.keyboard.press('Meta+Shift+f')
+
+  const savedMemory = await page.evaluate(path => window.donwells.projectMemoryCreate({ workspacePath: path, kind: 'decision', title: 'Shared search decision', content: 'searchmemorycanary', attribution: { harness: 'fixture' } }), first)
+  await choose('Memory'); await query.fill('searchmemorycanary')
+  await results.getByRole('button', { name: /Shared search decision/ }).waitFor()
+  const updatedMemory = await page.evaluate(({ path, entry }) => window.donwells.projectMemoryUpdate({ workspacePath: path, id: entry.id, expectedRevision: entry.revision, kind: entry.kind, title: entry.title, content: 'searchmemorycanary current revision', attribution: { harness: 'fixture' } }), { path: first, entry: savedMemory })
+  await query.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter')
+  await page.getByRole('dialog').waitFor()
+  assert.equal(await page.getByRole('dialog').count(), 1)
+  assert.equal(await page.getByRole('dialog').locator('textarea').inputValue(), 'searchmemorycanary current revision')
+  await page.getByRole('dialog').getByText('Revision 2', { exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  report.memoryOpenedCurrentRevision = updatedMemory.revision
+  await choose('Sessions')
+  await panel.getByText('Sessions unavailable · project history is not enabled', { exact: true }).waitFor()
+  report.sessionsUnavailableVisible = true
+  await choose('Documents'); await query.fill('Small source')
+  if (env.DONWELLS_DOCUMENT_QMD_PACKAGE && env.DONWELLS_DOCUMENT_LANCE_PACKAGE) {
+    await panel.getByRole('button', { name: 'Index documents', exact: true }).click()
+    await results.getByRole('button').first().waitFor({ timeout: 30000 })
+    await results.getByRole('button').first().click()
+    const sourceDialog = page.getByRole('dialog')
+    await sourceDialog.getByText('Small source file', { exact: true }).waitFor()
+    await page.keyboard.press('Escape')
+    report.documentIndexedAndOpened = true
+  } else {
+    await panel.getByText('Documents unavailable · configure the document engine', { exact: true }).waitFor()
+    report.documentsUnavailableVisible = true
+  }
+  await page.screenshot({ path: join(evidence, 'unified-search.png') })
+
 } catch (error) {
-  report.error = String(error); process.exitCode = 1
+  report.error = error.stack || String(error); process.exitCode = 1
+  report.failureFocus = await page?.evaluate(() => ({ active: document.activeElement?.outerHTML.slice(0, 300), panes: [...document.querySelectorAll('[data-pane-key]')].map(pane => ({ key: pane.getAttribute('data-pane-key'), width: pane.getBoundingClientRect().width, height: pane.getBoundingClientRect().height, body: pane.firstElementChild?.className })), tabs: [...document.querySelectorAll('.flexlayout__tab_button--selected')].map(tab => tab.textContent) })).catch(() => null)
   await page?.screenshot({ path: join(evidence, 'failure.png') }).catch(() => {})
 } finally {
   if (app) {
     try {
+      for (const agent of (await invoke('agent.list')).agents) {
+        if (agent.liveness !== 'exited') await invoke('agent.stop', { sessionId: agent.sessionId })
+        for (let i = 0; i < 50 && (await invoke('agent.list')).agents.find(item => item.sessionId === agent.sessionId)?.liveness !== 'exited'; i++) await delay(100)
+        await invoke('agent.dismiss', { sessionId: agent.sessionId })
+      }
       for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
     } catch (error) { report.terminalCleanupError = String(error); process.exitCode = 1 }
   }

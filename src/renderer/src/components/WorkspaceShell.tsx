@@ -130,7 +130,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         <button aria-label="Terminal" title="New terminal" disabled={!activePath} onClick={() => activePath && void state().openTerminal(activePath)}><Icon name="terminal" size={19} /><span>Terminal</span></button>
         <button aria-label="Add agent" title="Add agent" disabled={!activePath} onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={19} /><span>Add agent</span></button>
         <WorkspaceControls />
-        <button aria-label="Content search" title="Search file contents" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'search' && !runsOpen} onClick={() => showTool('search')}><Icon name="search" size={19} /><span>Text search</span></button>
+        <button aria-label="Project search" title="Search files, code, documents and memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'search' && !runsOpen} onClick={() => showTool('search')}><Icon name="search" size={19} /><span>Project search</span></button>
         <button aria-label="Find a command" title={`Find a command (${formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))})`} onClick={() => state().setPaletteOpen(true)}><Icon name="bolt" size={19} /><span>Commands</span></button>
         <button aria-label="Projects" title="Projects" aria-pressed={sidebarOpen} onClick={() => state().setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={19} /><span>Projects</span></button>
         <button aria-label="Files" title="Files" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'explorer' && !runsOpen} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>

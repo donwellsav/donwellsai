@@ -1,0 +1,942 @@
+{
+  "source": {
+    "commit": "909bffd2c5779179384ebbce689fc68afe173d63",
+    "dirty": true,
+    "contentHash": "4d11714a6d6e91be661eaea3abfc95b270238336e792cc4580ed95edb504aee3"
+  },
+  "artifactSha256": "add18f6ea4a50b08c11de7f2cf16be43b305cb872da04ad5195005e965fc6f05",
+  "codeMcp": {
+    "realCliProcess": true,
+    "toolsDiscovered": true,
+    "sourceLineVerified": true,
+    "graphAvailable": true,
+    "scopeOverridesRejected": true,
+    "memoryStillAvailable": true,
+    "responses": [
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {
+            "tools": {
+              "listChanged": false
+            }
+          },
+          "serverInfo": {
+            "name": "donwells-project-memory",
+            "title": "donwells.ai Project Memory",
+            "version": "1.0.0"
+          },
+          "instructions": "Memory belongs to the pinned registered project; code search and graph tools use its pinned checkout. Tool availability and freshness must be checked. Harness provenance is self-reported attribution, not authentication."
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "tools": [
+            {
+              "name": "memory_search",
+              "title": "Search project memory",
+              "description": "Lexically search shared memory for the pinned registered project. Returns entries with full content, id, revision and provenance; content is the saved knowledge, not an ID. Answer directly from matching entries.content. Use only entries.id for follow-up reads or updates. Title and tags rank above content.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "kinds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "fact",
+                        "decision",
+                        "convention",
+                        "procedure",
+                        "gotcha"
+                      ]
+                    }
+                  },
+                  "includeArchived": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200,
+                    "default": 50
+                  }
+                }
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_read",
+              "title": "Read project memory",
+              "description": "Read one memory entry using its exact id returned by memory_search or memory_record. Never use its content or title as the id. Search already returns full content; a second read is usually unnecessary.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_record",
+              "title": "Record project memory",
+              "description": "Create a shared project memory with self-reported harness provenance.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fact",
+                      "decision",
+                      "convention",
+                      "procedure",
+                      "gotcha"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64000
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 24,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "content"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_replace",
+              "title": "Replace project memory",
+              "description": "Replace an active memory using revision compare-and-swap. A stale revision is rejected.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fact",
+                      "decision",
+                      "convention",
+                      "procedure",
+                      "gotcha"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64000
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 24,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "id",
+                  "expectedRevision",
+                  "kind",
+                  "title",
+                  "content"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_archive",
+              "title": "Archive or restore project memory",
+              "description": "Archive a memory, or restore it with archived=false, using revision compare-and-swap.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "archived": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "sourceSession": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "id",
+                  "expectedRevision"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "memory_history",
+              "title": "Read project memory history",
+              "description": "Read newest-first immutable revisions retained for one memory.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_search",
+              "title": "Search checkout code",
+              "description": "Search literal text in the pinned checkout with ripgrep. Supply language (for example typescript) to interpret query as an ast-grep syntax pattern instead; installed ast-grep is required and project grammar/config files are not loaded. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "language": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,31}$",
+                    "description": "Optional ast-grep language; makes query a syntax pattern rather than literal text."
+                  },
+                  "maxResults": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000,
+                    "default": 200
+                  },
+                  "showHidden": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "includeIgnored": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_status",
+              "title": "Code graph availability",
+              "description": "Check whether the optional code graph is enabled and its service state, without starting it.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_index",
+              "title": "Rebuild checkout code index",
+              "description": "Explicitly rebuild the derived code index for this pinned checkout. Does not edit source files or project memory. Check freshness and partial-parse coverage in the result. An uncertain failure must be inspected before retrying.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "code_graph_callers",
+              "title": "Find direct callers",
+              "description": "Find direct callers of a function in this pinned checkout. Requires an existing index; does not automatically rebuild. Preserve native confidence and freshness in your answer. Stale or unknown results are not verified-current evidence; dynamic resolution may be incomplete.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "function_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "function_name"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_status",
+              "title": "Project documents: status",
+              "description": "Inspect optional document retrieval availability and active indexing progress. A paused service stays paused.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_index",
+              "title": "Project documents: index",
+              "description": "Start indexing this checkout and explicitly selected shared references. Only derived indexes change. Poll documents_status; documents_pause cancels and releases models. Inspect uncertain outcomes before retrying.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_search",
+              "title": "Project documents: search",
+              "description": "Search scoped local project documents. Preserve lexical/hybrid mode, citation IDs and stale markers; index matches are not durable memory facts.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_get",
+              "title": "Project documents: get",
+              "description": "Read current source lines using a scoped citation ID. Stale results must not be described as current indexed evidence.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 8192
+                  },
+                  "fromLine": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "maxLines": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 400
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_multi_get",
+              "title": "Project documents: multi_get",
+              "description": "Read up to five scoped citation IDs. Source references cannot grant access to another project or an unselected root.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 8192
+                    }
+                  }
+                },
+                "required": [
+                  "ids"
+                ]
+              },
+              "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            },
+            {
+              "name": "documents_pause",
+              "title": "Project documents: pause",
+              "description": "Stop this checkout document service, cancel indexing and release its models. Source documents and durable memory remain intact.",
+              "inputSchema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              },
+              "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+              }
+            }
+          ]
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"hits\": [\n    {\n      \"source\": \"code\",\n      \"id\": \"code:f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20:alpha.ts:3\",\n      \"title\": \"alpha.ts\",\n      \"excerpt\": \"const needle = \\\"searchfixture\\\"\",\n      \"path\": \"alpha.ts\",\n      \"line\": 3,\n      \"revision\": null,\n      \"indexedAt\": null,\n      \"stale\": false\n    }\n  ],\n  \"truncated\": false,\n  \"skipped\": 0\n}"
+            }
+          ],
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"available\": true,\n  \"service\": {\n    \"id\": \"code-graph\",\n    \"status\": \"stopped\",\n    \"version\": null,\n    \"detail\": null\n  }\n}"
+            }
+          ],
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"project\":\"f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20\",\"excluded\":{\"dirs\":[\".git\"],\"count\":1,\"truncated\":false},\"not_indexed_files_count\":1,\"not_indexed_files\":{\"files\":[{\"path\":\"ignored.ts\",\"reason\":\"gitignore\"}],\"count\":1,\"truncated\":false,\"note\":\"Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'.\"},\"skipped_count\":0,\"parse_partial_count\":0,\"nodes\":11,\"edges\":11,\"expected_nodes\":11,\"expected_edges\":11,\"adr_present\":false,\"adr_hint\":\"Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.\",\"artifact_present\":false,\"status\":\"indexed\",\"freshness\":{\"state\":\"current\",\"indexedAt\":\"2026-09-06T18:01:56.469Z\",\"sourceRevision\":null,\"basis\":\"Git-visible source; ignored files and external dependencies are not verified\"}}"
+            }
+          ],
+          "structuredContent": {
+            "project": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20",
+            "excluded": {
+              "dirs": [
+                ".git"
+              ],
+              "count": 1,
+              "truncated": false
+            },
+            "not_indexed_files_count": 1,
+            "not_indexed_files": {
+              "files": [
+                {
+                  "path": "ignored.ts",
+                  "reason": "gitignore"
+                }
+              ],
+              "count": 1,
+              "truncated": false,
+              "note": "Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'."
+            },
+            "skipped_count": 0,
+            "parse_partial_count": 0,
+            "nodes": 11,
+            "edges": 11,
+            "expected_nodes": 11,
+            "expected_edges": 11,
+            "adr_present": false,
+            "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+            "artifact_present": false,
+            "status": "indexed",
+            "freshness": {
+              "state": "current",
+              "indexedAt": "2026-09-06T18:01:56.469Z",
+              "sourceRevision": null,
+              "basis": "Git-visible source; ignored files and external dependencies are not verified"
+            }
+          },
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"function\":\"graphTarget\",\"direction\":\"inbound\",\"callers_total\":1,\"callers\":{\"cols\":[\"name\",\"hop\",\"strategy\",\"confidence\"],\"groups\":[{\"qn_prefix\":\"f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20.graph\",\"rows\":[[\"graphCaller\",1,\"lsp\",0.95]]}]},\"freshness\":{\"state\":\"current\",\"indexedAt\":\"2026-09-06T18:01:56.469Z\",\"sourceRevision\":null,\"basis\":\"Git-visible source; ignored files and external dependencies are not verified\"}}"
+            }
+          ],
+          "structuredContent": {
+            "function": "graphTarget",
+            "direction": "inbound",
+            "callers_total": 1,
+            "callers": {
+              "cols": [
+                "name",
+                "hop",
+                "strategy",
+                "confidence"
+              ],
+              "groups": [
+                {
+                  "qn_prefix": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20.graph",
+                  "rows": [
+                    [
+                      "graphCaller",
+                      1,
+                      "lsp",
+                      0.95
+                    ]
+                  ]
+                }
+              ]
+            },
+            "freshness": {
+              "state": "current",
+              "indexedAt": "2026-09-06T18:01:56.469Z",
+              "sourceRevision": null,
+              "basis": "Git-visible source; ignored files and external dependencies are not verified"
+            }
+          },
+          "isError": false
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"error\":\"code_search arguments contains unknown field: workspacePath\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ok\":false,\"error\":\"code graph arguments contains unknown field: project\"}"
+            }
+          ],
+          "isError": true
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n  \"project\": {\n    \"projectKey\": \"e281a4b23a625adbac61d8a0c4651bca2090d9552019b06f2178b2f2d8ab9f37\",\n    \"projectPath\": \"/private/tmp/donwells-strengthen-13-profile-revision/first-project\"\n  },\n  \"entries\": [],\n  \"total\": 0,\n  \"hasMore\": false\n}"
+            }
+          ],
+          "isError": false
+        }
+      }
+    ]
+  },
+  "packagedGraph": {
+    "stale": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20.graph",
+            "rows": [
+              [
+                "graphCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "stale",
+        "indexedAt": "2026-09-06T18:01:58.190Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "rebuilt": {
+      "project": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20",
+      "excluded": {
+        "dirs": [
+          ".git"
+        ],
+        "count": 1,
+        "truncated": false
+      },
+      "not_indexed_files_count": 1,
+      "not_indexed_files": {
+        "files": [
+          {
+            "path": "ignored.ts",
+            "reason": "gitignore"
+          }
+        ],
+        "count": 1,
+        "truncated": false,
+        "note": "Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'."
+      },
+      "skipped_count": 0,
+      "parse_partial_count": 0,
+      "nodes": 11,
+      "edges": 11,
+      "expected_nodes": 11,
+      "expected_edges": 11,
+      "adr_present": false,
+      "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+      "artifact_present": false,
+      "status": "indexed",
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T18:02:00.007Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "renamed": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20.graph",
+            "rows": [
+              [
+                "graphRenamedCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T18:02:00.007Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "indexed": {
+      "project": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20",
+      "excluded": {
+        "dirs": [
+          ".git"
+        ],
+        "count": 1,
+        "truncated": false
+      },
+      "not_indexed_files_count": 1,
+      "not_indexed_files": {
+        "files": [
+          {
+            "path": "ignored.ts",
+            "reason": "gitignore"
+          }
+        ],
+        "count": 1,
+        "truncated": false,
+        "note": "Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'."
+      },
+      "skipped_count": 0,
+      "parse_partial_count": 0,
+      "nodes": 11,
+      "edges": 11,
+      "adr_present": false,
+      "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+      "artifact_present": false,
+      "status": "indexed",
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T18:01:58.190Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "callers": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "f21ce2a55d03251b8e6cc98d55fe771fcbc3b7ed5387571964e46fd6d9a49c20.graph",
+            "rows": [
+              [
+                "graphCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T18:01:58.190Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    }
+  },
+  "graphSidebar": {
+    "rebuilt": true,
+    "staleVisible": true,
+    "renamedCaller": true,
+    "findInText": true,
+    "projectSwitchFenced": true,
+    "queryRetained": true,
+    "stopped": true
+  },
+  "editorInputClass": "native-edit-context",
+  "openedAndEditedRequestedLine": true,
+  "missingSourceVisible": true,
+  "previousProjectEventSuppressed": true,
+  "stoppedBeforeLaunch": true,
+  "graphQuerySurvivesMove": true,
+  "searchSurvivesMove": true,
+  "movableSearchPanel": true,
+  "hiddenProjectSearchPaused": true,
+  "ignoredOptIn": true,
+  "obsoleteQueryEventSuppressed": true,
+  "filePaginationAndKeyboardOpen": true,
+  "keyboardStage": "paste-to-receiver",
+  "beforeSourceKey": {
+    "tag": "INPUT",
+    "type": "search",
+    "text": ""
+  },
+  "afterSourceArrow": {
+    "tag": "BUTTON",
+    "type": null,
+    "text": "paginated-00.txtFilesFile name match"
+  },
+  "previousAndNextPaneFocus": true,
+  "keyboardSourceToTerminal": {
+    "sessionId": "4a40f870-f3dd-4888-9cae-6653c5977536",
+    "explicitSingleFileCopy": true,
+    "fixture": "cat receiver; native model continuation separately qualified in Task 10"
+  },
+  "memoryOpenedCurrentRevision": 2,
+  "sessionsUnavailableVisible": true,
+  "documentIndexedAndOpened": true,
+  "idleDaemonStopped": true,
+  "elapsedMs": 32368.324458
+}

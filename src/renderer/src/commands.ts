@@ -8,7 +8,7 @@ import {
 import { isMarkdownFile, useAppStore } from './store'
 import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
-import { getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
+import { focusPaneTarget, getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
 import { moveWorkspacePane, restoreWorkspaceLayout } from './workspace-layout'
 import { nextWaitingSession } from '@shared/agent-presentation'
 import { openProjectSetup } from './project-setup'
@@ -46,6 +46,8 @@ export function commandUnavailableReason(id: AppCommandId, state: CommandContext
     case 'switch-mru-next':
     case 'switch-mru-previous':
       return getNavigationCapabilities().canSwitchMru ? undefined : 'Open another location in this project first.'
+    case 'show-project-search':
+      return visible ? undefined : 'Open a registered workspace to search.'
     case 'show-project-memory':
       return visible ? undefined : 'Open a registered workspace to view project memory.'
     case 'show-editor-recovery':
@@ -175,14 +177,13 @@ export function dispatchAppCommand(action: string): void {
       if (pane?.kind === 'terminal' && pane.sessionId) requestTerminalFind(pane.sessionId)
       break
     }
-    case 'focus-next-pane': {
-      const worktreePath = state.activeWorktreePath
-      if (worktreePath) state.focusRelativePane(worktreePath, 1)
-      break
-    }
+    case 'focus-next-pane':
     case 'focus-previous-pane': {
       const worktreePath = state.activeWorktreePath
-      if (worktreePath) state.focusRelativePane(worktreePath, -1)
+      if (worktreePath) {
+        state.focusRelativePane(worktreePath, command.id === 'focus-next-pane' ? 1 : -1)
+        focusPaneTarget()
+      }
       break
     }
     case 'move-pane-left':
@@ -251,6 +252,11 @@ export function dispatchAppCommand(action: string): void {
       break
     case 'show-agents':
       state.openRuns('agents')
+      break
+    case 'show-project-search':
+      state.setPaletteOpen(false)
+      state.setRightSidebarTab('search')
+      requestAnimationFrame(() => [...document.querySelectorAll<HTMLInputElement>('.project-search input[type=search]')].find(input => input.offsetParent !== null)?.focus())
       break
     case 'show-project-memory':
       state.setRightSidebarTab('memory')

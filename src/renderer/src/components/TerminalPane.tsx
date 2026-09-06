@@ -251,15 +251,10 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     }
   }, [sessionId])
 
-  // Renderer command catalog and direct terminal keystrokes both target the
-  // active session. Non-terminal views retain their own Mod+F behavior.
+  // The command catalog owns Find shortcuts; Escape dismisses this terminal's overlays.
   useEffect(() => {
     if (!isActive) return
     const onKey = (event: KeyboardEvent): void => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
-        event.preventDefault()
-        setSearchOpen(true)
-      }
       if (event.key === 'Escape') {
         searchRef.current?.clearDecorations()
         setSearchOpen(false)

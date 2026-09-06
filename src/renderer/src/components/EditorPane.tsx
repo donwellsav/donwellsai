@@ -346,7 +346,12 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
     const position = { lineNumber, column }
     editor.setPosition(position)
     editor.revealPositionInCenterIfOutsideViewport(position)
-    editor.focus()
+    // Existing editors can still be hidden during this effect; focus after the dock reveals them.
+    const frame = requestAnimationFrame(() => {
+      const state = useAppStore.getState()
+      if (state.activeWorktreePath === worktreePath && state.activePane[worktreePath] === 'preview:' + relPath) editor.focus()
+    })
+    return () => cancelAnimationFrame(frame)
   }, [mode, navigation, relPath, worktreePath])
 
   const retryOpenPreview = async (): Promise<void> => {

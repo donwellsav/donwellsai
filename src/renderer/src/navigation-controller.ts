@@ -107,8 +107,11 @@ function waitForStoreLoad(): Promise<void> {
   return promise
 }
 
-function focusPaneTarget(target: NavigationTarget): void {
+export function focusPaneTarget(target = activeNavigationTarget()): void {
+  if (!target) return
   requestAnimationFrame(() => requestAnimationFrame(() => {
+    const current = activeNavigationTarget()
+    if (!current || !sameNavigationTarget(current, target)) return
     if (target.kind === 'workspace') {
       document.querySelector<HTMLElement>('.workspace-stage')?.focus()
       return
@@ -119,7 +122,7 @@ function focusPaneTarget(target: NavigationTarget): void {
       ? '.xterm-helper-textarea'
       : target.kind === 'browser'
         ? 'webview'
-        : '.monaco-editor textarea, .markdown-preview [tabindex], textarea'
+        : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], textarea'
     const focusable = pane.querySelector<HTMLElement>(selector)
     ;(focusable ?? pane).focus()
   }))
