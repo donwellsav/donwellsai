@@ -248,7 +248,7 @@ export class TerminalDaemon {
     setTimeout(() => {
       this.scrollback.delete(sessionId)
       this.sequence.delete(sessionId)
-    }, REAP_EXITED_MS)
+    }, REAP_EXITED_MS).unref()
   }
 
   private publishAgent(run: RunningAgent): void {

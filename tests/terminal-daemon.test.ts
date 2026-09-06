@@ -199,13 +199,13 @@ describe('terminal daemon', () => {
   })
 
 
-  it('session.list reflects opened sessions; close clears scrollback', async () => {
+  it('closing the last session clears scrollback and permits prompt daemon shutdown', async () => {
     const userData = mkdtempSync(join(tmpdir(), 'donwells-daemon-ud3-'))
     cleanup.push(userData)
     const { root, path } = makeRepo()
     cleanup.push(root)
     const token = 'tok-3'
-    spawnDaemon(userData, token)
+    const proc = spawnDaemon(userData, token)
     await waitDaemonReady(userData)
     const c = await connectClient(localRuntimePaths(userData, 'terminal').socketPath, token)
     const open = await c.request('session.open', { cwd: path })
@@ -215,6 +215,8 @@ describe('terminal daemon', () => {
     await c.request('session.close', { sessionId: session.id })
     const attach = await c.request('session.attach', { sessionId: session.id }).catch((e) => ({ error: String(e) }))
     expect(attach['error']).toBeTruthy()
+    expect((await c.request('daemon.shutdown'))['stopped']).toBe(true)
+    await expect.poll(() => proc.exitCode, { timeout: 2000 }).toBe(0)
     c.close()
   })
 

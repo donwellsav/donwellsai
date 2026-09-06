@@ -195,7 +195,7 @@ export class PtyManager {
         this.events.exit(id, exitCode)
         retained.resolveExit(exitCode)
         if (retained.kind === 'terminal') {
-          setTimeout(() => this.removeSession(id), REAP_EXITED_MS)
+          setTimeout(() => this.removeSession(id), REAP_EXITED_MS).unref()
         }
       }, 250)
     })
