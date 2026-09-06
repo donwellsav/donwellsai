@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 12 active — code graph, ripgrep and structural search.** Tasks 01 and 03–11 are strengthened. Task 02 remains skipped. Tasks 12–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 13 active — unified search and source navigation.** Tasks 01 and 03–12 are strengthened. Task 02 remains skipped. Tasks 13–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -232,16 +232,18 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes checkout-specific scope and admitted ripgrep/code-index binary. Produces file/code ProjectSearchHit results; file-write APIs remain unchanged.
 
-- [ ] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
-- [ ] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
-- [ ] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
-- [ ] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
+- [x] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
+- [x] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
+- [x] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Fallback to bounded existing discovery when tool unavailable; make loss of content/graph search visible.
 
 **Evidence:** [Current code-search qualification](../../architecture/current-code-search-qualification.json), [100k-file measurements](../../architecture/current-code-search-scale.json), and Task 12 in [component decisions](../../architecture/component-decisions.md).
+
+**Strengthening evidence:** [native graph, process cancellation, recovery and 100k-file benchmark](../../architecture/strengthening-12/README.md).
 
 ### Task 13: Unified search and source navigation
 
