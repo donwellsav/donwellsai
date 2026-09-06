@@ -322,6 +322,13 @@ export class RuntimeRpcServer {
           showHidden: params['showHidden'] === true,
           includeIgnored: params['includeIgnored'] === true
         })
+      case 'file.searchContent':
+        return git.searchWorkspaceContent(str('workspacePath'), {
+          query: str('query'),
+          maxResults: params['maxResults'] as number | undefined,
+          showHidden: params['showHidden'] === true,
+          includeIgnored: params['includeIgnored'] === true
+        })
       case 'file.read':
         return git.readFile(str('workspacePath'), str('relPath'))
       case 'file.write':

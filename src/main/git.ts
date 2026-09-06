@@ -40,6 +40,9 @@ import { pruneLineage, recordLineage } from '@shared/worktree-lineage'
 import { PREVIEW_BYTE_LIMIT, WorktreeFiles } from './worktree-files'
 import type { BinaryPreviewRequest, BinaryPreviewPayload } from '@shared/media-preview'
 import { readBinaryPreview } from './binary-preview'
+import { searchProjectCode, type ProjectCodeSearchRequest } from './project-code-search'
+import { resolveProjectToolScope } from './project-tools'
+import type { ProjectSearchHit } from '@shared/project-tools'
 
 const HIDDEN_DIRS = new Set([`.git`, `node_modules`, `.DS_Store`])
 
@@ -554,6 +557,10 @@ export class GitWorktrees {
       return this.files.searchWorkspaceFiles(workspace.path, request)
     }
     return rankWorkspaceFiles(await this.listAllFiles(workspace.path), request)
+  }
+
+  async searchWorkspaceContent(workspacePath: string, request: ProjectCodeSearchRequest, onHit?: (hit: ProjectSearchHit) => void, signal?: AbortSignal) {
+    return searchProjectCode(workspacePath, request, path => resolveProjectToolScope(path, candidate => resolveWorkspacePath(this.store, candidate)), onHit, signal)
   }
 
   /** Read a bounded preview. Full stable snapshots carry the only revisions accepted by guarded writes. */

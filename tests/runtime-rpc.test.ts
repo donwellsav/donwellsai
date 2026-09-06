@@ -84,6 +84,7 @@ describe('local RPC authority', () => {
         resetSettings: (value: unknown) => { observed.settingsReset = value; return { theme: 'system' } }
       },
       git: {
+        searchWorkspaceContent: async (...args: unknown[]) => { observed.contentSearch = args; return { hits: [], truncated: false, skipped: 0 } },
         listWorkspaceDirectory: async (_path: string, value: unknown) => { observed.fileList = value; return value },
         writeFile: async (...args: unknown[]) => { observed.fileWrite = args; return { revision: 'next' } }
       },
@@ -136,6 +137,9 @@ describe('local RPC authority', () => {
 
       expect(await request(socketPath, 'token', 'file.list', { workspacePath: directory })).toMatchObject({ ok: true })
       expect(observed.fileList).toEqual({ directory: '', showHidden: false, includeIgnored: false })
+      expect(await request(socketPath, 'token', 'file.searchContent', { workspacePath: directory, query: '--glob literal', showHidden: true })).toMatchObject({ ok: true })
+      expect(observed.contentSearch).toEqual([directory, { query: '--glob literal', showHidden: true, includeIgnored: false }])
+      expect(await request(socketPath, 'token', 'file.searchContent', { workspacePath: directory, query: 'text', program: '/bin/sh' })).toMatchObject({ ok: false, code: 'INVALID_ARGUMENTS' })
 
       expect(await request(socketPath, 'token', 'file.write', {
         workspacePath: directory, relPath: 'a.txt', content: 'next'

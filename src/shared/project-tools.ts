@@ -11,3 +11,15 @@ export type ToolServiceState = {
   version: string | null
   detail: string | null
 }
+
+export type ProjectSearchHit = {
+  source: 'file' | 'code' | 'document' | 'memory' | 'session'
+  id: string
+  title: string
+  excerpt: string
+  path: string | null
+  line: number | null
+  revision: string | null
+  indexedAt: string | null
+  stale: boolean
+}
