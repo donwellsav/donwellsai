@@ -13,6 +13,7 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
+  handoff: { type: 'boolean', default: false },
   'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
 } })
 assert(values.playwright, '--playwright is required')
@@ -25,6 +26,7 @@ assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-
 assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports all four providers in disposable profiles')
 assert(!values['native-write'] || (values.memory && values.managed && agentIds[0] === 'omp' && agentIds.length > 1), '--native-write requires managed memory with OMP first and at least one reader')
 assert(!values['dsh-completed-answer'] || (values.memory && agentIds.includes('deepseek-harness') && values['dsh-sessions'] && values.zstd), '--dsh-completed-answer requires memory, DSH, --dsh-sessions and --zstd')
+assert(!values.handoff || (values.managed && values.memory && agentIds.length === 2 && !values['native-write']), '--handoff requires exactly two managed memory agents')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -78,13 +80,16 @@ const start = performance.now()
 const report = {
   startedAt: new Date().toISOString(), source: sourceIdentity(), executable, profile, fixture,
   artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))), memoryMcpSha256: hash(readFileSync(join(resources, 'dist-cli/cli/project-memory-mcp.js'))) },
-  agents: {}, limitations: [values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
+  agents: {}, limitations: [values.handoff ? 'Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates.' : values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
 let ownsHermesProfile = false
 try {
   app = await _electron.launch({ executablePath: executable, env })
   let page = await app.firstWindow()
+  report.windowEvents = []
+  page.on('close', () => report.windowEvents.push({ event: 'closed', atMs: performance.now() - start }))
+  page.on('crash', () => report.windowEvents.push({ event: 'crashed', atMs: performance.now() - start }))
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: fixture })
@@ -145,6 +150,8 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
+    const handoffSource = values.handoff && id === agentIds[0]
+    let handoff
     const nativeWriter = values['native-write'] && id === agentIds[0]
     if (values['native-write'] && !nativeWriter) assert(report.nativeWrite, 'Do not test recall before a native write is verified')
     const managedMemory = values.managed
@@ -180,16 +187,18 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
           if (!setupSession) await delay(100)
         }
         existing.add(setupSession)
+        result.nativeSetupSession = setupSession
         let approved = false
         while (true) {
           const output = stripVTControlCharacters((await page.evaluate(async id => window.donwells.attachTerminal(id), setupSession)).scrollback)
+          writeFileSync(join(evidence, 'hermes-setup.txt'), output, { mode: 0o600 })
           assert(!output.includes('Failed to connect:'), output)
-          if (!approved && output.includes('Enable all 6 tools?')) {
+          if (!approved && output.includes('Enable all 8 tools?')) {
             await page.locator(`[data-pane-key="term:${setupSession}"] .xterm-helper-textarea`).focus()
             await page.keyboard.press('Enter')
             approved = true
           }
-          if (output.includes('6/6 tools enabled')) break
+          if (output.includes('8/8 tools enabled')) break
           assert(Date.now() < setupDeadline, 'Hermes native setup did not save its discovered tools')
           await delay(200)
         }
@@ -202,7 +211,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         assert(config.args.includes('${workspaceFolder}'))
         result.managedConfiguration = configPath
         result.nativeSetupSession = setupSession
-        result.nativeToolsApproved = 6
+        result.nativeToolsApproved = 8
         await invoke('agent.stop', { sessionId: setupSession })
         await page.getByRole('button', { name: 'Add agent', exact: true }).click()
         await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
@@ -255,7 +264,19 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
           await delay(2000)
           result.disposableProjectTrusted = true
         }
-        await page.keyboard.type(nativeWriter
+        if (values.handoff && !handoffSource) {
+          assert(report.handoffSource, 'Source agent must finish its fixture step first')
+          handoff = await page.evaluate(async ({ workspacePath, source, recipient, word }) => {
+            const saved = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal: 'Finish the two-agent fixture', summary: 'The source agent wrote handoff-source.txt. Continue its work in this checkout.', openQuestions: [], nextSteps: [`Read handoff-source.txt, then write handoff-result.txt containing exactly ${word} with no newline. Do not edit other files.`], evidenceIds: [] })
+            return window.donwells.projectHandoffAccept(workspacePath, saved.id, saved.revision, recipient, crypto.randomUUID())
+          }, { workspacePath: fixture, source: report.handoffSource.sessionId, recipient: result.sessionId, word: memoryWord })
+          report.handoff = { id: handoff.id, from: report.handoffSource.sessionId, to: result.sessionId }
+        }
+        await page.keyboard.type(values.handoff
+          ? handoffSource
+            ? `Write handoff-source.txt in this current checkout containing exactly ${verificationWord} with no newline. Do not edit any other file. This is the first step of a two-agent fixture. Stop after writing it.`
+            : `Call the donwells-project-memory handoff_receive tool with id ${handoff.id} and expectedRevision ${handoff.revision}. Read the returned context and acknowledge it with handoff_acknowledge using its id and returned revision, then complete its next steps. Do not retry an uncertain receive.`
+          : nativeWriter
           ? `Call the donwells-project-memory MCP server memory_record tool exactly once with kind decision, title ${JSON.stringify(memoryTitle)}, and content ${JSON.stringify(memoryWord)}. Save that decision to shared project memory. Do not edit files or use another memory server. Do not repeat a write if its outcome is uncertain.`
           : values.memory
           ? `Call the ${['kimi', 'deepseek-harness'].includes(id) ? 'mcp__donwells-project-memory__memory_search' : 'donwells-project-memory MCP server memory_search'} tool to search for "${memoryTitle}" and reply with the decision content. Do not read files, edit anything, or use another memory server.`
@@ -274,6 +295,21 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
             await page.keyboard.press('Enter')
             result.fixtureMemoryReadApproved = true
           }
+          if (values.handoff) {
+            const outputPath = join(fixture, handoffSource ? 'handoff-source.txt' : 'handoff-result.txt')
+            if (existsSync(outputPath) && readFileSync(outputPath, 'utf8') === (handoffSource ? verificationWord : memoryWord)) {
+              if (handoffSource) {
+                await invoke('agent.stop', { sessionId: result.sessionId })
+                report.handoffSource = { sessionId: result.sessionId, contentSha256: hash(readFileSync(outputPath)) }
+              } else {
+                const status = await page.evaluate(({ workspacePath, id }) => window.donwells.projectHandoffGet(workspacePath, id), { workspacePath: fixture, id: handoff.id })
+                assert.equal(status.handoff.delivery, 'confirmed', 'Receiver edited output without acknowledging receipt')
+                report.handoff.delivery = status.handoff.delivery
+                report.handoff.outputSha256 = hash(readFileSync(outputPath))
+              }
+              result[outcome] = 'handoff-step-completed'; break
+            }
+          }
           if (nativeWriter) {
             const saved = (await invoke('memory.list', { workspacePath: fixture, query: memoryTitle })).entries.filter(entry => entry.title === memoryTitle)
             if (saved.length) {
@@ -287,7 +323,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
               break
             }
           }
-          if (!nativeWriter && output.includes(values.memory ? memoryWord : verificationWord)) {
+          if (!values.handoff && !nativeWriter && output.includes(values.memory ? memoryWord : verificationWord)) {
             if (values.memory && !managedMemory) {
               const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
               assert(calls.some(call => call.method === 'memory.list' && call.ok), 'Native memory search was not observed')
@@ -314,6 +350,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query, memory: result.memory }))
     } catch (error) {
       result.error = error.message
+      result.errorStack = error.stack
       if (!result.startup) result.startup = 'failed'
       if (result.sessionId) {
         try {
@@ -355,10 +392,17 @@ finally {
       for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
     }
     catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
+    const child = app.process()
     let timer
     try { await Promise.race([app.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('App shutdown timed out')), 10000) })]) }
-    catch (error) { report.cleanupError = error.message; app.process().kill('SIGKILL'); process.exitCode = 1 }
+    catch (error) { report.cleanupError = error.message; child.kill('SIGKILL'); process.exitCode = 1 }
     finally { clearTimeout(timer) }
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM')
+      const deadline = Date.now() + 5000
+      while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) await delay(50)
+      if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); report.cleanupError = 'App did not exit after termination'; process.exitCode = 1 }
+    }
   }
   report.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
   if (!report.idleDaemonStopped) process.exitCode = 1
@@ -373,7 +417,7 @@ finally {
   report.requestedChecksPassed = agentIds.every(id => {
     const result = report.agents[id]
     return result && !result.error && result.startup === 'output-observed'
-      && (!(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === (values['native-write'] && id === agentIds[0] ? 'native-write-persisted' : 'fixture-word-observed'))
+      && (!(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === (values.handoff ? 'handoff-step-completed' : values['native-write'] && id === agentIds[0] ? 'native-write-persisted' : 'fixture-word-observed'))
   })
   if (!report.requestedChecksPassed) process.exitCode = 1
   report.durationMs = performance.now() - start

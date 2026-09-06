@@ -1,0 +1,66 @@
+{
+  "startedAt": "2026-09-06T07:54:04.339Z",
+  "source": {
+    "commit": "7f0464904abd1e1e105e7491023c541adca11751",
+    "dirty": true,
+    "contentHash": "03086e45f3591e5ac687ca1db040b3ce7f043ab1d4f4d04c3c4ba850aa550438"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-handoff-profile-04",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-835AW2",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "5f483aabcd329594842d506910a89f41df98c252b5382f9fda7ad4259d116a2d",
+    "memoryMcpSha256": "c73ef3ada8cae72657a6d054ff5f4c25dacc7e62723e64d1c2413344098d0534"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-835AW2/.omp/mcp.json",
+      "sessionId": "a0a8a5dd-b69e-42cf-9831-e0792be58ac1",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 79485,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "nativeSetupSession": "5a728393-9c2a-4597-b9c4-3fb6ed3a76d6",
+      "error": "page.evaluate: Target page, context or browser has been closed",
+      "errorStack": "page.evaluate: Target page, context or browser has been closed\n    at /Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/native-agent-matrix.mjs:193:63",
+      "startup": "failed"
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 17793.709000000003
+    }
+  ],
+  "handoffSource": {
+    "sessionId": "a0a8a5dd-b69e-42cf-9831-e0792be58ac1",
+    "contentSha256": "2eeee2dd8bb1a55d72b6cea07d2d275916dc0c7b5650b7bf6bba17cdc7279adc"
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-608ee37a-1f67-442e-a077-f37ae498c7af",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": false,
+  "durationMs": 28914.873166
+}
