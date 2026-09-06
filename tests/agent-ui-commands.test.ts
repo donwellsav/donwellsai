@@ -1,3 +1,4 @@
+import { nextWaitingSession } from '../src/shared/agent-presentation'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { VersionedEditorSave } from '../src/renderer/src/editor-save'
 import { cacheEditorDocument, disposePreviewModel, type EditorModel } from '../src/renderer/src/editor-models'
@@ -432,4 +433,13 @@ it('restores a hidden live terminal and editor without replacing either resource
   expect(useAppStore.getState().panes[main]).toEqual(panes)
   expect(useAppStore.getState().docking[main]?.hidden).toEqual(['term:t1'])
   expect(useAppStore.getState().activePane[main]).toBe('preview:README.md')
+})
+
+it('cycles waiting sessions within the selected project without treating contact loss or exit as input waits', () => {
+  const run = (sessionId: string, activity: RunningAgent['activity'], workspacePath = '/a', liveness: RunningAgent['liveness'] = 'live') => ({ sessionId, activity, workspacePath, liveness, startedAt: 'same' } as RunningAgent)
+  const runs = [run('a', 'waiting'), run('b', 'permission'), run('c', 'waiting', '/other'), run('d', 'waiting', '/a', 'unverifiable'), run('e', 'waiting', '/a', 'exited')]
+  expect(nextWaitingSession(runs, ['/a'])?.sessionId).toBe('a')
+  expect(nextWaitingSession(runs, ['/a'], 'a')?.sessionId).toBe('b')
+  expect(nextWaitingSession(runs, ['/a'], 'b')?.sessionId).toBe('a')
+  expect(nextWaitingSession(runs, ['/missing'])).toBeUndefined()
 })

@@ -30,7 +30,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [openingFolder, setOpeningFolder] = useState(false)
   const selectedRepo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === activePath))
   const agents = Object.values(runningAgents).filter(agent => selectedRepo?.worktrees.some(worktree => worktree.path === agent.workspacePath))
-  const waiting = agents.filter(agent => agentPresentation(agent).needsAttention)
+  const waiting = agents.filter(agent => agent.liveness === 'live' && (agent.activity === 'waiting' || agent.activity === 'permission'))
   const order = orderedWorkspacePaths(repos, navigation)
   const status = activePath ? statuses[activePath] : undefined
   const changed = status ? status.staged + status.modified + status.untracked : null
@@ -96,6 +96,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {navigation.hiddenPaths.length > 0 && <button className="workspace-add-checkout" onClick={() => state().restoreWorkspace()}>Show hidden checkouts ({navigation.hiddenPaths.length})</button>}
         </div>
         {activePath && <section className="workspace-session-list" aria-label="Project sessions">
+          {waiting.length > 0 && <button className="workspace-add-checkout" onClick={() => dispatchAppCommand('next-waiting-session')}>Next waiting session ({waiting.length})</button>}
           <h2 className="workspace-section-label">Sessions <span>{panes?.filter(pane => pane.kind === 'terminal').length ?? 0}</span></h2>
           {panes?.filter(pane => pane.kind === 'terminal').map((pane, index) => {
             const agent = pane.sessionId ? runningAgents[pane.sessionId] : undefined

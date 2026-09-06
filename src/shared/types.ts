@@ -351,6 +351,7 @@ export type BrowserShortcutAction = 'focusAddress' | 'find' | 'zoomIn' | 'zoomOu
 // IPC events main -> renderer
 export type MainEvents = {
   'project-search:hit': { requestId: string; workspacePath: string; hit: import('./project-tools').ProjectSearchHit }
+  'terminal:disconnected': Record<string, never>
   'terminal:data': { sessionId: string; data: string; sequence?: number }
   'terminal:exit': { sessionId: string; exitCode: number }
   'terminal:title': { sessionId: string; title: string }
@@ -429,7 +430,7 @@ export type IpcApi = ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi &
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
-  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number } | null>
+  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean } | null>
   closeTerminal(sessionId: string): Promise<void>
   /** Live daemon-owned sessions (for reattach after app restart). */
   terminalSessions(): Promise<TerminalSession[]>

@@ -52,10 +52,11 @@ async function fakeDaemon(
   return { userData, socketPath }
 }
 
-function client(userData: string, requestTimeoutMs = 100): DaemonClient {
+function client(userData: string, requestTimeoutMs = 100, disconnected?: () => void): DaemonClient {
   return new DaemonClient(
     userData,
     {
+      disconnected,
       data: () => {},
       exit: () => {},
       title: () => {},
@@ -155,8 +156,12 @@ describe('DaemonClient transport lifecycle', () => {
         socket.destroy()
       }
     })
-    const daemon = client(userData, 2000)
+    let lost = 0
+    const daemon = client(userData, 2000, () => lost++)
     await expect(daemon.close('owned-session')).rejects.toThrow(/transport closed/)
+    expect(lost).toBe(1)
+    daemon.disconnect()
+    expect(lost).toBe(1)
   })
 
   it('times out unanswered requests instead of retaining them forever', async () => {

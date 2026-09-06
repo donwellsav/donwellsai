@@ -116,19 +116,16 @@ export class AgentRuntime {
       return structuredClone(runs)
     } catch (error) {
       if (this.cachedRuns.size === 0) throw error
-      const observedAt = new Date().toISOString()
-      const runs = [...this.cachedRuns.values()].map((run) => {
-        if (run.liveness === 'exited') return run
-        const unverifiable: RunningAgent = {
-          ...run,
-          liveness: 'unverifiable',
-          updatedAt: observedAt
-        }
-        this.cachedRuns.set(run.sessionId, unverifiable)
-        return unverifiable
-      })
-      return structuredClone(runs)
+      return this.connectionLost()
     }
+  }
+
+  connectionLost(): RunningAgent[] {
+    const observedAt = new Date().toISOString()
+    for (const run of this.cachedRuns.values()) {
+      if (run.liveness !== 'exited') this.observe({ ...run, liveness: 'unverifiable', updatedAt: observedAt })
+    }
+    return structuredClone([...this.cachedRuns.values()])
   }
 
   async interrupt(sessionId: string): Promise<RunningAgent> {

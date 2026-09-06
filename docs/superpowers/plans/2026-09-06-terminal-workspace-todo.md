@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 08 active — attention and reconnect lifecycle.** Tasks 01, 03, 04, 05, 06 and 07 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 09 active — durable project memory migration.** Tasks 01, 03, 04, 05, 06, 07 and 08 are strengthened. Task 02 remains skipped by explicit user instruction. Tasks 09–28 remain reopened; preserve existing implementation and continue the plan.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -154,14 +154,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes native hook/liveness information. Produces accurate attention navigation, detach/stop behavior and recoverable terminal state.
 
-- [ ] **Step 1:** Add next-waiting-session command and readable reason. Native completion events and process exit remain distinct from verified task completion.
-- [ ] **Step 2:** Exercise closing/reopening the GUI, daemon loss, PID reuse, display sleep and output truncation. Fix shared replay/lifecycle defects once at their actual owner.
-- [ ] **Step 3:** If truncated raw output cannot reconstruct a TUI, select a tested snapshot/redraw strategy supported by the chosen engine. Display a recovery state rather than silently presenting corrupted output.
-- [ ] **Step 4:** Cancel pending reconnect when the user stops a session. Bound service restart attempts and show failed ownership/liveness checks explicitly. Reattachment must not automatically relaunch an exited native agent or resubmit its previous input.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/agent-daemon.test.ts tests/terminal-daemon.test.ts tests/terminal-daemon-ownership.test.ts tests/attention-inbox.test.ts`; perform 20 app/service restart cycles.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Add next-waiting-session command and readable reason. Native completion events and process exit remain distinct from verified task completion.
+- [x] **Step 2:** Exercise closing/reopening the GUI, daemon loss, PID reuse, display sleep and output truncation. Fix shared replay/lifecycle defects once at their actual owner.
+- [x] **Step 3:** If truncated raw output cannot reconstruct a TUI, select a tested snapshot/redraw strategy supported by the chosen engine. Display a recovery state rather than silently presenting corrupted output.
+- [x] **Step 4:** Cancel pending reconnect when the user stops a session. Bound service restart attempts and show failed ownership/liveness checks explicitly. Reattachment must not automatically relaunch an exited native agent or resubmit its previous input.
+- [x] **Verification:** Run `pnpm exec vitest run tests/agent-daemon.test.ts tests/terminal-daemon.test.ts tests/terminal-daemon-ownership.test.ts tests/attention-inbox.test.ts`; perform 20 app/service restart cycles.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Keep daemon protocol version compatibility or fail with an explicit upgrade-required state; never attach an ambiguous session.
+
+**Strengthening evidence:** [current recovery, waiting navigation and packaged restart checks](../../architecture/strengthening-08/README.md). Physical workstation sleep remains a Task 21 hardware qualification limit; window visibility recovery was exercised.
 
 ### Task 09: Migrate durable project memory
 

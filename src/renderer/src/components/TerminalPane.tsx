@@ -44,6 +44,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalTheme = useAppStore((s) => s.settings.terminalTheme)
   const runsOpen = useAppStore((s) => s.runsOpen)
+  const exited = useAppStore((s) => s.terminals[sessionId]?.session.exited ?? false)
   const attentionInbox = useAttentionInboxState()
   const attentionReveal = attentionInbox.reveals[sessionId]
   const termRef = useRef<Terminal | null>(null)
@@ -54,6 +55,12 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
   const resizeRows = useRef(rows)
   const [searchOpen, setSearchOpen] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
+  const reconnectRef = useRef<(() => Promise<void>) | null>(null)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [replayWarning, setReplayWarning] = useState(false)
+  const [redrawing, setRedrawing] = useState(false)
+  const [redrawMessage, setRedrawMessage] = useState('')
   const [contextMenu, setContextMenu] = useState<TerminalContextMenuState | null>(null)
 
   // Mount once per sessionId; deliberately never re-runs for the session's life.
@@ -68,6 +75,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
       const settings = useAppStore.getState().settings
       term = new Terminal({
         allowProposedApi: true,
+        disableStdin: true,
         cursorBlink: settings.cursorBlink ?? true,
         cursorStyle: settings.cursorStyle === 'bar' || settings.cursorStyle === 'underline' ? settings.cursorStyle : 'block',
         fontSize: settings.terminalFontSize || 13,
@@ -131,22 +139,45 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
       }
     })
 
-    const subscription = terminalBus.subscribe(sessionId, (data) => t.write(data))
     let mounted = true
-    // The snapshot sequence is the atomic boundary: queued live chunks at or
-    // before it are duplicates; later chunks drain in sequence order.
-    void window.donwells
-      .attachTerminal(sessionId)
-      .then((result) => {
-        if (!mounted) return
-        if (!result) throw new Error('terminal session is no longer available')
+    let generation = 0
+    const subscription = terminalBus.subscribe(sessionId, (data) => t.write(data), () => {
+      generation++
+      t.options.disableStdin = true
+      setConnecting(false)
+      setConnectionError('Connection to the terminal service was lost. Reattach to check this session.')
+    })
+    const attach = async (): Promise<void> => {
+      const attempt = ++generation
+      setConnecting(true)
+      t.options.disableStdin = true
+      subscription.prepareSnapshot()
+      try {
+        const result = await window.donwells.attachTerminal(sessionId)
+        if (!mounted || generation !== attempt) return
+        if (!result) throw new Error('Terminal session is no longer available.')
+        t.reset()
         subscription.acceptSnapshot(result.scrollback, result.sequence)
-      })
-      .catch((error) => {
-        if (!mounted) return
-        subscription.dispose()
-        setInitError(error instanceof Error ? error.message : String(error))
-      })
+        setReplayWarning(result.truncated !== false)
+        setRedrawMessage('')
+        setConnectionError(null)
+        t.options.disableStdin = result.session.exited === true
+      } catch (error) {
+        if (mounted && generation === attempt) setConnectionError(/unknown session|no longer available/.test(String(error))
+          ? 'This session is no longer retained by the terminal service. Its previous screen is preserved here.'
+          : error instanceof Error ? error.message : String(error))
+      } finally {
+        if (mounted && generation === attempt) setConnecting(false)
+      }
+    }
+    const disposeExit = window.donwells.on('terminal:exit', ({ sessionId: endedSession }) => {
+      if (endedSession !== sessionId) return
+      generation++
+      t.options.disableStdin = true
+      setConnecting(false)
+    })
+    reconnectRef.current = attach
+    void attach()
     t.onData((input) => {
       useAppStore.getState().writeTerminal(sessionId, input)
     })
@@ -203,6 +234,9 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
 
     return () => {
       mounted = false
+      generation++
+      reconnectRef.current = null
+      disposeExit()
       ro.disconnect()
       window.removeEventListener('resize', onWinResize)
       subscription.dispose()
@@ -352,6 +386,20 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
     setSearchOpen(false)
   }
 
+  const requestRedraw = async (): Promise<void> => {
+    const terminal = termRef.current
+    if (!terminal || exited || redrawing) return
+    setRedrawing(true)
+    try {
+      terminal.reset()
+      await window.donwells.terminalResize(sessionId, Math.max(2, terminal.cols - 1), terminal.rows)
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      await window.donwells.terminalResize(sessionId, terminal.cols, terminal.rows)
+      setRedrawMessage('Redraw requested. Check the screen before continuing.')
+    } catch (error) { setRedrawMessage(String(error)) }
+    finally { setRedrawing(false) }
+  }
+
   const runContextAction = async (action: 'copy' | 'paste' | 'select-all' | 'clear' | 'find'): Promise<void> => {
     const terminal = termRef.current
     if (!terminal) return
@@ -360,6 +408,7 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
         if (!terminal.hasSelection()) throw new Error('Select terminal text before copying.')
         await navigator.clipboard.writeText(terminal.getSelection())
       } else if (action === 'paste') {
+        if (terminal.options.disableStdin) throw new Error('Reattach the terminal before pasting.')
         const text = await navigator.clipboard.readText()
         if (text) useAppStore.getState().writeTerminal(sessionId, text)
       } else if (action === 'select-all') {
@@ -391,6 +440,19 @@ export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
 
   return (
     <div className={'terminal-host-wrap ' + (isActive ? '' : 'terminal-hidden')} style={wrapStyle}>
+      {connectionError && <div className="terminal-replay-warning" role="alert">
+        <strong>Terminal disconnected</strong>
+        <p>{connectionError}</p>
+        {!exited && <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnectRef.current?.()}>{connecting ? 'Reattaching…' : 'Reattach terminal'}</button>}
+      </div>}
+      {!connectionError && replayWarning && <div className="terminal-replay-warning" role="alert">
+        <strong>Terminal history is incomplete</strong>
+        <p>{redrawMessage || 'The retained output was shortened or could not be verified. The screen may need a native redraw.'}</p>
+        <div>
+          {!exited && <button className="btn btn-secondary btn-sm" disabled={redrawing} onClick={() => void requestRedraw()}>{redrawing ? 'Requesting…' : 'Request redraw'}</button>}
+          <button className="btn btn-secondary btn-sm" disabled={redrawing} onClick={() => { setReplayWarning(false); termRef.current?.focus() }}>Dismiss notice</button>
+        </div>
+      </div>}
       {searchOpen && isActive && <TerminalSearch search={searchRef} onClose={closeSearch} />}
       {contextMenu && isActive && (
         <>

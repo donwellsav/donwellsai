@@ -297,7 +297,7 @@ export class RuntimeRpcServer {
         terminals.write(str('sessionId'), str('data'))
         return {}
       case 'terminal.resize':
-        terminals.resize(str('sessionId'), Number(params['cols'] ?? 100), Number(params['rows'] ?? 30))
+        await terminals.resize(str('sessionId'), Number(params['cols'] ?? 100), Number(params['rows'] ?? 30))
         return {}
       case 'terminal.interrupt':
         terminals.interrupt(str('sessionId'))

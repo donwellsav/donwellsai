@@ -27,6 +27,7 @@ import { readTerminalRuntime, localRuntimePaths } from './local-runtime'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
+  disconnected?: () => void
   data: (sessionId: string, data: string, sequence?: number) => void
   exit: (sessionId: string, exitCode: number) => void
   title: (sessionId: string, title: string) => void
@@ -337,6 +338,7 @@ export class DaemonClient {
       pending.reject(error)
     }
     this.pending.clear()
+    this.events.disconnected?.()
   }
 
   private dispatchEvent(message: Record<string, unknown>): void {
@@ -513,12 +515,13 @@ export class DaemonClient {
     return this.request<DaemonJobResult>('job.result', { sessionId })
   }
 
-  async attach(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence: number }> {
+  async attach(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence: number; truncated: boolean }> {
     await this.requireCapability(SEQUENCED_OUTPUT, 'reattaching a terminal')
     const response = await this.request<{
       session: TerminalSession
       scrollback: string
       sequence: number
+      truncated?: boolean
     }>('session.attach', { sessionId })
     if (!Number.isSafeInteger(response.sequence) || response.sequence < 0) {
       throw new Error('terminal daemon returned an invalid sequenced snapshot')
@@ -526,6 +529,7 @@ export class DaemonClient {
     return {
       session: response.session,
       scrollback: response.scrollback ?? '',
+      truncated: response.truncated !== false,
       sequence: response.sequence
     }
   }
@@ -534,8 +538,8 @@ export class DaemonClient {
     void this.request('session.write', { sessionId, data }).catch(() => {})
   }
 
-  resize(sessionId: string, cols: number, rows: number): void {
-    void this.request('session.resize', { sessionId, cols, rows }).catch(() => {})
+  async resize(sessionId: string, cols: number, rows: number): Promise<void> {
+    await this.request('session.resize', { sessionId, cols, rows })
   }
 
   interrupt(sessionId: string): void {

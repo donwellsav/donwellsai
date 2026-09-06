@@ -10,6 +10,7 @@ import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
 import { getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
 import { moveWorkspacePane, restoreWorkspaceLayout } from './workspace-layout'
+import { nextWaitingSession } from '@shared/agent-presentation'
 import { openProjectSetup } from './project-setup'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
@@ -111,6 +112,15 @@ export function dispatchAppCommand(action: string): void {
   }
   if (selectTab(command.id)) return
   switch (command.id) {
+    case 'next-waiting-session': {
+      const repo = state.repos.find(item => item.repo.id === state.activeRepoId)
+      const path = state.activeWorktreePath
+      const current = path ? state.panes[path]?.find(pane => pane.key === state.activePane[path])?.sessionId : undefined
+      const next = nextWaitingSession(Object.values(state.runningAgents), repo?.worktrees.map(worktree => worktree.path) ?? [], current)
+      if (next) void state.focusAgentSession(next.sessionId).then(focused => { if (!focused) state.setError('The waiting terminal is no longer available.') }).catch(error => state.setError(String(error)))
+      else state.setError('No live sessions are waiting for input in this project.')
+      break
+    }
     case 'new-project':
       state.setPaletteOpen(false)
       openProjectSetup()

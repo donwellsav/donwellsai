@@ -24,7 +24,7 @@ function defaultDescription(status: AgentPresentationStatus, exitCode: number | 
     case 'waiting': return 'Agent is waiting for input'
     case 'permission': return 'Agent is waiting for permission'
     case 'stopping': return 'Agent is stopping'
-    case 'completed': return 'Agent completed'
+    case 'completed': return 'Agent reported completion; task verification is separate'
     case 'failed': return exitCode === undefined ? 'Agent failed' : `Agent exited with code ${exitCode}`
     case 'unverifiable': return 'The runtime cannot verify whether this agent is still live'
     case 'exited': return exitCode === undefined ? 'Agent process exited' : `Agent process exited with code ${exitCode}`
@@ -100,4 +100,12 @@ export function agentForWorkspace(
     }
   }
   return selected
+}
+
+/** Cycles only live input/permission waits within the selected project. */
+export function nextWaitingSession(runs: readonly RunningAgent[], workspacePaths: readonly string[], currentSessionId?: string): RunningAgent | undefined {
+  const waiting = runs.filter(run => workspacePaths.includes(run.workspacePath) && run.liveness === 'live'
+    && (run.activity === 'waiting' || run.activity === 'permission'))
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.sessionId.localeCompare(b.sessionId))
+  return waiting[(waiting.findIndex(run => run.sessionId === currentSessionId) + 1) % waiting.length]
 }

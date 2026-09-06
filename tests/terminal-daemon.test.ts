@@ -138,6 +138,29 @@ async function waitUntil(check: () => boolean, timeoutMs = 6000): Promise<void> 
 }
 
 describe('terminal daemon', () => {
+  it('reports incomplete retained output after overflow and preserves the flag across reattachment', async () => {
+    const userData = mkdtempSync(join(tmpdir(), 'donwells-daemon-truncated-'))
+    cleanup.push(userData)
+    spawnDaemon(userData, 'truncation-token')
+    await waitDaemonReady(userData)
+    const client = await connectClient(localRuntimePaths(userData, 'terminal').socketPath, 'truncation-token')
+    try {
+      const opened = await client.request('job.open', { cwd: userData, command: "printf '%600000s' x" })
+      const id = (opened['session'] as { id: string }).id
+      await waitUntil(() => client.events.some(event => event['event'] === 'exit' && event['sessionId'] === id))
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await client.request('session.attach', { sessionId: id })
+        expect(result['truncated']).toBe(true)
+        expect(String(result['scrollback']).length).toBeLessThanOrEqual(512 * 1024)
+      }
+      await client.request('session.close', { sessionId: id })
+      const fresh = await client.request('session.open', { cwd: userData })
+      const freshId = (fresh['session'] as { id: string }).id
+      expect((await client.request('session.attach', { sessionId: freshId }))['truncated']).toBe(false)
+      await client.request('session.close', { sessionId: freshId })
+    } finally { client.close() }
+  }, 20000)
+
   it('owns a PTY across client disconnect: data flows, session survives, scrollback replays', async () => {
     const userData = mkdtempSync(join(tmpdir(), 'donwells-daemon-ud-'))
     cleanup.push(userData)

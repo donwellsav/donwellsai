@@ -269,8 +269,8 @@ function registerIpc(): void {
     return true
   })
 
-  ipcMain.handle('terminalResize', (_e, sessionId: string, cols: number, rows: number) => {
-    terminalBus.resize(sessionId, cols, rows)
+  ipcMain.handle('terminalResize', async (_e, sessionId: string, cols: number, rows: number) => {
+    await terminalBus.resize(sessionId, cols, rows)
     return true
   })
 
@@ -420,6 +420,10 @@ app.whenReady().then(() => {
   terminalBus = new DaemonClient(
     app.getPath('userData'),
     {
+      disconnected: () => {
+        send('terminal:disconnected', {})
+        for (const run of agentRuntime.connectionLost()) send('agent:changed', { run })
+      },
       data: (sessionId, data, sequence) => {
         send('terminal:data', { sessionId, data, sequence })
         void operationalRuns?.onDaemonEvent('data', sessionId, data).catch((error) => console.error('Run output persistence failed:', error))

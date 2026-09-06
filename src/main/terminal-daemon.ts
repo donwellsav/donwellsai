@@ -92,6 +92,7 @@ export class TerminalDaemon {
   private readonly paths: LocalRuntimePaths
   private readonly emitterCommand: readonly string[]
   private readonly scrollback = new Map<string, string>()
+  private readonly truncated = new Set<string>()
   private readonly sequence = new Map<string, number>()
   private readonly clients = new Set<Socket>()
   private readonly connections = new Set<Socket>()
@@ -221,6 +222,7 @@ export class TerminalDaemon {
     const sequence = (this.sequence.get(sessionId) ?? 0) + 1
     this.sequence.set(sessionId, sequence)
     const current = (this.scrollback.get(sessionId) ?? '') + data
+    if (current.length > SCROLLBACK_MAX) this.truncated.add(sessionId)
     this.scrollback.set(
       sessionId,
       current.length > SCROLLBACK_MAX ? current.slice(current.length - SCROLLBACK_MAX) : current
@@ -253,6 +255,7 @@ export class TerminalDaemon {
     if (this.pty.isRetained(sessionId)) return
     setTimeout(() => {
       this.scrollback.delete(sessionId)
+      this.truncated.delete(sessionId)
       this.sequence.delete(sessionId)
     }, REAP_EXITED_MS).unref()
   }
@@ -535,6 +538,7 @@ export class TerminalDaemon {
           reply(true, {
             ...this.pty.jobResult(sessionId),
             output: this.scrollback.get(sessionId) ?? '',
+            truncated: this.truncated.has(sessionId),
             sequence: this.sequence.get(sessionId) ?? 0
           })
           break
@@ -620,6 +624,7 @@ export class TerminalDaemon {
           this.agentsByRun.delete(record.run.id)
           record.launchPlan.cleanup()
           this.scrollback.delete(sessionId)
+          this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           this.broadcast({ event: 'agent-dismissed', sessionId })
           reply(true, {})
@@ -648,6 +653,7 @@ export class TerminalDaemon {
           }
           await this.pty.close(sessionId)
           this.scrollback.delete(sessionId)
+          this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           reply(true, {})
           break
@@ -665,6 +671,7 @@ export class TerminalDaemon {
           reply(true, {
             session,
             scrollback: this.scrollback.get(sessionId) ?? '',
+            truncated: this.truncated.has(sessionId),
             sequence: this.sequence.get(sessionId) ?? 0
           })
           break
