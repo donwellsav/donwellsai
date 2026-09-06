@@ -506,6 +506,7 @@ app.whenReady().then(() => {
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   projectTools = new ProjectTools(resolveToolWorkspace, [])
   const handoffs = new ProjectHandoffService(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), git, agentRuntime)
+  ipcMain.handle('projectHandoffExport', (_e, ...args: Parameters<IpcApi['projectHandoffExport']>) => handoffs.projectHandoffExport(...args))
   ipcMain.handle('projectHandoffList', (_e, ...args: Parameters<IpcApi['projectHandoffList']>) => handoffs.projectHandoffList(...args))
   ipcMain.handle('projectHandoffGet', (_e, ...args: Parameters<IpcApi['projectHandoffGet']>) => handoffs.projectHandoffGet(...args))
   ipcMain.handle('projectHandoffCreate', (_e, ...args: Parameters<IpcApi['projectHandoffCreate']>) => handoffs.projectHandoffCreate(...args))

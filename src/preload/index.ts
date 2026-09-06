@@ -72,6 +72,7 @@ const api: IpcApi = {
   agentList: () => ipcRenderer.invoke('agentList'),
   agentInterrupt: (sessionId) => ipcRenderer.invoke('agentInterrupt', sessionId),
   agentStop: (sessionId) => ipcRenderer.invoke('agentStop', sessionId),
+  projectHandoffExport: (...args) => ipcRenderer.invoke('projectHandoffExport', ...args),
   projectHandoffList: (...args) => ipcRenderer.invoke('projectHandoffList', ...args),
   projectHandoffGet: (...args) => ipcRenderer.invoke('projectHandoffGet', ...args),
   projectHandoffCreate: (...args) => ipcRenderer.invoke('projectHandoffCreate', ...args),

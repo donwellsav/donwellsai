@@ -5,7 +5,7 @@ import type { GitWorktrees } from './git'
 import type { AgentRuntime } from './agent-runtime'
 import type { AgentSessionCredential } from '@shared/agent-runtime'
 import type { DaemonClient } from './daemon-client'
-import { closeSync, lstatSync, mkdirSync, openSync } from 'node:fs'
+import { closeSync, lstatSync, mkdirSync, openSync, writeFileSync, readFileSync, fsyncSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
@@ -116,13 +116,26 @@ export class ProjectHandoffStore {
 /** Desktop authority boundary. Native delivery and external MCP claims require separate binding. */
 export class ProjectHandoffService implements ProjectHandoffApi {
   private readonly store: ProjectHandoffStore
-  constructor(userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'>) {
+  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'>) {
     this.store = new ProjectHandoffStore(userDataDir)
   }
 
   async projectHandoffList(workspacePath: string): Promise<ProjectHandoff[]> {
     const scope = await this.resolveScope(workspacePath)
     return this.store.list(scope.projectKey)
+  }
+
+  async projectHandoffExport(workspacePath: string): Promise<{ path: string; count: number }> {
+    const scope = await this.resolveScope(workspacePath)
+    const handoffs = this.store.list(scope.projectKey)
+    const bytes = Buffer.from(JSON.stringify({ schemaVersion: 1, projectKey: scope.projectKey, exportedAt: new Date().toISOString(), handoffs }, null, 2) + '\n')
+    const path = join(this.userDataDir, `project-handoffs-export-${randomUUID()}.json`)
+    const fd = openSync(path, 'wx', 0o600)
+    try {
+      try { writeFileSync(fd, bytes); fsyncSync(fd) } finally { closeSync(fd) }
+      if (!readFileSync(path).equals(bytes)) throw new Error('Handoff export verification failed')
+      return { path, count: handoffs.length }
+    } catch (error) { rmSync(path, { force: true }); throw error }
   }
 
   async projectHandoffGet(workspacePath: string, id: string): Promise<ProjectHandoffStatus> {

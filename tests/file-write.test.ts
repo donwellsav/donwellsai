@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, statSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
@@ -159,6 +159,17 @@ describe('GitWorktrees.writeFile', () => {
     const confirmed = await service.acknowledge(authenticate, credential, path, handoff.id, 3)
     expect(confirmed).toMatchObject({ delivery: 'confirmed', revision: 4 })
     expect(await service.acknowledge(authenticate, credential, path, handoff.id, 3)).toEqual(confirmed)
+    const exported = await service.projectHandoffExport(path)
+    expect(exported.count).toBe(1)
+    const document = JSON.parse(readFileSync(exported.path, 'utf8'))
+    expect(document.handoffs).toEqual([confirmed])
+    expect(document.projectKey).toBe('a'.repeat(64))
+    expect(readFileSync(exported.path, 'utf8')).not.toContain('fixture-secret')
+    if (process.platform !== 'win32') expect(statSync(exported.path).mode & 0o777).toBe(0o600)
+    const foreign = await service.projectHandoffExport('/foreign')
+    expect(JSON.parse(readFileSync(foreign.path, 'utf8')).handoffs).toEqual([])
+    expect((await service.projectHandoffExport(path)).path).not.toBe(exported.path)
+
   })
 
   it('round-trips new and existing files inside the worktree', async () => {

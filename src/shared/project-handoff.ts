@@ -66,6 +66,7 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
 export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds'>
 export type ProjectHandoffStatus = { handoff: ProjectHandoff; stale: boolean; sourceError?: string }
 export interface ProjectHandoffApi {
+  projectHandoffExport(workspacePath: string): Promise<{ path: string; count: number }>
   projectHandoffList(workspacePath: string): Promise<ProjectHandoff[]>
   projectHandoffGet(workspacePath: string, id: string): Promise<ProjectHandoffStatus>
   projectHandoffCreate(workspacePath: string, draft: ProjectHandoffDraft): Promise<ProjectHandoff>

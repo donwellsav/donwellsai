@@ -19,6 +19,7 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const [steps, setSteps] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [exportPath, setExportPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
   const claimKeys = useRef(new Map<string, string>())
@@ -43,6 +44,10 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
     <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
       if (selected) setSelected(await window.donwells.projectHandoffGet(workspacePath, selected.handoff.id))
     })}>Refresh handoffs</button>
+    <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
+      setExportPath((await window.donwells.projectHandoffExport(workspacePath)).path)
+    })}>Export project handoffs</button>
+    {exportPath && <p className="memory-storage-path" role="status">Handoff export saved: {exportPath}</p>}
     <ul>{items.map(item => <li key={item.id}><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
       setSelected(await window.donwells.projectHandoffGet(workspacePath, item.id)); setReceiver('')
     })}>{item.goal} · {item.state}</button></li>)}</ul>

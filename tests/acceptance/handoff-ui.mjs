@@ -79,6 +79,12 @@ try {
   assert.equal(accepted.revision, 4)
   await panel.getByRole('button', { name: 'Refresh handoffs' }).click()
   await review.getByText(/Delivery: confirmed/).waitFor()
+  await panel.getByRole('button', { name: 'Export project handoffs' }).click()
+  const exportStatus = panel.getByRole('status').filter({ hasText: 'Handoff export saved:' })
+  await exportStatus.waitFor()
+  const exportPath = (await exportStatus.innerText()).replace('Handoff export saved: ', '')
+  assert.deepEqual(JSON.parse(readFileSync(exportPath, 'utf8')).handoffs, [accepted])
+  report.exportPreservedConfirmedHandoff = true
   await panel.evaluate(element => { element.scrollTop = 0 })
   await page.screenshot({ path: join(evidence, 'handoff-sidebar.png') })
   for (const run of (await invoke('agent.list')).agents) await invoke('agent.stop', { sessionId: run.sessionId })
