@@ -12,12 +12,14 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
   switch (cmd.op) {
     case 'state': {
       return {
+        error: s.error,
         activeRepoId: s.activeRepoId,
         activeWorktreePath: s.activeWorktreePath,
         repos: s.repos.map((r) => ({ id: r.repo.id, path: r.repo.path, worktrees: r.worktrees.map((w) => w.path) })),
         panes: s.panes,
         activePane: s.activePane,
         layouts: s.layouts,
+        docking: s.docking,
         terminalOrder: s.terminalOrder,
         runningAgents: s.runningAgents,
         sidebar: { open: s.sidebarOpen, width: s.sidebarWidth },
@@ -64,7 +66,8 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       return {}
     }
     case 'pane.close':
-      if (!(await s.closePane(cmd.worktreePath, cmd.key))) throw new Error(useAppStore.getState().error ?? 'Pane could not be closed')
+      if (!s.panes[cmd.worktreePath]?.some(pane => pane.key === cmd.key)) throw new Error(`no pane ${cmd.key} in ${cmd.worktreePath}`)
+      s.hidePaneView(cmd.worktreePath, cmd.key)
       return {}
     case 'pane.resize': {
       const pct = s.resizeSplit(cmd.worktreePath, cmd.splitId, cmd.pct)

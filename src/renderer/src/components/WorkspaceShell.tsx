@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { useAppStore } from '../store'
-import { agentPresentation, agentProviderName } from '@shared/agent-presentation'
+import { agentPresentation } from '@shared/agent-presentation'
 import { orderedWorkspacePaths, pathBasename } from '../workspace-navigation'
 import { appCommandPlatform, formatAppShortcut } from '@shared/app-commands'
 import { dispatchAppCommand } from '../commands'
 import { openProjectSetup } from '../project-setup'
+import { WorkspaceControls } from './Workbench'
 import { ProjectActions } from './ProjectActions'
 import { Icon } from './Icon'
 import './workspace-shell.css'
@@ -58,6 +59,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         {selectedWorktree && <><span className="workspace-slash" aria-hidden="true">/</span><span title={activePath ?? ''}>{navigation.renames[activePath!] ?? (selectedRepo?.repo.kind === 'folder' ? 'Local folder' : status?.branch || selectedWorktree.branch || 'Detached checkout')}</span></>}
       </div>
       <button aria-label="Find a command" className="workspace-command-search titlebar-search" onClick={() => state().setPaletteOpen(true)}><Icon name="search" size={14} /><span>Find a command</span><kbd>{formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))}</kbd></button>
+      {activePath && <div className="workspace-context-actions">
+        {waiting.length > 0 && <button className="workspace-attention" onClick={() => void state().focusAgentSession(waiting[0]!.sessionId)}>{waiting.length} waiting</button>}
+        <button className="workspace-action" onClick={() => void state().openTerminal(activePath)}><Icon name="terminal" size={14} /><span>Terminal</span></button>
+        <button className="workspace-action" onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={14} /><span>Add agent</span></button>
+        <WorkspaceControls />
+      </div>}
       <button className="workspace-icon-control" aria-label="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={17} /></button>
     </header>
     <div className="workspace-frame">
@@ -118,18 +125,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           onKeyDown={event => { if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) { event.preventDefault(); state().setSidebarWidth(event.key === 'Home' ? 220 : event.key === 'End' ? 340 : Math.min(340, Math.max(220, sidebarWidth + (event.key === 'ArrowLeft' ? -16 : 16)))) } }} />
       </aside>}
       <div className="workspace-desk">
-        {activePath && <header className="workspace-context">
-          <div><span className="workspace-context-label">{selectedRepo ? pathBasename(selectedRepo.repo.path) : 'Workspace'}</span><span className="workspace-checkout-path" title={activePath}>{activePath}</span></div>
-          <div className="workspace-context-actions">
-            {waiting.length > 0 && <button className="workspace-attention" onClick={() => void state().focusAgentSession(waiting[0]!.sessionId)}>{waiting.length} waiting for input <Icon name="chevrons" size={12} /></button>}
-            <button className="workspace-action" onClick={() => void state().openTerminal(activePath)}><Icon name="terminal" size={14} />Terminal</button>
-            <button className="workspace-action workspace-action-primary" onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={14} />Add agent</button>
-          </div>
-        </header>}
-        {agents.length > 0 && <nav className="workspace-agent-strip" aria-label="Project agent sessions">{agents.map(agent => {
-          const presentation = agentPresentation(agent)
-          return <button key={agent.sessionId} title={`${presentation.description} · ${agent.workspacePath}`} onClick={() => void state().focusAgentSession(agent.sessionId)}><span className={`workspace-agent-indicator tone-${presentation.tone}`} aria-hidden="true" /><strong>{agentProviderName(agent)}</strong><span>{presentation.label}</span><small>{pathBasename(agent.workspacePath)}</small></button>
-        })}</nav>}
         <div className="workspace-surfaces">{children}</div>
         <footer className="workspace-footing">
           <span>{activePath ? selectedRepo?.repo.kind === 'folder' ? 'Local folder' : status?.conflicts ? `${status.conflicts} conflicts` : changed === null ? 'Reading changes…' : changed === 0 ? 'Working tree clean' : `${changed} changed ${changed === 1 ? 'file' : 'files'}` : 'Local workspace'}</span>

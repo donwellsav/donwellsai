@@ -9,6 +9,7 @@ import { isMarkdownFile, useAppStore } from './store'
 import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
 import { getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
+import { moveWorkspacePane, restoreWorkspaceLayout } from './workspace-layout'
 import { openProjectSetup } from './project-setup'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
@@ -55,6 +56,17 @@ export function commandUnavailableReason(id: AppCommandId, state: CommandContext
       return visible && state.repos.some((repo) => repo.repo.kind !== 'folder' && repo.worktrees.some((worktree) => worktree.path === active)) ? undefined : 'Open a Git workspace for source control.'
     case 'find':
       return pane?.kind === 'terminal' ? undefined : 'Focus a terminal, or use the active view’s Find control.'
+    case 'stop-active-process':
+      return pane?.sessionId ? undefined : 'Focus a terminal process first.'
+    case 'layout-focus':
+    case 'layout-pair':
+    case 'layout-build':
+    case 'layout-review':
+      return visible ? undefined : 'Open a workspace first.'
+    case 'move-pane-left':
+    case 'move-pane-right':
+    case 'move-pane-up':
+    case 'move-pane-down':
     case 'close-active-pane':
       return pane ? undefined : 'Open a workspace tab first.'
     case 'focus-next-pane':
@@ -163,10 +175,33 @@ export function dispatchAppCommand(action: string): void {
       if (worktreePath) state.focusRelativePane(worktreePath, -1)
       break
     }
+    case 'move-pane-left':
+    case 'move-pane-right':
+    case 'move-pane-up':
+    case 'move-pane-down': {
+      const path = state.activeWorktreePath
+      if (path && state.activePane[path]) {
+        const panes = state.panes[path] ?? []
+        const layout = restoreWorkspaceLayout(state.docking[path], panes, state.layouts[path]).layout
+        state.saveDocking(path, moveWorkspacePane(layout, panes, state.activePane[path]!, command.id.slice(10) as 'left' | 'right' | 'up' | 'down'))
+      }
+      break
+    }
+    case 'stop-active-process': {
+      const path = state.activeWorktreePath
+      if (path && state.activePane[path]) state.requestClosePane(path, state.activePane[path]!)
+      break
+    }
+    case 'layout-focus':
+    case 'layout-pair':
+    case 'layout-build':
+    case 'layout-review':
+      if (state.activeWorktreePath) state.arrangeWorkspace(state.activeWorktreePath, command.id.slice(7) as 'focus' | 'pair' | 'build' | 'review')
+      break
     case 'close-active-pane': {
       const worktreePath = state.activeWorktreePath
       const paneKey = worktreePath ? state.activePane[worktreePath] : undefined
-      if (worktreePath && paneKey) state.requestClosePane(worktreePath, paneKey)
+      if (worktreePath && paneKey) state.hidePaneView(worktreePath, paneKey)
       break
     }
     case 'toggle-sidebar':

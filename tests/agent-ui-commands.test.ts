@@ -40,6 +40,7 @@ function seed(): void {
     activeTerminal: { [main]: 't1' },
     terminalOrder: { [main]: ['t1'] },
     layouts: {},
+    docking: {},
     terminals: {},
     runningAgents: {},
     previews: {},
@@ -85,9 +86,15 @@ describe('executeUiCommand', () => {
     await expect(executeUiCommand({ op: 'pane.focus', worktreePath: main, key: 'preview:x' })).rejects.toThrow('no pane')
   })
 
-  it('pane.close removes the pane', async () => {
+  it('pane.close hides and reopens the same resource without stopping its process', async () => {
+    const stop = vi.spyOn(window.donwells, 'closeTerminal')
     await executeUiCommand({ op: 'pane.close', worktreePath: main, key: 'term:t1' })
-    expect(useAppStore.getState().panes[main]).toHaveLength(0)
+    expect(useAppStore.getState().panes[main]).toHaveLength(1)
+    expect(useAppStore.getState().docking[main]?.hidden).toEqual(['term:t1'])
+    expect(stop).not.toHaveBeenCalled()
+    await executeUiCommand({ op: 'pane.focus', worktreePath: main, key: 'term:t1' })
+    expect(useAppStore.getState().docking[main]?.hidden).toEqual([])
+    await expect(executeUiCommand({ op: 'pane.close', worktreePath: main, key: 'missing' })).rejects.toThrow('no pane')
   })
 
   it('keeps a live terminal open until the explicit close confirmation', async () => {
@@ -318,6 +325,7 @@ describe('native agent state', () => {
               activeTerminal: {},
               terminalOrder: { [main]: [] },
               layouts: {},
+    docking: {},
               activeWorktreePath: main
             }
           }
@@ -402,4 +410,23 @@ describe('native agent state', () => {
     await expect(opening).resolves.toBe(false)
     expect(useAppStore.getState().panes).toEqual({})
   })
+})
+it('restores a hidden live terminal and editor without replacing either resource', async () => {
+  const session = { id: 't1', worktreePath: main, title: 'zsh', createdAt: 't0', exited: false }
+  const panes = [{ key: 'term:t1', kind: 'terminal' as const, sessionId: 't1' }, { key: 'preview:README.md', kind: 'preview' as const, file: 'README.md' }]
+  useAppStore.setState({ panes: { [main]: panes } })
+  useAppStore.getState().hidePaneView(main, 'term:t1')
+  const docking = useAppStore.getState().docking
+  vi.stubGlobal('window', { donwells: {
+    saveWorkspaceSession: async () => {}, listRepos: async () => [repoSummary()], listAgents: async () => [], agentList: async () => [],
+    getSettings: async () => useAppStore.getState().settings,
+    getWorkspaceSession: async () => ({ activeRepoId: 'demo', repos: { demo: { panes: { [main]: [...panes, panes[0]], '/removed/project': [{ key: 'term:gone', kind: 'terminal', sessionId: 'gone' }] }, docking, layouts: {}, activePane: { [main]: 'preview:README.md' }, activeTerminal: { [main]: 't1' }, terminalOrder: { [main]: ['t1'] }, activeWorktreePath: main } } }),
+    gitStatus: async () => null, loadExplorer: async () => {}, scanWorktree: async () => ({ ports: [], cpuPercent: 0, memMB: 0 }),
+    terminalSessions: async () => [session], readFile: async () => file('README.md', 'disk', 'r1'),
+    openTerminal: async () => { throw new Error('must reuse process') }
+  } })
+  await useAppStore.getState().load()
+  expect(useAppStore.getState().panes[main]).toEqual(panes)
+  expect(useAppStore.getState().docking[main]?.hidden).toEqual(['term:t1'])
+  expect(useAppStore.getState().activePane[main]).toBe('preview:README.md')
 })

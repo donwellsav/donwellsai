@@ -158,6 +158,9 @@ importers:
       dompurify:
         specifier: ^3.4.14
         version: 3.4.14
+      flexlayout-react:
+        specifier: 0.10.8
+        version: 0.10.8(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       katex:
         specifier: ^0.18.5
         version: 0.18.5
@@ -1769,6 +1772,13 @@ packages:
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
+
+  flexlayout-react@0.10.8:
+    resolution: {integrity: sha512-lL+NVIvReIMhsl2H78qm7GKVE1OGXSe03PtcE2MZ+s5b0irBF578hRCWcdnv+GLeFADyHofa63L0E4oVQe9kCA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
 
   form-data@4.0.6:
     resolution: {integrity: sha512-vKatAh4SlVfgbv+YtmhiRjhEMJsYpsG1Y2rMQtR+SVSbytsSD1YGzDIcrAJmdFec88u/+VoGmxnl+80gL1tRCQ==}
@@ -4393,6 +4403,11 @@ snapshots:
   filelist@1.0.6:
     dependencies:
       minimatch: 5.1.9
+
+  flexlayout-react@0.10.8(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   form-data@4.0.6:
     dependencies:

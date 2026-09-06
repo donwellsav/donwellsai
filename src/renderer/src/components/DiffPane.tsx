@@ -100,7 +100,7 @@ export function DiffPane({
 }) {
   const settings = useAppStore((state) => state.settings)
   const openPreview = useAppStore((state) => state.openPreview)
-  const closePane = useAppStore((state) => state.closePane)
+  const hidePaneView = useAppStore((state) => state.hidePaneView)
   const reviewPanelId = useId()
   const [loaded, setLoaded] = useState<LoadedDiff | null>(null)
   const [status, setStatus] = useState<DiffStatus>('loading')
@@ -463,7 +463,7 @@ export function DiffPane({
               <span>Open file</span>
             </button>
           )}
-          <button type="button" className="icon-btn" aria-label="Close diff" title="Close diff" onClick={() => void closePane(worktreePath, paneKey)}>
+          <button type="button" className="icon-btn" aria-label="Close diff" title="Close diff" onClick={() => void hidePaneView(worktreePath, paneKey)}>
             <Icon name="x" size={12} />
           </button>
         </div>

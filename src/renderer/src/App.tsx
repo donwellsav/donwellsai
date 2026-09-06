@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 
 import { WorkspaceShell } from './components/WorkspaceShell'
-import { TitlebarTabs } from './components/TitlebarTabs'
 import { Workbench } from './components/Workbench'
 import { RightSidebar } from './components/RightSidebar'
 import { Landing } from './components/Landing'
@@ -131,8 +130,8 @@ export function App() {
     <div className="app-layout">
       <WorkspaceShell>
         <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
-          {activeWorktreePath && <div id="titlebar-tabs"><TitlebarTabs /></div>}
-          {activeWorktreePath ? <Workbench /> : <Landing />}
+          <Workbench />
+          {!activeWorktreePath && <Landing />}
           <BrowserHosts />
         </div>
         {runsOpen && <RunsPanel />}

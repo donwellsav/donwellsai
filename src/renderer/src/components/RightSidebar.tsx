@@ -114,6 +114,7 @@ export function RightSidebar() {
             </button>
           ))}
         </div>
+        {activeWorktreePath && <button className="icon-btn" aria-label="Move panel into workspace" title="Move into workspace" onClick={() => useAppStore.getState().openWorkspaceModule(activeWorktreePath, tab === 'git' ? 'git-status' : tab)}><Icon name="columns" size={13} /></button>}
         <button className="icon-btn" aria-label="Close workspace panel" title="Close panel" onClick={closePanel}>
           <Icon name="x" size={12} />
         </button>

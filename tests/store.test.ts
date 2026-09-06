@@ -191,3 +191,14 @@ describe('Store', () => {
     expect(store.listRepos()).toEqual([{ id: 'r1', path: '/p', addedAt: 'a' }])
   })
 })
+
+it('retains one legacy layout backup across docking writes and store restart', () => {
+  const dir = tmp(), store = new Store(dir)
+  const layouts = { '/tmp/project': { kind: 'leaf' as const, pane: 'term:a' } }
+  const repo = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, layouts, activeWorktreePath: '/tmp/project' }
+  store.setWorkspaceSession({ activeRepoId: 'r', repos: { r: repo } })
+  store.setWorkspaceSession({ activeRepoId: 'r', repos: { r: { ...repo, docking: {} } } })
+  const reopened = new Store(dir)
+  reopened.setWorkspaceSession({ activeRepoId: 'r', repos: { r: { ...repo, layouts: {}, docking: {} } } })
+  expect(reopened.getWorkspaceSession()?.repos.r?.preDockingLayouts).toEqual(layouts)
+})

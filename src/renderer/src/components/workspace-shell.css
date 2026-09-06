@@ -1,9 +1,9 @@
 /* Rebuilt application chrome. Runtime ownership remains outside visual containers. */
 .workspace-masthead, .workspace-frame, .workspace-frame *, .workspace-masthead * { box-sizing: border-box; }
-.workspace-masthead { height: 54px; flex: 0 0 54px; display: flex; align-items: center; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--background); -webkit-app-region: drag; }
-.workspace-masthead button, .workspace-masthead input { -webkit-app-region: no-drag; }
+.workspace-masthead { height: 40px; flex: 0 0 40px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--background); -webkit-app-region: drag; }
+.workspace-masthead button, .workspace-masthead input, .workspace-masthead summary { -webkit-app-region: no-drag; }
 .workspace-window-controls { width: 60px; flex: 0 0 60px; }
-.workspace-wordmark { font-size: 21px; font-weight: 650; letter-spacing: -1px; padding: 4px 0; white-space: nowrap; }
+.workspace-wordmark { font-size: 17px; font-weight: 650; letter-spacing: -1px; padding: 4px 0; white-space: nowrap; }
 .workspace-wordmark span { color: var(--ring); padding-left: 6px; }
 .workspace-breadcrumb { display: flex; align-items: center; min-width: 0; gap: 12px; color: var(--muted-fg); font-size: 12px; }
 .workspace-breadcrumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -51,26 +51,13 @@
 .workspace-add-checkout:hover { color: var(--foreground); }
 .workspace-project-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding: 8px 12px 8px 18px; font-size: 10px; color: var(--muted-fg); }
 .workspace-desk { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--background); }
-.workspace-context { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; min-height: 72px; border-bottom: 1px solid var(--border); }
-.workspace-context > div:first-child { min-width: 0; }
-.workspace-context-label { display: block; font-size: 17px; font-weight: 550; letter-spacing: -.35px; }
-.workspace-checkout-path { display: block; font-size: 10px; color: var(--muted-fg); margin-top: 5px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .workspace-context-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 11px; border: 1px solid var(--input); border-radius: 4px; font-size: 12px; }
+.workspace-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 7px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; }
 .workspace-action:hover { background: var(--accent); }
 .workspace-action-primary { color: var(--primary-fg); background: var(--primary); border-color: transparent; }
 .workspace-action-primary:hover { background: var(--foreground); }
 .workspace-attention { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--agent-question-text); }
-.workspace-agent-strip { display: flex; overflow-x: auto; gap: 0; border-bottom: 1px solid var(--border); background: var(--card); min-height: 38px; }
-.workspace-agent-strip > button { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 10px 16px; border-right: 1px solid var(--border); font-size: 11px; }
-.workspace-agent-strip strong { font-weight: 550; }
-.workspace-agent-strip small, .workspace-agent-strip button > span:not(.workspace-agent-indicator) { color: var(--muted-fg); font-size: 10px; }
-.workspace-agent-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-fg); }
-.workspace-agent-indicator.tone-working { background: var(--status-working); }
-.workspace-agent-indicator.tone-done { background: var(--status-success); }
 .workspace-surfaces { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.workspace-surfaces .workbench { margin: 10px; border: 1px solid var(--border); border-radius: 5px; }
-.workspace-surfaces #titlebar-tabs { padding: 8px 10px 0; min-height: 44px; background: var(--background); }
 .workspace-footing { min-height: 30px; padding: 6px 14px; display: flex; gap: 15px; align-items: center; border-top: 1px solid var(--border); font: 10px var(--font-mono); color: var(--muted-fg); }
 .workspace-footing button { display: inline-flex; gap: 5px; align-items: center; }
 .workspace-footing-spacer { flex: 1; }

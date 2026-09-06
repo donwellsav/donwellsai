@@ -17,12 +17,12 @@ export function TerminalCloseDialog() {
 
   return (
     <ModalDialog className="modal terminal-close-modal" labelledBy="close-terminal-title" onClose={cancel}>
-      <h3 id="close-terminal-title" className="modal-title">Close “{request.label}”?</h3>
+      <h3 id="close-terminal-title" className="modal-title">Stop “{request.label}”?</h3>
       <div className="terminal-close-warning">
         <Icon name="alert" size={15} />
         <div>
           <strong>{agent ? exited ? 'This agent has exited.' : 'Stop this agent before closing its tab.' : 'This terminal session is still live.'}</strong>
-          <p>{agent ? exited ? 'Closing releases its retained terminal output.' : 'Stopping sends an interrupt. Output remains available until the execution host confirms exit.' : 'Closing it terminates the shell and any command running inside it.'}</p>
+          <p>{agent ? exited ? 'Closing releases its retained terminal output.' : 'Stopping sends an interrupt. Output remains available until the execution host confirms exit.' : 'Stopping terminates the shell and any command running inside it. Hiding the view keeps them running.'}</p>
         </div>
       </div>
       <dl className="terminal-close-details">
@@ -32,7 +32,7 @@ export function TerminalCloseDialog() {
       </dl>
       <div className="modal-actions">
         <button className="btn" onClick={cancel}>Keep terminal</button>
-        <button className="btn btn-danger" disabled={stopPending} onClick={() => void confirm()}>{agent ? exited ? 'Close agent tab' : agent.activity === 'stopping' ? 'Stopping…' : 'Stop agent' : 'Close and terminate'}</button>
+        <button className="btn btn-danger" disabled={stopPending} onClick={() => void confirm()}>{agent ? exited ? 'Close agent tab' : agent.activity === 'stopping' ? 'Stopping…' : 'Stop agent' : 'Stop terminal'}</button>
       </div>
     </ModalDialog>
   )

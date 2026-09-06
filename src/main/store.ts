@@ -316,6 +316,11 @@ export class Store {
   setWorkspaceSession(workspaceSession: NonNullable<PersistedState['workspaceSession']>): void {
     const next = structuredClone(this.state)
     next.workspaceSession = structuredClone(workspaceSession)
+    for (const [id, repo] of Object.entries(next.workspaceSession.repos)) {
+      const previous = this.state.workspaceSession?.repos[id]
+      const backup = previous?.preDockingLayouts ?? (repo.docking ? previous?.layouts ?? repo.layouts : undefined)
+      if (backup) repo.preDockingLayouts = structuredClone(backup)
+    }
     this.commit(next)
   }
 

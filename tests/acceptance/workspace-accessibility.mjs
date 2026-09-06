@@ -26,11 +26,16 @@ const invoke = async (method, params = {}) => {
 const env = { ...process.env, DONWELLS_USER_DATA: profile }
 delete env.DONWELLS_SMOKE; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL
 let app, page
+const until = async (predicate, label) => {
+  const deadline = Date.now() + 15000
+  while (!(await predicate())) { assert(Date.now() < deadline, `Timed out: ${label}`); await delay(50) }
+}
 const start = performance.now()
 const report = { startedAt: new Date().toISOString(), source: sourceIdentity(), artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(resolve(dirname(executable), '../Resources/app.asar'))) }, profile, fixture, executable, checks: {}, errors: [], limitations: ['VoiceOver speech/navigation needs native manual qualification.', 'This exercises the workspace shell, not all six completed product journeys.'] }
 try {
   app = await _electron.launch({ executablePath: executable, env })
   page = await app.firstWindow()
+  page.setDefaultTimeout(15000)
   page.on('pageerror', error => report.errors.push(error.message))
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
@@ -42,6 +47,7 @@ try {
   await page.getByRole('button', { name: /Main checkout/ }).waitFor()
   await page.getByRole('button', { name: /Main checkout/ }).click()
   await page.locator('.xterm-helper-textarea').first().waitFor({ state: 'attached' })
+  const arrange = async name => { await page.locator('.workspace-layout-menu > summary').click(); await page.getByRole('button', { name, exact: true }).click() }
   let sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 1)
   const session = sessions[0].id
@@ -49,7 +55,7 @@ try {
   await page.locator('.xterm-helper-textarea').first().focus()
   await page.keyboard.type("printf '\\104\\117\\116\\127\\105\\114\\114\\123_GUI_OK\\n'")
   await page.keyboard.press('Enter')
-  await page.waitForFunction(async id => (await window.donwells.attachTerminal(id)).scrollback.includes('DONWELLS_GUI_OK'), session)
+  await until(() => page.evaluate(async id => (await window.donwells.attachTerminal(id)).scrollback.includes('DONWELLS_GUI_OK'), session), 'fresh terminal output')
   report.checks.realTerminalInput = true
   for (const label of ['Files', 'Changes', 'Project memory', 'Recover unsaved files']) {
     const button = page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true })
@@ -65,13 +71,39 @@ try {
   sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 2)
   report.checks.openSecondTerminal = true
+  const sessionIds = sessions.map(item => item.id).sort()
+  await arrange('Pair')
+  await page.waitForFunction(() => document.querySelectorAll('.flexlayout__tabset').length === 2)
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+w' : 'Control+w')
+  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByText('Hidden (1)', { exact: true }).waitFor()
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  await page.getByText('Hidden (1)', { exact: true }).click()
+  await page.locator('.workspace-hidden-views button').click()
+  await page.getByText('Hidden (1)', { exact: true }).waitFor({ state: 'detached' })
+  for (let move = 0; move < 100; move++) {
+    await arrange(move % 2 ? 'Pair' : 'Focus')
+  }
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  const targetPath = (await invoke('ui.state')).activeWorktreePath
+  await invoke('ui.pane.focus', { worktreePath: targetPath, key: `term:${sessionIds[1]}` })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.locator(`[data-pane-key="term:${sessionIds[1]}"] .xterm-helper-textarea`).focus()
+  await page.keyboard.type("printf '\\104\\117\\103\\113_LAYOUT_OK\\n'")
+  await page.keyboard.press('Enter')
+  await until(() => page.evaluate(async ids => (await Promise.all(ids.map(id => window.donwells.attachTerminal(id)))).some(result => result.scrollback.includes('DOCK_LAYOUT_OK')), sessionIds), 'terminal output after layout changes')
+  report.checks.hideReopenAnd100LayoutChangesRetainLiveSessions = true
   await page.getByRole('button', { name: 'Add agent', exact: true }).click()
   await page.getByRole('region', { name: 'Agent supervision and operational runs' }).waitFor()
   await page.getByRole('button', { name: 'Close runs', exact: true }).click()
   report.checks.agentLauncherAccessible = true
   const window = await app.browserWindow(page)
   await window.evaluate(win => win.setSize(1440, 960))
-  const capture = async name => writeFileSync(join(evidence, name), Buffer.from(await window.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'))
+  const capture = async name => {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await delay(100)
+    writeFileSync(join(evidence, name), Buffer.from(await window.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'))
+  }
   report.checks.darkBackground = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--background').trim())
   assert.equal(report.checks.darkBackground.toLowerCase(), '#16161d')
   const colors = await page.evaluate(() => ['--background', '--foreground', '--muted-fg', '--ring'].map(name => getComputedStyle(document.documentElement).getPropertyValue(name).trim()))
@@ -90,7 +122,7 @@ try {
   await delay(250)
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
   await capture('workspace-200-percent.png')
-  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-masthead, .workspace-desk, .workspace-context-actions, .workbench, .workspace-footing')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
+  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-masthead, .workspace-desk, .workspace-context-actions, .workspace-docking-body, .workspace-footing')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
   for (const { name, rect } of report.checks.zoomLayout.elements) {
     assert(rect.width > 0 && rect.height > 0 && rect.right <= report.checks.zoomLayout.width + 1 && rect.bottom <= report.checks.zoomLayout.height + 1, `${name} is clipped at 200%`)
   }
@@ -106,6 +138,68 @@ try {
   report.checks.keyboardControlsAt200Percent = true
   await invoke('settings.set', { uiScale: 1, theme: 'light' })
   await capture('workspace-light.png')
+  await invoke('settings.set', { editorAutoSaveMode: 'manual', theme: 'dark' })
+  const workspacePath = (await invoke('ui.state')).activeWorktreePath
+  await invoke('ui.editor.open', { worktreePath: workspacePath, relPath: 'README.md' })
+  await page.locator('.editor-host .monaco-editor').waitFor()
+  await page.locator('.editor-host .monaco-editor').click({ position: { x: 120, y: 20 } })
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End')
+  const draft = '\nUNSAVED_LAYOUT_RESTART_PROOF'
+  await page.keyboard.insertText(draft)
+  await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
+  const before = await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })
+  assert(before.content.includes(draft))
+  const editorElement = await page.locator('.editor-host .monaco-editor').elementHandle()
+  for (let move = 0; move < 100; move++) {
+    await window.evaluate((win, action) => win.webContents.send('menu:action', { action }), move % 2 ? 'move-pane-left' : 'move-pane-right')
+    await invoke('ui.state')
+  }
+  for (const name of ['Review', 'Build & preview', 'Pair', 'Focus']) await arrange(name)
+  await invoke('ui.pane.focus', { worktreePath: workspacePath, key: 'preview:README.md' })
+  await page.locator('.editor-host .monaco-editor').waitFor()
+  assert(await editorElement.evaluate(element => element === document.querySelector('.editor-host .monaco-editor')))
+  assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
+  await page.locator('.editor-host .monaco-editor').click({ position: { x: 120, y: 20 } })
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z')
+  assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, readFileSync(join(fixture, 'README.md'), 'utf8'))
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z')
+  assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
+  await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
+  report.checks.editorUndoRedoSurvives100Moves = true
+  await invoke('ui.pane.close', { worktreePath: workspacePath, key: `term:${sessionIds[0]}` })
+  await until(() => page.evaluate(async ({ path, hidden }) => {
+    const saved = await window.donwells.getWorkspaceSession()
+    return Object.values(saved?.repos ?? {}).some(repo => repo.docking?.[path]?.hidden?.length === 1 && repo.docking[path].hidden[0] === hidden && repo.panes?.[path]?.some(pane => pane.key === 'preview:README.md') && repo.activePane?.[path] === 'preview:README.md')
+  }, { path: workspacePath, hidden: `term:${sessionIds[0]}` }), 'saved editor and hidden layout')
+  assert(!readFileSync(join(fixture, 'README.md'), 'utf8').includes(draft))
+  report.checks.unsavedEditorRetainsDomAndContentAcross100Moves = true
+  const savedBeforeRestart = JSON.parse(readFileSync(join(profile, 'donwells-data.json'), 'utf8')).workspaceSession
+  assert(Object.values(savedBeforeRestart.repos).some(repo => repo.panes[workspacePath]?.some(pane => pane.key === 'preview:README.md')))
+  const exited = new Promise(resolve => app.process().once('exit', resolve))
+  app.process().kill('SIGKILL') // Deliberate crash of only this disposable acceptance app.
+  await exited
+  app = await _electron.launch({ executablePath: executable, env })
+  page = await app.firstWindow()
+  page.setDefaultTimeout(15000)
+  page.on('pageerror', error => report.errors.push(error.message))
+  await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByText('Hidden (1)', { exact: true }).waitFor()
+  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
+  assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
+  assert(!readFileSync(join(fixture, 'README.md'), 'utf8').includes(draft))
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  report.checks.crashRestartRetainsHiddenLayoutUnsavedDraftAndSessions = true
+  for (const [label, kind] of [['Files', 'explorer'], ['Changes', 'git-status'], ['Project memory', 'memory'], ['Recover unsaved files', 'recovery']]) {
+    await page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true }).click()
+    await page.getByRole('button', { name: 'Move panel into workspace', exact: true }).click()
+    await page.locator(`[data-pane-kind="${kind}"]`).waitFor()
+    const current = await invoke('ui.state')
+    assert.equal(current.panes[workspacePath].filter(pane => pane.kind === kind).length, 1)
+  }
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  report.checks.filesChangesMemoryRecoveryDockWithoutNewProcesses = true
   assert.deepEqual(report.errors, [])
 } catch (error) { report.failure = error.message; process.exitCode = 1 }
 finally {

@@ -274,11 +274,15 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
       layouts: Record<string, PersistedLayoutNode>
+      /** Versioned docking data is validated against surviving pane identities by the renderer. */
+      docking?: Record<string, unknown>
+      /** First legacy layout retained independently of later docking edits. */
+      preDockingLayouts?: Record<string, PersistedLayoutNode>
       activeWorktreePath: string | null
     }>
   }

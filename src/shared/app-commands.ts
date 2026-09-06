@@ -18,6 +18,15 @@ export type AppCommandId =
   | 'focus-next-pane'
   | 'focus-previous-pane'
   | 'close-active-pane'
+  | 'stop-active-process'
+  | 'move-pane-left'
+  | 'move-pane-right'
+  | 'move-pane-up'
+  | 'move-pane-down'
+  | 'layout-focus'
+  | 'layout-pair'
+  | 'layout-build'
+  | 'layout-review'
   | 'toggle-sidebar'
   | 'toggle-explorer'
   | 'toggle-git-status'
@@ -65,7 +74,16 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'switch-mru-previous', label: 'Switch to previous recent location', category: 'View', defaultAccelerators: ['Control+Shift+Tab'], palette: true },
   { id: 'new-terminal', label: 'New terminal', category: 'Terminal', defaultAccelerators: ['Mod+T'], palette: true },
   { id: 'split-terminal', label: 'Split terminal', category: 'Terminal', defaultAccelerators: ['Mod+Shift+5'], palette: true },
-  { id: 'close-active-pane', label: 'Close active tab', category: 'View', defaultAccelerators: ['Mod+W'], palette: true },
+  { id: 'close-active-pane', label: 'Hide active view', category: 'View', defaultAccelerators: ['Mod+W'], palette: true },
+  { id: 'move-pane-left', label: 'Move active view left', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'move-pane-right', label: 'Move active view right', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'move-pane-up', label: 'Move active view up', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'move-pane-down', label: 'Move active view down', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'stop-active-process', label: 'Stop active terminal process…', category: 'Terminal', defaultAccelerators: [], palette: true },
+  { id: 'layout-focus', label: 'Focus workspace layout', category: 'View', defaultAccelerators: [], palette: true },
+  { id: 'layout-pair', label: 'Pair workspace layout', category: 'View', defaultAccelerators: [], palette: true },
+  { id: 'layout-build', label: 'Build and preview workspace layout', category: 'View', defaultAccelerators: [], palette: true },
+  { id: 'layout-review', label: 'Review workspace layout', category: 'View', defaultAccelerators: [], palette: true },
   { id: 'find', label: 'Find in active view', category: 'View', defaultAccelerators: ['Mod+F'], palette: true, rendererOnly: true },
   { id: 'focus-next-pane', label: 'Focus next pane', category: 'View', defaultAccelerators: ['Mod+Alt+ArrowRight'], palette: true, rendererOnly: true },
   { id: 'focus-previous-pane', label: 'Focus previous pane', category: 'View', defaultAccelerators: ['Mod+Alt+ArrowLeft'], palette: true, rendererOnly: true },

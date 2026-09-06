@@ -1,3 +1,4 @@
+import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
 import { projectRemovalBlockers } from './project-removal'
 import { create } from 'zustand'
@@ -46,7 +47,7 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser'
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery'
 export type Pane = {
   key: string
   kind: PaneKind
@@ -245,6 +246,7 @@ type AppState = {
   settingsRevision: number
   /** split-tree layout per worktree path; undefined = flat single active pane */
   layouts: Record<string, LayoutNode>
+  docking: Record<string, WorkspaceLayout>
   paletteOpen: boolean
   paletteMode: 'commands' | 'files'
   settingsOpen: boolean
@@ -280,6 +282,10 @@ type AppState = {
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
   closePane(worktreePath: string, key: string): Promise<boolean>
+  saveDocking(worktreePath: string, layout: WorkspaceLayout): void
+  arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
+  hidePaneView(worktreePath: string, key: string): void
+  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery'): void
   requestClosePane(worktreePath: string, key: string): void
   confirmClosePane(): Promise<void>
   cancelClosePane(): void
@@ -383,8 +389,12 @@ async function restoreSession(
     const savedRepo = savedRepos[repo.repo.id]
     if (!savedRepo) continue
     for (const [worktreePath, panes] of Object.entries(savedRepo.panes)) {
+      if (!worktreePaths.has(worktreePath)) continue
       const valid: Pane[] = []
+      const seen = new Set<string>()
       for (const pane of panes) {
+        if (seen.has(pane.key)) { state.error = 'Duplicate saved panel references were removed.'; continue }
+        seen.add(pane.key)
         if (pane.kind !== 'terminal' || !pane.sessionId) {
           if (pane.kind === 'preview' && pane.file) {
             try {
@@ -396,7 +406,8 @@ async function restoreSession(
               if (Object.keys(files).length >= 12) continue
               const content = await previewFileContent(worktreePath, pane.file)
               files[pane.file] = { ...content, v: 0 }
-            } catch {
+            } catch (cause) {
+              state.error = `Could not restore ${pane.file}: ${String(cause)}. Any protected draft remains in Recover.`
               continue
             }
           }
@@ -450,6 +461,13 @@ async function restoreSession(
     restored.activeTerminal[run.workspacePath] ??= run.sessionId
   }
 
+  state.docking = {}
+  for (const repo of repos) for (const worktree of repo.worktrees) {
+    const savedLayout = savedRepos[repo.repo.id]?.docking?.[worktree.path]
+    const result = restoreWorkspaceLayout(savedLayout, restored.panes[worktree.path] ?? [], restored.layouts[worktree.path])
+    state.docking[worktree.path] = result.layout
+    if (result.recovered) state.error = 'Some saved panel references were invalid. Existing resources were recovered into a usable layout.'
+  }
   state.panes = restored.panes
   state.activePane = restored.activePane
   state.activeTerminal = restored.activeTerminal
@@ -463,7 +481,8 @@ async function restoreSession(
   state.gitCommitDrafts = Object.fromEntries(
     Object.entries(saved?.gitCommitDrafts ?? {}).filter(([worktreePath]) => worktreePaths.has(worktreePath))
   )
-  state.activeWorktreePath = savedRepos[state.activeRepoId ?? '']?.activeWorktreePath ?? null
+  const savedActive = savedRepos[state.activeRepoId ?? '']?.activeWorktreePath
+  state.activeWorktreePath = savedActive && worktreePaths.has(savedActive) ? savedActive : null
 }
 
 function activateTerminalSession(state: AppState, session: TerminalSession): Partial<AppState> {
@@ -510,6 +529,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaceNavigation: structuredClone(EMPTY_WORKSPACE_NAVIGATION),
   panes: {},
   layouts: {},
+  docking: {},
   activePane: {},
   activeTerminal: {},
   sidebarOpen: true,
@@ -867,6 +887,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     return true
   },
 
+  saveDocking(worktreePath, layout) {
+    set(state => ({ docking: { ...state.docking, [worktreePath]: layout } }))
+    persistSessionSoon()
+  },
+
+  arrangeWorkspace(worktreePath, preset) {
+    get().saveDocking(worktreePath, workspacePreset(preset, get().panes[worktreePath] ?? [], get().activePane[worktreePath]))
+  },
+
+  hidePaneView(worktreePath, key) {
+    const state = get(), panes = state.panes[worktreePath] ?? []
+    if (!panes.some(pane => pane.key === key)) return
+    const layout = restoreWorkspaceLayout(state.docking[worktreePath], panes, state.layouts[worktreePath]).layout
+    const hidden = [...new Set([...layout.hidden, key])]
+    get().saveDocking(worktreePath, restoreWorkspaceLayout({ ...layout, hidden }, panes).layout)
+    if (state.activePane[worktreePath] === key) get().setActivePane(worktreePath, panes.find(pane => !hidden.includes(pane.key))?.key ?? '')
+  },
+
+  openWorkspaceModule(worktreePath, kind) {
+    const key = `${kind}:${worktreePath}`
+    if (!(get().panes[worktreePath] ?? []).some(pane => pane.key === key)) {
+      set(state => ({ panes: { ...state.panes, [worktreePath]: [...(state.panes[worktreePath] ?? []), { key, kind }] } }))
+    }
+    get().setActivePane(worktreePath, key)
+    set({ rightSidebarOpen: false })
+  },
+
   requestClosePane(worktreePath: string, key: string) {
     const target = get().panes[worktreePath]?.find((pane) => pane.key === key)
     const terminal = target?.sessionId ? get().terminals[target.sessionId] : undefined
@@ -895,10 +942,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActivePane(worktreePath: string, key: string) {
+    const current = get()
+    if (current.activePane[worktreePath] === key && !current.runsOpen && !current.docking[worktreePath]?.hidden.includes(key)) return
     set((s) => {
       const p = s.panes[worktreePath]?.find((x) => x.key === key)
       return {
         runsOpen: false,
+        ...(s.docking[worktreePath]?.hidden.includes(key) ? { docking: { ...s.docking, [worktreePath]: { ...s.docking[worktreePath]!, hidden: s.docking[worktreePath]!.hidden.filter(item => item !== key) } } } : {}),
         activePane: { ...s.activePane, [worktreePath]: key },
         ...(p?.sessionId ? { activeTerminal: { ...s.activeTerminal, [worktreePath]: p.sessionId } } : {})
       }
@@ -908,7 +958,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   focusRelativePane(worktreePath: string, delta: -1 | 1) {
     const panes = (get().panes[worktreePath] ?? []).filter((pane) =>
-      pane.kind === 'terminal' || pane.kind === 'preview' || pane.kind === 'browser' || pane.kind === 'diff'
+      !get().docking[worktreePath]?.hidden.includes(pane.key)
     )
     if (!panes.length) return
     const current = panes.findIndex((pane) => pane.key === get().activePane[worktreePath])
@@ -961,6 +1011,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newKey = 'term:' + session.id
     const dir = direction ?? (window.innerWidth < 900 ? 'col' : 'row')
     set((current) => {
+      if (current.docking[worktreePath]) return { docking: { ...current.docking, [worktreePath]: splitWorkspaceLayout(current.docking[worktreePath]!, current.panes[worktreePath] ?? [], activeKey, newKey, dir) } }
       const previous = current.layouts[worktreePath]
       let next: LayoutNode
       if (!previous) {
@@ -1620,6 +1671,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       terminalOrder: drop(s.terminalOrder),
       terminals: s.terminals,
       layouts: drop(s.layouts),
+      docking: drop(s.docking),
       statuses: drop(s.statuses),
       explorer: drop(s.explorer),
       previews: drop(s.previews),
@@ -1801,6 +1853,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resizeSplit(worktreePath: string, splitId: number, pct: number) {
+    const docking = get().docking[worktreePath]
+    if (docking) {
+      const resized = resizeWorkspaceSplit(docking, splitId, pct)
+      if (!resized) return null
+      get().saveDocking(worktreePath, resized)
+      return Math.min(85, Math.max(15, pct))
+    }
     const previous = get().layouts[worktreePath]
     if (!previous || !Number.isInteger(splitId) || splitId < 0 || !Number.isFinite(pct)) return null
     const clamped = Math.min(85, Math.max(15, pct))
@@ -1990,7 +2049,7 @@ async function saveWorkspaceSnapshot(): Promise<void> {
       Object.fromEntries(Object.entries(rec).filter(([path]) => wtPaths.has(path)))
     repos[r.repo.id] = {
       panes: pick(s.panes), activePane: pick(s.activePane), activeTerminal: pick(s.activeTerminal),
-      terminalOrder: pick(s.terminalOrder), layouts: pick(s.layouts),
+      terminalOrder: pick(s.terminalOrder), layouts: pick(s.layouts), docking: pick(s.docking),
       activeWorktreePath: s.activeWorktreePath && wtPaths.has(s.activeWorktreePath) ? s.activeWorktreePath : null
     }
   }
