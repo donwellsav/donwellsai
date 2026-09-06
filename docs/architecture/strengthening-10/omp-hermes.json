@@ -1,0 +1,188 @@
+{
+  "startedAt": "2026-09-06T17:03:44.257Z",
+  "source": {
+    "commit": "ca2a71962f1c32e2b690b16183ceeab31445fb43",
+    "dirty": true,
+    "contentHash": "b479a413d8b82f36fece25b7e2136546a801c331fbe17c16caa083afe4c88e9f"
+  },
+  "executable": "/private/tmp/donwells-strengthen-10-package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-10-omp-hermes-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-HTcDu2",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "b658329f8f384697332267501ffdec21a51e326dd011b8cd6839e7f1f31d7f2e",
+    "memoryMcpSha256": "f08c2fc2521422a825b60d4472a18f14d2ca8609f7fb68256f584a010f264bd7"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-HTcDu2/.omp/mcp.json",
+      "nativeArguments": [
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ],
+      "sessionId": "6fcf7c7c-9ba5-447a-a587-d9f793ffda72",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 84772,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "interface": "tui",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "nativeSetupSession": "4acc6c06-51ba-4e31-b6fa-6f2797bfc999",
+      "existingHermesSettingsPreserved": true,
+      "managedConfiguration": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-0e7a70b3-64b7-413f-87e5-180c254e8f7e/config.yaml",
+      "nativeToolsApproved": 18,
+      "nativeArguments": [
+        "--tui"
+      ],
+      "sessionId": "9e541c78-1e49-4fd6-a46c-632d0b1ea58b",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "mcpProcesses": [
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 49790,
+          "ppid": 49654,
+          "pgid": 49790,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 49790,
+          "ppid": 49654,
+          "pgid": 49790,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 49790,
+          "ppid": 49654,
+          "pgid": 49790,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 48818,
+          "ppid": 48776,
+          "pgid": 48776,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 49790,
+          "ppid": 49654,
+          "pgid": 49790,
+          "nodeMode": "1",
+          "bound": true
+        }
+      ],
+      "liveness": "live",
+      "outputBytes": 13336,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "error"
+      ],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 2393.873541
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "41a0b366-8b68-4223-8230-9042bb5f34a7",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      47919,
+      48410
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "handoffSource": {
+    "sessionId": "6fcf7c7c-9ba5-447a-a587-d9f793ffda72",
+    "contentSha256": "0db7d339fe217d71a5a5e55c321813e211e29e30145052b10ebfc67d8b91f0af"
+  },
+  "handoff": {
+    "id": "4ed53d21-d7a8-4313-b98b-0b3d122ddee1",
+    "from": "6fcf7c7c-9ba5-447a-a587-d9f793ffda72",
+    "to": "9e541c78-1e49-4fd6-a46c-632d0b1ea58b",
+    "delivery": "confirmed",
+    "outputSha256": "318ff0c54b489cf112a86365082ef3b654912abbf3caa1c3f91240764a2b9dad"
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-0e7a70b3-64b7-413f-87e5-180c254e8f7e",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": true,
+  "durationMs": 52137.172875000004
+}

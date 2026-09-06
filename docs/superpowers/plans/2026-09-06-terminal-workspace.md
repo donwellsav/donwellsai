@@ -309,14 +309,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes ProjectHandoff contract and authoritative memory service. Produces save/list/accept/supersede operations and visible handoff review.
 
-- [ ] **Step 1:** Render durable decisions separately from task handoffs and raw history. Show provenance, revision, source and corrected/superseded state.
-- [ ] **Step 2:** Save the current goal, worktree/content fingerprint, changed files and unresolved issues. Evidence links remain optional until Task 17 provides them; qualify linking then. Present the outgoing summary for inspection; keep private reasoning and secrets out.
-- [ ] **Step 3:** Accept with expected revision and idempotency key. Atomically claim the receiving native session, then track delivery separately through its supported input/tool path. Test a crash between claim/send/acknowledgment and an uncertain send; never blindly replay native terminal input.
-- [ ] **Step 4:** Test two simultaneous acceptors, stale handoff after edits, missing source session, repeated acceptance and cross-project ID access. Agent failure cannot erase the outgoing handoff.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-handoff.test.ts tests/project-memory.test.ts`; demonstrate OMP→Hermes and Kimi→DSH continuation on one fixture task.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Render durable decisions separately from task handoffs and raw history. Show provenance, revision, source and corrected/superseded state.
+- [x] **Step 2:** Save the current goal, worktree/content fingerprint, changed files and unresolved issues. Evidence links remain optional until Task 17 provides them; qualify linking then. Present the outgoing summary for inspection; keep private reasoning and secrets out.
+- [x] **Step 3:** Accept with expected revision and idempotency key. Atomically claim the receiving native session, then track delivery separately through its supported input/tool path. Test a crash between claim/send/acknowledgment and an uncertain send; never blindly replay native terminal input.
+- [x] **Step 4:** Test two simultaneous acceptors, stale handoff after edits, missing source session, repeated acceptance and cross-project ID access. Agent failure cannot erase the outgoing handoff.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-handoff.test.ts tests/project-memory.test.ts`; demonstrate OMP→Hermes and Kimi→DSH continuation on one fixture task.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable handoff UI without changing durable facts; accepted records remain exportable.
+
+**Strengthening evidence:** [scope race regression and packaged native handoffs](../../architecture/strengthening-10/README.md).
 
 ### Task 11: QMD project-document retrieval
 
@@ -676,7 +678,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 10 active — explicit handoffs and project knowledge UI.** Tasks 01 and 03–09 are strengthened. Task 02 remains skipped. Tasks 10–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 11 active — project-document retrieval.** Tasks 01 and 03–10 are strengthened. Task 02 remains skipped. Tasks 11–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

@@ -55,7 +55,11 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       <strong>{selected.handoff.goal}</strong>
       <p>{selected.handoff.summary}</p>
       <p>From {selected.handoff.fromSessionId} · Revision {selected.handoff.revision}</p>
-      <p title={selected.handoff.contentFingerprint}>Source {selected.handoff.sourceRevision?.slice(0, 12) ?? 'uncommitted'} · {selected.handoff.changedFiles.length} changed files</p>
+      <p title={selected.handoff.contentFingerprint}>Source {selected.handoff.sourceRevision?.slice(0, 12) ?? 'uncommitted'}</p>
+      <p className="memory-storage-path">{selected.handoff.checkoutPath}</p>
+      <details><summary>Changed files · {selected.handoff.changedFiles.length}</summary>
+        <ul>{selected.handoff.changedFiles.map(path => <li key={path}>{path}</li>)}</ul>
+      </details>
       {selected.handoff.openQuestions.length > 0 && <><strong>Open questions</strong><ul>{selected.handoff.openQuestions.map((text, i) => <li key={i}>{text}</li>)}</ul></>}
       <strong>Next steps</strong><ol>{selected.handoff.nextSteps.map((text, i) => <li key={i}>{text}</li>)}</ol>
       {selected.stale && <p role="status">Source changed or is unavailable. Review and save a fresh handoff. {selected.sourceError}</p>}

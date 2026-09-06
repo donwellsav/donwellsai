@@ -1,0 +1,94 @@
+{
+  "startedAt": "2026-09-06T17:04:53.779Z",
+  "source": {
+    "commit": "ca2a71962f1c32e2b690b16183ceeab31445fb43",
+    "dirty": true,
+    "contentHash": "b479a413d8b82f36fece25b7e2136546a801c331fbe17c16caa083afe4c88e9f"
+  },
+  "executable": "/private/tmp/donwells-strengthen-10-package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-10-kimi-dsh-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-s2Qj5U",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "b658329f8f384697332267501ffdec21a51e326dd011b8cd6839e7f1f31d7f2e",
+    "memoryMcpSha256": "f08c2fc2521422a825b60d4472a18f14d2ca8609f7fb68256f584a010f264bd7"
+  },
+  "agents": {
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-s2Qj5U/.kimi-code/mcp.json",
+      "nativeArguments": [],
+      "sessionId": "2895aa91-efd2-40d0-8da8-e7def84a4a72",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2367,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-s2Qj5U/.dsh/donwells-memory.patch.json",
+      "nativeArguments": [
+        "--profile",
+        "tui"
+      ],
+      "sessionId": "c650d8c4-68e2-482f-b46d-8c3b9c36ab72",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 17891,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1384.289
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "7c9ba9f6-de44-4f39-a46a-57be0dbf88e1",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      52284,
+      52402
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "handoffSource": {
+    "sessionId": "2895aa91-efd2-40d0-8da8-e7def84a4a72",
+    "contentSha256": "9df17aa16180dbf11a2f537821ce193191a1ca861316271c1414f4af50271c24"
+  },
+  "handoff": {
+    "id": "22c8177a-4ec4-4e0c-aee4-a551d9359ce8",
+    "from": "2895aa91-efd2-40d0-8da8-e7def84a4a72",
+    "to": "c650d8c4-68e2-482f-b46d-8c3b9c36ab72",
+    "delivery": "confirmed",
+    "outputSha256": "3b541641916c8bbecf8a34ae8de99092f255930dca9256b99c1aa8c3981c854f"
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": true,
+  "durationMs": 35345.324292000005
+}

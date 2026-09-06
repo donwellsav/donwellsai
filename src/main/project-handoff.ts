@@ -148,6 +148,13 @@ export class ProjectHandoffService implements ProjectHandoffApi {
       return { handoff, stale: snapshot.contentFingerprint !== handoff.contentFingerprint }
     } catch (error) {
       return { handoff, stale: true, sourceError: error instanceof Error ? error.message : String(error) }
+    } finally { await this.assertScope(scope) }
+  }
+
+  private async assertScope(scope: ProjectToolScope): Promise<void> {
+    const current = await this.resolveScope(scope.checkoutPath)
+    if (current.projectKey !== scope.projectKey || current.indexKey !== scope.indexKey || current.checkoutPath !== scope.checkoutPath) {
+      throw new Error('Handoff scope changed while the request was pending')
     }
   }
 
@@ -167,6 +174,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     const source = await this.session(scope, draft.fromSessionId, false)
     if (source.checkoutPath !== scope.checkoutPath) throw new Error('Select the source session checkout before saving its handoff')
     const snapshot = await this.git.handoffSource(scope.checkoutPath)
+    await this.assertScope(scope)
     return this.store.create(parseProjectHandoff({ ...draft, ...snapshot, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null }))
   }
 
@@ -178,6 +186,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     const status = await this.projectHandoffGet(workspacePath, id)
     if (status.stale) throw new Error('Handoff source changed or is unavailable; review and save a fresh handoff')
     await this.session(scope, sessionId, true)
+    await this.assertScope(scope)
     return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
   }
 
@@ -190,6 +199,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     const status = await this.projectHandoffGet(scope.checkoutPath, id)
     if (status.stale) throw new Error('Handoff source changed or is unavailable; inspect before delivery')
     await authenticate(credential)
+    await this.assertScope(scope)
     return this.store.beginDelivery(scope.projectKey, id, expectedRevision, run.sessionId)
   }
 
@@ -198,6 +208,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     const run = await authenticate(credential)
     const scope = await this.resolveScope(workspacePath)
     if ((await this.resolveScope(run.workspacePath)).projectKey !== scope.projectKey) throw new Error('Agent session belongs to another project')
+    await this.assertScope(scope)
     return this.store.confirmDelivery(scope.projectKey, id, expectedRevision, run.sessionId)
   }
 

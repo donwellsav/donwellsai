@@ -1,10 +1,11 @@
+import type { RunningAgent } from '../src/shared/agent-runtime'
 import { afterEach, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
-import { ProjectHandoffStore } from '../src/main/project-handoff'
+import { ProjectHandoffService, ProjectHandoffStore } from '../src/main/project-handoff'
 import { parseProjectHandoff, type ProjectHandoff } from '../src/shared/project-handoff'
 
 const roots: string[] = []
@@ -124,4 +125,40 @@ it('does not adopt an unrelated database or silently recreate a missing handoff 
     expect(() => store.list(record.projectKey)).toThrow('no such table')
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name='handoffs'").get()).toBeUndefined()
   } finally { db.close() }
+})
+
+it.each(['create', 'get', 'accept', 'receive', 'acknowledge'] as const)('rejects a replaced checkout identity during handoff %s', async action => {
+  const { root, store } = setup()
+  let indexKey = 'old-checkout', captures = 0, lists = 0, authentications = 0, resolves = 0
+  const scope = () => ({ projectKey: record.projectKey, projectPath: '/project', checkoutPath: '/project', indexKey })
+  const receiver = { sessionId: 'receiver', workspacePath: '/project', liveness: 'live' } as RunningAgent
+  const resolveScope = async () => {
+    const current = scope()
+    if (action === 'acknowledge' && ++resolves === 2) indexKey = 'replacement'
+    return current
+  }
+  const service = new ProjectHandoffService(root, resolveScope, {
+    handoffSource: async () => {
+      if (['create', 'get'].includes(action) && ++captures === 1) indexKey = 'replacement'
+      return { sourceRevision: record.sourceRevision, contentFingerprint: record.contentFingerprint, changedFiles: record.changedFiles }
+    }
+  }, { list: async () => {
+    if (action === 'accept' && ++lists === 2) indexKey = 'replacement'
+    return [receiver, { ...receiver, sessionId: record.fromSessionId }]
+  } })
+  const { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds } = record
+  const draft = { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds }
+  if (action !== 'create') store.create(record)
+  if (action === 'receive' || action === 'acknowledge') store.accept(record.projectKey, record.id, 1, 'receiver', 'claim')
+  if (action === 'acknowledge') store.beginDelivery(record.projectKey, record.id, 2, 'receiver')
+  const before = store.list(record.projectKey)
+  const authenticate = async () => { if (action === 'receive' && ++authentications === 2) indexKey = 'replacement'; return receiver }
+  const credential = { runId: 'run', sessionId: 'receiver', token: 'fixture-only' }
+  const result = action === 'create' ? service.projectHandoffCreate('/project', draft)
+    : action === 'get' ? service.projectHandoffGet('/project', record.id)
+    : action === 'accept' ? service.projectHandoffAccept('/project', record.id, 1, 'receiver', 'claim')
+    : action === 'receive' ? service.receive(authenticate, credential, '/project', record.id, 2)
+    : service.acknowledge(authenticate, credential, '/project', record.id, 3)
+  await expect(result).rejects.toThrow('scope changed')
+  expect(store.list(record.projectKey)).toEqual(before)
 })
