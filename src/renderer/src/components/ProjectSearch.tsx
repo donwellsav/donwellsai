@@ -39,6 +39,18 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const [documentPaused, setDocumentPaused] = useState(false)
   const [documentStatus, setDocumentStatus] = useState('')
   const [historyIndexing, setHistoryIndexing] = useState(false)
+  const settingsOpen = useAppStore(state => state.settingsOpen)
+  const [historySetup, setHistorySetup] = useState<{ path: string; enabled: boolean } | null>(null)
+  const historyAvailable = historySetup?.path === workspacePath ? historySetup.enabled : null
+  useEffect(() => {
+    if (!active || settingsOpen) return
+    let cancelled = false
+    setHistorySetup(null)
+    void window.donwells.projectDoctorInspect(workspacePath).then(report => {
+      if (!cancelled) setHistorySetup({ path: workspacePath, enabled: report.configurationValid && Boolean(report.configuration.historyBinary) && !report.configuration.disabled.includes('history') })
+    }).catch(() => { if (!cancelled) setHistorySetup({ path: workspacePath, enabled: false }) })
+    return () => { cancelled = true }
+  }, [workspacePath, active, settingsOpen])
   const [visible, setVisible] = useState(25)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [historyCapabilities, setHistoryCapabilities] = useState<Record<string, string>>({})
@@ -97,6 +109,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         accept('memory', result.entries.map(entry => ({ source: 'memory', id: entry.id, title: entry.title, excerpt: `${entry.kind} · ${entry.provenance.harness}\n${entry.content.slice(0, 300)}`, path: null, line: null, revision: String(entry.revision), indexedAt: entry.updatedAt, stale: false })), `${result.entries.length} of ${result.total} memories${result.hasMore ? ' · narrow your search' : ''}`)
       })
       run('session', async () => {
+        if (!historyAvailable) { accept('session', [], historyAvailable === null ? 'Checking session history setup…' : 'Session history unavailable: configure and enable it in Project tools'); return }
         const result = await window.donwells.projectSessionHistorySearch(workspacePath, query)
         accept('session', result.hits, `${result.hits.length} session messages${result.truncated ? ' · limit reached; narrow your search' : ''}`)
         if (live()) setHistoryCapabilities(result.capabilities)
@@ -124,7 +137,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       if (current.current?.id === id) current.current = null
       void window.donwells.cancelWorkspaceContentSearch(id).catch(() => {})
     }
-  }, [workspacePath, query, hidden, ignored, refresh, active, source])
+  }, [workspacePath, query, hidden, ignored, refresh, active, source, historyAvailable])
   useEffect(() => {
     if (!active || (source !== 'all' && source !== 'document')) return
     setIndexing(false); setDocumentPaused(false); setDocumentStatus('')
@@ -220,7 +233,8 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       }).catch(error => setError(String(error)))
     }}>Stop document service</button>}
     {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}
-    {(source === 'all' || source === 'session') && <button type="button" disabled={historyIndexing} onClick={() => {
+    {(source === 'all' || source === 'session') && !historyAvailable && <button type="button" disabled={historyAvailable === null} onClick={() => useAppStore.getState().openSettings('agents')}>Configure session history</button>}
+    {(source === 'all' || source === 'session') && historyAvailable && <button type="button" disabled={historyIndexing} onClick={() => {
       const generation = openGeneration.current
       setHistoryIndexing(true)
       void window.donwells.projectSessionHistoryIndex(workspacePath).then(() => {

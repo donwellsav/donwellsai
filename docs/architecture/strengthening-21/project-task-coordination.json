@@ -1,0 +1,118 @@
+{
+  "source": {
+    "commit": "835d3938ee0075ed816d9906fb6be23594028cd5",
+    "dirty": true,
+    "contentHash": "f1f61bb9ad40dc28a37ac3d3f11e879bd190fcdbb0ca4c5f0c690d1b2256e5db"
+  },
+  "packageExecutable": "/private/tmp/donwells-strengthen-21-package-search/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "artifactSha256": "66c4f144b049d9e69cc378bd0f5cfbe70fdec913983bd3c4ece5a2c9a90c057f",
+  "project": "/private/tmp/donwells-strengthen-21-project-task-coordination-v2-profile/fixture",
+  "nativeBinarySha256": "f8ecec1e9e748db9ccddf6ec71fbff06e406bc0db106891e7e60fd1af2713415",
+  "beforeOptIn": {
+    "authority": null,
+    "tools": [
+      {
+        "id": "lazygit",
+        "version": "0.62.2",
+        "available": true,
+        "path": "/opt/homebrew/Cellar/lazygit/0.62.2/bin/lazygit"
+      },
+      {
+        "id": "backlog",
+        "version": "1.51.0",
+        "available": true,
+        "path": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/backlog-1.51.0/native/package/backlog"
+      }
+    ],
+    "tasks": []
+  },
+  "nativeTasks": {
+    "authority": "backlog.md",
+    "tools": [
+      {
+        "id": "lazygit",
+        "version": "0.62.2",
+        "available": true,
+        "path": "/opt/homebrew/Cellar/lazygit/0.62.2/bin/lazygit"
+      },
+      {
+        "id": "backlog",
+        "version": "1.51.0",
+        "available": true,
+        "path": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/backlog-1.51.0/native/package/backlog"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "TASK-1",
+        "title": "Repair shared editor",
+        "status": "To Do"
+      }
+    ]
+  },
+  "first": {
+    "task": {
+      "intent": "Repair shared editor",
+      "files": [
+        "shared.txt"
+      ],
+      "externalId": "TASK-1"
+    },
+    "launch": {
+      "executable": "/bin/cat",
+      "args": []
+    },
+    "id": "ffd0ed98-194b-4270-9a9f-e59b9ad5c7c3",
+    "sessionId": "c3f8d9b6-1173-4e0b-834a-3f417d0ae87b",
+    "workspacePath": "/private/tmp/donwells-strengthen-21-project-task-coordination-v2-profile/fixture",
+    "command": "[\"/bin/cat\"]",
+    "startedAt": "2026-09-06T23:01:02.901Z",
+    "updatedAt": "2026-09-06T23:01:02.902Z",
+    "liveness": "live",
+    "activity": "working",
+    "hook": {
+      "support": "unavailable",
+      "events": [],
+      "reason": "No documented provider hook adapter matched this exact command.",
+      "connected": false
+    }
+  },
+  "second": {
+    "task": {
+      "intent": "Isolated editor change",
+      "files": [
+        "shared.txt"
+      ]
+    },
+    "launch": {
+      "executable": "/bin/cat",
+      "args": []
+    },
+    "id": "8f907e0b-0b89-4173-827c-9a57e270c561",
+    "sessionId": "36412913-572a-4955-a413-3f557bb2c986",
+    "workspacePath": "/private/tmp/donwells-strengthen-21-project-task-coordination-v2-profile/wt-isolated-editor",
+    "command": "[\"/bin/cat\"]",
+    "startedAt": "2026-09-06T23:01:03.112Z",
+    "updatedAt": "2026-09-06T23:01:03.113Z",
+    "liveness": "live",
+    "activity": "working",
+    "hook": {
+      "support": "unavailable",
+      "events": [],
+      "reason": "No documented provider hook adapter matched this exact command.",
+      "connected": false
+    }
+  },
+  "retainedAcrossAppRestart": true,
+  "conflictPreservedSha256": "06460bdcfcec2b4a7998f512cae6b09bbf0cd26580562623e635b4ec1f3a49d2",
+  "lazygitOutput": {
+    "sha256": "e950e743d4e4ef4757b670d8748ae332578a1916e7fc7805d05824ab565678b3",
+    "bytes": 24178
+  },
+  "backlogOutput": {
+    "sha256": "9792ef0ecc49a412244f6ee822f4d07030ed04ec9ded9fd792ccfb2b3aa84a29",
+    "bytes": 4016
+  },
+  "verified": true,
+  "idleDaemonStopped": true
+}

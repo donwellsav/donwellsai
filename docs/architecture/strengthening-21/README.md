@@ -69,3 +69,33 @@ app restart. Owned sessions/daemon were cleaned up and the temporary Hermes
 configuration removed. Native binaries were unchanged. Total end-to-end duration
 was 88.68 seconds, including local model work; this is not host interaction latency.
 This fixture proves native write/recall, not every app-building or handoff journey.
+
+## Frozen retrieval corpus
+
+`retrieval.json` passes the production-index gate: 92.5% macro recall@5 across
+three repetitions of the 40 frozen questions, 100% exact-query recall, no leakage
+on ten isolation traps and every returned citation resolvable. This uses the
+pinned QMD/Lance packages and local Qwen embedding/reranking files with their hashes
+recorded. The cold first query took 3698 ms after fresh index construction; warm
+query samples are retained separately. Corpus/source remain frozen at the prior
+comparison commit, while the production indexing implementation is current.
+Other acceptance apps and model-agent runs were kept idle during this measurement.
+
+## Search setup regression and packaged workflows
+
+`search-before.json` records the unconfigured-history regression: Task 19's
+configuration gate reached the Sessions pane as a raw Electron IPC error while
+Index sessions remained usable. Search now reads the existing project doctor
+configuration on activation and after Settings closes; unavailable history offers
+Configure session history instead of an indexing action. No new configuration
+source or service was added. The rerun verifies that setup is keyboard reachable,
+then returns to search. Typecheck and 17 focused checks passed (two external-only
+checks remain explicitly skipped).
+
+The new package's `project-search-ui.json` passes native graph/source navigation,
+stale/rebuilt callers, project isolation, cancelled/obsolete results, query/panel
+continuity, keyboard source-to-terminal copy and current memory revision opening.
+`project-task-coordination.json` and `verification-review.json` pass native task
+integration/shared-checkout conflict handling and actual failing/passing script,
+source/artifact staleness, browser artifacts and review workflows. Each receipt
+records its exact package and owned-process cleanup.

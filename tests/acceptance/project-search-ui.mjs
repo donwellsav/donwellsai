@@ -256,7 +256,13 @@ try {
   report.memoryOpenedCurrentRevision = updatedMemory.revision
   await choose('Sessions')
   await panel.getByText(/Session history unavailable: configure/).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Index sessions', exact: true }).count(), 0)
+  await panel.getByRole('button', { name: 'Configure session history', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('region', { name: 'Project tools', exact: true }).waitFor()
+  await page.keyboard.press('Escape')
   report.sessionsUnavailableVisible = true
+  report.sessionSetupReachableByKeyboard = true
   await choose('Documents'); await query.fill('Small source')
   if (env.DONWELLS_DOCUMENT_QMD_PACKAGE && env.DONWELLS_DOCUMENT_LANCE_PACKAGE) {
     await panel.getByRole('button', { name: 'Index documents', exact: true }).click()
