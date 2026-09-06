@@ -1,0 +1,65 @@
+{
+  "boundaries": [
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "dd18cab57bc49c889f9ed09346a6858a128911d1",
+        "dirty": true,
+        "contentHash": "a7ecf4e89b1192ae4bea80ed90fbd3c2449431b33a7857f26257554cc0f22958"
+      },
+      "profile": "/private/tmp/donwells-abort-abort-marked-profile-01",
+      "fixture": "/private/tmp/donwells-abort-abort-marked-profile-01/fixture-hKQuPw",
+      "artifactSha256": "037e9be6a202609621fb99c3e4ae7e211eb9bb60ebd85e449c308ad7dbe7f3b6",
+      "appPids": [
+        22196,
+        22504,
+        22528
+      ],
+      "lockOwnerPid": 22479,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "8e43be536c8b3da7ab73f974793aadcbc83a2a0631622710f22f17bae588ef5c",
+      "killedMigrationProcess": {
+        "pid": 22481,
+        "boundary": "abort-marked"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 3860
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "dd18cab57bc49c889f9ed09346a6858a128911d1",
+        "dirty": true,
+        "contentHash": "a7ecf4e89b1192ae4bea80ed90fbd3c2449431b33a7857f26257554cc0f22958"
+      },
+      "profile": "/private/tmp/donwells-abort-json-restored-profile-01",
+      "fixture": "/private/tmp/donwells-abort-json-restored-profile-01/fixture-dgs0ic",
+      "artifactSha256": "037e9be6a202609621fb99c3e4ae7e211eb9bb60ebd85e449c308ad7dbe7f3b6",
+      "appPids": [
+        22951,
+        23007,
+        23030
+      ],
+      "lockOwnerPid": 23001,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "7dc53bc79173ce65721277d3f8f0ebfefa756949383962fddfb4ea51bf01eb7c",
+      "killedMigrationProcess": {
+        "pid": 23002,
+        "boundary": "json-restored"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1814
+    }
+  ],
+  "allPassed": true
+}

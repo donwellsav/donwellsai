@@ -10,7 +10,7 @@ import { hash, sourceIdentity, validateOptions } from './workspace-baseline.mjs'
 import { delay, cleanupOwnedSmokeDaemon } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, cutover: { type: 'boolean' }, 'cutover-boundary': { type: 'string' } } })
 const boundary = values['cutover-boundary'] ?? 'legacy-fenced'
-assert(['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active'].includes(boundary), 'Unknown cutover boundary')
+assert(['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active', 'abort-marked', 'json-restored'].includes(boundary), 'Unknown cutover boundary')
 assert(!values['cutover-boundary'] || values.cutover, '--cutover-boundary requires --cutover')
 const { app: appPath, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
@@ -76,7 +76,7 @@ try {
   assert.deepEqual(await rpc('memory.get', { workspacePath: fixture, id: entry.id }), entry)
   if (values.cutover) {
     let directory
-    if (boundary === 'candidate-prepared') {
+    if (['candidate-prepared', 'abort-marked', 'json-restored'].includes(boundary)) {
       assert.equal(existsSync(join(profile, 'project-memory-active.json')), false)
       const candidates = readdirSync(profile).filter(name => name.startsWith('project-memory-migration-'))
       assert.equal(candidates.length, 1)

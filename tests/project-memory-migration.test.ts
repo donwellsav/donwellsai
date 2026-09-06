@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -7,7 +7,7 @@ import { once } from 'node:events'
 import { expect, it } from 'vitest'
 import { PROJECT_MEMORY_MAX_CONTENT_LENGTH, projectMemoryRevisionFromEntry } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
-import { exportProjectMemoryForDowngrade, migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
+import { abortProjectMemoryMigration, exportProjectMemoryForDowngrade, migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
 import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
 import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from '../src/main/project-memory-sqlite'
 
@@ -89,6 +89,7 @@ it.each<MemoryMigrationBoundary>(['candidate-prepared', 'manifest-prepared', 'le
     expect(await current.projectMemoryGet({ workspacePath: '/worktree', id: first.id })).toEqual(first)
     await expect(current.projectMemoryGet({ workspacePath: '/unrelated', id: first.id })).rejects.toThrow('not found in this project')
     const updated = await current.projectMemoryUpdate({ ...request, id: first.id, expectedRevision: 1, content: 'new SQLite decision', attribution: { harness: 'kimi' } })
+    expect(() => abortProjectMemoryMigration(root)).toThrow('export current SQLite memory')
     const fresh = await current.projectMemoryCreate({ ...request, title: 'SQLite-only creation' })
     const reopened = new ProjectMemoryService(root, resolver)
     expect(await reopened.projectMemoryGet({ workspacePath: '/worktree', id: first.id })).toEqual(updated)
@@ -117,6 +118,51 @@ it('preserves an uncooperative old writer instead of activating a stale import',
     expect(manifest.state).toBe('preparing')
     expect(readFileSync(join(root, manifest.directory, 'retired-source.json'), 'utf8')).toBe(changed)
     expect(() => new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))).toThrow('Legacy memory changed during cutover')
+    abortProjectMemoryMigration(root)
+    const recovered = new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
+    expect((await recovered.projectMemoryList({ workspacePath: '/a' })).entries[0].content).toBe('new old-client write')
+    expect(readFileSync(join(root, manifest.directory, 'retired-source.json'), 'utf8')).toBe(changed)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it.each(['abort-marked', 'json-restored'] as const)('resumes an abort interrupted at %s without activating SQLite', async boundary => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-abort-'))
+  try {
+    const resolver = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
+    const service = new ProjectMemoryService(root, resolver)
+    const entry = await service.projectMemoryCreate({ workspacePath: '/a', kind: 'decision', title: 'Keep this source', content: 'retained', attribution: { harness: 'omp' } })
+    expect(() => migrateProjectMemory(root, step => { if (step === 'legacy-fenced') throw new Error('cutover interrupted') })).toThrow('cutover interrupted')
+    expect(() => abortProjectMemoryMigration(root, step => { if (step === boundary) throw new Error('abort interrupted') })).toThrow('abort interrupted')
+    const reader = new ProjectMemoryService(root, resolver)
+    expect(await reader.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    expect(statSync(join(root, 'project-memory.json')).isFile()).toBe(true)
+    expect(abortProjectMemoryMigration(root).state).toBe('json')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it('does not delete unexpected recovery files or choose between conflicting newer sources', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-abort-conflict-'))
+  try {
+    const service = new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
+    await service.projectMemoryCreate({ workspacePath: '/a', kind: 'fact', title: 'Original', content: 'baseline', attribution: { harness: 'cli' } })
+    expect(() => migrateProjectMemory(root, boundary => { if (boundary === 'legacy-fenced') throw new Error('stop before activation') })).toThrow('stop before activation')
+    const legacy = join(root, 'project-memory.json')
+    const keep = join(legacy, 'keep.txt')
+    writeFileSync(keep, 'preserve unexpected file')
+    expect(() => abortProjectMemoryMigration(root)).toThrow()
+    expect(readFileSync(keep, 'utf8')).toBe('preserve unexpected file')
+    rmSync(keep); rmdirSync(legacy)
+    const manifest = JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8'))
+    const retired = join(root, manifest.directory, 'retired-source.json')
+    const one = JSON.parse(readFileSync(retired, 'utf8'))
+    one.projects[0].entries[0].current.content = 'new source one'
+    const two = structuredClone(one)
+    two.projects[0].entries[0].current.content = 'new source two'
+    writeFileSync(retired, JSON.stringify(one), { mode: 0o600 })
+    writeFileSync(legacy, JSON.stringify(two), { mode: 0o600 })
+    expect(() => abortProjectMemoryMigration(root)).toThrow('Conflicting preserved legacy sources')
+    expect(JSON.parse(readFileSync(retired, 'utf8'))).toEqual(one)
+    expect(JSON.parse(readFileSync(legacy, 'utf8'))).toEqual(two)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

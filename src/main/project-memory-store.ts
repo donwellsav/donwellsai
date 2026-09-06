@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
 import type { DatabaseSync } from 'node:sqlite'
-import { migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority } from './project-memory-migration'
+import { abortProjectMemoryMigration, migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority } from './project-memory-migration'
 import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from './project-memory-sqlite'
 import {
   PROJECT_MEMORY_MAX_DOCUMENT_BYTES,
@@ -306,7 +306,8 @@ export class ProjectMemoryStore {
 
   constructor(userDataDir: string) {
     this.path = join(userDataDir, FILE_NAME)
-    const authority = readProjectMemoryAuthority(userDataDir)
+    let authority = readProjectMemoryAuthority(userDataDir)
+    if (authority?.state === 'aborting') { abortProjectMemoryMigration(userDataDir); authority = null }
     this.authority = authority?.state === 'preparing' ? migrateProjectMemory(userDataDir) : authority
     this.document = this.authority ? this.withSqlite(true, db => readSqliteMemoryDocument(db)) : readProjectMemorySnapshot(this.path).document
   }

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PROJECT_MEMORY_MAX_DOCUMENT_BYTES, type ProjectMemoryDocument } from '@shared/project-memory'
@@ -28,7 +28,7 @@ function writePrivate(path: string, bytes: string | Buffer, mode = 0o600): void 
 
 export type ProjectMemoryAuthority = {
   schemaVersion: 1
-  state: 'preparing' | 'sqlite'
+  state: 'preparing' | 'sqlite' | 'aborting'
   directory: string
   sourceSha256: string | null
   contentSha256: string
@@ -52,7 +52,7 @@ export function readProjectMemoryAuthority(profile: string): ProjectMemoryAuthor
     catch (error) { throw new Error('Invalid project memory authority manifest', { cause: error }) }
   } finally { closeSync(fd) }
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'contentSha256,directory,schemaVersion,sourceSha256,state'
-    || value.schemaVersion !== 1 || !['preparing', 'sqlite'].includes(value.state)
+    || value.schemaVersion !== 1 || !['preparing', 'sqlite', 'aborting'].includes(value.state)
     || typeof value.directory !== 'string' || !/^project-memory-migration-[A-Za-z0-9]+$/.test(value.directory)
     || typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentSha256)
     || !(value.sourceSha256 === null || typeof value.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sourceSha256))) throw new Error('Invalid project memory authority manifest')
@@ -90,6 +90,7 @@ export function migrateProjectMemory(userDataDir: string, onBoundary: (boundary:
   const profile = resolve(userDataDir)
   return withProjectMemoryWriteLock(profile, () => {
     let authority = readProjectMemoryAuthority(profile)
+    if (authority?.state === 'aborting') throw new Error('Project memory abort is in progress; reopen memory to complete recovery')
     if (!authority) {
       const prepared = prepareLockedMigration(profile)
       onBoundary('candidate-prepared')
@@ -127,6 +128,54 @@ export function migrateProjectMemory(userDataDir: string, onBoundary: (boundary:
     publishAuthority(profile, authority)
     onBoundary('manifest-active')
     return authority
+  })
+}
+
+/** Abort only before activation. Never restore a pre-cutover source over an active SQLite authority. */
+export function abortProjectMemoryMigration(userDataDir: string, onBoundary: (boundary: 'abort-marked' | 'json-restored') => void = () => {}) {
+  const profile = resolve(userDataDir)
+  const sourcePath = join(profile, 'project-memory.json')
+  return withProjectMemoryWriteLock(profile, () => {
+    let authority = readProjectMemoryAuthority(profile)
+    if (!authority) {
+      readProjectMemorySnapshot(sourcePath)
+      return { state: 'json' as const, sourcePath }
+    }
+    if (authority.state === 'sqlite') throw new Error('Cannot abort an active migration; export current SQLite memory to preserve later writes')
+    authority = { ...authority, state: 'aborting' }
+    publishAuthority(profile, authority)
+    onBoundary('abort-marked')
+    const directory = join(profile, authority.directory)
+    privatePath(directory, true)
+    const retired = readProjectMemorySnapshot(join(directory, 'retired-source.json'))
+    let legacyStat
+    try { legacyStat = lstatSync(sourcePath) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    if (legacyStat?.isDirectory()) {
+      privatePath(sourcePath, true)
+      rmdirSync(sourcePath) // Refuse a non-empty directory; never recursively delete recovery data.
+      legacyStat = undefined
+    }
+    if (legacyStat) {
+      const current = readProjectMemorySnapshot(sourcePath)
+      if (retired.bytes && digest(retired.bytes) !== authority.sourceSha256 && !retired.bytes.equals(current.bytes!)) {
+        throw new Error('Conflicting preserved legacy sources require explicit recovery; neither copy was overwritten')
+      }
+    } else {
+      if (authority.sourceSha256 !== null && retired.bytes === null) throw new Error('Preserved legacy source is missing; refusing to substitute the old backup')
+      const bytes = retired.bytes ?? Buffer.from(JSON.stringify(retired.document) + '\n')
+      const temporary = join(directory, `abort-source-${randomUUID()}.tmp`)
+      try {
+        writePrivate(temporary, bytes)
+        linkSync(temporary, sourcePath) // Atomic exclusive publication: a racing old writer is never overwritten.
+      } finally { rmSync(temporary, { force: true }) }
+    }
+    readProjectMemorySnapshot(sourcePath)
+    syncDirectory(profile)
+    onBoundary('json-restored')
+    rmSync(join(profile, 'project-memory-active.json'))
+    syncDirectory(profile)
+    return { state: 'json' as const, sourcePath }
   })
 }
 
