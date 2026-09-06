@@ -1,0 +1,96 @@
+{
+  "startedAt": "2026-09-06T15:53:03.617Z",
+  "source": {
+    "commit": "cb29301e5efafd34cfc2b7d00444ff9d7d11dcec",
+    "dirty": true,
+    "contentHash": "8841773569b01c9f07ca3f4a91900af1e1903706e452229be8b0ef908f1cc57f"
+  },
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "d0a75bfe3bcc261af71c09390705e5e5076645d4a222c9fb8c8be38733c2ff19"
+  },
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-m1xQfl",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-BUcOPK",
+  "executable": "/tmp/donwells-strengthen-05-package-visual/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "checks": {
+    "admittedToolRegistry": true,
+    "realTerminalInput": true,
+    "toolKeyboardNavigationRetainsSession": true,
+    "openSecondTerminal": true,
+    "sessionSidebarOpensExistingTerminal": true,
+    "panelResizeBesideToolRail": true,
+    "hideReopenAnd100LayoutChangesRetainLiveSessions": true,
+    "agentLauncherAccessible": true,
+    "darkBackground": "#16161d",
+    "contrast": {
+      "text": 14.337259172523769,
+      "muted": 8.629830976444998,
+      "focus": 9.546813470308347
+    },
+    "zoomLayout": {
+      "width": 640,
+      "height": 384,
+      "scale": 4,
+      "elements": [
+        {
+          "name": "workspace-desk",
+          "rect": {
+            "x": 160,
+            "y": 0,
+            "width": 436,
+            "height": 384,
+            "top": 0,
+            "right": 596,
+            "bottom": 384,
+            "left": 160
+          }
+        },
+        {
+          "name": "workspace-docking-body",
+          "rect": {
+            "x": 160,
+            "y": 0,
+            "width": 436,
+            "height": 384,
+            "top": 0,
+            "right": 596,
+            "bottom": 384,
+            "left": 160
+          }
+        },
+        {
+          "name": "workspace-rail",
+          "rect": {
+            "x": 596,
+            "y": 0,
+            "width": 44,
+            "height": 384,
+            "top": 0,
+            "right": 640,
+            "bottom": 384,
+            "left": 596
+          }
+        }
+      ]
+    },
+    "terminalWorkspaceUsesFullHeight": true,
+    "keyboardControlsAt200Percent": true,
+    "editorUndoRedoSurvives100Moves": true,
+    "unsavedEditorRetainsDomAndContentAcross100Moves": true,
+    "crashRestartRetainsHiddenLayoutUnsavedDraftAndSessions": true,
+    "filesChangesMemoryRecoveryDockWithoutNewProcesses": true,
+    "nativeArgvFromLauncher": {
+      "sessionId": "185abc14-9d91-4ab3-a7fe-97c9d9373978",
+      "exitCode": 0,
+      "literalArgumentsPreserved": true
+    },
+    "fourCompositionsWithRealPreviewAndDiff": true,
+    "idleDaemonStopped": true
+  },
+  "errors": [],
+  "limitations": [
+    "VoiceOver speech/navigation needs native manual qualification.",
+    "This exercises the workspace shell, not all six completed product journeys."
+  ],
+  "durationMs": 14479.245708
+}

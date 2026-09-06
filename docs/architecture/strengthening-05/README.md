@@ -1,0 +1,11 @@
+# Task 05 strengthening pass
+
+Rebuilt the shell around flat project and checkout rows on the left, an existing-session roster beneath them, and a narrow tool rail on the right. The center uses its full height for terminal/editor content and docking tabs. Main surface remains #16161D; raised surfaces are neutral. Session entries reuse existing pane identities and expose native agent status. Panel resizing now measures the real panel edge beside the tool rail.
+
+Removed the unused 503-line legacy sidebar and obsolete global header styles. Actual composition screenshots exposed two more issues: unstyled browser pages had black text on a dark transparent background, and review notes obscured the diff by default. The webview now supplies the normal white page backdrop; notes open on request or line selection.
+
+Verification: all TypeScript checks and six settings/navigation tests pass. The actual packaged app passed keyboard navigation, existing-session switching, panel resizing, measured contrast, 1280 and 1440 widths, 200% scaling, 100 terminal arrangements, 100 editor moves with undo/redo, hide/reopen, crash recovery with unsaved drafts and unchanged terminal IDs, movable secondary panels, literal native arguments, and all four compositions with a real loopback preview and tracked-file diff. Screenshots were inspected, including the two corrected rendering issues. The disposable app, terminal processes, preview server and daemon were closed. VoiceOver/additional-language checks remain deferred by the user.
+
+[Machine receipt](workspace-shell.json) contains executable/ASAR hashes and source fingerprint. Package at `/tmp/donwells-strengthen-05-package-visual/mac-arm64/donwells.app`; package checker confirms all 718 application files and 29 external resources match current build. This artifact is not installed over the user's running app. Browser hosting architecture and the full review workflow remain Tasks 14 and 17.
+
+Local command logs: `/tmp/donwells-strengthen-05-types-visual.log`, `/tmp/donwells-strengthen-05-tests-visual.log`, `/tmp/donwells-strengthen-05-build-visual.log`, `/tmp/donwells-strengthen-05-package-visual.log`, `/tmp/donwells-strengthen-05-artifact.log`, `/tmp/donwells-strengthen-05-verified.log`.

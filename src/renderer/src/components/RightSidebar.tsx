@@ -36,7 +36,8 @@ export function RightSidebar() {
 
   const startResize = (event: ReactMouseEvent<HTMLDivElement>): void => {
     event.preventDefault()
-    const move = (moveEvent: MouseEvent): void => resizeTo(window.innerWidth - moveEvent.clientX - 20)
+    const right = event.currentTarget.parentElement!.getBoundingClientRect().right
+    const move = (moveEvent: MouseEvent): void => resizeTo(right - moveEvent.clientX)
     const up = (): void => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)

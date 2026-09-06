@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 05 active — GUI rebuild.** Tasks 01, 03 and 04 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 06 active — persistent movable modules.** Tasks 01, 03, 04 and 05 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -97,14 +97,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes existing project/session state. Produces the spec workspace hierarchy and reusable appearance values; no replacement data store.
 
-- [ ] **Step 1:** Style Focus, Pair, Build & Preview and Review compositions using existing terminal/editor/preview content; Task 06 implements their movement and saved arrangements. Use #16161D for the primary surface and establish measured text/control/focus contrast.
-- [ ] **Step 2:** Put project, agent/session, checkout and attention near the work. Style secondary modules and their collapse/move affordances; Task 06 owns working movement and persistence. Use meaningful empty states with a direct action.
-- [ ] **Step 3:** Implement keyboard navigation, visible focus, reduced motion and font scaling. Keep terminal palette independently configurable and never inject decorative output into native terminals.
-- [ ] **Step 4:** Validate 1280×800 and larger windows plus 200% text scaling. Measure contrast and exercise currently available interactions with keyboard and VoiceOver; Task 21 owns the complete six journeys after their features exist. Static styling changes need visual checks, not snapshot-test boilerplate.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/settings-workspace.test.ts tests/workspace-navigation.test.ts`. Run the live accessibility script and record manual VoiceOver results.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Style Focus, Pair, Build & Preview and Review compositions using existing terminal/editor/preview content; Task 06 implements their movement and saved arrangements. Use #16161D for the primary surface and establish measured text/control/focus contrast.
+- [x] **Step 2:** Put project, agent/session, checkout and attention near the work. Style secondary modules and their collapse/move affordances; Task 06 owns working movement and persistence. Use meaningful empty states with a direct action.
+- [x] **Step 3:** Implement keyboard navigation, visible focus, reduced motion and font scaling. Keep terminal palette independently configurable and never inject decorative output into native terminals.
+- [x] **Step 4:** Validate 1280×800 and larger windows plus 200% text scaling. Measure contrast and exercise currently available interactions with keyboard and VoiceOver; Task 21 owns the complete six journeys after their features exist. Static styling changes need visual checks, not snapshot-test boilerplate.
+- [x] **Verification:** Run `pnpm exec vitest run tests/settings-workspace.test.ts tests/workspace-navigation.test.ts`. Run the live accessibility script and record manual VoiceOver results.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Restore the previous layout renderer behind the existing settings migration; keep session data intact.
+
+**Strengthening evidence:** [rebuilt shell, real compositions and packaged checks](../../architecture/strengthening-05/README.md). VoiceOver remains deferred by user instruction.
 
 ### Task 06: Persistent movable modules and stable terminal views
 

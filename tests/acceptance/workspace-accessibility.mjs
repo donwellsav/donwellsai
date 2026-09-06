@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: { app: { type: 'string' }, playwright: { type: 'string' }, evidence: { type: 'string' } } })
@@ -16,6 +17,9 @@ const profile = mkdtempSync(join(tmpdir(), 'donwells-gui-profile-'))
 const fixture = mkdtempSync(join(tmpdir(), 'donwells-gui-project-'))
 writeFileSync(join(fixture, 'README.md'), '# Workspace acceptance\n\nA disposable project for real terminal and navigation checks.\n')
 execFileSync('git', ['init', '-b', 'main', fixture], { stdio: 'ignore' })
+writeFileSync(join(fixture, 'review.txt'), 'Original project output\n')
+execFileSync('git', ['-C', fixture, 'add', 'review.txt'])
+execFileSync('git', ['-C', fixture, '-c', 'user.name=Acceptance', '-c', 'user.email=acceptance@example.invalid', 'commit', '-m', 'Review fixture'], { stdio: 'ignore' })
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)).href)
 const { callRuntime } = await import(pathToFileURL(resolve(dirname(executable), '../Resources/dist-cli/cli/rpc-client.js')).href)
 const invoke = async (method, params = {}) => {
@@ -25,7 +29,7 @@ const invoke = async (method, params = {}) => {
 }
 const env = { ...process.env, DONWELLS_USER_DATA: profile }
 delete env.DONWELLS_SMOKE; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL
-let app, page
+let app, page, previewServer
 const until = async (predicate, label) => {
   const deadline = Date.now() + 15000
   while (!(await predicate())) { assert(Date.now() < deadline, `Timed out: ${label}`); await delay(50) }
@@ -47,7 +51,11 @@ try {
   await page.getByRole('button', { name: /Main checkout/ }).waitFor()
   await page.getByRole('button', { name: /Main checkout/ }).click()
   await page.locator('.xterm-helper-textarea').first().waitFor({ state: 'attached' })
-  const arrange = async name => { await page.getByRole('button', { name: 'Layout', exact: true }).click(); await page.getByRole('button', { name, exact: true }).click() }
+  const arrange = async name => {
+    const preset = page.getByRole('button', { name, exact: true })
+    if (!(await preset.isVisible())) await page.getByRole('button', { name: 'Layout', exact: true }).click()
+    await preset.click()
+  }
   let sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 1)
   const session = sessions[0].id
@@ -71,6 +79,25 @@ try {
   sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 2)
   report.checks.openSecondTerminal = true
+  const sessionNavigation = page.getByRole('region', { name: 'Project sessions', exact: true })
+  assert.equal(await sessionNavigation.locator('.workspace-session').count(), 2)
+  await sessionNavigation.locator('.workspace-session').first().focus()
+  await page.keyboard.press('Enter')
+  await page.locator(`[data-pane-key="term:${session}"]`).waitFor({ state: 'visible' })
+  assert.equal(await sessionNavigation.locator('.workspace-session').first().getAttribute('aria-current'), 'true')
+  report.checks.sessionSidebarOpensExistingTerminal = true
+  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  const panel = page.getByRole('complementary', { name: 'Files panel' })
+  const beforeResize = await panel.boundingBox()
+  const grip = await page.getByRole('separator', { name: 'Resize workspace panel' }).boundingBox()
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + 80)
+  await page.mouse.down()
+  await page.mouse.move(grip.x + grip.width / 2 - 32, grip.y + 80)
+  await page.mouse.up()
+  const afterResize = await panel.boundingBox()
+  assert(Math.abs(afterResize.width - beforeResize.width - 32) < 8, 'Panel resize must use its actual edge beside the tool rail')
+  await page.getByRole('button', { name: 'Close workspace panel' }).click()
+  report.checks.panelResizeBesideToolRail = true
   const sessionIds = sessions.map(item => item.id).sort()
   await arrange('Pair')
   await page.waitForFunction(() => document.querySelectorAll('.flexlayout__tabset').length === 2)
@@ -102,7 +129,8 @@ try {
   const capture = async name => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     await delay(100)
-    writeFileSync(join(evidence, name), Buffer.from(await window.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'))
+    const currentWindow = await app.browserWindow(page)
+    writeFileSync(join(evidence, name), Buffer.from(await currentWindow.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'))
   }
   report.checks.darkBackground = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--background').trim())
   assert.equal(report.checks.darkBackground.toLowerCase(), '#16161d')
@@ -224,6 +252,40 @@ try {
   assert(output.replaceAll('\r', '').includes('two words\n\n$(not-a-command); 世界\n'))
   report.checks.nativeArgvFromLauncher = { sessionId: nativeRun.sessionId, exitCode: nativeRun.exitCode, literalArgumentsPreserved: true }
   await invoke('agent.dismiss', { sessionId: nativeRun.sessionId })
+  await invoke('ui.pane.focus', { worktreePath: workspacePath, key: `term:${sessionIds[0]}` })
+  for (const name of ['Focus', 'Pair']) {
+    await arrange(name)
+    await page.locator(`[data-pane-key="term:${sessionIds[0]}"]`).waitFor({ state: 'visible' })
+    await capture(`composition-${name.toLowerCase()}.png`)
+  }
+  previewServer = createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Local build preview</title><h1>Local build preview</h1><p>Actual project preview served on loopback.</p>')
+  })
+  await new Promise(resolve => previewServer.listen(0, '127.0.0.1', resolve))
+  const previewUrl = `http://127.0.0.1:${previewServer.address().port}/`
+  await page.getByRole('button', { name: 'Layout', exact: true }).click()
+  await page.getByRole('button', { name: 'Preview URL', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Preview URL', exact: true }).fill(previewUrl)
+  await page.getByRole('button', { name: 'Open preview', exact: true }).click()
+  await arrange('Build & preview')
+  await page.locator('[data-pane-kind="browser"]').waitFor({ state: 'visible' })
+  await until(() => app.evaluate(({ webContents }, url) => webContents.getAllWebContents().some(content => content.getURL() === url && content.getTitle() === 'Local build preview'), previewUrl), 'real preview content')
+  assert.equal(await page.locator('.browser-view').evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(255, 255, 255)')
+  await capture('composition-build.png')
+  writeFileSync(join(fixture, 'review.txt'), 'Improved project output\n')
+  await invoke('ui.diff.open', { worktreePath: workspacePath, relPath: 'review.txt' })
+  await arrange('Review')
+  await page.locator('[data-pane-kind="diff"]').waitFor({ state: 'visible' })
+  await page.getByText('Improved project output', { exact: true }).waitFor()
+  const notesToggle = page.locator('.diff-review-panel-toggle')
+  assert.equal(await notesToggle.getAttribute('aria-expanded'), 'false')
+  await notesToggle.click()
+  assert.equal(await notesToggle.getAttribute('aria-expanded'), 'true')
+  await notesToggle.click()
+  await capture('composition-review.png')
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  report.checks.fourCompositionsWithRealPreviewAndDiff = true
   assert.deepEqual(report.errors, [])
 } catch (error) { report.failure = error.message; process.exitCode = 1 }
 finally {
@@ -241,6 +303,10 @@ finally {
     } finally { clearTimeout(timer) }
   }
   report.checks.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
+  if (previewServer) {
+    previewServer.closeAllConnections()
+    await new Promise(resolve => previewServer.close(resolve))
+  }
   if (!report.checks.idleDaemonStopped) process.exitCode = 1
   report.durationMs = performance.now() - start
   writeFileSync(join(evidence, 'workspace-shell.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })

@@ -114,7 +114,7 @@ export function DiffPane({
   const [reviewLoading, setReviewLoading] = useState(true)
   const [reviewSaving, setReviewSaving] = useState(false)
   const [reviewError, setReviewError] = useState('')
-  const [reviewOpen, setReviewOpen] = useState(true)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [attachment, setAttachment] = useState<AgentAttachmentDraft | null>(null)
   const diffHostRef = useRef<HTMLDivElement>(null)
