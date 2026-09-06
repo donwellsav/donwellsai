@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { ProjectTools, resolveProjectToolScope } from './project-tools'
 import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
+import { configureAgentMemory } from './agents/project-memory-config'
 import { EditorRecoveryService, registerEditorRecoveryHandlers } from './editor-recovery'
 import type { AppMeta, AppSettings, AttentionState, BrowserCommand, IpcApi, MainEvents, SettingsResetRequest, UiCommand } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
@@ -192,6 +193,10 @@ function runtimeMetadata(): AppMeta {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('agentConfigureMemory', (_e, workspacePath: string, provider: string) => configureAgentMemory({
+    files: git, workspacePath, provider, userDataDir: app.getPath('userData'), executable: process.execPath,
+    cliPath: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'cli', 'donwells.mjs')
+  }))
   ipcMain.handle('meta', runtimeMetadata)
   const editorRecovery = new EditorRecoveryService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace })
   registerEditorRecoveryHandlers(ipcMain, editorRecovery)

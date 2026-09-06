@@ -35,6 +35,8 @@ export function AgentsSection() {
   const [commandTouched, setCommandTouched] = useState(false)
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
+  const [memorySetup, setMemorySetup] = useState<{ target: string; message: string } | null>(null)
+  const [configuringMemory, setConfiguringMemory] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const [operation, setOperation] = useState<string | null>(null)
   const [sessionErrors, setSessionErrors] = useState<Record<string, string>>({})
@@ -80,7 +82,7 @@ export function AgentsSection() {
 
   const launch = async (): Promise<void> => {
     const trimmed = command.trim()
-    if (!targetPath || !trimmed || launching) return
+    if (!targetPath || !trimmed || launching || configuringMemory) return
     setLaunching(true)
     setLaunchError(null)
     try {
@@ -200,7 +202,20 @@ export function AgentsSection() {
           <p className="agent-unavailable">Not found on PATH: {unavailablePresets.map((preset) => preset.name).join(', ')}</p>
         )}
 
-        {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Shared memory not connected</p>}
+        {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Memory connection unverified</p>}
+        {targetPath && selectedPreset && ['omp', 'kimi'].includes(selectedPreset.id) && <div className="agent-command-field">
+          <button type="button" className="btn btn-secondary" disabled={configuringMemory || launching} onClick={async () => {
+            const target = `${targetPath}:${selectedPreset.id}`
+            setConfiguringMemory(true)
+            try {
+              await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id)
+              setMemorySetup({ target, message: 'Project memory setup saved. New agent sessions will load it.' })
+            } catch (error) {
+              setMemorySetup({ target, message: error instanceof Error ? error.message : String(error) })
+            } finally { setConfiguringMemory(false) }
+          }}>Set up shared project memory</button>
+          {memorySetup?.target === `${targetPath}:${selectedPreset.id}` && <p role="status">{memorySetup.message}</p>}
+        </div>}
         <label><input type="checkbox" checked={directLaunch} onChange={(event) => setDirectLaunch(event.currentTarget.checked)} /> Pass arguments separately</label>
         <label className="agent-command-field" htmlFor="agent-launch-command">
           <span>{directLaunch ? 'Executable' : 'Shell command'}</span>
@@ -234,7 +249,7 @@ export function AgentsSection() {
         {launchError && <p className="op-inline-error" role="alert"><strong>Agent did not start.</strong><span>{launchError}</span></p>}
         <div className="agent-launcher-actions">
           <button type="button" className="btn btn-secondary" onClick={() => useAppStore.getState().openSettings('agents')}>Agent settings</button>
-          <button type="submit" className="btn btn-primary" disabled={!targetPath || !command.trim() || launching}>
+          <button type="submit" className="btn btn-primary" disabled={!targetPath || !command.trim() || launching || configuringMemory}>
             <Icon name="robot" size={14} />
             {launching ? 'Starting agent…' : 'Start agent & open terminal'}
           </button>

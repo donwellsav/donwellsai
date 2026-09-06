@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
 import { PREVIEW_BYTE_LIMIT } from '../src/main/worktree-files'
+import { configureAgentMemory } from '../src/main/agents/project-memory-config'
 
 function sh(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd })
@@ -39,6 +40,25 @@ async function repoContext(): Promise<{ git: GitWorktrees; path: string }> {
 }
 
 describe('GitWorktrees.writeFile', () => {
+  it('configures native memory without replacing user servers and keeps a private backup', async () => {
+    const { git, path } = await repoContext()
+    mkdirSync(join(path, '.omp'))
+    const original = JSON.stringify({ mcpServers: { personal: { command: 'user-server' } }, unknown: ['keep'] })
+    writeFileSync(join(path, '.omp/mcp.json'), original)
+    const options = { files: git, workspacePath: path, provider: 'omp', userDataDir: path, executable: '/native/Electron', cliPath: '/native/cli/donwells.mjs' }
+    const result = await configureAgentMemory(options)
+    expect(readFileSync(result.backupPath!, 'utf8')).toBe(original)
+    const config = JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8'))
+    expect(config.unknown).toEqual(['keep'])
+    expect(config.mcpServers.personal).toEqual({ command: 'user-server' })
+    expect(config.mcpServers['donwells-project-memory'].args).toContain(path)
+    expect((await configureAgentMemory(options)).changed).toBe(false)
+    config.mcpServers['donwells-project-memory'].command = 'user-edited'
+    writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
+    await expect(configureAgentMemory(options)).rejects.toThrow(/already has a different/)
+    expect(JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8')).mcpServers['donwells-project-memory'].command).toBe('user-edited')
+  })
+
   it('round-trips new and existing files inside the worktree', async () => {
     const { git, path } = await repoContext()
     mkdirSync(join(path, 'src'))

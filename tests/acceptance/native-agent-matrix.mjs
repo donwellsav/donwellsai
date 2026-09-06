@@ -13,12 +13,13 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
-  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }
+  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }
 } })
 assert(values.playwright, '--playwright is required')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
 assert(!values.memory || agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id)), 'DSH memory format is not yet qualified')
+assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi'].includes(id))), 'Managed setup currently supports OMP and Kimi memory trials')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -58,6 +59,7 @@ try {
   if (values.memory) {
     await invoke('memory.create', { workspacePath: fixture, kind: 'decision', title: 'Native bridge verification', content: memoryWord, attribution: { harness: 'cli' } })
     for (const id of agentIds) {
+      if (values.managed) continue
       const audit = join(evidence, `${id}-memory-methods.jsonl`)
       const bridge = join(profile, `${id}-memory-bridge.mjs`)
       // Reuse the packaged MCP server; record method names only to prove native calls without retaining payloads.
@@ -98,6 +100,15 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       await page.getByRole('button', { name: 'Add agent', exact: true }).click()
       await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
       await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
+      if (values.managed) {
+        await page.getByRole('button', { name: 'Set up shared project memory', exact: true }).click()
+        await page.getByText('Project memory setup saved. New agent sessions will load it.', { exact: true }).waitFor()
+        const configPath = join(fixture, id === 'omp' ? '.omp/mcp.json' : '.kimi-code/mcp.json')
+        const server = JSON.parse(readFileSync(configPath, 'utf8')).mcpServers['donwells-project-memory']
+        assert.equal(server.command, executable)
+        assert.deepEqual(server.args, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', fixture.replace(/^\/var\//, '/private/var/'), '--harness', id, '--user-data', profile])
+        result.managedConfiguration = configPath
+      }
       if (id === 'hermes') {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
         await page.getByRole('textbox', { name: 'Argument 1', exact: true }).fill('--tui')
@@ -159,11 +170,12 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
             result.fixtureMemoryReadApproved = true
           }
           if (output.includes(values.memory ? memoryWord : verificationWord)) {
-            if (values.memory) {
+            if (values.memory && !values.managed) {
               const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
               assert(calls.some(call => call.method === 'memory.list' && call.ok), 'Native memory search was not observed')
               result.memoryCalls = calls
             }
+            if (values.managed) assert(output.includes('memory_search'), 'Native memory tool output was not observed')
             result[outcome] = 'fixture-word-observed'; break
           }
           if ((await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)?.liveness === 'exited') break
