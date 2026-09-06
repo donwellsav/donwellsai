@@ -21,7 +21,7 @@ try {
     const operation = reversing ? reverseProjectMemoryMigration : aborting ? abortProjectMemoryMigration : migrateProjectMemory
     operation(profile, boundary => {
       if (boundary !== requestedBoundary) return
-      writeSync(1, JSON.stringify({ pid: process.pid, boundary }) + '\n')
+      writeSync(1, 'DONWELLS_BOUNDARY:' + JSON.stringify({ pid: process.pid, boundary }) + '\n')
       process.kill(process.pid, 'SIGKILL')
     })
     throw new Error('Migration did not reach the requested crash boundary')

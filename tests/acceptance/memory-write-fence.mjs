@@ -94,7 +94,9 @@ try {
       assert.fail('Migration fixture unexpectedly survived')
     } catch (error) {
       assert.equal(error.signal, 'SIGKILL')
-      report.killedMigrationProcess = JSON.parse(error.stdout.trim())
+      const marker = String(error.stdout).split('\n').find(line => line.startsWith('DONWELLS_BOUNDARY:'))
+      assert(marker, 'Migration child did not report its crash boundary')
+      report.killedMigrationProcess = JSON.parse(marker.slice('DONWELLS_BOUNDARY:'.length))
       assert.equal(report.killedMigrationProcess.boundary, boundary)
     }
   }

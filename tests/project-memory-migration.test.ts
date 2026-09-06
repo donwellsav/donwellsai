@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
+import * as fs from 'node:fs'
+vi.mock('node:fs', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, writeFileSync: vi.fn(actual.writeFileSync) }
+})
 import { PROJECT_MEMORY_MAX_CONTENT_LENGTH, projectMemoryRevisionFromEntry } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
 import { abortProjectMemoryMigration, reverseProjectMemoryMigration, exportProjectMemoryForDowngrade, migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
@@ -391,5 +396,47 @@ it('keeps conflicting legacy writes and the frozen SQLite snapshot during revers
     await expect(service.projectMemoryUpdate({ ...request, id: entry.id, expectedRevision: 1 })).rejects.toThrow('authority changed')
     expect(() => abortProjectMemoryMigration(root)).toThrow('Cannot abort reverse migration')
     expect(() => migrateProjectMemory(root)).toThrow('Reverse migration is in progress')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it.each(['backup', 'manifest'] as const)('preserves the legacy authority when storage fills during %s publication', async stage => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-full-'))
+  const resolver = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
+  let failure: ReturnType<typeof vi.spyOn> | undefined
+  try {
+    const service = new ProjectMemoryService(root, resolver)
+    const entry = await service.projectMemoryCreate({ workspacePath: '/a', kind: 'decision', title: 'Keep on storage failure', content: 'irreplaceable', attribution: { harness: 'omp' } })
+    const original = readFileSync(join(root, 'project-memory.json'))
+    const inject = () => { failure = vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => { throw Object.assign(new Error('No space left on device'), { code: 'ENOSPC' }) }) }
+    if (stage === 'backup') inject()
+    expect(() => migrateProjectMemory(root, boundary => { if (stage === 'manifest' && boundary === 'candidate-prepared') inject() })).toThrow('No space left on device')
+    failure?.mockRestore()
+    expect(readFileSync(join(root, 'project-memory.json'))).toEqual(original)
+    expect(await new ProjectMemoryService(root, resolver).projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    expect((await service.projectMemoryStorageStatus()).backend).toBe('json')
+    expect(migrateProjectMemory(root).state).toBe('sqlite')
+    expect(await new ProjectMemoryService(root, resolver).projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+  } finally { failure?.mockRestore(); rmSync(root, { recursive: true, force: true }) }
+})
+
+it('fails closed when the active SQLite file disappears, then reopens that authority without falling back to JSON', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-unavailable-'))
+  const resolver = async (path: string) => ({ projectKey: (path === '/a' ? 'a' : 'b').repeat(64), projectPath: path })
+  try {
+    const service = new ProjectMemoryService(root, resolver)
+    const entry = await service.projectMemoryCreate({ workspacePath: '/a', kind: 'fact', title: 'Scoped authority', content: 'keep current data', attribution: { harness: 'kimi' } })
+    const authority = migrateProjectMemory(root)
+    const database = join(root, authority.directory, 'project-memory.sqlite')
+    const backup = readFileSync(join(root, authority.directory, 'project-memory.json.backup'))
+    const manifest = readFileSync(join(root, 'project-memory-active.json'))
+    renameSync(database, database + '.held')
+    await expect(new ProjectMemoryService(root, resolver).projectMemoryGet({ workspacePath: '/a', id: entry.id })).rejects.toThrow()
+    expect(readFileSync(join(root, 'project-memory-active.json'))).toEqual(manifest)
+    expect(statSync(join(root, 'project-memory.json')).isDirectory()).toBe(true)
+    renameSync(database + '.held', database)
+    const reopened = new ProjectMemoryService(root, resolver)
+    expect(await reopened.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    await expect(reopened.projectMemoryGet({ workspacePath: '/b', id: entry.id })).rejects.toThrow()
+    expect(readFileSync(join(root, authority.directory, 'project-memory.json.backup'))).toEqual(backup)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

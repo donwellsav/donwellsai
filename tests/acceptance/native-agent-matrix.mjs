@@ -14,6 +14,7 @@ const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false }, resources: { type: 'boolean', default: false },
   'hermes-cli': { type: 'boolean', default: false },
+  'omp-model': { type: 'string' },
   handoff: { type: 'boolean', default: false },
   'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
 } })
@@ -239,6 +240,8 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
       }
       const args = id === 'hermes' ? (values['hermes-cli'] ? [] : ['--tui']) : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory && !managedMemory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
+      if (id === 'omp' && values['omp-model']) args.push('--model', values['omp-model'])
+      result.nativeArguments = args
       for (const [index, value] of args.entries()) {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
         await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(value)
