@@ -67,9 +67,10 @@ export async function searchProjectCode(
     if (configDirectory) await writeFile(join(configDirectory, 'sgconfig.yml'), 'ruleDirs: []\n', { mode: 0o600 })
     await runProcess({
       program: executable,
+      // ponytail: four workers bound interactive search contention; reprofile for bulk-throughput workloads.
       args: request.language
         ? ['run', '--config', join(configDirectory!, 'sgconfig.yml'), '--lang', request.language, '--pattern', request.query, '--json=stream', '--color', 'never', '--globs', '!.git', ...(request.showHidden ? ['--no-ignore', 'hidden'] : ['--globs', '!**/.*']), ...(request.includeIgnored ? ['dot', 'exclude', 'global', 'parent', 'vcs'].flatMap(kind => ['--no-ignore', kind]) : []), '--', '.']
-        : ['--no-config', '--json', '--line-buffered', '--fixed-strings', '--line-number', '--color', 'never', '--no-follow', '--glob', '!.git', ...(request.showHidden ? ['--hidden'] : []), ...(request.includeIgnored ? ['--no-ignore'] : []), '--', request.query, '.'],
+        : ['--no-config', '--threads', '4', '--json', '--line-buffered', '--fixed-strings', '--line-number', '--color', 'never', '--no-follow', '--glob', '!.git', ...(request.showHidden ? ['--hidden'] : []), ...(request.includeIgnored ? ['--no-ignore'] : []), '--', request.query, '.'],
       cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env), signal: combined,
       maxOutputBytes: 8 * 1024 * 1024, timeoutMs: 30_000, acceptExitCodes: [0, 1],
       onStdout: chunk => {

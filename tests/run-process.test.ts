@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { forceTerminatePosixProcessGroup } from '../src/shared/child-process/process-tree-termination'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import {
   ProcessExecutionError,
   resolveSpawn,
@@ -15,12 +13,6 @@ function expectProcessError(error: unknown, kind: ProcessExecutionError['kind'])
   expect(processError.kind).toBe(kind)
   return processError
 }
-function delay(ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>()
-  setTimeout(resolve, ms)
-  return promise
-}
-
 describe('safe child-process boundary', () => {
   it.skipIf(process.platform === 'win32')('verifies quiescence when a group disappears during signalling', async () => {
     const original = process.kill.bind(process)
@@ -111,26 +103,29 @@ describe('safe child-process boundary', () => {
     expect(processError.result?.signal ?? processError.result?.code).not.toBeNull()
   })
 
-  it('cancels descendants in the owned process group', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'donwells-process-tree-'))
+  it.skipIf(process.platform === 'win32')('cancels descendants in the owned process group', async () => {
+    let descendantPid = 0, output = ''
+    const descendant = `process.stdout.write(process.pid + '\\n'); setInterval(() => {}, 1000)`
+    const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: ['ignore', 'inherit', 'ignore'] }); setInterval(() => {}, 1000)`
+    const controller = new AbortController()
     try {
-      const marker = join(directory, 'survived')
-      const descendant = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'survived'), 250)`
-      const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' }); setInterval(() => {}, 1000)`
-      const controller = new AbortController()
-      const run = runProcess({
+      const error = await runProcess({
         program: process.execPath,
         args: ['-e', parent],
         signal: controller.signal,
-        timeoutMs: 5000
-      })
-      setTimeout(() => controller.abort(), 50)
-      const error = await run.catch((caught: unknown) => caught)
+        timeoutMs: 5000,
+        onStdout: chunk => {
+          output += chunk.toString()
+          if (output.includes('\n')) { descendantPid = Number(output.trim()); controller.abort() }
+        }
+      }).catch((caught: unknown) => caught)
       expectProcessError(error, 'cancelled')
-      await delay(350)
-      expect(existsSync(marker)).toBe(false)
+      expect(descendantPid).toBeGreaterThan(1)
+      const states = execFileSync('/bin/ps', ['-axo', 'pid=,state='], { encoding: 'utf8' })
+        .split('\n').map(line => line.trim().split(/\s+/)).filter(([pid]) => Number(pid) === descendantPid)
+      expect(states.every(([, state]) => state.startsWith('Z'))).toBe(true)
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      if (descendantPid > 1) { try { process.kill(descendantPid, 'SIGKILL') } catch {} }
     }
   })
 

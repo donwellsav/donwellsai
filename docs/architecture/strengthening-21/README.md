@@ -33,3 +33,27 @@ The first large-search run failed its sparse-match latency target: p95 738.47 ms
 (target 300 ms), despite median 58.59 ms. Common-match p95 was 4.91 ms and cancel
 acknowledgement p95 25.90 ms. `code-search-before.json` retains the failed receipt.
 The task remains open while the native path is profiled; no threshold was relaxed.
+
+## Sparse search profiling and correction
+
+`rg-profile.py` reproduces the same deterministic 100k native fixture and interleaves
+20 trials each of automatic, 1, 4 and 8 workers. Native first-match p95 was 195.95,
+820.26, 17.77 and 44.52 ms respectively (`rg-profile.json`). This measures native
+search directly, separately from the registered-checkout adapter.
+
+The shared adapter now selects four ripgrep workers. No query cache, index or new
+service was added. The unchanged full adapter scale test passed: sparse first-hit
+p95 64.42 ms, common first-hit p95 4.60 ms, cancellation p95 26.09 ms. The direct
+native correctness tests passed for ignore rules, literal queries, confinement,
+changed scopes, limits, cancellation and structural search. See
+`code-search-after.json`. Hardware and other workloads remain uncontrolled;
+this is a measured interactive default, not a claim of universal bulk throughput.
+
+Full typecheck passed. The initial full test run found a stale RPC expectation
+for Task 18's optional task intent and a timer-race in the descendant cancellation
+check. The RPC check now expects the existing optional argument. The cancellation
+check waits for the descendant's own PID announcement, cancels the owned group,
+and checks the native process table for no running descendant. Focused checks
+passed; the full rerun passed 470 tests, with 12 explicitly skipped (71 files
+passed, 5 skipped). The large fixture and optional native services have separate
+opt-in qualification and are not credited from skipped tests.
