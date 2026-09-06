@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import type {
@@ -418,6 +419,30 @@ export class GitWorktrees {
     } catch (error) {
       throw new GitError(`Unable to parse Git status: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
     }
+  }
+
+  async handoffSource(worktreePath: string): Promise<{ sourceRevision: string | null; contentFingerprint: string; changedFiles: string[] }> {
+    const root = await requireGitWorktree(this.store, worktreePath)
+    const capture = async () => {
+      const [raw, index, diff] = await Promise.all([
+        runWorktree(root, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { raw: true }),
+        runWorktree(root, ['ls-files', '--stage', '-z'], { raw: true }),
+        runWorktree(root, ['diff', '--binary', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none'], { raw: true, maxOutputBytes: 32 * 1024 * 1024 })
+      ])
+      // ponytail: submodule interiors need recursive capture; refuse rather than hash only a dirty marker.
+      if (index.split('\0').some(entry => entry.startsWith('160000 '))) throw new GitError('Handoff source capture for submodules is not available yet')
+      const status = parseStatusPorcelainV2Z(raw)
+      if (status.changedFiles.length > 200) throw new GitError('Handoff source capture exceeds 200 changed files')
+      const hash = createHash('sha256').update(JSON.stringify([status.headOid ?? null, index, diff, raw]))
+      for (const entry of status.entries ?? []) {
+        if (entry.kind === 'untracked') hash.update(JSON.stringify([entry.path, await this.files.sourceRevision(root, entry.path)]))
+      }
+      return { sourceRevision: status.headOid ?? null, contentFingerprint: `sha256:${hash.digest('hex')}`, changedFiles: status.changedFiles }
+    }
+    const before = await capture()
+    const after = await capture()
+    if (before.contentFingerprint !== after.contentFingerprint) throw new GitError('Source changed during handoff capture; try again after edits finish')
+    return after
   }
 
   /** List files under a worktree (git-tracked + untracked, ignoring ignored files). */

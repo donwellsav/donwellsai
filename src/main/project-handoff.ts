@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto'
+import type { ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
+import type { ProjectToolScope } from '@shared/project-tools'
+import type { GitWorktrees } from './git'
+import type { AgentRuntime } from './agent-runtime'
 import { closeSync, lstatSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -97,5 +102,67 @@ export class ProjectHandoffStore {
       db.prepare('UPDATE handoffs SET document=? WHERE project=? AND id=?').run(JSON.stringify(next), projectKey, id)
       return next
     })
+  }
+}
+
+
+/** Desktop authority boundary. Native delivery and external MCP claims require separate binding. */
+export class ProjectHandoffService implements ProjectHandoffApi {
+  private readonly store: ProjectHandoffStore
+  constructor(userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'>) {
+    this.store = new ProjectHandoffStore(userDataDir)
+  }
+
+  async projectHandoffList(workspacePath: string): Promise<ProjectHandoff[]> {
+    const scope = await this.resolveScope(workspacePath)
+    return this.store.list(scope.projectKey)
+  }
+
+  async projectHandoffGet(workspacePath: string, id: string): Promise<ProjectHandoffStatus> {
+    const scope = await this.resolveScope(workspacePath)
+    const handoff = this.store.get(scope.projectKey, id)
+    try {
+      const source = await this.resolveScope(handoff.checkoutPath)
+      if (source.projectKey !== scope.projectKey) throw new Error('Source checkout belongs to a different project')
+      const snapshot = await this.git.handoffSource(source.checkoutPath)
+      return { handoff, stale: snapshot.contentFingerprint !== handoff.contentFingerprint }
+    } catch (error) {
+      return { handoff, stale: true, sourceError: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  private async session(scope: ProjectToolScope, sessionId: string, live: boolean) {
+    parseProjectMemoryIdentifier(sessionId, 'session')
+    const session = (await this.agents.list()).find(run => run.sessionId === sessionId)
+    if (!session || (live && session.liveness !== 'live')) throw new Error('Select an available agent session')
+    const target = await this.resolveScope(session.workspacePath)
+    if (target.projectKey !== scope.projectKey) throw new Error('Agent session belongs to another project')
+    return target
+  }
+
+  async projectHandoffCreate(workspacePath: string, draft: ProjectHandoffDraft): Promise<ProjectHandoff> {
+    const fields = ['taskId', 'fromSessionId', 'toAgent', 'goal', 'summary', 'openQuestions', 'nextSteps', 'evidenceIds']
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).length !== fields.length || fields.some(field => !Object.hasOwn(draft, field))) throw new Error('Invalid handoff draft fields')
+    const scope = await this.resolveScope(workspacePath)
+    const source = await this.session(scope, draft.fromSessionId, false)
+    if (source.checkoutPath !== scope.checkoutPath) throw new Error('Select the source session checkout before saving its handoff')
+    const snapshot = await this.git.handoffSource(scope.checkoutPath)
+    return this.store.create(parseProjectHandoff({ ...draft, ...snapshot, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null }))
+  }
+
+  async projectHandoffAccept(workspacePath: string, id: string, expectedRevision: number, sessionId: string, idempotencyKey: string): Promise<ProjectHandoff> {
+    const scope = await this.resolveScope(workspacePath)
+    const current = this.store.get(scope.projectKey, id)
+    if (current.state === 'accepted') return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
+    await this.session(scope, sessionId, true)
+    const status = await this.projectHandoffGet(workspacePath, id)
+    if (status.stale) throw new Error('Handoff source changed or is unavailable; review and save a fresh handoff')
+    await this.session(scope, sessionId, true)
+    return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
+  }
+
+  async projectHandoffSupersede(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff> {
+    const scope = await this.resolveScope(workspacePath)
+    return this.store.supersede(scope.projectKey, id, expectedRevision)
   }
 }

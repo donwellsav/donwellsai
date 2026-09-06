@@ -434,6 +434,14 @@ export class WorktreeFiles {
     }
   }
 
+  async sourceRevision(root: string, relPath: string): Promise<string> {
+    const abs = await resolveExistingFile(root, relPath)
+    // ponytail: bounded source capture; stream larger untracked files when that workflow is qualified.
+    const snapshot = await readBoundedDescriptor(abs, root, relPath, 8 * 1024 * 1024)
+    if (!snapshot.stable || snapshot.size !== snapshot.bytes.length || snapshot.size > 8 * 1024 * 1024) throw new WorktreeFileError(`Cannot capture complete stable source: ${relPath}`)
+    return revisionOf(snapshot.bytes)
+  }
+
   async resolveDirectory(root: string, prefix: string): Promise<string> {
     validateRelativePath(prefix, true)
     if (prefix.startsWith(':')) throw new WorktreeFileError(`Invalid path prefix: ${prefix}`)

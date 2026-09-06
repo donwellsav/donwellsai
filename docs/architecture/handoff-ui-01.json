@@ -1,0 +1,20 @@
+{
+  "source": {
+    "commit": "e11d4703e627e4e7b86694f40c7310c87a0cda30",
+    "dirty": true,
+    "contentHash": "7c36f2cc640ec19249b73a1b26ba92943957aedc481135bfee87552272c817d6"
+  },
+  "artifactSha256": "83c30519aff4bcc9882387ef9e27e88c491f9ac1cade5ec142371b2874d8c06a",
+  "profile": "/private/tmp/donwells-handoff-ui-profile-04",
+  "fixture": "/private/tmp/donwells-handoff-ui-profile-04/project-SSiamE",
+  "createReviewAccept": true,
+  "staleSourceDisabled": true,
+  "persistedAcrossProcesses": [
+    45465,
+    45882
+  ],
+  "controlsInSidebar": true,
+  "delivery": "not-sent",
+  "idleDaemonStopped": true,
+  "durationMs": 3437.588959
+}

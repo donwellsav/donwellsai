@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
 import { PREVIEW_BYTE_LIMIT } from '../src/main/worktree-files'
+import { ProjectHandoffService } from '../src/main/project-handoff'
+import type { RunningAgent } from '../src/shared/types'
 import { configureAgentMemory } from '../src/main/agents/project-memory-config'
 
 function sh(cwd: string, ...args: string[]): void {
@@ -84,6 +86,57 @@ describe('GitWorktrees.writeFile', () => {
     expect(result.setupArgs).toContain('ELECTRON_RUN_AS_NODE=1')
     expect((await configureAgentMemory({ ...options, launchArgs: ['--profile=other'] })).setupArgs?.slice(0, 2)).toEqual(['--profile', 'other'])
     await expect(configureAgentMemory({ ...options, launchArgs: ['--profile'] })).rejects.toThrow(/profile/)
+  })
+
+  it('captures staged, unstaged and binary untracked source changes for handoffs', async () => {
+    const { git, path } = await repoContext()
+    const clean = await git.handoffSource(path)
+    expect(clean.sourceRevision).toMatch(/^[a-f0-9]{40}$/)
+    expect(clean.changedFiles).toEqual([])
+    writeFileSync(join(path, 'f.txt'), 'changed')
+    const unstaged = await git.handoffSource(path)
+    expect(unstaged.contentFingerprint).not.toBe(clean.contentFingerprint)
+    expect(unstaged.changedFiles).toEqual(['f.txt'])
+    sh(path, 'add', 'f.txt')
+    const staged = await git.handoffSource(path)
+    expect(staged.contentFingerprint).not.toBe(unstaged.contentFingerprint)
+    writeFileSync(join(path, 'image.bin'), Buffer.from([0, 1, 2]))
+    const binary = await git.handoffSource(path)
+    writeFileSync(join(path, 'image.bin'), Buffer.from([0, 1, 3]))
+    expect((await git.handoffSource(path)).contentFingerprint).not.toBe(binary.contentFingerprint)
+    expect((await git.handoffSource(path)).changedFiles).toContain('image.bin')
+  })
+
+  it('binds handoffs to real sessions and rejects stale source before accepting', async () => {
+    const { git, path } = await repoContext()
+    const profile = mkdtempSync(join(tmpdir(), 'donwells-handoff-service-')); cleanup.push(profile)
+    let sessions = [
+      { sessionId: 'source', workspacePath: path, liveness: 'exited' },
+      { sessionId: 'receiver', workspacePath: path, liveness: 'live' },
+      { sessionId: 'foreign', workspacePath: '/foreign', liveness: 'live' }
+    ] as RunningAgent[]
+    const resolveScope = async (checkoutPath: string) => {
+      if (![path, '/foreign'].includes(checkoutPath)) throw new Error('Unregistered workspace')
+      return { checkoutPath, projectPath: checkoutPath, projectKey: (checkoutPath === path ? 'a' : 'b').repeat(64), indexKey: 'c'.repeat(64) }
+    }
+    const service = new ProjectHandoffService(profile, resolveScope, git, { list: async () => sessions })
+    const draft = { taskId: null, fromSessionId: 'source', toAgent: 'hermes', goal: 'Finish preview', summary: 'Layout ready', openQuestions: [], nextSteps: ['Check focus'], evidenceIds: [] }
+    await expect(service.projectHandoffCreate(path, { ...draft, fromSessionId: 'missing' })).rejects.toThrow('available agent')
+    await expect(service.projectHandoffCreate(path, { ...draft, projectKey: 'b'.repeat(64) } as typeof draft)).rejects.toThrow('draft fields')
+    const handoff = await service.projectHandoffCreate(path, draft)
+    expect((await service.projectHandoffGet(path, handoff.id)).stale).toBe(false)
+    await expect(service.projectHandoffGet('/foreign', handoff.id)).rejects.toThrow('not found')
+    await expect(service.projectHandoffAccept(path, handoff.id, 1, 'foreign', 'claim')).rejects.toThrow('another project')
+    writeFileSync(join(path, 'f.txt'), 'new edit')
+    expect((await service.projectHandoffGet(path, handoff.id)).stale).toBe(true)
+    await expect(service.projectHandoffAccept(path, handoff.id, 1, 'receiver', 'claim')).rejects.toThrow('source changed')
+    writeFileSync(join(path, 'f.txt'), 'one\n')
+    sessions = sessions.filter(session => session.sessionId !== 'source')
+    const accepted = await service.projectHandoffAccept(path, handoff.id, 1, 'receiver', 'claim')
+    expect(accepted.acceptedBySessionId).toBe('receiver')
+    writeFileSync(join(path, 'f.txt'), 'later edit')
+    expect(await service.projectHandoffAccept(path, handoff.id, 1, 'receiver', 'claim')).toEqual(accepted)
+    expect(await service.projectHandoffList(path)).toHaveLength(1)
   })
 
   it('round-trips new and existing files inside the worktree', async () => {

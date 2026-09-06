@@ -1,3 +1,4 @@
+import { ProjectHandoffPanel } from './ProjectHandoffPanel'
 import { useEffect, useState } from 'react'
 import { PROJECT_MEMORY_KINDS, PROJECT_MEMORY_MAX_QUERY_LENGTH } from '@shared/project-memory'
 import type { ProjectMemoryListResult } from '@shared/project-memory'
@@ -68,6 +69,7 @@ export function ProjectMemoryPanel({ workspacePath }: { workspacePath: string })
         {result?.hasMore && <p className="memory-guidance">Showing the first 100 matches. Narrow the search to find older entries.</p>}
       </div>
       {connecting && <ProjectMemoryConnection workspacePath={workspacePath} onClose={() => setConnecting(false)} />}
+      <ProjectHandoffPanel key={workspacePath} workspacePath={workspacePath} />
       <ProjectMemoryStorage onChanged={refresh} />
     </section>
   )

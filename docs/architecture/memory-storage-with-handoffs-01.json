@@ -1,0 +1,17 @@
+{
+  "source": {
+    "commit": "e11d4703e627e4e7b86694f40c7310c87a0cda30",
+    "dirty": true,
+    "contentHash": "7c36f2cc640ec19249b73a1b26ba92943957aedc481135bfee87552272c817d6"
+  },
+  "artifactSha256": "83c30519aff4bcc9882387ef9e27e88c491f9ac1cade5ec142371b2874d8c06a",
+  "profile": "/private/tmp/donwells-memory-handoff-profile-01",
+  "fixture": "/private/tmp/donwells-memory-handoff-profile-01/project-P0tRGo",
+  "sidePanelSplitPassed": true,
+  "guiUpgradePassed": true,
+  "guiExportPassed": true,
+  "exportPath": "/private/tmp/donwells-memory-handoff-profile-01/project-memory-export-e7c5384f-8709-4bd7-9ce9-be836cbba3d5.json",
+  "guiReversePreservedNewWrites": true,
+  "storageWithinSidePanel": true,
+  "idleDaemonStopped": true
+}

@@ -1,3 +1,4 @@
+import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { ProjectTools, resolveProjectToolScope } from './project-tools'
@@ -504,6 +505,12 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   projectTools = new ProjectTools(resolveToolWorkspace, [])
+  const handoffs = new ProjectHandoffService(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), git, agentRuntime)
+  ipcMain.handle('projectHandoffList', (_e, ...args: Parameters<IpcApi['projectHandoffList']>) => handoffs.projectHandoffList(...args))
+  ipcMain.handle('projectHandoffGet', (_e, ...args: Parameters<IpcApi['projectHandoffGet']>) => handoffs.projectHandoffGet(...args))
+  ipcMain.handle('projectHandoffCreate', (_e, ...args: Parameters<IpcApi['projectHandoffCreate']>) => handoffs.projectHandoffCreate(...args))
+  ipcMain.handle('projectHandoffAccept', (_e, ...args: Parameters<IpcApi['projectHandoffAccept']>) => handoffs.projectHandoffAccept(...args))
+  ipcMain.handle('projectHandoffSupersede', (_e, ...args: Parameters<IpcApi['projectHandoffSupersede']>) => handoffs.projectHandoffSupersede(...args))
   const projectMemory = new ProjectMemoryService(app.getPath('userData'), async (workspacePath) => {
     const { projectPath, projectKey } = await resolveProjectToolScope(workspacePath, resolveToolWorkspace)
     return { projectPath, projectKey }

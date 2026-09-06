@@ -61,3 +61,14 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > 64000) throw new Error('Handoff is too large')
   return result
 }
+
+
+export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds'>
+export type ProjectHandoffStatus = { handoff: ProjectHandoff; stale: boolean; sourceError?: string }
+export interface ProjectHandoffApi {
+  projectHandoffList(workspacePath: string): Promise<ProjectHandoff[]>
+  projectHandoffGet(workspacePath: string, id: string): Promise<ProjectHandoffStatus>
+  projectHandoffCreate(workspacePath: string, draft: ProjectHandoffDraft): Promise<ProjectHandoff>
+  projectHandoffAccept(workspacePath: string, id: string, expectedRevision: number, sessionId: string, idempotencyKey: string): Promise<ProjectHandoff>
+  projectHandoffSupersede(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff>
+}
