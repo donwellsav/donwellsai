@@ -726,3 +726,7 @@ AgentsView 0.42.0 (MIT), pinned source and executable hashes, is admitted as an 
 ## Task 15 strengthening: scoped managed browser automation
 
 Playwright MCP 0.0.80/core 1.63.0-alpha-2026-08-31 is admitted as an explicitly configured external tool with pinned executable/module hashes. One isolated context per checkout binds to the identified local preview; shared ProjectTools owns its transport and interruption. Native OMP with local Ornith reproduced and repaired the broken form, console and layout in the same context; stale input was rejected. Final package UI and native trace evidence: [Task 15](strengthening-15/README.md). Remote/personal browser attachment remains unavailable; native allowed-origins is not a network sandbox. Task 19 owns installation.
+
+## Task 16 strengthening: native control ownership
+
+Cua Driver 0.23.2 is integrated as an optional pinned external executable using app-owned direct MCP. No release archive is redistributed. Per-target controller identities and snapshot generations fence input; foreground and synthesized keyboard routes share one desktop lease until confirmed termination. Actual package qualification proves AppKit background input, refusal of ambiguous Electron background typing, explicit foreground screenshot fallback, partial-action interruption without replay, stale coordinates, closed targets and movable control UI. A hard stop can leave the foreground target active; this is recorded rather than presented as focus-neutral. [Task 16 evidence](strengthening-16/README.md).

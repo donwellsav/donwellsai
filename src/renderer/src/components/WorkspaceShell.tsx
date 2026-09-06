@@ -46,7 +46,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     } catch (error) { state().setError(String(error)) }
     finally { setOpeningFolder(false) }
   }
-  const showTool = (tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'): void => {
+  const showTool = (tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'): void => {
     state().setRunsOpen(false)
     if (rightOpen && rightTab === tab) state().setRightSidebarOpen(false)
     else state().setRightSidebarTab(tab)
@@ -137,6 +137,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         <button aria-label="Changes" title="Changes" disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={rightOpen && rightTab === 'git' && !runsOpen} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Changes</span></button>
         <button aria-label="Project memory" title="Project memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'memory' && !runsOpen} onClick={() => showTool('memory')}><Icon name="file" size={19} /><span>Memory</span></button>
         <button aria-label="Agent sessions" title="Agent sessions" aria-pressed={runsOpen} onClick={() => runsOpen ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="activity" size={19} /><span>Agents{waiting.length > 0 ? ` · ${waiting.length} waiting` : ''}</span></button>
+        <button aria-label="Computer control" title="Computer control" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'computer' && !runsOpen} onClick={() => showTool('computer')}><Icon name="eye" size={19} /><span>Computer control</span></button>
         <div className="workspace-rail-spacer" />
         <button aria-label="Recover unsaved files" title="Recover unsaved files" aria-pressed={rightOpen && rightTab === 'recovery' && !runsOpen} onClick={() => showTool('recovery')}><Icon name="clock" size={18} /><span>Recover</span></button>
         <button aria-label="Settings" title="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={18} /><span>Settings</span></button>

@@ -30,6 +30,7 @@ import { existsSync } from 'node:fs'
 import { BrowserHistoryStore } from './browser-history'
 import type { BrowserHistoryRecord } from '@shared/browser-history'
 import { BrowserViews } from './browser-views'
+import { createComputerToolDefinition } from './project-computer-tools'
 import { createBrowserToolDefinition } from './project-browser-tools'
 import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
@@ -542,7 +543,9 @@ app.whenReady().then(() => {
   const lancePackage = process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE']
   const browserToolPackage = process.env['DONWELLS_BROWSER_TOOL_PACKAGE']
   const browserToolExecutable = process.env['DONWELLS_BROWSER_TOOL_EXECUTABLE']
+  const computerToolBinary = process.env['DONWELLS_COMPUTER_TOOL_BINARY']
   projectTools = new ProjectTools(resolveToolWorkspace, [
+    ...(computerToolBinary ? [createComputerToolDefinition(computerToolBinary)] : []),
     ...(browserToolPackage && browserToolExecutable ? [createBrowserToolDefinition({ packagePath: browserToolPackage, browser: browserToolExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
     ...(codeGraphBinary ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
     ...(documentPackage && lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: documentPackage, lancePackage, embeddingModel: process.env['DONWELLS_DOCUMENT_EMBEDDING_MODEL'], rerankingModel: process.env['DONWELLS_DOCUMENT_RERANKING_MODEL'], references: process.env['DONWELLS_DOCUMENT_REFERENCES'] })] : [])

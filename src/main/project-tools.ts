@@ -12,15 +12,17 @@ import type { ProjectToolScope, ToolServiceState } from '@shared/project-tools'
 export type ProjectToolDefinition = {
   id: string
   version: string
+  protocolVersion?: '2025-06-18' | '2025-11-25'
   scope: 'project' | 'checkout'
   prepare?: (scope: ProjectToolScope, signal: AbortSignal) => Promise<void>
+  stopped?: (scope: ProjectToolScope) => void
   launch: (scope: ProjectToolScope) => Pick<ProcessSpec, 'program' | 'args' | 'env'>
   operations: Record<string, {
     tool: string
     readOnly: boolean
     parameters: Record<string, (value: unknown) => unknown>
     targets: (scope: ProjectToolScope) => Record<string, unknown>
-    run?: (scope: ProjectToolScope, request: () => Promise<unknown>, arguments_: Record<string, unknown>) => Promise<unknown>
+    run?: (scope: ProjectToolScope, request: (tool?: string, parameters?: Record<string, unknown>) => Promise<unknown>, arguments_: Record<string, unknown>) => Promise<unknown>
   }>
 }
 
@@ -34,6 +36,7 @@ type Service = {
   ready: Promise<void>
   stopping?: Promise<boolean>
   stopRequested?: boolean
+  stopped?: () => void
 }
 
 export async function resolveProjectToolScope(path: string, resolveWorkspace: ResolveWorkspace): Promise<ProjectToolScope> {
@@ -133,7 +136,7 @@ export class ProjectTools {
     if (current !== service) return this.startPrepared(workspacePath, id, preparedKey)
     const launch = definition.launch(scope)
     const child = spawnProcess({ ...launch, cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env, launch.env), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
-    service = { scope, process: child, pending: new Map(), ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
+    service = { scope, stopped: () => definition.stopped?.(scope), process: child, pending: new Map(), ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
     this.services.set(key, service)
     const owned = service
     const fail = (detail: string): void => {
@@ -141,7 +144,7 @@ export class ProjectTools {
       owned.state = { id, status: 'failed', version: owned.state.version, detail }
       for (const pending of owned.pending.values()) pending.reject(new ToolTransportError(detail))
       owned.pending.clear()
-      owned.stopping ??= forceTerminateProcessTree(child)
+      owned.stopping ??= forceTerminateProcessTree(child).then(stopped => { if (stopped) owned.stopped?.(); return stopped })
     }
     child.once('error', () => fail('Tool process could not start'))
     child.once('close', () => fail('Tool process exited'))
@@ -178,8 +181,8 @@ export class ProjectTools {
     })
     owned.ready = (async () => {
       try {
-        const initialized = await this.request(owned, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'donwells', version: '0.3.0' } })
-        if (!isObject(initialized) || initialized.protocolVersion !== '2025-11-25' || !isObject(initialized.serverInfo) || initialized.serverInfo.version !== definition.version || !isObject(initialized.capabilities) || !isObject(initialized.capabilities.tools)) throw new Error('Tool version or capability mismatch')
+        const initialized = await this.request(owned, 'initialize', { protocolVersion: definition.protocolVersion ?? '2025-11-25', capabilities: {}, clientInfo: { name: 'donwells', version: '0.3.0' } })
+        if (!isObject(initialized) || initialized.protocolVersion !== (definition.protocolVersion ?? '2025-11-25') || !isObject(initialized.serverInfo) || initialized.serverInfo.version !== definition.version || !isObject(initialized.capabilities) || !isObject(initialized.capabilities.tools)) throw new Error('Tool version or capability mismatch')
         child.stdin?.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
         const catalog = await this.request(owned, 'tools/list', {})
         const catalogTools = isObject(catalog) && Array.isArray(catalog.tools) ? catalog.tools : []
@@ -224,9 +227,9 @@ export class ProjectTools {
       if ((await this.bound(workspacePath, id)).key !== key) throw new Error('Tool scope changed before request')
       const service = this.services.get(key)!
       try {
-        const request = async () => {
+        const request = async (tool = operation.tool, parameters?: Record<string, unknown>) => {
           if (service.state.status !== 'ready') throw new ToolTransportError('Tool stopped')
-          const result = await this.request(service, 'tools/call', { name: operation.tool, arguments: { ...args, ...operation.targets(scope) } })
+          const result = await this.request(service, 'tools/call', { name: tool, arguments: parameters ?? { ...args, ...operation.targets(scope) } })
           if (!isObject(result) || !Array.isArray(result.content)) throw new ToolTransportError('Malformed tool result')
           return result
         }
@@ -255,13 +258,14 @@ export class ProjectTools {
     if (service) { service.stopRequested = true; await this.stopOwned(service) }
     await pending?.promise.catch(error => { if (error instanceof ProcessExecutionError && error.kind === 'termination-unverified') throw error })
     this.setupStates.delete(key)
+    this.attempts.delete(key)
   }
 
   private async stopOwned(service: Service): Promise<void> {
     service.state = { ...service.state, status: 'stopped', detail: null }
     for (const pending of service.pending.values()) pending.reject(new ToolTransportError('Tool stopped'))
     service.pending.clear()
-    service.stopping ??= forceTerminateProcessTree(service.process)
+    service.stopping ??= forceTerminateProcessTree(service.process).then(stopped => { if (stopped) service.stopped?.(); return stopped })
     if (!await service.stopping) {
       service.state = { ...service.state, status: 'failed', detail: 'Tool termination could not be verified' }
       throw new Error(service.state.detail!)

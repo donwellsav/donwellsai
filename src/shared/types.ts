@@ -275,7 +275,7 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
@@ -397,7 +397,7 @@ export type UiCommand =
   | { op: 'editor.open'; worktreePath: string; relPath: string }
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
-  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'; width?: number }
+  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'; width?: number }
   | { op: 'palette'; open?: boolean | 'toggle'; mode?: 'commands' | 'files' }
   | { op: 'settings.open'; section?: SettingsSection }
   | { op: 'runs.open'; section?: RunsSection }

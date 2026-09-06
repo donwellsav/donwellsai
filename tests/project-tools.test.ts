@@ -236,3 +236,10 @@ it('reports an uncertain write and stops its service when the project is removed
     expect(() => process.kill(pid, 0)).toThrow()
   }
 })
+
+it('allows deliberate stop and reattach without weakening automatic crash limits', async () => {
+  const f=fixture();let stopped=0
+  f.definition.stopped=()=>{const pids=readFileSync(f.counter,'utf8').trim().split('\n').map(Number);expect(()=>process.kill(pids.at(-1)!,0)).toThrow();stopped++}
+  for(let i=0;i<4;i++){await f.tools.start(f.project,'fixture');await f.tools.stop(f.project,'fixture')}
+  expect(stopped).toBe(4)
+})

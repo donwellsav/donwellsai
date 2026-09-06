@@ -204,7 +204,8 @@ describe('project memory MCP protocol', () => {
           { name: 'code_graph_index' },
           { name: 'code_graph_callers' },
           ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` })),
-          ...['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({name:`browser_test_${action}`}))
+          ...['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({name:`browser_test_${action}`})),
+          ...['status','permissions','windows','attach','observe','screenshot','click','type','pixel_click','pixel_type','hotkey','stop'].map(action=>({name:`computer_${action}`}))
         ]
       }
     })
@@ -476,6 +477,15 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'console.log($A)', language: 'typescript', showHidden: false, includeIgnored: false } })
   await call('browser_test_click',{target:'e3',revision:2})
   expect(calls.at(-1)).toEqual({method:'tool.call',params:{workspacePath:primaryWorkspace,id:'browser-testing',operation:'click',arguments:{target:'e3',revision:2}}})
+  await call('computer_attach',{pid:123,window:456,foreground:false})
+  const computerCall=calls.at(-1) as any
+  expect(computerCall.params).toMatchObject({workspacePath:primaryWorkspace,id:'computer-control',operation:'attach',arguments:{pid:123,window:456,foreground:false,owner:expect.any(String)}})
+  const owner=computerCall.params.arguments.owner
+  await call('computer_click',{element:'s1:0',generation:1,revision:1})
+  expect((calls.at(-1) as any).params.arguments.owner).toBe(owner)
+  const beforeComputer=calls.length
+  expect(await call('computer_click',{element:'s1:0',generation:1,revision:1,owner:'spoof'})).toMatchObject({result:{isError:true}})
+  expect(calls).toHaveLength(beforeComputer)
   const beforeBrowser=calls.length
   expect(await call('browser_test_open',{workspacePath:'/foreign',url:'https://example.com'})).toMatchObject({result:{isError:true}})
   expect(calls).toHaveLength(beforeBrowser)

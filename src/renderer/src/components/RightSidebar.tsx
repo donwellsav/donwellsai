@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
@@ -5,9 +6,10 @@ import { ExplorerPane } from './ExplorerPane'
 import { GitPane } from './GitPane'
 import { ProjectMemoryPanel } from './ProjectMemoryPanel'
 import { RecoveryPanel } from './RecoveryPanel'
+import { ComputerControlPanel } from './ComputerControlPanel'
 import { ProjectSearch } from './ProjectSearch'
 
-export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery' | 'search'
+export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'
 
 const MIN_PANEL_WIDTH = 260
 const MAX_PANEL_WIDTH = 480
@@ -16,11 +18,13 @@ const TABS: ReadonlyArray<{ id: RightSidebarTab; label: string }> = [
   { id: 'explorer', label: 'Files' },
   { id: 'git', label: 'Changes' },
   { id: 'memory', label: 'Memory' },
-  { id: 'recovery', label: 'Recovery' }
+  { id: 'recovery', label: 'Recovery' },
+  { id: 'computer', label: 'Control' }
 ]
 
 export function RightSidebar() {
   const tab = useAppStore((s) => s.rightSidebarTab)
+  useLayoutEffect(() => { document.querySelector<HTMLElement>(`[data-right-sidebar-tab="${tab}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}) }, [tab])
   const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
   const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
@@ -122,6 +126,7 @@ export function RightSidebar() {
       </div>
       <div className="rs-body" id="workspace-tool-panel" role="tabpanel" aria-label={activeLabel}>
         {tab === 'recovery' ? <RecoveryPanel /> : activeWorktreePath ? (
+          tab === 'computer' ? <ComputerControlPanel key={activeWorktreePath} workspacePath={activeWorktreePath} /> :
           tab === 'search' ? <ProjectSearch workspacePath={activeWorktreePath} /> :
           tab === 'memory' ? <ProjectMemoryPanel key={activeWorktreePath} workspacePath={activeWorktreePath} /> :
           tab === 'explorer' ? <ExplorerPane worktreePath={activeWorktreePath} /> : <GitPane worktreePath={activeWorktreePath} />

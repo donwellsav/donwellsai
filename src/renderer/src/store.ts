@@ -48,7 +48,7 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search'
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer'
 export type Pane = {
   key: string
   kind: PaneKind
@@ -262,7 +262,7 @@ type AppState = {
   sidebarWidth: number
   rightSidebarWidth: number
   rightSidebarOpen: boolean
-  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'
+  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'
   createOpen: boolean
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
@@ -287,7 +287,7 @@ type AppState = {
   saveDocking(worktreePath: string, layout: WorkspaceLayout): void
   arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
   hidePaneView(worktreePath: string, key: string): void
-  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search'): void
+  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search' | 'computer'): void
   requestClosePane(worktreePath: string, key: string): void
   confirmClosePane(): Promise<void>
   cancelClosePane(): void
@@ -345,7 +345,7 @@ type AppState = {
   setRightSidebarWidth(w: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): number | null
   setRightSidebarOpen(open: boolean): void
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'): void
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'): void
   setCreateOpen(open: boolean): void
 
   toggleRepoCollapsed(repoId: string): void
@@ -1886,7 +1886,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return clamped
   },
 
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search') {
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer') {
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
   },
 

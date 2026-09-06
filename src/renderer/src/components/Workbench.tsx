@@ -10,6 +10,7 @@ import { ExplorerPane } from './ExplorerPane'
 import { GitPane } from './GitPane'
 import { ProjectMemoryPanel } from './ProjectMemoryPanel'
 import { RecoveryPanel } from './RecoveryPanel'
+import { ComputerControlPanel } from './ComputerControlPanel'
 import { ProjectSearch } from './ProjectSearch'
 import { agentPresentation, agentProviderName } from '@shared/agent-presentation'
 import { NavigationControls } from './NavigationControls'
@@ -34,6 +35,7 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
           : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
+          : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
           : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} /> : null}
       </div>}
   </div>

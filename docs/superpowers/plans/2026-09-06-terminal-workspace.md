@@ -427,14 +427,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes selected Cua Driver or Peekaboo CLI/MCP interface. Produces visible target attachment, ownership and interruptible action execution.
 
-- [ ] **Step 1:** Show target app/window and required permissions before attachment. Keep standard native OS permission prompts; never silently request broad access on app launch.
-- [ ] **Step 2:** Allow one active controller per target and visible release/stop. Support observation without competing action streams. Foreground keyboard/mouse/clipboard actions also require one desktop-wide lease, even for different target windows. Fence queued actions by lease generation. On controller crash, cancel or confirm termination of its action stream before reassignment; uncertain actions remain visible.
-- [ ] **Step 3:** Exercise accessibility-first interactions and screenshot fallback on native and Electron fixtures. Measure whether background actions actually preserve user focus.
-- [ ] **Step 4:** Test denied permissions, target closes/moves, stale coordinates, concurrent agent requests and stop during a long action. Never retry uncertain input automatically.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-computer-tools.test.ts`; run the real native/Electron fixture acceptance with explicit target selection.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Show target app/window and required permissions before attachment. Keep standard native OS permission prompts; never silently request broad access on app launch.
+- [x] **Step 2:** Allow one active controller per target and visible release/stop. Support observation without competing action streams. Foreground keyboard/mouse/clipboard actions also require one desktop-wide lease, even for different target windows. Fence queued actions by lease generation. On controller crash, cancel or confirm termination of its action stream before reassignment; uncertain actions remain visible.
+- [x] **Step 3:** Exercise accessibility-first interactions and screenshot fallback on native and Electron fixtures. Measure whether background actions actually preserve user focus.
+- [x] **Step 4:** Test denied permissions, target closes/moves, stale coordinates, concurrent agent requests and stop during a long action. Never retry uncertain input automatically.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-computer-tools.test.ts`; run the real native/Electron fixture acceptance with explicit target selection.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Detach and stop the app-owned tool process. Leave OS permissions and unrelated apps under user control.
+
+**Strengthening evidence:** [native controller ownership, actual input and interruption](../../architecture/strengthening-16/README.md).
 
 ### Task 17: Review, verification and artifact evidence
 
@@ -690,7 +692,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 16 active — native computer-control module.** Tasks 01, 03–15 and 27 are strengthened. Task 02 remains skipped. Tasks 16–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 17 active — review, verification and artifact evidence.** Tasks 01, 03–16 and 27 are strengthened. Task 02 remains skipped. Tasks 17–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 
