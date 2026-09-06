@@ -19,6 +19,10 @@ export type CommandSpec = {
 }
 
 export const RPC_COMMANDS: readonly CommandSpec[] = [
+  {"name":"tool-list","method":"tool.list","summary":"List admitted project tools and availability","fields":[{"name":"workspacePath","kind":"path","required":true}],"effect":"read"},
+  {"name":"tool-start","method":"tool.start","summary":"Start an admitted project tool","fields":[{"name":"workspacePath","kind":"path","required":true},{"name":"id","kind":"string","required":true}],"effect":"execute"},
+  {"name":"tool-stop","method":"tool.stop","summary":"Stop an owned project tool","fields":[{"name":"workspacePath","kind":"path","required":true},{"name":"id","kind":"string","required":true}],"effect":"execute"},
+  {"name":"tool-call","method":"tool.call","summary":"Call an admitted project tool operation","fields":[{"name":"workspacePath","kind":"path","required":true},{"name":"id","kind":"string","required":true},{"name":"operation","kind":"string","required":true},{"name":"arguments","kind":"object","required":true}],"effect":"execute"},
   {"name":"status","method":"status.get","summary":"Show application status","fields":[],"effect":"read"},
   {"name":"meta","method":"meta.get","summary":"Show runtime identity and capabilities","fields":[],"effect":"read"},
   {"name":"repo-list","method":"repo.list","summary":"List repositories","fields":[],"effect":"read"},

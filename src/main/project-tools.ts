@@ -1,0 +1,227 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { realpath } from 'node:fs/promises'
+import { StringDecoder } from 'node:string_decoder'
+import type { ChildProcess } from 'node:child_process'
+import { isObject } from '@shared/command-catalog'
+import { createOutputSink } from '@shared/child-process/bounded-output-sink'
+import { spawnProcess, type ProcessSpec } from '@shared/child-process/run-process'
+import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
+import type { ProjectToolScope, ToolServiceState } from '@shared/project-tools'
+
+export type ProjectToolDefinition = {
+  id: string
+  version: string
+  scope: 'project' | 'checkout'
+  launch: (scope: ProjectToolScope) => Pick<ProcessSpec, 'program' | 'args' | 'env'>
+  operations: Record<string, {
+    tool: string
+    readOnly: boolean
+    parameters: Record<string, (value: unknown) => unknown>
+    targets: (scope: ProjectToolScope) => Record<string, unknown>
+  }>
+}
+
+type ResolveWorkspace = (path: string) => Promise<{ path: string; projectPath: string }>
+type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void }
+type Service = {
+  scope: ProjectToolScope
+  state: ToolServiceState
+  process: ChildProcess
+  pending: Map<string, Pending>
+  ready: Promise<void>
+  stopping?: Promise<boolean>
+}
+
+export async function resolveProjectToolScope(path: string, resolveWorkspace: ResolveWorkspace): Promise<ProjectToolScope> {
+  const workspace = await resolveWorkspace(path)
+  const [projectPath, checkoutPath] = await Promise.all([realpath(workspace.projectPath), realpath(workspace.path)])
+  const identity = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value
+  const hash = (value: string): string => createHash('sha256').update(value).digest('hex')
+  const projectKey = hash(identity(projectPath))
+  return { projectKey, projectPath, checkoutPath, indexKey: hash(projectKey + '\0' + identity(checkoutPath)) }
+}
+
+class ToolTransportError extends Error {}
+export class ToolOutcomeUncertainError extends Error { readonly code = 'TOOL_OUTCOME_UNCERTAIN' }
+
+/** Admitted MCP stdio services only. Private inherited pipes carry authority; callers cannot supply launch commands or targets. */
+export class ProjectTools {
+  private readonly services = new Map<string, Service>()
+  private readonly attempts = new Map<string, number[]>()
+  private closed = false
+
+  constructor(
+    private readonly resolveWorkspace: ResolveWorkspace,
+    private readonly definitions: readonly ProjectToolDefinition[],
+    private readonly timeoutMs = 10_000
+  ) {
+    if (new Set(definitions.map(tool => tool.id)).size !== definitions.length) throw new Error('Duplicate tool definition')
+  }
+
+  private async bound(workspacePath: string, id: string) {
+    if (this.closed) throw new Error('Project tools are shutting down')
+    const definition = this.definitions.find(tool => tool.id === id)
+    if (!definition) throw new Error('Tool is not admitted: ' + id)
+    let scope = await resolveProjectToolScope(workspacePath, this.resolveWorkspace)
+    if (this.closed) throw new Error('Project tools are shutting down')
+    // A project service always launches at the main project, regardless of which linked checkout requested it first.
+    if (definition.scope === 'project') scope = await resolveProjectToolScope(scope.projectPath, this.resolveWorkspace)
+    const key = id + ':' + (definition.scope === 'project' ? scope.projectKey : scope.indexKey)
+    return { definition, scope, key }
+  }
+
+  async list(workspacePath: string): Promise<ToolServiceState[]> {
+    await resolveProjectToolScope(workspacePath, this.resolveWorkspace)
+    return Promise.all(this.definitions.map(async definition => {
+      const { key } = await this.bound(workspacePath, definition.id)
+      return { ...(this.services.get(key)?.state ?? { id: definition.id, status: 'stopped', version: null, detail: null }) }
+    }))
+  }
+
+  async start(workspacePath: string, id: string): Promise<ToolServiceState> {
+    const { definition, scope, key } = await this.bound(workspacePath, id)
+    let service = this.services.get(key)
+    if (service?.state.status === 'ready' || service?.state.status === 'starting') {
+      await service.ready
+      return { ...service.state }
+    }
+    if (service?.stopping && !await service.stopping) throw new Error('Previous tool termination could not be verified')
+    if (this.closed) throw new Error('Project tools are shutting down')
+    // Recheck after asynchronous cleanup so concurrent restart requests still share one process.
+    const current = this.services.get(key)
+    if (current !== service) return this.start(workspacePath, id)
+    const attempts = (this.attempts.get(key) ?? []).filter(time => Date.now() - time < 60_000)
+    if (attempts.length >= 3) throw new Error('Tool restart limit reached; retry after one minute')
+    attempts.push(Date.now()); this.attempts.set(key, attempts)
+    const launch = definition.launch(scope)
+    const child = spawnProcess({ ...launch, cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env, launch.env), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    service = { scope, process: child, pending: new Map(), ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
+    this.services.set(key, service)
+    const owned = service
+    const fail = (detail: string): void => {
+      if (owned.state.status === 'stopped' || owned.state.status === 'failed') return
+      owned.state = { id, status: 'failed', version: owned.state.version, detail }
+      for (const pending of owned.pending.values()) pending.reject(new ToolTransportError(detail))
+      owned.pending.clear()
+      owned.stopping ??= forceTerminateProcessTree(child)
+    }
+    child.once('error', () => fail('Tool process could not start'))
+    child.once('close', () => fail('Tool process exited'))
+    child.stdin?.on('error', () => fail('Tool input disconnected'))
+    child.stdout?.on('error', () => fail('Tool output disconnected'))
+    const logs = createOutputSink(64 * 1024, () => {})
+    child.stderr?.on('data', chunk => logs.write(chunk))
+    child.stderr?.on('error', () => {})
+    const decoder = new StringDecoder('utf8')
+    let buffer = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      buffer += decoder.write(chunk)
+      if (Buffer.byteLength(buffer) > 1024 * 1024) { fail('Tool response exceeded limit'); return }
+      let newline: number
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1)
+        if (!line.trim()) continue
+        try {
+          const message: unknown = JSON.parse(line)
+          if (!isObject(message) || message.jsonrpc !== '2.0') throw new Error()
+          if (typeof message.method === 'string') {
+            // No sampling, elicitation, filesystem roots or other callback authority is advertised.
+            if (message.id !== undefined) child.stdin?.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Client method unavailable' } }) + '\n')
+            continue
+          }
+          const pending = owned.pending.get(String(message.id))
+          if (!pending) continue
+          if (Object.hasOwn(message, 'result') === Object.hasOwn(message, 'error')) throw new Error()
+          owned.pending.delete(String(message.id))
+          if (message.error !== undefined) pending.reject(new Error('Tool rejected request'))
+          else pending.resolve(message.result)
+        } catch { fail('Malformed tool response'); return }
+      }
+    })
+    owned.ready = (async () => {
+      try {
+        const initialized = await this.request(owned, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'donwells', version: '0.3.0' } })
+        if (!isObject(initialized) || initialized.protocolVersion !== '2025-11-25' || !isObject(initialized.serverInfo) || initialized.serverInfo.version !== definition.version || !isObject(initialized.capabilities) || !isObject(initialized.capabilities.tools)) throw new Error('Tool version or capability mismatch')
+        child.stdin?.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+        const catalog = await this.request(owned, 'tools/list', {})
+        const catalogTools = isObject(catalog) && Array.isArray(catalog.tools) ? catalog.tools : []
+        if (!isObject(catalog) || catalog.nextCursor !== undefined || Object.values(definition.operations).some(operation => !catalogTools.some((tool: unknown) => isObject(tool) && tool.name === operation.tool))) throw new Error('Required tool capabilities unavailable')
+        if (owned.state.status !== 'starting') throw new Error('Tool start cancelled')
+        owned.state = { id, status: 'ready', version: definition.version, detail: null }
+      } catch (error) {
+        fail(error instanceof ToolTransportError ? error.message : 'Tool readiness verification failed')
+        throw error
+      }
+    })()
+    await owned.ready
+    return { ...owned.state }
+  }
+
+  private request(service: Service, method: string, params: unknown): Promise<unknown> {
+    if (service.state.status === 'failed' || service.state.status === 'stopped') return Promise.reject(new ToolTransportError('Tool is unavailable'))
+    if (service.pending.size >= 64) return Promise.reject(new Error('Too many pending tool requests'))
+    const id = randomUUID(), frame = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'
+    if (Buffer.byteLength(frame) > 64 * 1024) return Promise.reject(new Error('Tool request exceeded limit'))
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        service.pending.delete(id)
+        reject(new ToolTransportError('Tool response timed out'))
+      }, this.timeoutMs)
+      service.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } })
+      service.process.stdin!.write(frame)
+    })
+  }
+
+  async call(workspacePath: string, id: string, operationName: string, input: unknown): Promise<unknown> {
+    const { definition, scope, key } = await this.bound(workspacePath, id)
+    const operation = Object.hasOwn(definition.operations, operationName) ? definition.operations[operationName]! : undefined
+    if (!operation || !isObject(input)) throw new Error('Invalid tool operation or arguments')
+    const targets = operation.targets(scope), args: Record<string, unknown> = {}
+    for (const name of Object.keys(input)) {
+      if (!Object.hasOwn(operation.parameters, name) || Object.hasOwn(targets, name)) throw new Error('Tool argument is not permitted: ' + name)
+    }
+    for (const [name, parse] of Object.entries(operation.parameters)) args[name] = parse(input[name])
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.start(workspacePath, id)
+      const service = this.services.get(key)!
+      try {
+        const result = await this.request(service, 'tools/call', { name: operation.tool, arguments: { ...args, ...targets } })
+        const fresh = await this.bound(workspacePath, id)
+        if (fresh.key !== key || this.services.get(key) !== service || service.state.status !== 'ready') throw new ToolTransportError('Tool scope or generation changed')
+        if (!isObject(result) || !Array.isArray(result.content)) throw new ToolTransportError('Malformed tool result')
+        return result
+      } catch (error) {
+        if (!(error instanceof ToolTransportError)) throw error
+        await this.stopOwned(service)
+        service.state = { ...service.state, status: 'failed', detail: error.message }
+        if (!operation.readOnly) throw new ToolOutcomeUncertainError('Tool action outcome is uncertain; inspect before retrying')
+        if (attempt > 0) throw error
+      }
+    }
+    throw new Error('Tool unavailable')
+  }
+
+  async stop(workspacePath: string, id: string): Promise<void> {
+    const { key } = await this.bound(workspacePath, id)
+    const service = this.services.get(key)
+    if (service) await this.stopOwned(service)
+  }
+
+  private async stopOwned(service: Service): Promise<void> {
+    service.state = { ...service.state, status: 'stopped', detail: null }
+    for (const pending of service.pending.values()) pending.reject(new ToolTransportError('Tool stopped'))
+    service.pending.clear()
+    service.stopping ??= forceTerminateProcessTree(service.process)
+    if (!await service.stopping) {
+      service.state = { ...service.state, status: 'failed', detail: 'Tool termination could not be verified' }
+      throw new Error(service.state.detail!)
+    }
+  }
+
+  async close(): Promise<void> {
+    this.closed = true
+    const results = await Promise.allSettled([...this.services.values()].map(service => this.stopOwned(service)))
+    if (results.some(result => result.status === 'rejected')) throw new Error('Some tool processes could not be stopped')
+  }
+}

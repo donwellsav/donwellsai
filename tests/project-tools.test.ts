@@ -1,0 +1,115 @@
+import { afterEach, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { ProjectTools, resolveProjectToolScope, type ProjectToolDefinition } from '../src/main/project-tools'
+
+const owners: ProjectTools[] = []
+const directories: string[] = []
+afterEach(async () => {
+  await Promise.all(owners.splice(0).map(owner => owner.close()))
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
+
+function fixture(mode = 'normal', scope: 'project' | 'checkout' = 'checkout') {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'donwells-tool-')))
+  directories.push(directory)
+  const project = join(directory, 'project'), checkout = join(directory, 'linked'), other = join(directory, 'other')
+  for (const path of [project, checkout, other]) mkdirSync(path)
+  let registered = true
+  const resolve = async (path: string) => {
+    if (!registered || ![project, checkout, other].includes(path)) throw new Error('Unknown workspace')
+    return { path, projectPath: path === other ? other : project }
+  }
+  const counter = join(directory, 'starts'), writes = join(directory, 'writes'), script = join(directory, 'server.cjs')
+  writeFileSync(script, `
+const fs = require('node:fs'), readline = require('node:readline');
+const mode = process.argv[2], counter = process.argv[3], writes = process.argv[4];
+fs.appendFileSync(counter, process.pid+'\\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line); if(!m.id)return;
+ const send=result=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
+ if(m.method==='initialize'){
+   if(mode==='timeout')return;
+   if(mode==='malformed'){process.stdout.write('broken\\n');return}
+   send({protocolVersion:'2025-11-25',serverInfo:{name:'fixture',version: mode==='version'?'2':'1'},capabilities:{tools:{}}});return;
+ }
+ if(m.method==='tools/list'){send({tools:[{name:'inspect'},{name:'write'}]});return}
+ if(m.method==='tools/call'){
+   if(m.params.name==='write')fs.appendFileSync(writes, 'write\\n');
+   if(mode==='crash'||(mode==='crash-once'&&fs.readFileSync(counter,'utf8').trim().split('\\n').length===1)){process.exit(1);return}
+   if(mode==='late'){setTimeout(()=>send({content:[],pid:process.pid}),500);return}
+   send({content:[],pid:process.pid,cwd:process.cwd(),args:m.params.arguments});
+ }
+});
+`)
+  const text = (value: unknown) => { if (typeof value !== 'string' || value.length > 1000) throw new Error('Expected bounded text'); return value }
+  const operation = { tool: 'inspect', readOnly: true, parameters: { query: text }, targets: (bound: { projectKey: string; indexKey: string }) => ({ project: bound.projectKey, index: bound.indexKey }) }
+  const definition: ProjectToolDefinition = { id: 'fixture', version: '1', scope, launch: () => ({ program: process.execPath, args: [script, mode, counter, writes] }), operations: { search: operation, get: operation, history: operation, export: operation, write: { ...operation, tool: 'write', readOnly: false } } }
+  const tools = new ProjectTools(resolve, [definition], 150)
+  owners.push(tools)
+  return { tools, project, checkout, other, resolve, counter, writes, deregister: () => { registered = false } }
+}
+
+it('shares project identity across linked checkouts while isolating code indexes and unrelated projects', async () => {
+  const f = fixture()
+  const main = await resolveProjectToolScope(f.project, f.resolve), linked = await resolveProjectToolScope(f.checkout, f.resolve), other = await resolveProjectToolScope(f.other, f.resolve)
+  expect(main.projectKey).toBe(linked.projectKey)
+  expect(main.indexKey).not.toBe(linked.indexKey)
+  expect(other.projectKey).not.toBe(main.projectKey)
+  await expect(f.tools.start('/unregistered', 'fixture')).rejects.toThrow('Unknown workspace')
+})
+
+it('deduplicates concurrent starts and binds all operation targets outside caller arguments', async () => {
+  const f = fixture()
+  await Promise.all(Array.from({ length: 8 }, () => f.tools.start(f.project, 'fixture')))
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+  for (const operation of ['search', 'get', 'history', 'export', 'write']) {
+    await expect(f.tools.call(f.project, 'fixture', operation, { query: 'hello', project: 'other' })).rejects.toThrow('not permitted')
+    await expect(f.tools.call(f.project, 'fixture', operation, { query: { project: 'other' } })).rejects.toThrow('bounded text')
+  }
+  await expect(f.tools.call(f.project, 'fixture', 'batch', { query: 'hello' })).rejects.toThrow('Invalid tool operation')
+  const result = await f.tools.call(f.project, 'fixture', 'search', { query: 'hello' }) as { args: Record<string, string> }
+  expect(result.args.project).toBe((await resolveProjectToolScope(f.project, f.resolve)).projectKey)
+  f.deregister()
+  await expect(f.tools.call(f.project, 'fixture', 'get', { query: 'hello' })).rejects.toThrow('Unknown workspace')
+})
+
+it('launches shared project services from the main checkout and reuses them from linked checkouts', async () => {
+  const f = fixture('normal', 'project')
+  const linked = await f.tools.call(f.checkout, 'fixture', 'search', { query: 'hello' }) as { cwd: string; pid: number; args: unknown }
+  const main = await f.tools.call(f.project, 'fixture', 'search', { query: 'hello' }) as typeof linked
+  expect(linked.cwd).toBe(f.project)
+  expect(main.pid).toBe(linked.pid)
+  expect(main.args).toEqual(linked.args)
+})
+
+it.each(['timeout', 'malformed', 'version'])('fails readiness for %s and bounds restart attempts', async mode => {
+  const f = fixture(mode)
+  for (let attempt = 0; attempt < 3; attempt++) await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow()
+  expect((await f.tools.list(f.project))[0]?.status).toBe('failed')
+  await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow('restart limit')
+})
+
+it('retries a failed read once and never repeats a potentially completed write', async () => {
+  const read = fixture('crash-once')
+  await expect(read.tools.call(read.project, 'fixture', 'search', { query: 'hello' })).resolves.toMatchObject({ content: [] })
+  expect(readFileSync(read.counter, 'utf8').trim().split('\n')).toHaveLength(2)
+  const write = fixture('crash')
+  await expect(write.tools.call(write.project, 'fixture', 'write', { query: 'hello' })).rejects.toMatchObject({ code: 'TOOL_OUTCOME_UNCERTAIN' })
+  expect(readFileSync(write.writes, 'utf8').trim().split('\n')).toHaveLength(1)
+})
+
+it('shuts down owned services, rejects pending actions and fences late generations', async () => {
+  const f = fixture('late')
+  await f.tools.start(f.project, 'fixture')
+  const action = f.tools.call(f.project, 'fixture', 'write', { query: 'hello' })
+  const outcome = expect(action).rejects.toMatchObject({ code: 'TOOL_OUTCOME_UNCERTAIN' })
+  await new Promise(resolve => setTimeout(resolve, 30))
+  await f.tools.close()
+  await outcome
+  for (const pid of readFileSync(f.counter, 'utf8').trim().split('\n').map(Number)) {
+    expect(() => process.kill(pid, 0)).toThrow()
+  }
+  await expect(f.tools.start(f.project, 'fixture')).rejects.toThrow('shutting down')
+})

@@ -100,6 +100,12 @@ describe('local RPC authority', () => {
         scheduledRunCancel: async (executionId: string) => { observed.scheduledCancel = executionId; return { executionId } },
         parallelRunCancel: async (id: string) => { observed.parallelCancel = id; return { id } }
       },
+      projectTools: {
+        list: async (workspacePath: string) => { observed.toolList = workspacePath; return [] },
+        start: async (...args: unknown[]) => { observed.toolStart = args; return { status: 'ready' } },
+        stop: async (...args: unknown[]) => { observed.toolStop = args },
+        call: async (...args: unknown[]) => { observed.toolCall = args; return { content: [] } }
+      },
       browserHistory: {
         list: () => [{ url: 'https://example.test/' }]
       },
@@ -115,6 +121,11 @@ describe('local RPC authority', () => {
     const server = new RuntimeRpcServer(socketPath, join(directory, 'runtime.json'), 'token', deps)
     try {
       await server.start()
+      expect(await request(socketPath, 'token', 'tool.list', { workspacePath: directory })).toMatchObject({ ok: true, result: [] })
+      expect(await request(socketPath, 'token', 'tool.start', { workspacePath: directory, id: 'fixture', program: '/bin/sh' })).toMatchObject({ ok: false, code: 'INVALID_ARGUMENTS' })
+      expect(await request(socketPath, 'token', 'tool.call', { workspacePath: directory, id: 'fixture', operation: 'search', arguments: { query: 'hello' } })).toMatchObject({ ok: true })
+      expect(observed.toolCall).toEqual([directory, 'fixture', 'search', { query: 'hello' }])
+
       expect(await request(socketPath, 'token', 'file.list', { workspacePath: directory })).toMatchObject({ ok: true })
       expect(observed.fileList).toEqual({ directory: '', showHidden: false, includeIgnored: false })
 

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
+import { ProjectTools, resolveProjectToolScope } from './project-tools'
 import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
 import { EditorRecoveryService, registerEditorRecoveryHandlers } from './editor-recovery'
@@ -62,6 +62,9 @@ let agentRuntime: AgentRuntime
 let mainWindow: BrowserWindow | null = null
 let quitRequested = false
 let allowQuit = false
+let projectTools: ProjectTools | undefined
+let toolsClosed = false
+let closingTools: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
@@ -493,10 +496,11 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewCreate', (_e, ...args: Parameters<IpcApi['diffReviewCreate']>) => diffReview.create(...args))
   ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
+  const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
+  projectTools = new ProjectTools(resolveToolWorkspace, [])
   const projectMemory = new ProjectMemoryService(app.getPath('userData'), async (workspacePath) => {
-    const { projectPath } = await resolveRegisteredProjectWorkspace(store, workspacePath)
-    const identity = process.platform === 'win32' ? projectPath.toLowerCase() : projectPath
-    return { projectPath, projectKey: createHash('sha256').update(identity).digest('hex') }
+    const { projectPath, projectKey } = await resolveProjectToolScope(workspacePath, resolveToolWorkspace)
+    return { projectPath, projectKey }
   }, { onChanged: ({ projectKey }) => send('project-memory:changed', { projectKey }) })
   ipcMain.handle('projectMemoryList', (_e, request: Parameters<IpcApi['projectMemoryList']>[0]) => projectMemory.projectMemoryList(request))
   ipcMain.handle('projectMemoryGet', (_e, request: Parameters<IpcApi['projectMemoryGet']>[0]) => projectMemory.projectMemoryGet(request))
@@ -520,6 +524,7 @@ app.whenReady().then(() => {
       browserHistory,
       diffReview,
       projectMemory,
+      projectTools,
       meta: async () => runtimeMetadata(),
       onChanged: (repoId) => send('worktree:changed', { repoId }),
       onSettingsChanged: publishSettings,
@@ -546,7 +551,14 @@ app.on('before-quit', (event) => {
   }
 })
 
-app.on('will-quit', () => {
+app.on('will-quit', (event) => {
+  if (projectTools && !toolsClosed) {
+    event.preventDefault()
+    closingTools ??= projectTools.close().catch(() => {
+      dialog.showErrorBox('Tool shutdown incomplete', 'An owned tool process could not be confirmed stopped. Check it before starting another instance.')
+    }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
+    return
+  }
   // daemon rule: never kill the daemon or its PTYs on app exit — sessions survive.
   // The RPC socket is UI-adjacent: closing it is correct (CLI reconnects via discovery).
   rpcServer?.stop()

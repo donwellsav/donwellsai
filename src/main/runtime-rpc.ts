@@ -1,3 +1,4 @@
+import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID } from 'node:crypto'
@@ -76,6 +77,7 @@ export type RpcDeps = {
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
+  projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'>
   projectMemory: ProjectMemoryApi
   diffReview: {
     list: DiffReviewApi['diffReviewList']
@@ -606,6 +608,15 @@ export class RuntimeRpcServer {
         await this.deps.diffReview.remove(request)
         return {}
       }
+      case 'tool.list':
+        return this.deps.projectTools.list(str('workspacePath'))
+      case 'tool.start':
+        return this.deps.projectTools.start(str('workspacePath'), str('id'))
+      case 'tool.stop':
+        await this.deps.projectTools.stop(str('workspacePath'), str('id'))
+        return {}
+      case 'tool.call':
+        return this.deps.projectTools.call(str('workspacePath'), str('id'), str('operation'), params['arguments'])
       case 'memory.list':
         return this.deps.projectMemory.projectMemoryList(parseRpcInput(parseProjectMemoryListRequest, params))
       case 'memory.get':
