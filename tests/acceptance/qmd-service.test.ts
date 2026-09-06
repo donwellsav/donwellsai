@@ -4,7 +4,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { ProjectTools, type ProjectToolDefinition } from '../../src/main/project-tools'
+import { ProjectTools, resolveProjectToolScope, type ProjectToolDefinition } from '../../src/main/project-tools'
+import { projectDocumentReference, readProjectDocument } from '../../src/main/project-documents'
+import { GitWorktrees } from '../../src/main/git'
+import { Store } from '../../src/main/store'
 
 // Explicit external-engine acceptance only; production dependencies remain unchanged.
 it.skipIf(!process.env.DONWELLS_QMD_PACKAGE)('runs isolated native QMD MCP servers through the project tool boundary', async () => {
@@ -29,10 +32,12 @@ it.skipIf(!process.env.DONWELLS_QMD_PACKAGE)('runs isolated native QMD MCP serve
     }
   }
   const tools = new ProjectTools(resolveWorkspace, [definition], 15000)
+  const files = new GitWorktrees(new Store(join(root, 'profile')))
   try {
     for (const [index, path] of paths.entries()) {
       mkdirSync(path); mkdirSync(join(path, 'docs'))
       writeFileSync(join(path, 'docs', index === 0 ? 'first.md' : 'second.md'), `# Fixture\n${index === 0 ? 'copperorchard' : 'violetmeadow'}\n`)
+      await files.addRepo(path)
     }
     await Promise.all(paths.map(path => promisify(execFile)(process.execPath, [cli, '--index', 'donwells', 'collection', 'add', join(path, 'docs'), '--name', 'project'], { env: { ...process.env, ...environment(path) }, timeout: 15000, maxBuffer: 1024 * 1024 })))
     // An untrusted checkout's local QMD configuration must not replace the app-owned index.
@@ -41,8 +46,17 @@ it.skipIf(!process.env.DONWELLS_QMD_PACKAGE)('runs isolated native QMD MCP serve
     const localBytes = JSON.stringify({ collections: { project: { path: join(paths[1]!, 'docs'), pattern: '**/*.md' } } })
     writeFileSync(localConfig, localBytes)
     await Promise.all(paths.map(path => tools.start(path, 'qmd')))
-    const first = JSON.stringify(await tools.call(paths[0]!, 'qmd', 'query', { searches: 'copperorchard' }))
+    const response = await tools.call(paths[0]!, 'qmd', 'query', { searches: 'copperorchard' }) as { structuredContent: { results: Array<{ file: string }> } }
+    const first = JSON.stringify(response)
     expect(first).toContain('first.md')
+    const resolveScope = (path: string) => resolveProjectToolScope(path, resolveWorkspace)
+    const reference = projectDocumentReference(await resolveScope(paths[0]!), response.structuredContent.results[0]!.file, 'docs')
+    const indexedSource = await readProjectDocument(paths[0]!, reference, resolveScope, files, 'docs')
+    expect(indexedSource.content).toContain('copperorchard')
+    writeFileSync(join(paths[0]!, 'docs/first.md'), '# Current source\nchanged-after-index\n')
+    const currentSource = await readProjectDocument(paths[0]!, reference, resolveScope, files, 'docs')
+    expect(currentSource.content).toContain('changed-after-index')
+    expect(currentSource.revision).not.toBe(indexedSource.revision)
     expect(JSON.stringify(await tools.call(paths[1]!, 'qmd', 'query', { searches: 'copperorchard' }))).not.toContain('first.md')
     expect(JSON.stringify(await tools.call(paths[1]!, 'qmd', 'query', { searches: 'violetmeadow' }))).toContain('second.md')
     expect(readFileSync(localConfig, 'utf8')).toBe(localBytes)

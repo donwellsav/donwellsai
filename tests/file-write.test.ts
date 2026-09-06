@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, statSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, statSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
@@ -9,6 +9,7 @@ import { PREVIEW_BYTE_LIMIT } from '../src/main/worktree-files'
 import { ProjectHandoffService } from '../src/main/project-handoff'
 import type { RunningAgent } from '../src/shared/types'
 import { configureAgentMemory } from '../src/main/agents/project-memory-config'
+import { projectDocumentReference, readProjectDocument } from '../src/main/project-documents'
 
 function sh(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd })
@@ -42,6 +43,32 @@ async function repoContext(): Promise<{ git: GitWorktrees; path: string }> {
 }
 
 describe('GitWorktrees.writeFile', () => {
+  it('opens document references through project file authority and rejects stale checkout identities', async () => {
+    const { git, path } = await repoContext()
+    const scope = { projectKey: 'a'.repeat(64), indexKey: 'b'.repeat(64), projectPath: path, checkoutPath: path }
+    const resolveScope = async () => scope
+    const id = projectDocumentReference(scope, 'qmd://project/f.txt', '')
+    expect((await readProjectDocument(path, id, resolveScope, git, '')).content).toBe('one\n')
+    writeFileSync(join(path, 'f.txt'), 'current bytes\n')
+    expect((await readProjectDocument(path, id, resolveScope, git, '')).content).toBe('current bytes\n')
+    for (const bad of ['qmd://other/f.txt', 'qmd://project/%2e%2e/outside', 'project/a/../f.txt', 'project/f.txt:12', 'qmd://project/%00']) {
+      expect(() => projectDocumentReference(scope, bad, '')).toThrow()
+    }
+    await expect(readProjectDocument(path, id, async () => ({ ...scope, indexKey: 'c'.repeat(64) }), git, '')).rejects.toThrow('another checkout')
+    await expect(readProjectDocument(path, id, resolveScope, git, 'docs')).rejects.toThrow('selected document root')
+    writeFileSync(join(path, 'mémoire 100%.md'), 'unicode and percent')
+    expect((await readProjectDocument(path, projectDocumentReference(scope, 'project/mémoire 100%.md', ''), resolveScope, git, '')).content).toBe('unicode and percent')
+    rmSync(join(path, 'f.txt'))
+    symlinkSync(join(path, '..', 'outside.txt'), join(path, 'f.txt'))
+    writeFileSync(join(path, '..', 'outside.txt'), 'outside canary')
+    await expect(readProjectDocument(path, id, resolveScope, git, '')).rejects.toThrow()
+    let calls = 0
+    await expect(readProjectDocument(path, projectDocumentReference(scope, 'project/new.txt', ''), async () => {
+      if (++calls > 1) throw new Error('Project deregistered')
+      return scope
+    }, { readFile: async () => ({ path: 'new.txt', content: 'late response', truncated: false, bytes: 13 }) }, '')).rejects.toThrow('deregistered')
+  })
+
   it('configures native memory without replacing user servers and keeps a private backup', async () => {
     const { git, path } = await repoContext()
     mkdirSync(join(path, '.omp'))

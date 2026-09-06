@@ -446,3 +446,11 @@ A shared lifecycle regression was reproduced: `ProjectTools.stop` rejected a pen
 `qmd-missing-model-01.json` records an actual QMD embedding attempt with a nonexistent local GGUF path. QMD rejected the operation; lexical retrieval against the same store still returned the known source. The trial does not silently claim semantic success or substitute lexical results under a semantic label. Product-level degraded-state controls remain to be integrated.
 
 Validation: all 392 tests passed with the external QMD service acceptance explicitly enabled, plus all three TypeScript configurations. This includes existing write-uncertainty, retry and shutdown coverage. No packaged UI or production document-search completion is claimed from these checks.
+
+### Document source-opening boundary
+
+`src/main/project-documents.ts` maps native QMD collection references to checkout-specific document IDs. The document root is supplied by the trusted caller, not decoded from the tool's request. Opening revalidates the registered checkout, rejects IDs from another index or paths outside the selected root, then uses the existing GitWorktrees.readFile boundary and rechecks scope after the read. QMD URI escapes are decoded once; plain display paths retain literal percent characters. Ambiguous colon-number line suffixes are rejected until line navigation is supplied separately.
+
+The existing native QMD service acceptance now opens an actual result through this boundary. After editing its source without reindexing, opening returns the new bytes and a different revision. Focused tests also cover Unicode/percent names, traversal, wrong collections, root restrictions, symlink replacement, and deregistration during an awaited read. All 17 focused tests and typecheck pass.
+
+This establishes the source-opening primitive, not a finished document-search UI/API. QMD MCP query results omit full source revision and index timestamp; indexed-result freshness must still be supplied by the indexing integration. No current-source revision is mislabeled as an indexed revision. External shared reference roots and native agent discovery remain pending.
