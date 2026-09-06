@@ -243,3 +243,16 @@ it('allows deliberate stop and reattach without weakening automatic crash limits
   for(let i=0;i<4;i++){await f.tools.start(f.project,'fixture');await f.tools.stop(f.project,'fixture')}
   expect(stopped).toBe(4)
 })
+
+it('observes an existing service without starting or restarting it', async () => {
+  const f = fixture('crash-once')
+  f.definition.operations.progress = { ...f.definition.operations.search!, requiresRunning: true }
+  await expect(f.tools.call(f.project, 'fixture', 'progress', { query: 'status' })).rejects.toThrow('not running')
+  expect(() => readFileSync(f.counter)).toThrow()
+  await f.tools.start(f.project, 'fixture')
+  await expect(f.tools.call(f.project, 'fixture', 'progress', { query: 'status' })).rejects.toThrow()
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+  await f.tools.stop(f.project, 'fixture')
+  await expect(f.tools.call(f.project, 'fixture', 'progress', { query: 'status' })).rejects.toThrow('not running')
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+})

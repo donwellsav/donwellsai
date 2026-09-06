@@ -27,6 +27,12 @@ async function main() {
   const index = await openProjectDocumentIndex(config), files = new WorktreeFiles()
   const prefix = `document:${config.indexKey}:`
   let closed = false
+  let paused: ReturnType<typeof Promise.withResolvers<void>> | null = null
+  let pauseAcknowledged = false
+  const checkpoint = async () => {
+    while (paused) { pauseAcknowledged = true; await paused.promise }
+    pauseAcknowledged = false
+  }
   let state: { phase: string; job: string | null; completed: number; total: number; skipped: number; error: string | null } = { phase: 'idle', job: null, completed: 0, total: 0, skipped: 0, error: null }
   const rootFor = async (collection: string) => {
     const root = config.roots.find(root => root.collection === collection)
@@ -49,9 +55,10 @@ async function main() {
     const lines = file.content.split('\n'), content = lines.slice(fromLine - 1, fromLine - 1 + maxLines).join('\n')
     return { id, path: file.path, root: root.path, fromLine, content: content.slice(0, 50000), truncated: content.length > 50000 || lines.length > fromLine - 1 + maxLines, revision: file.revision, indexedAt: indexed.indexedAt, stale: file.revision !== indexed.revision }
   }
-  const status = () => ({ ...state, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
+  const status = () => ({ ...state, phase: paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
   const rebuild = async () => {
     for (const selected of config.roots) {
+      await checkpoint()
       const root = await rootFor(selected.collection)
       state.phase = 'reading'; state.completed = 0; state.total = 0
       const result = await runProcess({ program: config.ripgrep, args: ['--files', '--null', '--no-config', '--type-add', 'documents:*.{md,mdx,txt,rst,ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,c,h,cpp,hpp,cs,css,json,toml,yaml,yml}', '--type', 'documents', '--glob', '!**/.*', '--glob', '!**/{.git,node_modules,vendor,dist,build,out,target,coverage}/**', ...['.env*', 'credentials.json', 'secrets.json', 'auth.json', 'service-account*.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'Cargo.lock', 'poetry.lock', '*.min.js'].flatMap(pattern => ['--glob', '!' + pattern]), '--', '.'], cwd: root.path, env: sanitizedProcessEnv(), maxOutputBytes: 2 * 1024 * 1024, timeoutMs: 30000, acceptExitCodes: [0, 1] })
@@ -61,6 +68,7 @@ async function main() {
       const documents: IndexedDocument[] = []
       let bytes = 0
       for (const candidate of paths) {
+        await checkpoint()
         const path = validateRelativePath(candidate.replace(/^\.\//, ''))
         try {
           const file = await files.readFile(root.path, path)
@@ -71,7 +79,7 @@ async function main() {
         state.completed++
       }
       state.phase = 'indexing'
-      await index.replace(root.collection, documents, (completed, total) => { state.completed = completed; state.total = total })
+      await index.replace(root.collection, documents, (completed, total) => { state.completed = completed; state.total = total }, checkpoint)
     }
     state.phase = 'ready'
   }
@@ -85,7 +93,16 @@ async function main() {
   server.registerTool('index', { description: 'Start rebuilding selected derived indexes; poll status, or stop this service to cancel.', inputSchema: z.object({}).strict() }, async () => {
     if (state.phase === 'reading' || state.phase === 'indexing') throw new Error('Document indexing is already running')
     state = { phase: 'reading', job: randomUUID(), completed: 0, total: 0, skipped: 0, error: null }
-    void rebuild().catch(error => { state.phase = 'failed'; state.error = String(error).slice(0, 300) })
+    void rebuild().catch(error => { state.phase = 'failed'; state.error = String(error).slice(0, 300) }).finally(() => { const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve() })
+    return response(status())
+  })
+  server.registerTool('pause', { description: 'Pause at the next file or embedding batch boundary; models remain loaded.', inputSchema: z.object({}).strict() }, async () => {
+    if (state.phase !== 'reading' && state.phase !== 'indexing') throw new Error('No document indexing job to pause')
+    paused ??= Promise.withResolvers<void>()
+    return response(status())
+  })
+  server.registerTool('resume', { description: 'Resume the same paused document indexing job.', inputSchema: z.object({}).strict() }, async () => {
+    const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve()
     return response(status())
   })
   server.registerTool('query', { description: 'Search only this checkout and explicitly shared references.', inputSchema: z.object({ query: z.string().min(1).max(1000) }).strict() }, async ({ query }: { query: string }) => {

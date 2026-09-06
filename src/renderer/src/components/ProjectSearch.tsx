@@ -36,6 +36,8 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const source = useAppStore(state => state.contentSearch.source ?? 'all')
   const setSource = (source: SearchSource) => useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, source } }))
   const [indexing, setIndexing] = useState(false)
+  const [documentPaused, setDocumentPaused] = useState(false)
+  const [documentStatus, setDocumentStatus] = useState('')
   const [historyIndexing, setHistoryIndexing] = useState(false)
   const [visible, setVisible] = useState(25)
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -124,26 +126,31 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     }
   }, [workspacePath, query, hidden, ignored, refresh, active, source])
   useEffect(() => {
-    if (!indexing || !active) return
+    if (!active || (source !== 'all' && source !== 'document')) return
+    setIndexing(false); setDocumentPaused(false); setDocumentStatus('')
+    let lastFinishedJob: unknown
     let cancelled = false, timer: ReturnType<typeof setTimeout>
     const poll = async () => {
       try {
         const tools = await window.donwells.projectToolsList(workspacePath)
         if (cancelled) return
-        if (tools.find(tool => tool.id === 'documents')?.status !== 'ready') { setIndexing(false); setStatus('Document service stopped'); return }
-        const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'status', {}))
+        if (tools.find(tool => tool.id === 'documents')?.status !== 'ready') { setIndexing(false); setDocumentPaused(false); timer = setTimeout(() => void poll(), 2000); return }
+        const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'progress', {}))
         if (cancelled) return
-        setStatus(`Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models`)
+        setIndexing(['reading', 'indexing', 'paused', 'pausing'].includes(String(value.phase)))
+        setDocumentPaused(value.phase === 'paused' || value.phase === 'pausing')
+        setDocumentStatus(`Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models`)
         if (value.phase === 'ready' || value.phase === 'failed') {
           setIndexing(false)
           if (value.error) setError(String(value.error))
-          else setRefresh(value => value + 1)
-        } else timer = setTimeout(() => void poll(), 1000)
-      } catch (error) { if (!cancelled) { setIndexing(false); setError(String(error)) } }
+          else if (value.job && value.job !== lastFinishedJob) { lastFinishedJob = value.job; setRefresh(value => value + 1) }
+        }
+        timer = setTimeout(() => void poll(), 1000)
+      } catch (error) { if (!cancelled) { setIndexing(false); setError(String(error)); timer = setTimeout(() => void poll(), 2000) } }
     }
     void poll()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [indexing, active, workspacePath])
+  }, [active, workspacePath, source])
   const open = async (hit: ProjectSearchHit): Promise<void> => {
     const generation = ++openGeneration.current
     const canOpen = () => generation === openGeneration.current && active && useAppStore.getState().activeWorktreePath === workspacePath
@@ -188,14 +195,30 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     </form>
     <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={() => { stop(); setStatus('Stopped · results received so far') }}>Stop</button>}</div>
     <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>
+    {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
     {(source === 'all' || source === 'document') && <button type="button" disabled={indexing} onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolCall(path, 'documents', 'index', {}).then(response => {
         const value = documentValue(response)
-        if (useAppStore.getState().activeWorktreePath === path) { setStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
+        if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
       }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
     }}>Index documents</button>}
-    {indexing && <button type="button" onClick={() => void window.donwells.projectToolStop(workspacePath, 'documents').then(() => { setIndexing(false); setStatus('Document indexing paused · model service stopped') }).catch(error => setError(String(error)))}>Pause document indexing</button>}
+    {indexing && <button type="button" onClick={() => {
+      const path = workspacePath
+      void window.donwells.projectToolCall(path, 'documents', documentPaused ? 'resume' : 'pause', {}).then(response => {
+        if (useAppStore.getState().activeWorktreePath !== path) return
+        const value = documentValue(response)
+        setDocumentPaused(value.phase === 'paused' || value.phase === 'pausing')
+        setDocumentStatus(`Document index: ${String(value.phase)} · models remain loaded`)
+      }).catch(error => setError(String(error)))
+    }}>{documentPaused ? 'Resume document indexing' : 'Pause document indexing'}</button>}
+    {(source === 'all' || source === 'document') && <button type="button" onClick={() => {
+      const path = workspacePath
+      void window.donwells.projectToolStop(path, 'documents').then(() => {
+        if (useAppStore.getState().activeWorktreePath !== path) return
+        setIndexing(false); setDocumentPaused(false); setDocumentStatus('Document service stopped · indexing cancelled · models released')
+      }).catch(error => setError(String(error)))
+    }}>Stop document service</button>}
     {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}
     {(source === 'all' || source === 'session') && <button type="button" disabled={historyIndexing} onClick={() => {
       const generation = openGeneration.current

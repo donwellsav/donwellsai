@@ -52,7 +52,7 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
   }
   let indexing = false
   return {
-    async replace(collection: string, documents: IndexedDocument[], progress: (completed: number, total: number) => void = () => {}) {
+    async replace(collection: string, documents: IndexedDocument[], progress: (completed: number, total: number) => void = () => {}, checkpoint: () => Promise<void> = async () => {}) {
       const where = collectionFilter(collection)
       if (indexing) throw new Error('Document indexing is already running')
       // ponytail: materialize at most 64 MiB/20k chunks per root; use native streaming ingestion if larger roots are required.
@@ -65,6 +65,7 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
         const cache = new Map(previous.filter(row => row.embedded).map(row => [row.hash, Array.from(row.vector)]))
         const rows: Chunk[] = [], indexedAt = new Date().toISOString()
         for (const doc of documents) {
+          await checkpoint()
           for (const chunk of await chunkDocumentAsync(doc.content, undefined, undefined, undefined, doc.path, 'auto')) {
             const text = doc.path + '\n' + chunk.text, hash = createHash('sha256').update(text).digest('hex'), cached = cache.get(hash)
             rows.push({ collection, path: doc.path, text, hash, revision: doc.revision, indexedAt, pos: chunk.pos, line: doc.content.slice(0, chunk.pos).split('\n').length, embedded: Boolean(cached), vector: cached ?? Array(2560).fill(0) })
@@ -75,6 +76,7 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
         progress(0, missing.length)
         const embeddingStart = performance.now()
         if (llm) for (let offset = 0; offset < missing.length; offset += 16) {
+          await checkpoint()
           const batch = missing.slice(offset, offset + 16)
           const vectors = await llm.embedBatch(batch.map(row => formatDocForEmbedding(row.text, row.path, config.embeddingModel)))
           if (vectors.length !== batch.length || vectors.some((value: { embedding: number[] } | null) => !value || value.embedding.length !== 2560)) throw new Error('Document embedding is incomplete or incompatible')
@@ -82,6 +84,7 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
           progress(offset + batch.length, missing.length)
         }
         const embeddingMs = performance.now() - embeddingStart, indexStart = performance.now()
+        await checkpoint()
         if (rows.length) await table.mergeInsert(['collection', 'path', 'pos']).whenMatchedUpdateAll().whenNotMatchedInsertAll().whenNotMatchedBySourceDelete({ where }).execute(rows)
         else await table.delete(where)
         return { documents: documents.length, chunks: rows.length, indexedAt, embeddingMs, indexMs: performance.now() - indexStart, mode: llm ? 'hybrid' : 'lexical' }

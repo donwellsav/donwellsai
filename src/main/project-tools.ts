@@ -20,6 +20,7 @@ export type ProjectToolDefinition = {
   operations: Record<string, {
     tool: string
     readOnly: boolean
+    requiresRunning?: boolean
     parameters: Record<string, (value: unknown) => unknown>
     targets: (scope: ProjectToolScope) => Record<string, unknown>
     run?: (scope: ProjectToolScope, request: (tool?: string, parameters?: Record<string, unknown>) => Promise<unknown>, arguments_: Record<string, unknown>) => Promise<unknown>
@@ -223,7 +224,9 @@ export class ProjectTools {
     }
     for (const [name, parse] of Object.entries(operation.parameters)) args[name] = parse(input[name])
     for (let attempt = 0; attempt < 2; attempt++) {
-      await this.start(workspacePath, id)
+      if (operation.requiresRunning) {
+        if (this.services.get(key)?.state.status !== 'ready') throw new Error('Tool is not running')
+      } else await this.start(workspacePath, id)
       if ((await this.bound(workspacePath, id)).key !== key) throw new Error('Tool scope changed before request')
       const service = this.services.get(key)!
       try {
@@ -243,7 +246,7 @@ export class ProjectTools {
         if (!service.stopRequested && !this.closed) service.state = { ...service.state, status: 'failed', detail: error.message }
         if (!operation.readOnly) throw new ToolOutcomeUncertainError('Tool action outcome is uncertain; inspect before retrying')
         if (service.stopRequested || this.closed) throw new Error('Tool stopped')
-        if (attempt > 0) throw error
+        if (operation.requiresRunning || attempt > 0) throw error
       }
     }
     throw new Error('Tool unavailable')
