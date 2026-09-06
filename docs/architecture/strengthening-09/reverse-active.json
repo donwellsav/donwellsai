@@ -1,0 +1,32 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "749f20700bf8d9cc28d8d646c0425a5f51889051",
+    "dirty": true,
+    "contentHash": "d14539b10da7d710b5a392a739c01287e83c110c22ed71e805446392ac8d8199"
+  },
+  "profile": "/private/tmp/donwells-strengthen-09-reverse-active-profile",
+  "fixture": "/private/tmp/donwells-strengthen-09-reverse-active-profile/fixture-aCD2s9",
+  "artifactSha256": "8b78f8fbc881126b7418a305301cae4a0e61e999c72e2b1f693c564459da27e1",
+  "appPids": [
+    75972,
+    76029,
+    76060,
+    76075
+  ],
+  "lockOwnerPid": 75995,
+  "maintenanceRejected": true,
+  "preMigrationSourceSha256": "d03929fcb45d88c0508a0a70e2fecb0b0cbab191da55f1fb08b5b6954fd3280a",
+  "postUpgradeWriteBeforeReverse": true,
+  "killedMigrationProcess": {
+    "pid": 76047,
+    "boundary": "reverse-active"
+  },
+  "recoveredBackend": "json",
+  "recoveryAndNewWriteRestartPassed": true,
+  "originalBackupUnchanged": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 2447
+}

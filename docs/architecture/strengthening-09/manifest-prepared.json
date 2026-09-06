@@ -1,0 +1,30 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "749f20700bf8d9cc28d8d646c0425a5f51889051",
+    "dirty": true,
+    "contentHash": "b971cb38bb621d4ed3f88cb6906498376e9f5610cb154611f7472439deb98b3b"
+  },
+  "profile": "/private/tmp/donwells-strengthen-09-manifest-prepared-profile",
+  "fixture": "/private/tmp/donwells-strengthen-09-manifest-prepared-profile/fixture-VFwwu0",
+  "artifactSha256": "8b78f8fbc881126b7418a305301cae4a0e61e999c72e2b1f693c564459da27e1",
+  "appPids": [
+    73153,
+    73227,
+    73282
+  ],
+  "lockOwnerPid": 73181,
+  "maintenanceRejected": true,
+  "preMigrationSourceSha256": "76ff6f59655c46b6b637e45473840eb2966732a0f0820c3f2cd915575f5397d0",
+  "killedMigrationProcess": {
+    "pid": 73200,
+    "boundary": "manifest-prepared"
+  },
+  "recoveredBackend": "sqlite",
+  "recoveryAndNewWriteRestartPassed": true,
+  "originalBackupUnchanged": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 1858
+}

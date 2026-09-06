@@ -1,0 +1,30 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "749f20700bf8d9cc28d8d646c0425a5f51889051",
+    "dirty": true,
+    "contentHash": "b971cb38bb621d4ed3f88cb6906498376e9f5610cb154611f7472439deb98b3b"
+  },
+  "profile": "/private/tmp/donwells-strengthen-09-legacy-retired-profile",
+  "fixture": "/private/tmp/donwells-strengthen-09-legacy-retired-profile/fixture-LqgoII",
+  "artifactSha256": "8b78f8fbc881126b7418a305301cae4a0e61e999c72e2b1f693c564459da27e1",
+  "appPids": [
+    73448,
+    73526,
+    73533
+  ],
+  "lockOwnerPid": 73485,
+  "maintenanceRejected": true,
+  "preMigrationSourceSha256": "cf74f0f52230a2f45a4ef56efa10b5e470124a931f75c79db4aa304a4b36b751",
+  "killedMigrationProcess": {
+    "pid": 73516,
+    "boundary": "legacy-retired"
+  },
+  "recoveredBackend": "sqlite",
+  "recoveryAndNewWriteRestartPassed": true,
+  "originalBackupUnchanged": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 2051
+}

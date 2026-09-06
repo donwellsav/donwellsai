@@ -1,0 +1,23 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "749f20700bf8d9cc28d8d646c0425a5f51889051",
+    "dirty": true,
+    "contentHash": "d14539b10da7d710b5a392a739c01287e83c110c22ed71e805446392ac8d8199"
+  },
+  "profile": "/private/tmp/donwells-strengthen-09-corrupt-profile",
+  "fixture": "/private/tmp/donwells-strengthen-09-corrupt-profile/fixture-nvAOAq",
+  "artifactSha256": "8b78f8fbc881126b7418a305301cae4a0e61e999c72e2b1f693c564459da27e1",
+  "appPids": [
+    78493,
+    78669
+  ],
+  "terminalWorkedWithCorruptMemory": true,
+  "memoryRecoveredWithoutAppRestart": true,
+  "lockOwnerPid": 78651,
+  "maintenanceRejected": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 2119
+}

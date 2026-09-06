@@ -1,0 +1,30 @@
+{
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "source": {
+    "commit": "749f20700bf8d9cc28d8d646c0425a5f51889051",
+    "dirty": true,
+    "contentHash": "b971cb38bb621d4ed3f88cb6906498376e9f5610cb154611f7472439deb98b3b"
+  },
+  "profile": "/private/tmp/donwells-strengthen-09-abort-marked-profile",
+  "fixture": "/private/tmp/donwells-strengthen-09-abort-marked-profile/fixture-0APkKA",
+  "artifactSha256": "8b78f8fbc881126b7418a305301cae4a0e61e999c72e2b1f693c564459da27e1",
+  "appPids": [
+    74333,
+    74421,
+    74437
+  ],
+  "lockOwnerPid": 74372,
+  "maintenanceRejected": true,
+  "preMigrationSourceSha256": "cde37cb88b83798c898b4f4da61ec9188d889bec8db946de5b24f484a1d7a682",
+  "killedMigrationProcess": {
+    "pid": 74414,
+    "boundary": "abort-marked"
+  },
+  "recoveredBackend": "json",
+  "recoveryAndNewWriteRestartPassed": true,
+  "originalBackupUnchanged": true,
+  "restartRecallPassed": true,
+  "lockReleaseAfterKillPassed": true,
+  "idleDaemonStopped": true,
+  "durationMs": 2069
+}

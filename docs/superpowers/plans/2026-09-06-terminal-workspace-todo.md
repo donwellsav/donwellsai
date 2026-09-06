@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 09 active — durable project memory migration.** Tasks 01, 03, 04, 05, 06, 07 and 08 are strengthened. Task 02 remains skipped by explicit user instruction. Tasks 09–28 remain reopened; preserve existing implementation and continue the plan.
+Current position: **Task 10 active — explicit handoffs and project knowledge UI.** Tasks 01 and 03–09 are strengthened. Task 02 remains skipped. Tasks 10–28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -173,14 +173,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes selected backend and existing ProjectMemoryApi. Produces one authoritative backend behind the same API with validated migration.
 
-- [ ] **Step 1:** Add migration tests using actual schema-v1 fixtures: multiple projects, current/old revisions, archive state, missing/corrupt documents and maximum-length content.
-- [ ] **Step 2:** Implement the eight-step migration protocol from the spec. Preserve IDs or an auditable bijection. Verify counts and content hashes before changing the active backend manifest.
-- [ ] **Step 3:** Preserve conflict errors and provenance. Enforce project scope for every backend operation, including direct ID lookup. No runtime dual-write to the old JSON file.
-- [ ] **Step 4:** Test a concurrent old-client write during migration, subprocess death at every cutover boundary, disk full, interruption before/after manifest switch, backend unavailable, duplicate migration and downgrade after new writes. Expose migration diagnosis and export without deleting the old backup.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Add migration tests using actual schema-v1 fixtures: multiple projects, current/old revisions, archive state, missing/corrupt documents and maximum-length content.
+- [x] **Step 2:** Implement the eight-step migration protocol from the spec. Preserve IDs or an auditable bijection. Verify counts and content hashes before changing the active backend manifest.
+- [x] **Step 3:** Preserve conflict errors and provenance. Enforce project scope for every backend operation, including direct ID lookup. No runtime dual-write to the old JSON file.
+- [x] **Step 4:** Test a concurrent old-client write during migration, subprocess death at every cutover boundary, disk full, interruption before/after manifest switch, backend unavailable, duplicate migration and downgrade after new writes. Expose migration diagnosis and export without deleting the old backup.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Before cutover reopen original data; after cutover export/reverse-migrate new writes. Never silently restore an outdated backup.
+
+**Strengthening evidence:** [migration failures, twelve process-death boundaries and four-agent Ornith recall](../../architecture/strengthening-09/README.md).
 
 ### Task 10: Explicit handoffs and project knowledge UI
 
