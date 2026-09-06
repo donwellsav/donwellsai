@@ -29,7 +29,7 @@ function localPidLiveness(pid) {
   }
 }
 
-async function connectDaemon(runtime) {
+export async function connectDaemon(runtime, onEvent = () => {}) {
   const socket = createConnection(runtime.socketPath)
   let buffer = ''
   const pending = new Map()
@@ -47,6 +47,7 @@ async function connectDaemon(runtime) {
       } catch {
         continue
       }
+      if (message.event) { onEvent(message); continue }
       const waiter = pending.get(String(message.id ?? ''))
       if (!waiter) continue
       pending.delete(String(message.id ?? ''))

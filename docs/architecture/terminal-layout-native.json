@@ -1,0 +1,143 @@
+{
+  "measuredAt": "2026-09-06T02:56:52.097Z",
+  "source": {
+    "commit": "0eb159236bf1174afcb307cce50385695b4671a8",
+    "dirty": true,
+    "contentHash": "89901bcc4feadad4dacfc864045911bb20e687b6e4c12700ede0400bed46929b"
+  },
+  "fixtureOnly": false,
+  "results": [
+    {
+      "renderer": "xterm",
+      "layout": "flexlayout",
+      "fixtureOnly": false,
+      "errors": [],
+      "moves": 100,
+      "retainedTerminalObjects": true,
+      "retainedMonacoModelAndDraft": true,
+      "editorMoves": 102,
+      "search": {
+        "renderer": "xterm",
+        "engine": "flexlayout",
+        "fixtureOnly": false,
+        "mounts": {
+          "terminal-a": 1,
+          "terminal-b": 1
+        },
+        "terminalIds": {
+          "terminal-a": "54110962-306a-4ef9-82f4-678dd5dfc674",
+          "terminal-b": "ec7315b7-6330-45af-b379-38b6f23379c9"
+        },
+        "checks": {
+          "terminal-a:searchAddon": "activated",
+          "terminal-b:searchAddon": "activated",
+          "terminal-a:find": true,
+          "terminal-b:find": true
+        },
+        "nativeSessions": {
+          "terminal-a": {
+            "id": "4ecaadcf-cebd-4a54-bcfe-c3b1e0e50163",
+            "worktreePath": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-project-GU2Mkr",
+            "title": "donwells-layout-project-GU2Mkr",
+            "createdAt": "2026-09-06T02:56:52.902Z",
+            "exited": false
+          },
+          "terminal-b": {
+            "id": "f5fa6bdf-48cc-497e-9c20-6ce52855b1a7",
+            "worktreePath": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-project-GU2Mkr",
+            "title": "donwells-layout-project-GU2Mkr",
+            "createdAt": "2026-09-06T02:56:52.903Z",
+            "exited": false
+          }
+        }
+      },
+      "searchCompatible": true,
+      "candidateStatus": "automated native continuity passed; accessibility pending",
+      "focusedElement": "xterm-helper-textarea",
+      "inputToObservedOutputMs": 40.258082999999715,
+      "sameNativeSessionsAndProcesses": true,
+      "nativeUnicode": true,
+      "nativeResize": true,
+      "alternateScreenRoundTrip": true,
+      "automationMoveMs": {
+        "median": 16.487750000000005,
+        "p95": 17.524791999999934
+      },
+      "horizontalOverflow": false
+    },
+    {
+      "renderer": "xterm",
+      "layout": "dockview",
+      "fixtureOnly": false,
+      "errors": [],
+      "moves": 100,
+      "retainedTerminalObjects": true,
+      "retainedMonacoModelAndDraft": true,
+      "editorMoves": 102,
+      "search": {
+        "renderer": "xterm",
+        "engine": "dockview",
+        "fixtureOnly": false,
+        "mounts": {
+          "terminal-a": 1,
+          "terminal-b": 1
+        },
+        "terminalIds": {
+          "terminal-a": "2d90403e-bc94-4554-8b34-19857c9b3bbb",
+          "terminal-b": "f60347fc-7f0b-42db-94b7-0433e4830996"
+        },
+        "checks": {
+          "terminal-a:searchAddon": "activated",
+          "terminal-b:searchAddon": "activated",
+          "terminal-a:find": true,
+          "terminal-b:find": true
+        },
+        "nativeSessions": {
+          "terminal-a": {
+            "id": "4ecaadcf-cebd-4a54-bcfe-c3b1e0e50163",
+            "worktreePath": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-project-GU2Mkr",
+            "title": "donwells-layout-project-GU2Mkr",
+            "createdAt": "2026-09-06T02:56:52.902Z",
+            "exited": false
+          },
+          "terminal-b": {
+            "id": "f5fa6bdf-48cc-497e-9c20-6ce52855b1a7",
+            "worktreePath": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-project-GU2Mkr",
+            "title": "donwells-layout-project-GU2Mkr",
+            "createdAt": "2026-09-06T02:56:52.903Z",
+            "exited": false
+          }
+        }
+      },
+      "searchCompatible": true,
+      "candidateStatus": "automated native continuity passed; accessibility pending",
+      "focusedElement": "xterm-helper-textarea",
+      "inputToObservedOutputMs": 41.00224999999955,
+      "sameNativeSessionsAndProcesses": true,
+      "nativeUnicode": true,
+      "nativeResize": true,
+      "alternateScreenRoundTrip": true,
+      "automationMoveMs": {
+        "median": 16.291000000000167,
+        "p95": 17.923874999999498
+      },
+      "horizontalOverflow": false
+    }
+  ],
+  "limitations": [
+    "Native IME and VoiceOver qualification remains pending.",
+    "Browser comparison uses packaged daemon PTYs; final docking integration is separate."
+  ],
+  "artifact": {
+    "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "a64ef6d6d77bd5d003f3272bb40e19a185cfc639c1aba01171573246843e0789"
+  },
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-profile-lTA7qg",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-layout-project-GU2Mkr",
+  "processesBefore": [
+    "36058 35990 Sat Sep  5 22:56:52 2026",
+    "36059 35990 Sat Sep  5 22:56:52 2026"
+  ],
+  "idleDaemonStopped": true
+}
