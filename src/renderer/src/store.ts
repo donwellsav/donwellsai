@@ -357,7 +357,7 @@ type AppState = {
 
   setActiveRepo(repoId: string | null): void
   setActiveWorktree(path: string | null): void
-  applyTerminalExit(sessionId: string, exitCode: number): void
+  applyTerminalExit(sessionId: string, exitCode?: number): void
   applyTerminalTitle(sessionId: string, title: string): void
   setError(err: string | null): void
   applyAgentRun(run: RunningAgent): void
@@ -1954,7 +1954,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     persistSessionSoon()
   },
-  applyTerminalExit(sessionId: string, _exitCode: number) {
+  applyTerminalExit(sessionId: string, _exitCode?: number) {
     const s = get()
     if (s.runningAgents[sessionId]) {
       const terminal = s.terminals[sessionId]

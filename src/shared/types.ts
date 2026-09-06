@@ -353,7 +353,7 @@ export type MainEvents = {
   'project-search:hit': { requestId: string; workspacePath: string; hit: import('./project-tools').ProjectSearchHit }
   'terminal:disconnected': Record<string, never>
   'terminal:data': { sessionId: string; data: string; sequence?: number }
-  'terminal:exit': { sessionId: string; exitCode: number }
+  'terminal:exit': { sessionId: string; exitCode?: number }
   'terminal:title': { sessionId: string; title: string }
   'worktree:changed': { repoId: string }
   'agent:changed': { run: RunningAgent }

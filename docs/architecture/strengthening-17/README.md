@@ -17,3 +17,5 @@ Artifacts remain attached references: matching bytes do not establish that a com
 Package path and ASAR hash are recorded in `result.json`. This is an unsigned local qualification, not a release or publication. Every acceptance run used a fresh profile and stopped only its owned browser, sessions and idle daemon. No hosted model usage was required for this deterministic verification workflow; the native-agent browser workflow remains qualified in Task 15.
 
 Reproduce with `node tests/acceptance/verification-review.mjs`, passing the packaged `--app` executable, fresh `--profile` and `--evidence`, installed Playwright module `--playwright`, and the admitted external browser MCP `--package` and Chromium `--browser` paths from Task 15.
+
+Task 18 transport tracing found another zero default in DaemonClient event decoding. Missing, null and nonnumeric exit fields now remain unknown through main/preload/renderer contracts. `transport-checks.txt` records the focused regression run, including actual framed socket events.

@@ -139,7 +139,7 @@ export const terminalBus = new TerminalBus()
 
 /** Wire main-process events once at app start and return symmetric cleanup. */
 export function initTerminalEvents(
-  onExit: (sessionId: string, exitCode: number) => void,
+  onExit: (sessionId: string, exitCode?: number) => void,
   onTitle: (sessionId: string, title: string) => void
 ): () => void {
   const disposeData = window.donwells.on('terminal:data', ({ sessionId, data, sequence }) => {

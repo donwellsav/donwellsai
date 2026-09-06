@@ -29,7 +29,7 @@ import { readTerminalRuntime, localRuntimePaths } from './local-runtime'
 export type DaemonEvents = {
   disconnected?: () => void
   data: (sessionId: string, data: string, sequence?: number) => void
-  exit: (sessionId: string, exitCode: number) => void
+  exit: (sessionId: string, exitCode?: number) => void
   title: (sessionId: string, title: string) => void
   agent: (run: RunningAgent) => void
   agentDismissed: (sessionId: string) => void
@@ -349,7 +349,8 @@ export class DaemonClient {
       const sequence = typeof rawSequence === 'number' && Number.isSafeInteger(rawSequence) ? rawSequence : undefined
       this.events.data(sessionId, String(message['data'] ?? ''), sequence)
     } else if (event === 'exit') {
-      this.events.exit(sessionId, Number(message['exitCode'] ?? 0))
+      const code = message['exitCode']
+      this.events.exit(sessionId, typeof code === 'number' && Number.isSafeInteger(code) ? code : undefined)
     } else if (event === 'title') {
       this.events.title(sessionId, String(message['title'] ?? ''))
     } else if (event === 'agent' && isRunningAgent(message['run'])) {

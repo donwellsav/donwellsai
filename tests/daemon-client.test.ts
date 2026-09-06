@@ -241,3 +241,15 @@ describe('DaemonClient transport lifecycle', () => {
     expect(operations).toEqual(['hello', 'daemon.status'])
   })
 })
+
+it('preserves missing and invalid daemon exit codes instead of reporting success', async () => {
+  const codes: Array<number | undefined> = []
+  const { userData } = await fakeDaemon((socket, message) => {
+    if (message.op === 'hello') {
+      socket.write(JSON.stringify({id:message.id,ok:true,protocolVersion:2,capabilities:['sequenced-output']})+'\n')
+      for (const exitCode of [undefined, null, '0', 0, 3]) socket.write(JSON.stringify({event:'exit',sessionId:'fixture',exitCode})+'\n')
+    }
+  })
+  const connection = new DaemonClient(userData, {data:()=>{},exit:(_id,code)=>codes.push(code),title:()=>{},agent:()=>{},agentDismissed:()=>{}},join(userData,'not-used.js'))
+  try { await connection.connect(); await expect.poll(()=>codes.length).toBe(5); expect(codes).toEqual([undefined,undefined,undefined,0,3]) } finally { connection.disconnect() }
+})
