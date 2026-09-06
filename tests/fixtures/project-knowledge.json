@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "description": "Authored real-project source retrieval questions. Expected files identify evidence, not an answer generator. Historical, planned and current behavior must remain distinct. Synthetic isolation traps live in qmd-documents.mjs and qmd-service.test.ts.",
+  "questions": [
+    {
+      "id": "q01",
+      "kind": "paraphrase",
+      "question": "How does the terminal recover when its GPU context is lost?",
+      "expectedSources": [
+        "src/renderer/src/components/TerminalPane.tsx"
+      ]
+    },
+    {
+      "id": "q02",
+      "kind": "paraphrase",
+      "question": "What prevents duplicate output when a terminal attaches to an existing session?",
+      "expectedSources": [
+        "src/renderer/src/components/TerminalPane.tsx"
+      ]
+    },
+    {
+      "id": "q03",
+      "kind": "paraphrase",
+      "question": "How can a user search the full terminal scrollback?",
+      "expectedSources": [
+        "src/renderer/src/components/TerminalPane.tsx"
+      ]
+    },
+    {
+      "id": "q04",
+      "kind": "paraphrase",
+      "question": "Where does typing in the terminal reach the process?",
+      "expectedSources": [
+        "src/renderer/src/components/TerminalPane.tsx"
+      ]
+    },
+    {
+      "id": "q05",
+      "kind": "paraphrase",
+      "question": "How does terminal text refit when the pane changes size?",
+      "expectedSources": [
+        "src/renderer/src/components/TerminalPane.tsx"
+      ]
+    },
+    {
+      "id": "q06",
+      "kind": "exact",
+      "question": "Where are workspace tools and the project status displayed?",
+      "expectedSources": [
+        "src/renderer/src/components/WorkspaceShell.tsx"
+      ]
+    },
+    {
+      "id": "q07",
+      "kind": "exact",
+      "question": "How does the Projects sidebar resize from the keyboard?",
+      "expectedSources": [
+        "src/renderer/src/components/WorkspaceShell.tsx"
+      ]
+    },
+    {
+      "id": "q08",
+      "kind": "exact",
+      "question": "How can a user restore hidden checkouts?",
+      "expectedSources": [
+        "src/renderer/src/components/WorkspaceShell.tsx"
+      ]
+    },
+    {
+      "id": "q09",
+      "kind": "exact",
+      "question": "How does the workspace open a local preview port?",
+      "expectedSources": [
+        "src/renderer/src/components/WorkspaceShell.tsx"
+      ]
+    },
+    {
+      "id": "q10",
+      "kind": "exact",
+      "question": "Where can a user switch between Files, Changes and Project memory?",
+      "expectedSources": [
+        "src/renderer/src/components/WorkspaceShell.tsx"
+      ]
+    },
+    {
+      "id": "q11",
+      "kind": "exact",
+      "question": "What are the focus, pair, build and review workspace presets?",
+      "expectedSources": [
+        "src/renderer/src/workspace-layout.ts"
+      ]
+    },
+    {
+      "id": "q12",
+      "kind": "exact",
+      "question": "How are terminal panes represented in the saved layout?",
+      "expectedSources": [
+        "src/renderer/src/workspace-layout.ts"
+      ]
+    },
+    {
+      "id": "q13",
+      "kind": "exact",
+      "question": "Which docking tab actions are disabled?",
+      "expectedSources": [
+        "src/renderer/src/workspace-layout.ts"
+      ]
+    },
+    {
+      "id": "q14",
+      "kind": "exact",
+      "question": "How are stale panes reconciled with the saved layout?",
+      "expectedSources": [
+        "src/renderer/src/workspace-layout.ts"
+      ]
+    },
+    {
+      "id": "q15",
+      "kind": "exact",
+      "question": "What minimum size can a docking tab set have?",
+      "expectedSources": [
+        "src/renderer/src/workspace-layout.ts"
+      ]
+    },
+    {
+      "id": "q16",
+      "kind": "conflicting-or-obsolete",
+      "question": "Does accepting a handoff mean its delivery is confirmed?",
+      "expectedSources": [
+        "src/main/project-handoff.ts"
+      ]
+    },
+    {
+      "id": "q17",
+      "kind": "conflicting-or-obsolete",
+      "question": "Can a second receiving session claim an already accepted handoff?",
+      "expectedSources": [
+        "src/main/project-handoff.ts"
+      ]
+    },
+    {
+      "id": "q18",
+      "kind": "conflicting-or-obsolete",
+      "question": "Can the same acknowledgment safely be repeated?",
+      "expectedSources": [
+        "src/main/project-handoff.ts"
+      ]
+    },
+    {
+      "id": "q19",
+      "kind": "conflicting-or-obsolete",
+      "question": "Can an uncertain handoff receive be automatically retried?",
+      "expectedSources": [
+        "src/main/project-handoff.ts"
+      ]
+    },
+    {
+      "id": "q20",
+      "kind": "conflicting-or-obsolete",
+      "question": "Does a handoff export include private claim keys?",
+      "expectedSources": [
+        "src/main/project-handoff.ts"
+      ]
+    },
+    {
+      "id": "q21",
+      "kind": "exact",
+      "question": "How does Hermes setup preserve a selected native profile?",
+      "expectedSources": [
+        "src/main/agents/project-memory-config.ts"
+      ]
+    },
+    {
+      "id": "q22",
+      "kind": "exact",
+      "question": "How are session credentials forwarded through the DSH native loader?",
+      "expectedSources": [
+        "src/main/agents/project-memory-config.ts"
+      ]
+    },
+    {
+      "id": "q23",
+      "kind": "exact",
+      "question": "What happens if an existing agent memory configuration differs?",
+      "expectedSources": [
+        "src/main/agents/project-memory-config.ts"
+      ]
+    },
+    {
+      "id": "q24",
+      "kind": "exact",
+      "question": "Where does OMP shared project memory configuration get written?",
+      "expectedSources": [
+        "src/main/agents/project-memory-config.ts"
+      ]
+    },
+    {
+      "id": "q25",
+      "kind": "exact",
+      "question": "How does setup back up an existing MCP configuration?",
+      "expectedSources": [
+        "src/main/agents/project-memory-config.ts"
+      ]
+    },
+    {
+      "id": "q26",
+      "kind": "paraphrase",
+      "question": "How are tool indexes separated for linked worktrees in the same project?",
+      "expectedSources": [
+        "src/main/project-tools.ts"
+      ]
+    },
+    {
+      "id": "q27",
+      "kind": "paraphrase",
+      "question": "What prevents a tool caller from overriding its project scope?",
+      "expectedSources": [
+        "src/main/project-tools.ts"
+      ]
+    },
+    {
+      "id": "q28",
+      "kind": "paraphrase",
+      "question": "How are repeated tool startup requests deduplicated?",
+      "expectedSources": [
+        "src/main/project-tools.ts"
+      ]
+    },
+    {
+      "id": "q29",
+      "kind": "paraphrase",
+      "question": "How are tool requests handled when their outcome may be uncertain?",
+      "expectedSources": [
+        "src/main/project-tools.ts"
+      ]
+    },
+    {
+      "id": "q30",
+      "kind": "paraphrase",
+      "question": "How does the app verify tool version and capabilities before readiness?",
+      "expectedSources": [
+        "src/main/project-tools.ts"
+      ]
+    },
+    {
+      "id": "q31",
+      "kind": "paraphrase",
+      "question": "What prevents saving a partial file preview over the complete file?",
+      "expectedSources": [
+        "src/main/worktree-files.ts"
+      ]
+    },
+    {
+      "id": "q32",
+      "kind": "paraphrase",
+      "question": "How does the editor detect binary or unsupported text files?",
+      "expectedSources": [
+        "src/main/worktree-files.ts"
+      ]
+    },
+    {
+      "id": "q33",
+      "kind": "paraphrase",
+      "question": "What protects a file write from following a symbolic link?",
+      "expectedSources": [
+        "src/main/worktree-files.ts"
+      ]
+    },
+    {
+      "id": "q34",
+      "kind": "paraphrase",
+      "question": "How are source file revisions calculated for handoff evidence?",
+      "expectedSources": [
+        "src/main/worktree-files.ts"
+      ]
+    },
+    {
+      "id": "q35",
+      "kind": "paraphrase",
+      "question": "How are large directory listings bounded?",
+      "expectedSources": [
+        "src/main/worktree-files.ts"
+      ]
+    },
+    {
+      "id": "q36",
+      "kind": "exact",
+      "question": "How does authenticateAgent validate a native session credential?",
+      "expectedSources": [
+        "src/main/daemon-client.ts"
+      ]
+    },
+    {
+      "id": "q37",
+      "kind": "exact",
+      "question": "What happens when an existing terminal daemon cannot be verified as exited?",
+      "expectedSources": [
+        "src/main/daemon-client.ts"
+      ]
+    },
+    {
+      "id": "q38",
+      "kind": "exact",
+      "question": "How is the daemon transport buffer bounded?",
+      "expectedSources": [
+        "src/main/daemon-client.ts"
+      ]
+    },
+    {
+      "id": "q39",
+      "kind": "exact",
+      "question": "How does the app attach to a retained terminal?",
+      "expectedSources": [
+        "src/main/daemon-client.ts"
+      ]
+    },
+    {
+      "id": "q40",
+      "kind": "exact",
+      "question": "How does the app request termination of a native agent?",
+      "expectedSources": [
+        "src/main/daemon-client.ts"
+      ]
+    },
+    {
+      "id": "q41",
+      "kind": "conflicting-or-obsolete",
+      "question": "Why was Engram rejected as the project memory authority?",
+      "expectedSources": [
+        "docs/architecture/component-decisions.md"
+      ]
+    },
+    {
+      "id": "q42",
+      "kind": "conflicting-or-obsolete",
+      "question": "Has Kimi to DSH native handoff continuation actually passed?",
+      "expectedSources": [
+        "docs/architecture/component-decisions.md"
+      ]
+    },
+    {
+      "id": "q43",
+      "kind": "conflicting-or-obsolete",
+      "question": "Has OMP to Hermes handoff continuation been verified?",
+      "expectedSources": [
+        "docs/architecture/component-decisions.md"
+      ]
+    },
+    {
+      "id": "q44",
+      "kind": "conflicting-or-obsolete",
+      "question": "Is QMD admitted as a production service yet?",
+      "expectedSources": [
+        "docs/architecture/component-decisions.md"
+      ]
+    },
+    {
+      "id": "q45",
+      "kind": "conflicting-or-obsolete",
+      "question": "Why must QMD stores use separate processes?",
+      "expectedSources": [
+        "docs/architecture/component-decisions.md"
+      ]
+    },
+    {
+      "id": "q46",
+      "kind": "planned-not-implemented",
+      "question": "What must the QMD document retrieval task prove before it is complete?",
+      "expectedSources": [
+        "docs/superpowers/plans/2026-09-06-terminal-workspace.md"
+      ]
+    },
+    {
+      "id": "q47",
+      "kind": "planned-not-implemented",
+      "question": "Which task owns optional ACP support?",
+      "expectedSources": [
+        "docs/superpowers/plans/2026-09-06-terminal-workspace.md"
+      ]
+    },
+    {
+      "id": "q48",
+      "kind": "planned-not-implemented",
+      "question": "What are the dependencies for session history integration?",
+      "expectedSources": [
+        "docs/superpowers/plans/2026-09-06-terminal-workspace.md"
+      ]
+    },
+    {
+      "id": "q49",
+      "kind": "planned-not-implemented",
+      "question": "Which task covers browser and computer control?",
+      "expectedSources": [
+        "docs/superpowers/plans/2026-09-06-terminal-workspace.md"
+      ]
+    },
+    {
+      "id": "q50",
+      "kind": "planned-not-implemented",
+      "question": "What protects new memory writes when rolling back a migration?",
+      "expectedSources": [
+        "docs/superpowers/plans/2026-09-06-terminal-workspace.md"
+      ]
+    }
+  ]
+}
