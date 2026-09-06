@@ -41,20 +41,24 @@ export type ProjectMemoryServiceOptions = {
  * propagated; memory never falls back to an unregistered or remote path.
  */
 export class ProjectMemoryService implements ProjectMemoryApi {
-  private readonly store: ProjectMemoryStore
+  private loadedStore: ProjectMemoryStore | undefined
   private readonly now: () => Date
   private readonly createId: () => string
   private readonly onChanged?: (project: ProjectMemoryProject) => void
 
   constructor(
-    userDataDir: string,
+    private readonly userDataDir: string,
     private readonly resolveProject: ProjectMemoryResolver,
     options: ProjectMemoryServiceOptions = {}
   ) {
-    this.store = new ProjectMemoryStore(userDataDir)
     this.now = options.now ?? (() => new Date())
     this.createId = options.createId ?? randomUUID
     this.onChanged = options.onChanged
+  }
+
+  /** A damaged memory store must not prevent the terminal workspace from starting. */
+  private get store(): ProjectMemoryStore {
+    return this.loadedStore ??= new ProjectMemoryStore(this.userDataDir)
   }
 
   async projectMemoryList(value: ProjectMemoryListRequest): Promise<ProjectMemoryListResult> {

@@ -8,12 +8,13 @@ import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { hash, sourceIdentity, validateOptions } from './workspace-baseline.mjs'
 import { delay, cleanupOwnedSmokeDaemon } from '../helpers/smoke-processes.mjs'
-const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, cutover: { type: 'boolean' }, 'cutover-boundary': { type: 'string' } } })
+const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, cutover: { type: 'boolean' }, 'cutover-boundary': { type: 'string' }, 'corrupt-start': { type: 'boolean' } } })
 const boundary = values['cutover-boundary'] ?? 'legacy-fenced'
 assert(['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active', 'abort-marked', 'json-restored'].includes(boundary), 'Unknown cutover boundary')
 assert(!values['cutover-boundary'] || values.cutover, '--cutover-boundary requires --cutover')
 const { app: appPath, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
+if (values['corrupt-start']) writeFileSync(join(profile, 'project-memory.json'), '{corrupt acceptance fixture', { mode: 0o600 })
 const { callRuntime } = await import(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')))
 const fixture = mkdtempSync(join(profile, 'fixture-'))
 execFileSync('git', ['init', '-q', fixture])
@@ -47,6 +48,23 @@ async function stop(child) {
 try {
   await launch()
   await rpc('repo.add', { dir: fixture })
+  if (values['corrupt-start']) {
+    const failure = await callRuntime('memory.list', { workspacePath: fixture }, profile, 5000)
+    assert.equal(failure.ok, false)
+    assert.match(failure.error, /invalid JSON/)
+    assert.equal(readFileSync(join(profile, 'project-memory.json'), 'utf8'), '{corrupt acceptance fixture')
+    const { session } = await rpc('terminal.open', { cwd: fixture })
+    try {
+      await rpc('terminal.write', { sessionId: session.id, data: "printf terminal-still-works > terminal-proof.txt\r" })
+      for (let attempt = 0; attempt < 100 && !existsSync(join(fixture, 'terminal-proof.txt')); attempt++) await delay(50)
+      assert.equal(readFileSync(join(fixture, 'terminal-proof.txt'), 'utf8'), 'terminal-still-works')
+    } finally { await rpc('terminal.close', { sessionId: session.id }) }
+    report.terminalWorkedWithCorruptMemory = true
+    // Repair only this deliberately corrupt disposable fixture, then retry the same app service.
+    writeFileSync(join(profile, 'project-memory.json'), JSON.stringify({ schemaVersion: 1, projects: [] }), { mode: 0o600 })
+    assert.equal((await rpc('memory.list', { workspacePath: fixture })).total, 0)
+    report.memoryRecoveredWithoutAppRestart = true
+  }
   const request = { workspacePath: fixture, kind: 'decision', title: 'Packaged lock proof', content: 'decision survives process restart', attribution: { harness: 'cli' } }
   const entry = await rpc('memory.create', request)
   owner = spawn(appPath, ['--input-type=module', '-e', `import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1]); db.exec('BEGIN EXCLUSIVE'); console.log('locked'); setTimeout(() => { db.close(); process.exit(0); }, 15000);`, join(profile, 'project-memory.lock.sqlite')], { env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })

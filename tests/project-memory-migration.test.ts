@@ -117,7 +117,7 @@ it('preserves an uncooperative old writer instead of activating a stale import',
     const manifest = JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8'))
     expect(manifest.state).toBe('preparing')
     expect(readFileSync(join(root, manifest.directory, 'retired-source.json'), 'utf8')).toBe(changed)
-    expect(() => new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))).toThrow('Legacy memory changed during cutover')
+    await expect(new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })).projectMemoryList({ workspacePath: '/a' })).rejects.toThrow('Legacy memory changed during cutover')
     abortProjectMemoryMigration(root)
     const recovered = new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
     expect((await recovered.projectMemoryList({ workspacePath: '/a' })).entries[0].content).toBe('new old-client write')
@@ -270,6 +270,7 @@ it('fences every JSON writer during maintenance and releases the lock when its o
     const resolveProject = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
     const first = new ProjectMemoryService(root, resolveProject)
     const stale = new ProjectMemoryService(root, resolveProject)
+    await stale.projectMemoryList({ workspacePath: '/a' })
     const request = { workspacePath: '/a', kind: 'decision' as const, title: 'Kept decision', content: 'first writer', attribution: { harness: 'omp' } }
     await first.projectMemoryCreate(request)
     const source = join(root, 'project-memory.json')
@@ -301,7 +302,7 @@ it('fences every JSON writer during maintenance and releases the lock when its o
     writeFileSync(join(root, 'project-memory-active.json'), '{unreadable manifest', { mode: 0o600 })
     await expect(first.projectMemoryCreate(request)).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
     await expect(first.projectMemoryList({ workspacePath: '/a' })).rejects.toMatchObject({ code: 'PROJECT_MEMORY_BACKEND_CHANGED' })
-    expect(() => new ProjectMemoryService(root, resolveProject)).toThrow('Invalid project memory authority manifest')
+    await expect(new ProjectMemoryService(root, resolveProject).projectMemoryList({ workspacePath: '/a' })).rejects.toThrow('Invalid project memory authority manifest')
     expect(readFileSync(source)).toEqual(beforeCutover)
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {

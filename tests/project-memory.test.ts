@@ -307,14 +307,17 @@ describe('project memory authority', () => {
     expect(bounded.truncated).toBe(true)
   })
 
-  it('fails closed without overwriting corrupt or insecure persistence and strictly bounds requests', () => {
+  it('keeps service initialization available, rejects damaged memory and retries after repair without overwriting it', async () => {
     const userData = temporaryRoot()
     const path = join(userData, 'project-memory.json')
     const corrupt = '{not valid json'
     writeFileSync(path, corrupt, { encoding: 'utf8', mode: 0o600 })
     chmodSync(path, 0o600)
-    expect(() => new ProjectMemoryService(userData, resolver())).toThrow(ProjectMemoryLoadError)
+    const service = new ProjectMemoryService(userData, resolver())
+    await expect(service.projectMemoryList({ workspacePath: mainWorkspace })).rejects.toBeInstanceOf(ProjectMemoryLoadError)
     expect(readFileSync(path, 'utf8')).toBe(corrupt)
+    writeFileSync(path, JSON.stringify({ schemaVersion: 1, projects: [] }), { mode: 0o600 })
+    await expect(service.projectMemoryList({ workspacePath: mainWorkspace })).resolves.toMatchObject({ total: 0, entries: [] })
 
     expect(() => parseProjectMemoryCreateRequest({
       workspacePath: mainWorkspace,
@@ -338,7 +341,7 @@ describe('project memory authority', () => {
       writeFileSync(insecurePath, JSON.stringify({ schemaVersion: 1, projects: [] }), { encoding: 'utf8', mode: 0o644 })
       chmodSync(insecurePath, 0o644)
       try {
-        new ProjectMemoryService(insecureUserData, resolver())
+        await new ProjectMemoryService(insecureUserData, resolver()).projectMemoryList({ workspacePath: mainWorkspace })
         throw new Error('Expected insecure project memory persistence to fail')
       } catch (error) {
         expect(error).toBeInstanceOf(ProjectMemoryLoadError)
