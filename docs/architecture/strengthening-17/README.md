@@ -1,0 +1,19 @@
+# Task 17: source-bound verification
+
+Verification uses the existing finite-job daemon and ParallelRunStore. The review side panel lists current package scripts, launches them in the explicitly registered checkout, shows command outcome separately from source currency, and attaches local artifacts. CLI/RPC exposes the same verification.scripts/run/list/attach operations. No additional storage system or dependency was introduced.
+
+Each run captures source before launch and after completion, timestamps, command/cwd, known exit status, host runtime and independently probed Node/package-manager versions. Environment variables are not serialized. Existing Git handoff fingerprints cover HEAD, index, dirty changes and relevant untracked inputs, including lockfiles. A passing command can have stale or changed-during-run source. Missing source capture is unverified; plain non-Git folders and unsupported submodules do not receive a fabricated fingerprint. Existing bounded handoff-capture limits still apply.
+
+Unknown daemon exit codes no longer default to zero in either scheduled or parallel execution (`1846cb1`). Cancellation captures final source after termination and cancellation-state persistence. An unavailable or moved checkout is rejected before launch. Choosing Run script reads the current checkout's package manifest again.
+
+Artifacts remain attached references: matching bytes do not establish that a command produced them, that a person reviewed them, or that an agent, package or publication is complete. Each reference records attachment time, current source fingerprint, canonical path, size and SHA256. Recheck evidence explicitly hashes current bytes. Ordinary list refresh does not repeatedly hash artifacts. Deleted, changed and unchecked references are distinguished. Files must be inside the current checkout or its own managed-browser evidence directory; symlink escapes, unstable files and files over 512 MiB are refused. Concurrent writes respect the 16-reference limit, including replacement at capacity. Logs render as text with terminal escape sequences removed; files and browser artifacts are not executed by the review surface.
+
+## Evidence
+
+- `checks.txt`: 27 focused checks across verification-evidence, diff-review and execution-lifecycle. Includes real finite processes, failed/unknown exits, cancellation, edits during execution, dirty/untracked inputs, stale results, missing/changed artifacts, confinement, physical checkout movement and concurrent attachments. TypeScript passed separately.
+- `result.json`: packaged fail → source fix → visible diff review → Run script → success → artifact attachment → source edit → stale result. Native managed Playwright screenshots and trace files were attached to the same run and their adapter hashes matched the stored hashes. Trace resources are references, not claims that the trace independently proves the preceding command.
+- `review-pass.png` and `review-stale.png`: actual packaged UI. Raw technical metadata is collapsed; output and artifact controls remain visible. The same package was checked after terminal-escape cleanup and hash wrapping.
+
+Package path and ASAR hash are recorded in `result.json`. This is an unsigned local qualification, not a release or publication. Every acceptance run used a fresh profile and stopped only its owned browser, sessions and idle daemon. No hosted model usage was required for this deterministic verification workflow; the native-agent browser workflow remains qualified in Task 15.
+
+Reproduce with `node tests/acceptance/verification-review.mjs`, passing the packaged `--app` executable, fresh `--profile` and `--evidence`, installed Playwright module `--playwright`, and the admitted external browser MCP `--package` and Chromium `--browser` paths from Task 15.

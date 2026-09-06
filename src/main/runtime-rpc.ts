@@ -579,6 +579,10 @@ export class RuntimeRpcServer {
         return this.deps.runs.scheduledRunCancel(str('executionId'))
       case 'scheduled.history':
         return { executions: await this.deps.runs.scheduledRunHistory(str('id')) }
+      case 'verification.scripts': return this.deps.runs.verificationScripts(str('workspacePath'))
+      case 'verification.run': return this.deps.runs.verificationRun(str('workspacePath'),str('script'))
+      case 'verification.list': return this.deps.runs.verificationList(str('workspacePath'),params['verifyArtifacts']===true)
+      case 'verification.attach': return this.deps.runs.verificationAttach(str('workspacePath'),str('runId'),str('taskId'),str('path'))
       case 'parallel.list':
         return { parallelRuns: await this.deps.runs.parallelRunsList() }
       case 'parallel.start': {

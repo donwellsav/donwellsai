@@ -1,3 +1,4 @@
+import type { VerificationEntry } from '@shared/operational-runs'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import {
   DIFF_REVIEW_BODY_MAX_LENGTH,
@@ -111,7 +112,42 @@ function StoredContext({ note }: { note: DiffReviewNote }) {
   )
 }
 
+function VerificationPanel({workspacePath,sourceVersion}:{workspacePath:string;sourceVersion:string}) {
+  const [entries,setEntries]=useState<VerificationEntry[]>([]),[scripts,setScripts]=useState<string[]>([]),[script,setScript]=useState(''),[refresh,setRefresh]=useState(0),[checking,setChecking]=useState(false),[acting,setActing]=useState(false),[error,setError]=useState(''),[artifact,setArtifact]=useState('')
+  const checkArtifacts=useRef(false),alive=useRef(true)
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false}},[])
+  useEffect(()=>{
+    let live=true;setChecking(true)
+    const verify=checkArtifacts.current;checkArtifacts.current=false
+    void Promise.all([window.donwells.verificationList(workspacePath,verify),window.donwells.verificationScripts(workspacePath).catch(():string[]=>[])]).then(([entries,scripts])=>{if(live){setEntries(entries);setScripts(scripts);setScript(current=>scripts.includes(current)?current:scripts[0]??'');setError('')}}).catch(error=>{if(live)setError(String(error))}).finally(()=>{if(live)setChecking(false)})
+    return()=>{live=false}
+  },[workspacePath,sourceVersion,refresh])
+  useEffect(()=>window.donwells.on('worktree:changed',()=>{setEntries(entries=>entries.map(entry=>({...entry,sourceState:'unverified'})));setRefresh(value=>value+1)}),[workspacePath])
+  const running=entries.some(entry=>entry.sourceState==='running')
+  useEffect(()=>{if(!running)return;const timer=setInterval(()=>setRefresh(value=>value+1),2000);return()=>clearInterval(timer)},[running])
+  const act=async(action:()=>Promise<unknown>)=>{setActing(true);try{await action();if(alive.current)setRefresh(value=>value+1)}catch(error){if(alive.current)setError(String(error))}finally{if(alive.current)setActing(false)}}
+  return <section className="diff-review-range" aria-label="Verification evidence">
+    <div className="diff-review-section-head"><h3>Verification</h3><button className="btn btn-secondary btn-sm" disabled={checking||acting} onClick={()=>{checkArtifacts.current=true;setRefresh(value=>value+1)}}>Recheck evidence</button></div>
+    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><select className="input" aria-label="Project verification script" value={script} onChange={event=>setScript(event.target.value)} disabled={acting||!scripts.length}>{scripts.map(script=><option key={script}>{script}</option>)}</select><button className="btn btn-secondary btn-sm" disabled={acting||!script} onClick={()=>void act(()=>window.donwells.verificationRun(workspacePath,script))}>Run script</button></div>
+    {checking&&<p role="status">Checking source…</p>}{error&&<p role="alert">{error}</p>}
+    {!entries.length&&!checking&&<p>No recorded verification runs for this checkout.</p>}
+    {entries.map(entry=><details key={entry.task.id} className="diff-review-context">
+      <summary>Command {entry.task.status} · source {checking?'checking':entry.sourceState}</summary>
+      <p>Exit {entry.task.exitCode??'unknown'} · {entry.task.finishedAt??entry.task.startedAt??'not started'}</p>
+      <details><summary>Command and source details</summary><p>{entry.task.command}</p><p>Checkout: {entry.task.target.root}</p>
+      {entry.task.verification?.problem&&<p>{entry.task.verification.problem}</p>}
+      <pre>{JSON.stringify({before:entry.task.verification?.before,after:entry.task.verification?.after,tools:entry.task.verification?.toolVersions,environment:entry.task.verification?.environment},null,2)}</pre></details>
+      {entry.sourceState==='running'&&<button className="btn btn-secondary btn-sm" onClick={()=>void act(()=>window.donwells.parallelRunCancel(entry.runId))}>Stop verification</button>}
+      <pre>{entry.task.output||entry.task.error||'No command output recorded.'}</pre>
+      <label>Artifact path<input className="input" value={artifact} onChange={event=>setArtifact(event.target.value)} placeholder="Absolute build output or browser trace path"/></label>
+      <button className="btn btn-secondary btn-sm" disabled={acting||!artifact.trim()} onClick={()=>void act(()=>window.donwells.verificationAttach(workspacePath,entry.runId,entry.task.id,artifact.trim()))}>Attach reference</button>
+      {entry.artifacts.map(file=><div key={file.path}><p>{file.path} · {file.state==='unchecked'?'bytes not rechecked':file.state}</p><code style={{overflowWrap:"anywhere"}}>{file.sha256}</code><p>{file.bytes} bytes · attached reference; producer not verified</p></div>)}
+    </details>)}
+  </section>
+}
+
 export function DiffReviewPanel({
+  workspacePath,
   id,
   snapshot,
   selection,
@@ -130,6 +166,7 @@ export function DiffReviewPanel({
   onRetry,
   onClose
 }: {
+  workspacePath: string
   id: string
   snapshot: DiffReviewSnapshotIdentity
   selection: DiffReviewSelection | null
@@ -203,6 +240,7 @@ export function DiffReviewPanel({
         <button type="button" className="icon-btn" aria-label="Close review notes" title="Close review notes" onClick={onClose}>×</button>
       </header>
 
+      <VerificationPanel key={workspacePath} workspacePath={workspacePath} sourceVersion={JSON.stringify(snapshot)} />
       <section className="diff-review-range" aria-labelledby={rangeTitleId}>
         <div className="diff-review-section-head">
           <h3 id={rangeTitleId}>Line range</h3>

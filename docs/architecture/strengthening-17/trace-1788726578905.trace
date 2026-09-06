@@ -1,0 +1,31 @@
+{"version":9,"type":"context-options","origin":"library","browserName":"chromium","playwrightVersion":"1.63.0-alpha-2026-08-31","options":{"noDefaultViewport":false,"viewport":{"width":1280,"height":800},"selectorEngines":[],"acceptDownloads":"accept"},"platform":"darwin","wallTime":1788726578906,"monotonicTime":882.667,"sdkLanguage":"javascript","testIdAttributeName":"data-testid"}
+{"type":"event","time":882.734,"class":"BrowserContext","method":"page","params":{"pageId":"page@69ea382ebe6c7bb343be03ea8819dcf8"}}
+{"type":"before","callId":"call@29","startTime":885.268,"class":"Frame","method":"title","params":{}}
+{"type":"after","callId":"call@29","endTime":885.57,"result":{"value":""}}
+{"type":"before","callId":"call@31","startTime":885.711,"class":"Page","method":"consoleMessages","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@31","endTime":885.729,"result":{"messages":[]}}
+{"type":"before","callId":"call@33","startTime":885.807,"class":"Page","method":"pageErrors","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@33","endTime":885.822,"result":{"errors":[]}}
+{"type":"before","callId":"call@35","startTime":887.96,"class":"Frame","method":"ariaSnapshot","params":{"mode":"ai","boxes":true,"timeout":30000}}
+{"type":"after","callId":"call@35","endTime":888.76,"result":{"snapshot":"- generic [active] [ref=e1] [box=8,8,1264,776]:\n  - heading \"Verification fixture\" [level=1] [ref=e2] [box=8,8,1264,37]\n  - paragraph [ref=e3] [box=8,66,1264,18]: Current artifact reference"}}
+{"type":"before","callId":"call@37","startTime":888.99,"class":"Frame","method":"title","params":{}}
+{"type":"after","callId":"call@37","endTime":889.198,"result":{"value":""}}
+{"type":"before","callId":"call@39","startTime":889.293,"class":"Page","method":"consoleMessages","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@39","endTime":889.305,"result":{"messages":[]}}
+{"type":"before","callId":"call@41","startTime":889.369,"class":"Page","method":"pageErrors","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@41","endTime":889.378,"result":{"errors":[]}}
+{"type":"before","callId":"call@43","startTime":891.169,"class":"Page","method":"screenshot","params":{"type":"png","scale":"css","timeout":5000}}
+{"type":"frame-snapshot","snapshot":{"callId":"call@43","phase":"before","pageId":"page@69ea382ebe6c7bb343be03ea8819dcf8","frameId":"frame@8cdf51a3ad75eb0a48332a0e1eb3faf4","frameUrl":"http://127.0.0.1:63414/","html":["HTML",{},["HEAD",{},["BASE",{"href":"http://127.0.0.1:63414/"}]],["BODY",{},["H1",{},"Verification fixture"],["P",{},"Current artifact reference"]]],"viewport":{"width":1280,"height":800},"timestamp":893.114,"wallTime":1788726578916,"collectionTime":0.3999999761581421,"resourceOverrides":[],"isMainFrame":true}}
+{"type":"log","callId":"call@43","time":893.546,"message":"taking page screenshot"}
+{"type":"log","callId":"call@43","time":894.149,"message":"waiting for fonts to load..."}
+{"type":"log","callId":"call@43","time":894.629,"message":"fonts loaded"}
+{"type":"screencast-frame","pageId":"page@69ea382ebe6c7bb343be03ea8819dcf8","file":"screencast/page@69ea382ebe6c7bb343be03ea8819dcf8-1788726579024.jpeg","width":1280,"height":800,"timestamp":1000.705,"frameSwapWallTime":1788726579022.5488}
+{"type":"screencast-frame","pageId":"page@69ea382ebe6c7bb343be03ea8819dcf8","file":"screencast/page@69ea382ebe6c7bb343be03ea8819dcf8-1788726579024.jpeg","width":1280,"height":800,"timestamp":1000.867,"frameSwapWallTime":1788726579023.158}
+{"type":"after","callId":"call@43","endTime":1006.144,"result":{"binary":"<Buffer>"}}
+{"type":"frame-snapshot","snapshot":{"callId":"call@43","phase":"after","pageId":"page@69ea382ebe6c7bb343be03ea8819dcf8","frameId":"frame@8cdf51a3ad75eb0a48332a0e1eb3faf4","frameUrl":"http://127.0.0.1:63414/","html":[[1,7]],"viewport":{"width":1280,"height":800},"timestamp":1006.525,"wallTime":1788726579029,"collectionTime":0.10000002384185791,"resourceOverrides":[],"isMainFrame":true}}
+{"type":"before","callId":"call@45","startTime":1007.094,"class":"Frame","method":"title","params":{}}
+{"type":"after","callId":"call@45","endTime":1007.322,"result":{"value":""}}
+{"type":"before","callId":"call@47","startTime":1007.43,"class":"Page","method":"consoleMessages","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@47","endTime":1007.446,"result":{"messages":[]}}
+{"type":"before","callId":"call@49","startTime":1007.523,"class":"Page","method":"pageErrors","params":{"filter":"since-navigation"}}
+{"type":"after","callId":"call@49","endTime":1007.539,"result":{"errors":[]}}

@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 17 active — review, verification and artifact evidence.** Tasks 01, 03–16 and 27 are strengthened. Task 02 remains skipped. Tasks 17–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 18 active — tasks, shared-checkout coordination and Lazygit.** Tasks 01, 03–17 and 27 are strengthened. Task 02 remains skipped. Tasks 18–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -331,12 +331,14 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes existing run/diff records and tool result artifacts. Produces revision-bound verification evidence visible alongside changed files.
 
-- [ ] **Step 1:** Expose run/test/build using existing package scripts and process execution, with explicit cwd. Attach command, environment/tool versions without secrets, source fingerprint, exit status, timestamps and artifact hashes using existing run storage. Fingerprint tracked, dirty and relevant untracked inputs plus lockfiles/configuration, not only HEAD; record inputs before and after execution and mark changed-during-run results uncertain.
-- [ ] **Step 2:** Link local build outputs to the same task; attach and qualify browser traces/screenshots once Task 15 is ready. Distinguish agent completion, test success, human review, packaged artifact and published state.
-- [ ] **Step 3:** Mark evidence stale after relevant source edits. Re-run requests target the current checkout; do not replay from an old cwd silently.
-- [ ] **Step 4:** Test missing artifacts, changed revision, killed tests, unknown exit, moved worktree and invalid artifact paths. Review images/logs as untrusted output.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/verification-evidence.test.ts tests/diff-review.test.ts tests/execution-lifecycle.test.ts`; complete fixture fix→review→replay.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Expose run/test/build using existing package scripts and process execution, with explicit cwd. Attach command, environment/tool versions without secrets, source fingerprint, exit status, timestamps and artifact hashes using existing run storage. Fingerprint tracked, dirty and relevant untracked inputs plus lockfiles/configuration, not only HEAD; record inputs before and after execution and mark changed-during-run results uncertain.
+- [x] **Step 2:** Link local build outputs to the same task; attach and qualify browser traces/screenshots once Task 15 is ready. Distinguish agent completion, test success, human review, packaged artifact and published state.
+- [x] **Step 3:** Mark evidence stale after relevant source edits. Re-run requests target the current checkout; do not replay from an old cwd silently.
+- [x] **Step 4:** Test missing artifacts, changed revision, killed tests, unknown exit, moved worktree and invalid artifact paths. Review images/logs as untrusted output.
+- [x] **Verification:** Run `pnpm exec vitest run tests/verification-evidence.test.ts tests/diff-review.test.ts tests/execution-lifecycle.test.ts`; complete fixture fix→review→replay.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+
+**Strengthening evidence:** [Task 17 qualification](../../architecture/strengthening-17/README.md).
 
 **Rollback:** Keep existing diff annotations and results readable if optional traces are unavailable.
 

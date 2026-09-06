@@ -79,7 +79,22 @@ export type ParallelRunStatus =
   | 'cancelling'
   | 'cancelled'
 
+export type VerificationSource = { sourceRevision: string | null; contentFingerprint: string; changedFiles: string[] }
+export type VerificationArtifact = { path: string; sha256: string; bytes: number; attachedAt: string; sourceFingerprint: string | null; relationship: 'attached-reference' }
+export type VerificationEvidence = {
+  before: VerificationSource | null
+  after: VerificationSource | null
+  startedAt: string
+  finishedAt?: string
+  environment: { platform: string; arch: string; hostNode: string; hostElectron?: string }
+  toolVersions: Record<string,string>
+  problem?: string
+  artifacts: VerificationArtifact[]
+}
+export type VerificationEntry = { runId: string; task: ParallelRunTask; sourceState: 'current' | 'stale' | 'changed-during-run' | 'unverified' | 'running'; artifacts: Array<VerificationArtifact & {state:'unchecked'|'unchanged'|'changed'|'missing'}> }
+
 export type ParallelRunTask = {
+  verification?: VerificationEvidence
   id: string
   target: OperationalTarget
   command: string
@@ -121,6 +136,11 @@ export type FiniteJobInspection = {
 
 /** Canonical renderer/preload/main contract for operational runs. */
 export type OperationalRunsApi = {
+  verificationScripts(workspacePath: string): Promise<string[]>
+  verificationRun(workspacePath: string, script: string): Promise<ParallelRun>
+  verificationList(workspacePath: string, verifyArtifacts?: boolean): Promise<VerificationEntry[]>
+  verificationAttach(workspacePath: string, runId: string, taskId: string, path: string): Promise<VerificationArtifact>
+
   scheduledRunsList(): Promise<ScheduledRunDefinition[]>
   scheduledRunSave(input: ScheduledRunInput): Promise<ScheduledRunDefinition>
   scheduledRunSetEnabled(id: string, enabled: boolean): Promise<ScheduledRunDefinition>
@@ -422,7 +442,8 @@ export function parseParallelRunTask(value: unknown, field = 'task'): ParallelRu
     exitCode: optionalInteger(source.exitCode, `${field}.exitCode`),
     error: optionalString(source.error, `${field}.error`, OPERATIONAL_ERROR_LIMIT),
     output: optionalText(source.output, `${field}.output`, OPERATIONAL_OUTPUT_LIMIT),
-    retryOfTaskId: optionalString(source.retryOfTaskId, `${field}.retryOfTaskId`, 256)
+    retryOfTaskId: optionalString(source.retryOfTaskId, `${field}.retryOfTaskId`, 256),
+    verification: source.verification===undefined?undefined:parseVerificationEvidence(source.verification)
   }
 }
 
@@ -493,4 +514,19 @@ export function parseParallelRunsDocument(value: unknown): ParallelRunsDocument 
     schemaVersion: 1,
     parallelRuns: source.parallelRuns.map((item, index) => parseParallelRun(item, `parallelRuns[${index}]`))
   }
+}
+
+export function parseVerificationEvidence(value: unknown): VerificationEvidence {
+  const input=record(value,'verification')
+  const hash=(value:unknown,prefix='')=>{const parsed=stringValue(value,'fingerprint',80);if(!new RegExp('^'+prefix+'[a-f0-9]{64}$').test(parsed))throw new Error('Invalid evidence fingerprint');return parsed}
+  const source=(value:unknown):VerificationSource|null=>{
+    if(value===null)return null
+    const input=record(value,'source')
+    if(!Array.isArray(input.changedFiles)||input.changedFiles.length>200)throw new Error('Invalid changed source files')
+    return {sourceRevision:input.sourceRevision===null?null:stringValue(input.sourceRevision,'revision',128),contentFingerprint:hash(input.contentFingerprint,'sha256:'),changedFiles:input.changedFiles.map(path=>stringValue(path,'path',4096))}
+  }
+  const environment=record(input.environment,'environment'),versions=record(input.toolVersions,'versions'),toolVersions:Record<string,string>={}
+  for(const [name,version] of Object.entries(versions)){if(!['node','npm','pnpm','yarn','bun'].includes(name))throw new Error('Unknown tool version');toolVersions[name]=stringValue(version,'version',128)}
+  if(!Array.isArray(input.artifacts)||input.artifacts.length>16)throw new Error('Too many verification artifacts')
+  return {before:source(input.before),after:source(input.after),startedAt:isoDate(input.startedAt,'startedAt'),finishedAt:optionalIsoDate(input.finishedAt,'finishedAt'),environment:{platform:stringValue(environment.platform,'platform',32),arch:stringValue(environment.arch,'arch',32),hostNode:stringValue(environment.hostNode,'hostNode',128),hostElectron:optionalString(environment.hostElectron,'hostElectron',128)},toolVersions,problem:optionalString(input.problem,'problem',2048),artifacts:input.artifacts.map(value=>{const artifact=record(value,'artifact');if(artifact.relationship!=='attached-reference')throw new Error('Invalid artifact relationship');return {path:stringValue(artifact.path,'path',4096),sha256:hash(artifact.sha256),bytes:integer(artifact.bytes,'bytes',0,512*1024*1024),attachedAt:isoDate(artifact.attachedAt,'attachedAt'),sourceFingerprint:artifact.sourceFingerprint===null?null:hash(artifact.sourceFingerprint,'sha256:'),relationship:'attached-reference'}})}
 }

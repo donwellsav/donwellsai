@@ -500,6 +500,7 @@ export function DiffPane({
 
         {reviewOpen && loaded && (
           <DiffReviewPanel
+            workspacePath={worktreePath}
             id={reviewPanelId}
             snapshot={loaded.snapshot}
             selection={selection}

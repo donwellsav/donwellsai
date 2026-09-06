@@ -36,7 +36,7 @@ function quotePosix(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-function shellCommand(args: readonly string[], platform: NodeJS.Platform): string {
+export function shellCommand(args: readonly string[], platform: NodeJS.Platform): string {
   if (args.length === 0) throw new Error('agent hook command is empty')
   return args
     .map((argument) => platform === 'win32' ? quoteWindowsCmdArgument(argument) : quotePosix(argument))
