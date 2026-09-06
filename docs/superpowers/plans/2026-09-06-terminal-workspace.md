@@ -486,14 +486,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes admitted component records and live service status. Produces project enable/install/disable/status and actionable diagnosis.
 
-- [ ] **Step 1:** List only integrated capabilities by default, with exact version, source, access scope, installation size and model requirements. Registry discovery does not execute installations.
-- [ ] **Step 2:** Generate reversible native configuration changes with backup/diff. Protect user edits and redact credentials from diagnosis/export.
-- [ ] **Step 3:** Add pause/resume indexing, stop service and retry readiness actions. Show provider usage only when known, estimates labeled, and native CLI auth unchanged.
-- [ ] **Step 4:** Test missing binary, wrong version, corrupt config, port collision, disk shortage, no network and revoked permissions. A repair action must recheck the actual failed operation.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-doctor.test.ts tests/skill-packages.test.ts tests/secret-store.test.ts tests/settings-workspace.test.ts`.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** List only integrated capabilities by default, with exact version, source, access scope, installation size and model requirements. Registry discovery does not execute installations.
+- [x] **Step 2:** Generate reversible native configuration changes with backup/diff. Protect user edits and redact credentials from diagnosis/export.
+- [x] **Step 3:** Add pause/resume indexing, stop service and retry readiness actions. Show provider usage only when known, estimates labeled, and native CLI auth unchanged.
+- [x] **Step 4:** Test missing binary, wrong version, corrupt config, port collision, disk shortage, no network and revoked permissions. A repair action must recheck the actual failed operation.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-doctor.test.ts tests/skill-packages.test.ts tests/secret-store.test.ts tests/settings-workspace.test.ts`.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable a project tool without uninstalling shared user software or deleting its data.
+
+**Strengthening evidence:** [Task 19 qualification](../../architecture/strengthening-19/README.md).
 
 ### Task 20: Portable project kit and backup/restore
 
@@ -696,7 +698,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 19 active — tool catalog, setup doctor and resource controls.** Tasks 01, 03–18 and 27 are strengthened. Task 02 remains skipped. Tasks 19–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 20 active — portable project kit and backup/restore.** Tasks 01, 03–19 and 27 are strengthened. Task 02 remains skipped. Tasks 20–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

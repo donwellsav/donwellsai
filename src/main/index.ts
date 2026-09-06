@@ -570,6 +570,7 @@ app.whenReady().then(() => {
     ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph', createHash('sha256').update(projectPath).digest('hex')), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
   ], join(app.getPath('userData'), 'project-tools', 'history'))
+  ipcMain.handle('projectDoctorPreviewBackup', (_e, path: string, name: string) => projectTools!.previewBackup(path, name))
   ipcMain.handle('projectDoctorInspect', (_e, path: string) => projectTools!.inspect(path))
   ipcMain.handle('projectDoctorConfigure', (_e, path: string, config: unknown, revision: string | null) => projectTools!.configure(path, config, revision))
   ipcMain.handle('projectDoctorRetry', (_e, path: string, id: string) => projectTools!.retry(path, id))

@@ -1,0 +1,385 @@
+{
+  "source": {
+    "commit": "d815061f12e46d5dec1dccb8ba4c4bd58614f739",
+    "dirty": true,
+    "contentHash": "c02e1a7473585d0c2e31297658f93043af2fb6e96aadc1c8fb68eee607b016b9"
+  },
+  "artifactSha256": "36582ce88b1936e3bce7359590543c909ca6f9f2c65ea05d8c1f006081370125",
+  "project": "/private/tmp/donwells-strengthen-19-complete-profile/fixture",
+  "nativeGraphReady": {
+    "id": "code-graph",
+    "status": "ready",
+    "version": "0.10.8",
+    "detail": null
+  },
+  "configured": {
+    "workspacePath": "/private/tmp/donwells-strengthen-19-complete-profile/fixture",
+    "configuration": {
+      "referenceRoots": [],
+      "disabled": [
+        "code-graph"
+      ],
+      "codeGraphBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/codebase-memory-0.10.8/codebase-memory-mcp",
+      "backlogBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/backlog-1.51.0/native/package/backlog",
+      "qmdPackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qmd-2.8.3/node_modules/@tobilu/qmd",
+      "lancePackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/lancedb-0.38.0/node_modules/@lancedb/lancedb"
+    },
+    "revision": "sha256:1d4082a022ef4275949924c582b0ee2d09d69215d2f045d51615cdf86ec12ef5",
+    "configurationPath": "/private/tmp/donwells-strengthen-19-complete-profile/project-tools/configuration/ae4528471920d5d6ca24e3f5323b951ac9851d48b0526618546c1e8c3ec261c4/tools.json",
+    "configurationValid": true,
+    "backups": [
+      {
+        "name": "tools-backup-84255415-4da2-497d-be63-f04c73334e72.json",
+        "createdAt": "2026-09-06T22:00:39.052Z"
+      },
+      {
+        "name": "tools-backup-11b54575-56cf-46a0-8183-950eb2d3fe63.json",
+        "createdAt": "2026-09-06T22:00:38.819Z"
+      },
+      {
+        "name": "tools-backup-4a11abb8-4c79-4d25-bd25-709a5ec13407.json",
+        "createdAt": "2026-09-06T22:00:38.252Z"
+      },
+      {
+        "name": "tools-backup-756ca495-99a8-4771-9c8b-466f167af84c.json",
+        "createdAt": "2026-09-06T22:00:32.318Z"
+      },
+      {
+        "name": "tools-backup-75797ae2-9105-41f3-97c1-821ce2e386ec.json",
+        "createdAt": "2026-09-06T22:00:32.173Z"
+      },
+      {
+        "name": "tools-backup-ed178753-c8da-4b2e-a4f0-18acfb25f30f.json",
+        "createdAt": "2026-09-06T22:00:24.752Z"
+      }
+    ],
+    "problem": null,
+    "resources": [
+      {
+        "field": "codeGraphBinary",
+        "bytes": 297185328,
+        "sizeKind": "file",
+        "problem": null
+      },
+      {
+        "field": "backlogBinary",
+        "bytes": 70793954,
+        "sizeKind": "file",
+        "problem": null
+      },
+      {
+        "field": "qmdPackage",
+        "bytes": 914522,
+        "sizeKind": "directory",
+        "problem": null
+      },
+      {
+        "field": "lancePackage",
+        "bytes": 1409585,
+        "sizeKind": "directory",
+        "problem": null
+      }
+    ],
+    "availableDiskBytes": 558542184448,
+    "services": [
+      {
+        "id": "documents",
+        "status": "stopped",
+        "version": null,
+        "detail": null
+      }
+    ]
+  },
+  "backups": [
+    "tools-backup-756ca495-99a8-4771-9c8b-466f167af84c.json",
+    "tools-backup-75797ae2-9105-41f3-97c1-821ce2e386ec.json",
+    "tools-backup-ed178753-c8da-4b2e-a4f0-18acfb25f30f.json"
+  ],
+  "resumed": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"phase\":\"ready\",\"job\":\"91ac47df-8742-439a-91d8-8872087e5d70\",\"completed\":0,\"total\":2200,\"skipped\":0,\"error\":null,\"mode\":\"lexical\",\"modelBytes\":0,\"roots\":[{\"collection\":\"45ae7f3288b9a036e1ecac8eebff5e84ee77dd37c8e456a70004c1eedf5e4636\",\"path\":\"/private/tmp/donwells-strengthen-19-complete-profile/fixture\",\"shared\":false}],\"modelSharing\":\"One model instance per active checkout service; stopping the service releases it.\"}"
+      }
+    ],
+    "structuredContent": {
+      "phase": "ready",
+      "job": "91ac47df-8742-439a-91d8-8872087e5d70",
+      "completed": 0,
+      "total": 2200,
+      "skipped": 0,
+      "error": null,
+      "mode": "lexical",
+      "modelBytes": 0,
+      "roots": [
+        {
+          "collection": "45ae7f3288b9a036e1ecac8eebff5e84ee77dd37c8e456a70004c1eedf5e4636",
+          "path": "/private/tmp/donwells-strengthen-19-complete-profile/fixture",
+          "shared": false
+        }
+      ],
+      "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+    }
+  },
+  "pollingDidNotRestart": true,
+  "nativeTasks": {
+    "authority": "backlog.md",
+    "tools": [
+      {
+        "id": "lazygit",
+        "version": "0.62.2",
+        "available": true,
+        "path": "/opt/homebrew/Cellar/lazygit/0.62.2/bin/lazygit"
+      },
+      {
+        "id": "backlog",
+        "version": "1.51.0",
+        "available": true,
+        "path": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/backlog-1.51.0/native/package/backlog"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "TASK-1",
+        "title": "Native configured task",
+        "status": "To Do"
+      }
+    ]
+  },
+  "corruptConfigurationRepaired": true,
+  "afterRestart": {
+    "workspacePath": "/private/tmp/donwells-strengthen-19-complete-profile/fixture",
+    "configuration": {
+      "referenceRoots": [],
+      "disabled": [
+        "code-graph"
+      ],
+      "codeGraphBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/codebase-memory-0.10.8/codebase-memory-mcp",
+      "backlogBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/backlog-1.51.0/native/package/backlog",
+      "qmdPackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qmd-2.8.3/node_modules/@tobilu/qmd",
+      "lancePackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/lancedb-0.38.0/node_modules/@lancedb/lancedb"
+    },
+    "revision": "sha256:1d4082a022ef4275949924c582b0ee2d09d69215d2f045d51615cdf86ec12ef5",
+    "configurationPath": "/private/tmp/donwells-strengthen-19-complete-profile/project-tools/configuration/ae4528471920d5d6ca24e3f5323b951ac9851d48b0526618546c1e8c3ec261c4/tools.json",
+    "configurationValid": true,
+    "backups": [
+      {
+        "name": "tools-backup-84255415-4da2-497d-be63-f04c73334e72.json",
+        "createdAt": "2026-09-06T22:00:39.052Z"
+      },
+      {
+        "name": "tools-backup-11b54575-56cf-46a0-8183-950eb2d3fe63.json",
+        "createdAt": "2026-09-06T22:00:38.819Z"
+      },
+      {
+        "name": "tools-backup-4a11abb8-4c79-4d25-bd25-709a5ec13407.json",
+        "createdAt": "2026-09-06T22:00:38.252Z"
+      },
+      {
+        "name": "tools-backup-756ca495-99a8-4771-9c8b-466f167af84c.json",
+        "createdAt": "2026-09-06T22:00:32.318Z"
+      },
+      {
+        "name": "tools-backup-75797ae2-9105-41f3-97c1-821ce2e386ec.json",
+        "createdAt": "2026-09-06T22:00:32.173Z"
+      },
+      {
+        "name": "tools-backup-ed178753-c8da-4b2e-a4f0-18acfb25f30f.json",
+        "createdAt": "2026-09-06T22:00:24.752Z"
+      }
+    ],
+    "problem": null,
+    "resources": [
+      {
+        "field": "codeGraphBinary",
+        "bytes": 297185328,
+        "sizeKind": "file",
+        "problem": null
+      },
+      {
+        "field": "backlogBinary",
+        "bytes": 70793954,
+        "sizeKind": "file",
+        "problem": null
+      },
+      {
+        "field": "qmdPackage",
+        "bytes": 914522,
+        "sizeKind": "directory",
+        "problem": null
+      },
+      {
+        "field": "lancePackage",
+        "bytes": 1409585,
+        "sizeKind": "directory",
+        "problem": null
+      }
+    ],
+    "availableDiskBytes": 558565965824,
+    "services": [
+      {
+        "id": "documents",
+        "status": "stopped",
+        "version": null,
+        "detail": null
+      }
+    ]
+  },
+  "nativeHistory": {
+    "hits": [
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:3",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking what verification token they asked for earlier. Looking at the conversation history, the previous message said: \"Reply exactly HISTORY_ORNITH_27. Do not use tools.\"\n\nSo the token is HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 4,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:1",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user wants me to reply exactly \"HISTORY_ORNITH_27\" and not use tools.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 2,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:7",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. It's HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 8,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:9",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. It's HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 10,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:5",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. In the conversation history, I was asked to reply exactly \"HISTORY_ORNITH_27\". That's the token.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 6,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:0",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "Reply exactly HISTORY_ORNITH_27. Do not use tools.",
+        "path": null,
+        "line": 1,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      }
+    ],
+    "truncated": false,
+    "capabilities": {
+      "omp": "Nested native sessions; explicit session resume",
+      "deepseek-harness": "Native compressed UUID sessions; explicit TUI resume",
+      "hermes": "Unavailable: AgentsView 0.42.0 omits the native working directory",
+      "kimi": "Unavailable: this Kimi wire format does not expose cwd to AgentsView 0.42.0"
+    }
+  },
+  "historyScoped": true,
+  "retainedHistory": {
+    "hits": [
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:3",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking what verification token they asked for earlier. Looking at the conversation history, the previous message said: \"Reply exactly HISTORY_ORNITH_27. Do not use tools.\"\n\nSo the token is HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 4,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:1",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user wants me to reply exactly \"HISTORY_ORNITH_27\" and not use tools.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 2,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:7",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. It's HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 8,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:9",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. It's HISTORY_ORNITH_27.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 10,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:5",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "[Thinking]\n\nThe user is asking about the verification token from earlier. In the conversation history, I was asked to reply exactly \"HISTORY_ORNITH_27\". That's the token.\n\n[/Thinking]\n\n\nHISTORY_ORNITH_27",
+        "path": null,
+        "line": 6,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      },
+      {
+        "source": "session",
+        "id": "session:622fb3b1d75d99f892a2eb7a9bdbb84194992046c8f902229b64032817b6dad8:omp%3A01a077e9-7a37-7078-bc5d-ae9b5e08bfbf:0",
+        "title": "omp · Retrieve Earlier Verification Token",
+        "excerpt": "Reply exactly HISTORY_ORNITH_27. Do not use tools.",
+        "path": null,
+        "line": 1,
+        "revision": "1",
+        "indexedAt": "2026-09-06T22:00:40.953Z",
+        "stale": false
+      }
+    ],
+    "truncated": false,
+    "capabilities": {
+      "omp": "Nested native sessions; explicit session resume",
+      "deepseek-harness": "Native compressed UUID sessions; explicit TUI resume",
+      "hermes": "Unavailable: AgentsView 0.42.0 omits the native working directory",
+      "kimi": "Unavailable: this Kimi wire format does not expose cwd to AgentsView 0.42.0"
+    }
+  },
+  "verified": true,
+  "idleDaemonStopped": true
+}

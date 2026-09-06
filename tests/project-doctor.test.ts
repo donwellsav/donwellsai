@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorktreeFiles } from '../src/main/worktree-files'
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { ProjectDoctor } from '../src/main/project-doctor'
-import { parseProjectToolConfiguration } from '../src/shared/project-doctor'
+import { ProjectDoctor, measureProjectToolPath } from '../src/main/project-doctor'
+import { parseProjectToolConfiguration, projectDoctorDiagnostics } from '../src/shared/project-doctor'
 
 const roots: string[] = [], doctors: ProjectDoctor[] = []
 afterEach(async () => { await Promise.all(doctors.splice(0).map(doctor => doctor.close())); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -115,14 +115,17 @@ it('waits for an in-flight configuration write before shutdown completes', async
 
 it.skipIf(!process.env.DONWELLS_HISTORY_BINARY)('configures native history, retains its archive on disable and restores the selected roots after restart', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'doctor-native-history-'))); roots.push(root)
-  const project = await realpath('/tmp/donwells-strengthen-27-native/project')
+  const project = await realpath('/tmp/donwells-strengthen-27-native/project'), foreign = join(root, 'foreign-project')
+  await mkdir(foreign)
   const create = () => {
-    const doctor = new ProjectDoctor(root, async path => { const canonical = await realpath(path); if (canonical !== project) throw new Error('Unregistered'); return { path: canonical, projectPath: project } }, () => ({ referenceRoots: [], disabled: [] }), () => [])
+    const doctor = new ProjectDoctor(root, async path => { const canonical = await realpath(path); if (![project, foreign].includes(canonical)) throw new Error('Unregistered'); return { path: canonical, projectPath: canonical } }, () => ({ referenceRoots: [], disabled: [] }), () => [])
     doctors.push(doctor); return doctor
   }
   const doctor = create(), initial = await doctor.inspect(project)
   const selected = await doctor.configure(project, { ...initial.configuration, historyBinary: process.env.DONWELLS_HISTORY_BINARY, historyOmpRoots: ['/tmp/donwells-strengthen-27-native'], historyDshRoots: ['/tmp/donwells-strengthen-09-dsh-ornith-home/sessions'] }, null)
-  await doctor.historyIndex(project)
+  await doctor.configure(foreign, selected.configuration, null)
+  await Promise.all([doctor.historyIndex(project), doctor.historyIndex(foreign)])
+  expect((await doctor.historySearch(foreign, 'HISTORY_ORNITH_27')).hits).toEqual([])
   expect((await doctor.historySearch(project, 'HISTORY_ORNITH_27')).hits.length).toBeGreaterThan(0)
   expect((await doctor.historySearch(project, 'HISTORY_DSH_27')).hits.length).toBeGreaterThan(0)
   const disabled = await doctor.configure(project, { ...selected.configuration, disabled: ['history'] }, selected.revision)
@@ -141,4 +144,53 @@ it('refuses a non-admitted history executable before running it', async () => {
   await f.doctor.configure(f.project, { ...report.configuration, historyBinary: process.execPath }, null)
   await expect(f.doctor.historyIndex(f.project)).rejects.toThrow('admitted AgentsView')
   await f.doctor.stop(f.project, 'history')
+})
+
+it('previews a confined backup, repairs corrupt JSON with a revision check and preserves the damaged bytes', async () => {
+  const f = await fixture(), initial = await f.doctor.inspect(f.project)
+  const first = await f.doctor.configure(f.project, { ...initial.configuration, codeGraphBinary: '/saved/tool' }, null)
+  const next = await f.doctor.configure(f.project, { ...first.configuration, disabled: ['documents'] }, first.revision)
+  const backup = next.backups[0]!.name
+  expect(await f.doctor.previewBackup(f.project, backup)).toEqual(first.configuration)
+  await expect(f.doctor.previewBackup(f.other, backup)).rejects.toThrow('no longer exists')
+  await expect(f.doctor.previewBackup(f.project, '../tools.json')).rejects.toThrow('Invalid')
+  const damaged = '{"token":"never-print-this", broken'
+  await writeFile(first.configurationPath, damaged)
+  const corrupt = await f.doctor.inspect(f.project)
+  expect(corrupt.configurationValid).toBe(false)
+  expect(corrupt.revision).toBeTruthy()
+  await expect(f.doctor.start(f.project, 'documents')).rejects.not.toThrow('never-print-this')
+  const restored = await f.doctor.configure(f.project, await f.doctor.previewBackup(f.project, backup), corrupt.revision)
+  expect(restored.configuration).toEqual(first.configuration)
+  expect(restored.configurationValid).toBe(true)
+  const backups = await Promise.all(restored.backups.map(({ name }) => readFile(join(first.configurationPath, '..', name), 'utf8')))
+  expect(backups).toContain(damaged)
+  const damagedName = restored.backups[backups.indexOf(damaged)]!.name
+  await expect(f.doctor.previewBackup(f.project, damagedName)).rejects.toThrow('invalid configuration')
+})
+
+it('exports diagnostic facts without native output, paths or credential-shaped text', async () => {
+  const f = await fixture(), report = await f.doctor.inspect(f.project)
+  const exported = projectDoctorDiagnostics({ ...report, problem: 'api_key=private-secret', configuration: { ...report.configuration, codeGraphBinary: '/private-secret/path' }, services: [{ id: 'documents', status: 'failed', version: null, detail: 'Bearer private-secret' }], resources: [{ field: 'codeGraphBinary', bytes: null, problem: 'private-secret' }] })
+  expect(exported).not.toContain('private-secret')
+  expect(exported).not.toContain(f.root)
+  expect(JSON.parse(exported)).toMatchObject({ configurationNeedsAttention: true, resources: [{ field: 'codeGraphBinary', needsAttention: true }] })
+})
+
+it('measures selected package files without counting linked shared dependencies', async () => {
+  const f = await fixture(), directory = join(f.root, 'package')
+  await mkdir(directory); await writeFile(join(directory, 'index.js'), '12345')
+  await mkdir(join(directory, 'assets')); await writeFile(join(directory, 'assets', 'data'), '123')
+  await symlink(f.project, join(directory, 'shared-dependency'))
+  await writeFile(join(f.project, 'external'), 'do not count this')
+  expect(await measureProjectToolPath(directory)).toEqual({ bytes: 8, sizeKind: 'directory' })
+  expect(await measureProjectToolPath(join(directory, 'index.js'))).toEqual({ bytes: 5, sizeKind: 'file' })
+})
+
+it('does not treat a dangling configuration link as an absent configuration', async () => {
+  const f = await fixture(), report = await f.doctor.inspect(f.project)
+  await symlink(join(f.root, 'missing-config'), report.configurationPath)
+  expect((await f.doctor.inspect(f.project)).configurationValid).toBe(false)
+  await expect(f.doctor.start(f.project, 'documents')).rejects.toThrow()
+  await expect(readFile(f.counter)).rejects.toThrow()
 })

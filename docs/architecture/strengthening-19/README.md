@@ -1,4 +1,6 @@
-# Task 19 strengthening — in progress
+# Task 19 strengthening — complete
+
+Earlier implementation chunks below describe their status at that commit. The final qualification at the end closes this task.
 
 ## Index resource controls
 
@@ -90,3 +92,39 @@ weakened. Latest broader run: 43 passed, two optional native checks skipped in t
 run; the native history check had passed separately. Build/typecheck passed.
 
 Task 19 still remains active for the final catalog, repair and resource review.
+
+## Final qualification
+
+`complete-result.json` records the final built app, source fingerprint and ASAR
+hash. Verified: true; owned idle daemon stopped: true. The packaged app recovered
+corrupt configuration through a confined backup preview and revision-checked Apply,
+retained the damaged bytes in a new backup, and restored native tool configuration
+and history after restart. `repair-preview.png` was visually inspected: the actual
+before/after review is visible. Executable:
+`/tmp/donwells-strengthen-19-package-complete/mac-arm64/donwells.app/Contents/MacOS/donwells`.
+
+The catalog includes all six admitted integrations. Selected directory size counts
+regular files up to 10,000 entries and excludes linked/shared dependencies; larger
+or unreadable sizes are unknown. Diagnostic copy uses an allowlist excluding paths,
+native output, raw configuration and credentials. Native CLI authentication is unchanged.
+
+Failure qualification:
+
+- Missing executable: packaged Settings diagnosis, corrected path, native readiness retry.
+- Wrong/non-admitted executable: doctor and tool admission tests refuse execution.
+- Corrupt configuration: packaged backup repair, retained original bytes, stale revision and confined backup tests.
+- Port contention: two project history indexes run concurrently using native ephemeral ports; other MCP services use private pipes.
+- Disk shortage and denied writes: ENOSPC/EACCES at the real confined writer preserve the previous file; retry performs the actual write.
+- Revoked control permission: computer-control checks refuse the action before dispatch.
+- Offline: `offline-checks.txt` records external connections denied with EPERM and 46 passing native backend checks (one optional semantic model check skipped). Run with `sh tests/acceptance/project-tools-offline.sh` and admitted native package/binary environment paths.
+
+The macOS external test sandbox cannot nest Chromium's sandbox: a separate packaged
+offline attempt failed at Chromium startup. No security setting was disabled. This
+receipt proves backend offline behavior and normal packaged UI separately, not a
+fully offline packaged GUI session. Daily-driver/release qualification must retain
+that distinction.
+
+`focused-checks.txt`: 59 passed, two optional native checks skipped. Native history
+and concurrent project indexing then passed separately; final doctor tests include
+repair, diagnostic redaction, size accounting and dangling-link refusal. Typecheck,
+build and final packaged acceptance passed. Task 19 is complete.

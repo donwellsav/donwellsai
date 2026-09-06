@@ -1,11 +1,32 @@
 import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from './project-session-history'
 import { randomUUID } from 'node:crypto'
-import { mkdir, stat, statfs } from 'node:fs/promises'
+import { lstat, mkdir, opendir, readdir, realpath, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { WorktreeFiles } from './worktree-files'
 import { ProjectTools, resolveProjectToolScope, type ProjectToolDefinition } from './project-tools'
 import { PROJECT_TOOL_FIELDS, parseProjectToolConfiguration, type ProjectToolConfiguration, type ProjectDoctorReport } from '@shared/project-doctor'
 import { redactDesignCaptureSecrets } from '@shared/design-capture'
+
+export async function measureProjectToolPath(path: string): Promise<{ bytes: number; sizeKind: 'file' | 'directory' }> {
+  const root = await realpath(path), info = await stat(root)
+  if (info.isFile()) return { bytes: info.size, sizeKind: 'file' }
+  if (!info.isDirectory()) throw new Error('Not a regular file or directory')
+  let bytes = 0, entries = 0
+  const directories = [root]
+  // ponytail: inspect at most 10k entries; larger installs show unknown size instead of blocking Settings.
+  while (directories.length) {
+    const directory = directories.pop()!
+    if (await realpath(directory) !== directory) continue
+    for await (const entry of await opendir(directory)) {
+      if (++entries > 10000) throw new Error('Selected directory exceeds size inspection limit')
+      if (entry.isSymbolicLink()) continue
+      const target = join(entry.parentPath, entry.name)
+      if (entry.isDirectory()) directories.push(target)
+      else if (entry.isFile()) { const file = await lstat(target); if (file.isFile()) bytes += file.size }
+    }
+  }
+  return { bytes, sizeKind: 'directory' }
+}
 
 /** Project configuration routes to the existing MCP owners; changing it stops those owners first. */
 export class ProjectDoctor {
@@ -30,13 +51,26 @@ export class ProjectDoctor {
     return { ...scope, directory }
   }
 
+  private async snapshot(directory: string, name = 'tools.json') {
+    const exists = await lstat(join(directory, name)).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error })
+    if (!exists) return { revision: null, content: null }
+    const file = await this.files.readFile(directory, name)
+    if (file.binary || file.truncated || !file.revision || file.bytes > 65536) throw new Error('Project tool configuration is not bounded readable text')
+    return { revision: file.revision, content: file.content }
+  }
+
   private async read(directory: string, projectPath: string) {
-    // Read failures and corrupt content never silently revert to a working default.
-    const exists = await stat(join(directory, 'tools.json')).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error })
-    if (!exists) return { configuration: parseProjectToolConfiguration(this.defaults(projectPath)), revision: null, content: null }
-    const file = await this.files.readFile(directory, 'tools.json')
-    if (file.binary || file.truncated || !file.revision || file.bytes > 65536) throw new Error('Project tool configuration is not bounded readable JSON')
-    return { configuration: parseProjectToolConfiguration(JSON.parse(file.content)), revision: file.revision, content: file.content }
+    const snapshot = await this.snapshot(directory)
+    try { return { ...snapshot, configuration: snapshot.content === null ? parseProjectToolConfiguration(this.defaults(projectPath)) : parseProjectToolConfiguration(JSON.parse(snapshot.content)) } }
+    catch { throw new Error('Project tool configuration is invalid; repair it or review a saved backup') }
+  }
+
+  async previewBackup(path: string, name: string): Promise<ProjectToolConfiguration> {
+    if (typeof name !== 'string' || !/^tools-backup-[a-f0-9-]{36}\.json$/.test(name)) throw new Error('Invalid tool backup name')
+    const scope = await this.location(path), snapshot = await this.snapshot(scope.directory, name)
+    if (snapshot.content === null) throw new Error('Tool backup no longer exists')
+    try { return parseProjectToolConfiguration(JSON.parse(snapshot.content)) }
+    catch { throw new Error('Tool backup contains invalid configuration') }
   }
 
   private async owner(path: string): Promise<ProjectTools> {
@@ -65,16 +99,19 @@ export class ProjectDoctor {
   async inspect(path: string): Promise<ProjectDoctorReport> {
     const scope = await this.location(path)
     let configuration = parseProjectToolConfiguration(this.defaults(scope.projectPath)), revision: string | null = null, problem: string | null = null
-    try { ({ configuration, revision } = await this.read(scope.directory, scope.projectPath)) } catch { problem = 'Cannot read project tool configuration. Restore a valid backup or repair this file, then recheck.' }
+    let configurationValid = true
+    try { ({ configuration, revision } = await this.read(scope.directory, scope.projectPath)) } catch { configurationValid = false; revision = (await this.snapshot(scope.directory).catch(() => null))?.revision ?? null; problem = 'Cannot read project tool configuration. Restore a valid backup or repair this file, then recheck.' }
+    const backups = (await Promise.all((await readdir(scope.directory)).filter(name => /^tools-backup-[a-f0-9-]{36}\.json$/.test(name)).map(async name => ({ name, createdAt: await stat(join(scope.directory, name)).then(info => info.mtime.toISOString(), () => '') })))).filter(backup => backup.createdAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100)
     const resources = await Promise.all((Object.keys(PROJECT_TOOL_FIELDS) as Array<keyof typeof PROJECT_TOOL_FIELDS>).filter(field => configuration[field]).map(async field => {
-      try { const info = await stat(configuration[field]!); return { field, bytes: info.isFile() ? info.size : null, problem: info.isFile() || info.isDirectory() ? null : 'Not a regular file or directory' } }
+      try { return { field, ...await measureProjectToolPath(configuration[field]!), problem: null } }
       catch (error) { return { field, bytes: null, problem: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'Missing path' : 'Cannot access selected path' } }
     }))
     const availableDiskBytes = await statfs(scope.directory).then(info => info.bavail * info.bsize, () => null)
     let services: ProjectDoctorReport['services'] = []
     if (!problem) try { services = await (await this.owner(path)).list(path) } catch (error) { problem = redactDesignCaptureSecrets(String(error)) }
-    if (configuration.historyBinary && !configuration.disabled.includes('history')) services.push({ id: 'history', status: await this.histories.get(scope.projectKey)?.isIndexing(path).catch(() => false) ? 'starting' : 'stopped', version: SESSION_HISTORY_VERSION, detail: 'Finite native indexing job; Reindex verifies the selected binary and roots.' })
-    return { workspacePath: scope.projectPath, configuration, revision, configurationPath: join(scope.directory, 'tools.json'), problem, resources, availableDiskBytes,
+    if (problem && this.owners.has(scope.projectKey)) services = await (await this.owners.get(scope.projectKey)!).list(path).catch(() => [])
+    if (this.histories.has(scope.projectKey) || (configurationValid && configuration.historyBinary && !configuration.disabled.includes('history'))) services.push({ id: 'history', status: await this.histories.get(scope.projectKey)?.isIndexing(path).catch(() => false) ? 'starting' : 'stopped', version: SESSION_HISTORY_VERSION, detail: 'Finite native indexing job; Reindex verifies the selected binary and roots.' })
+    return { workspacePath: scope.projectPath, configuration, revision, configurationPath: join(scope.directory, 'tools.json'), configurationValid, backups, problem, resources, availableDiskBytes,
       services: services.map(service => ({ ...service, detail: service.detail ? redactDesignCaptureSecrets(service.detail) : null })) }
   }
 
@@ -84,7 +121,7 @@ export class ProjectDoctor {
     const settled = Promise.withResolvers<void>()
     this.changing.set(scope.projectKey, settled)
     try {
-      const current = await this.read(scope.directory, scope.projectPath)
+      const current = await this.snapshot(scope.directory)
       if (current.revision !== expectedRevision) throw new Error('Tool configuration changed; reload before applying')
       await Promise.all([(async () => (await this.owners.get(scope.projectKey))?.close())(), this.histories.get(scope.projectKey)?.close()])
       // Keep failed termination owners retained: their close must succeed before any replacement can launch.

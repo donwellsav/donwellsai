@@ -407,6 +407,7 @@ export type UiCommand =
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
 export type IpcApi = import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+  projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
   projectDoctorConfigure(workspacePath: string, config: import('./project-doctor').ProjectToolConfiguration, revision: string | null): Promise<import('./project-doctor').ProjectDoctorReport>
   projectDoctorRetry(workspacePath: string, id: string): Promise<import('./project-tools').ToolServiceState>

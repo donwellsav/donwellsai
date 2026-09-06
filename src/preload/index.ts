@@ -53,6 +53,7 @@ const api: IpcApi = {
   projectSessionHistoryIndex: path => ipcRenderer.invoke('projectSessionHistoryIndex', path),
   projectSessionHistorySearch: (path, query) => ipcRenderer.invoke('projectSessionHistorySearch', path, query),
   projectSessionHistoryGet: (path, id) => ipcRenderer.invoke('projectSessionHistoryGet', path, id),
+  projectDoctorPreviewBackup: (...args) => ipcRenderer.invoke('projectDoctorPreviewBackup', ...args),
   projectDoctorInspect: path => ipcRenderer.invoke('projectDoctorInspect', path),
   projectDoctorConfigure: (...args) => ipcRenderer.invoke('projectDoctorConfigure', ...args),
   projectDoctorRetry: (...args) => ipcRenderer.invoke('projectDoctorRetry', ...args),

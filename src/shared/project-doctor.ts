@@ -49,8 +49,22 @@ export type ProjectDoctorReport = {
   configuration: ProjectToolConfiguration
   revision: string | null
   configurationPath: string
+  configurationValid: boolean
+  backups: Array<{ name: string; createdAt: string }>
   problem: string | null
   services: ToolServiceState[]
-  resources: Array<{ field: keyof typeof PROJECT_TOOL_FIELDS; bytes: number | null; problem: string | null }>
+  resources: Array<{ field: keyof typeof PROJECT_TOOL_FIELDS; bytes: number | null; problem: string | null; sizeKind?: 'file' | 'directory' }>
   availableDiskBytes: number | null
+}
+
+/** An allowlisted support export: no paths, native output, configuration contents, or credentials. */
+export function projectDoctorDiagnostics(report: ProjectDoctorReport): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    configurationValid: report.configurationValid,
+    configurationNeedsAttention: Boolean(report.problem),
+    availableDiskBytes: report.availableDiskBytes,
+    tools: INTEGRATED_PROJECT_TOOLS.map(tool => ({ id: tool.id, admittedVersion: tool.version, disabled: report.configuration.disabled.includes(tool.id), status: report.services.find(service => service.id === tool.id)?.status ?? 'not configured' })),
+    resources: report.resources.map(resource => ({ field: resource.field, bytes: resource.bytes, needsAttention: Boolean(resource.problem) }))
+  }, null, 2)
 }
