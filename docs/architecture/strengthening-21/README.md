@@ -57,3 +57,15 @@ and checks the native process table for no running descendant. Focused checks
 passed; the full rerun passed 470 tests, with 12 explicitly skipped (71 files
 passed, 5 skipped). The large fixture and optional native services have separate
 opt-in qualification and are not credited from skipped tests.
+
+## Current-package native agents
+
+`native-agents.json` passed on the new Task 21 package. Four native harnesses used
+local oMLX Ornith. OMP created exactly one shared decision through memory_record;
+Hermes TUI, Kimi and DSH invoked memory_search and returned that value. DSH's native
+compressed transcript additionally proved a completed answer with no failed tool
+calls. SQLite-migrated memory, revision/provenance and the native write survived
+app restart. Owned sessions/daemon were cleaned up and the temporary Hermes
+configuration removed. Native binaries were unchanged. Total end-to-end duration
+was 88.68 seconds, including local model work; this is not host interaction latency.
+This fixture proves native write/recall, not every app-building or handoff journey.
