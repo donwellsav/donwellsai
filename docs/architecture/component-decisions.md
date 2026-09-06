@@ -73,3 +73,13 @@ On this shell PATH, OMP, Hermes and Kimi executables resolve. Neither `dsh` nor 
 - Six live journeys, keyboard/VoiceOver, fixed-workload input/focus latency, cold/warm launch distributions and four-agent/service resource separation remain **not run**.
 - Native release discovery and candidate artifact admission are pending; no candidate is called a winner.
 - Core product implementation can proceed only through the plan’s stated selection gates. The baseline runner is reusable infrastructure, not completion of the redesign.
+
+## Task 02 preliminary results
+
+The isolated terminal/layout fixture is implemented in `experiments/terminal-layout/`. Exact trial pins: FlexLayout 0.10.8, Dockview 8.2.0 (free package), Ghostty Web 0.4.0. Package integrity values and directly inspected license-file hashes are in its admission record; production dependencies and lockfile are unchanged.
+
+All four renderer/layout combinations completed 100 programmatic panel moves, retained the terminal renderer objects and visible marker, retained unaffected scratch content, and showed no horizontal overflow at 1280×800. No unexpected browser errors occurred. The reproducible [fixture results](terminal-layout-fixture.json) explicitly exclude native-process, provider and installed-app qualification.
+
+**Confirmed blocker:** Ghostty Web 0.4.0 cannot activate the existing xterm SearchAddon: `this._terminal.onWriteParsed is not a function`. Search succeeds on xterm with both layouts. Retain xterm for the next integration step; Ghostty remains a challenger requiring a working search path plus the remaining fidelity/accessibility gates. Both layouts remain candidates; these measurements do not select a docking winner.
+
+The laboratory was also built successfully with the existing Vite toolchain. It is a comparison surface, not the final GUI design. The user's reiterated requirement is a complete GUI rebuild from scratch around native terminal agents, #16161D and a distinct identity. Keeping useful runtime code or xterm does not preserve the current interface.
