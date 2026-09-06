@@ -120,7 +120,8 @@ it.skipIf(!process.env.DONWELLS_DOCUMENT_EMBEDDING_MODEL || !process.env.DONWELL
     start = performance.now(); const recovered = await call('query', { query: 'copperorchard shared memory' }); evidence.restartAndQueryMs = performance.now() - start
     expect(recovered).toMatchObject({ mode: 'hybrid', hits: [{ path: 'memory.md', stale: false }] })
     evidence.first = first; evidence.recovered = recovered
-    for (const [key, path] of [['programSha256', program], ['workerSha256', worker]]) {
+    const archive = worker.includes('.asar/') ? worker.slice(0, worker.indexOf('.asar/') + 5) : null
+    for (const [key, path] of [['programSha256', program], [archive ? 'workerArchiveSha256' : 'workerSha256', archive ?? worker]]) {
       const hash = createHash('sha256'); for await (const bytes of createReadStream(path!)) hash.update(bytes); evidence[key!] = hash.digest('hex')
     }
   } finally { await tools.close(); evidence.ownedServicesClosed = true; await rm(root, { recursive: true, force: true }) }

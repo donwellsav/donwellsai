@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { basename, join } from 'node:path'
 import { realpath } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { Writable } from 'node:stream'
 import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { WorktreeFiles, validateRelativePath } from './worktree-files'
@@ -21,7 +22,7 @@ async function main() {
   if (!config || !/^[a-f0-9]{64}$/.test(config.indexKey) || !Array.isArray(config.roots) || config.roots.length > 16 || config.roots.some(root => !config.collections.includes(root.collection))) throw new Error('Invalid document worker scope')
   const require = createRequire(join(config.qmdPackage, 'package.json'))
   const { McpServer } = require('@modelcontextprotocol/server')
-  const { serveStdio } = require('@modelcontextprotocol/server/stdio')
+  const { serveStdio, StdioServerTransport } = require('@modelcontextprotocol/server/stdio')
   const { z } = require('zod')
   const index = await openProjectDocumentIndex(config), files = new WorktreeFiles()
   const prefix = `document:${config.indexKey}:`
@@ -101,7 +102,9 @@ async function main() {
   server.registerTool('get', { description: 'Read current source lines for a previously indexed, scoped document.', inputSchema: z.object({ id: z.string().max(8192), fromLine: z.number().int().min(1).max(1000000).default(1), maxLines: z.number().int().min(1).max(400).default(120) }).strict() }, async ({ id, fromLine, maxLines }: { id: string; fromLine: number; maxLines: number }) => response(await read(id, fromLine, maxLines)))
   server.registerTool('multi_get', { description: 'Read up to five scoped documents; each source is independently confined.', inputSchema: z.object({ ids: z.array(z.string().max(8192)).min(1).max(5) }).strict() }, async ({ ids }: { ids: string[] }) => response({ documents: await Promise.all(ids.map(id => read(id))) }))
   const close = async () => { if (closed) return; closed = true; await index.close() }
-  serveStdio(() => server)
+  // QMD temporarily redirects process.stdout.write during model loading; MCP replies must keep their original pipe.
+  const write = process.stdout.write.bind(process.stdout)
+  serveStdio(() => server, { transport: new StdioServerTransport(process.stdin, new Writable({ write(chunk, encoding, callback) { write(chunk, encoding, callback) } })) })
   process.stdin.on('end', () => { void close().finally(() => process.exit(0)) })
 }
 

@@ -7,7 +7,7 @@ Task 11 remains open. This checkpoint wires the qualified native retrieval pipel
 - `current-document-production-corpus.json`: actual production index module, frozen 40-question/10-trap corpus, three warm repetitions after a separately recorded first query. Recall@5 92.5%, exact-identifier recall 100%, zero trap leakage, all returned source references resolve. First query 3322.45 ms; process peak RSS 8,687,872 KiB. Filesystem cache and external machine load were uncontrolled.
 - The receipt fingerprints the index module before subsequent empty-index handling and resource cleanup changes. Those changes are covered by focused native tests; the receipt is not represented as a byte-identical final-source run.
 - Native collection and worker tests plus existing filesystem, file-write and agent MCP tests: 26 passed, one model-backed service test skipped. Corrupt native manifests fail; scoped reads, ignored/hidden/generated files, symlinks, selected shared references, stale sources, rename/delete, cancellation and sibling-service survival checked.
-- All three TypeScript checks and the production build passed. Actual semantic models through the bundled worker and packaged Electron remain pending.
+- All three TypeScript checks and the production build passed. Actual semantic models through the bundled worker subsequently passed; packaged Electron remains pending.
 
 ## Configuration and ownership
 
@@ -20,3 +20,7 @@ Optional `DONWELLS_DOCUMENT_EMBEDDING_MODEL` and `DONWELLS_DOCUMENT_RERANKING_MO
 Agent tools: `documents_status`, `documents_index`, `documents_search`, `documents_get`, `documents_multi_get`, `documents_pause`. Index returns a background job immediately; status reports progress. Pause uses the existing lifecycle stop operation. Citation reads reopen current confined source files and report stale index revisions.
 
 Bounded indexing supports 10,000 files, 64 MiB of source text and 20,000 chunks per selected root; larger roots must be narrowed. Binary, truncated, hidden, ignored, generated and known credential files are excluded. Read responses enforce the existing transport size ceiling.
+
+## Model-backed worker follow-up
+
+All three native document tests pass with the admitted models enabled. `current-document-model-service.json` records the worker/executable hashes, successful hybrid search, current source read, stop/restart and owned-service cleanup. The first attempt exposed QMD temporarily redirecting global stdout during model initialization, swallowing concurrent MCP status replies. The worker now supplies the existing MCP transport with an independent Writable bound to the original pipe. This fixes the shared transport rather than extending request timeouts. TypeScript checks and the production build pass after the fix.
