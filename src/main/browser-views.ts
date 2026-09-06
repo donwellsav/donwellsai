@@ -30,6 +30,11 @@ export class BrowserViews {
     const wc = view.webContents
     return { id: wc.id, url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), back: wc.navigationHistory.canGoBack(), forward: wc.navigationHistory.canGoForward(), zoom: wc.getZoomFactor() }
   }
+  target(key: string): { id: number; url: string } {
+    const item = this.views.get(key)
+    if (!item || item.view.webContents.isDestroyed()) throw new Error('Open this project preview before starting browser testing')
+    return { id: item.view.webContents.id, url: item.view.webContents.getURL() }
+  }
   async evaluate(key: string, js: string) {
     await this.verify(key)
     const item = this.views.get(key)

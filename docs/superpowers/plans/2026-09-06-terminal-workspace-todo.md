@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 15 active — agent browser automation and diagnostics.** Tasks 01, 03–14 and 27 are strengthened. Task 02 remains skipped. Tasks 15–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 16 active — native computer-control module.** Tasks 01, 03–15 and 27 are strengthened. Task 02 remains skipped. Tasks 16–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -291,14 +291,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes admitted browser-control tool and project-owned targets. Produces scoped inspect/action/trace operations and ProjectSearchHit-compatible source links where relevant.
 
-- [ ] **Step 1:** Connect the selected tool to a known project preview or managed browser context. Prove target identity; show external-browser attachment explicitly.
-- [ ] **Step 2:** Expose inspect, interact, screenshot, console/network and trace actions needed for app testing. Keep diagnostics optional and avoid launching duplicate browsers.
-- [ ] **Step 3:** Bound action ownership per context. On timeout return uncertainty rather than replaying a submit/click. Fresh snapshots invalidate old element references where the tool requires it.
-- [ ] **Step 4:** Run a fixture web app with a broken form, console error and layout issue. Have a native agent reproduce/fix it, then verify in the same identified target and save the trace.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-browser-tools.test.ts tests/browser-runtime-rpc.test.ts`; run `node tests/acceptance/browser-build-loop.mjs` with the fixture profile.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Connect the selected tool to a known project preview or managed browser context. Prove target identity; show external-browser attachment explicitly.
+- [x] **Step 2:** Expose inspect, interact, screenshot, console/network and trace actions needed for app testing. Keep diagnostics optional and avoid launching duplicate browsers.
+- [x] **Step 3:** Bound action ownership per context. On timeout return uncertainty rather than replaying a submit/click. Fresh snapshots invalidate old element references where the tool requires it.
+- [x] **Step 4:** Run a fixture web app with a broken form, console error and layout issue. Have a native agent reproduce/fix it, then verify in the same identified target and save the trace.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-browser-tools.test.ts tests/browser-runtime-rpc.test.ts`; run `node tests/acceptance/browser-build-loop.mjs` with the fixture profile.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable automation while retaining human preview. Close only managed contexts, not personal browser windows.
+
+**Strengthening evidence:** [scoped native browser testing, agent repair and final package](../../architecture/strengthening-15/README.md).
 
 ### Task 16: Native computer-control module
 

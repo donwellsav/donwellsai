@@ -722,3 +722,7 @@ The pinned 4B embedding candidate passes its first run and three repeated passes
 ## Task 27 strengthening: admitted native session history
 
 AgentsView 0.42.0 (MIT), pinned source and executable hashes, is admitted as an optional external parser/FTS engine. OMP native JSONL and DSH compressed UUID sessions pass native search and continuity checks. Hermes and the admitted Kimi wire format remain explicitly unavailable because the released parsers cannot establish project cwd. An owned foreground process with isolated HOME replaces upstream read commands that can start a daemon; scoped SQLite reads never start a service. [Admission, parser matrix, project boundaries and packaged evidence](strengthening-27/README.md).
+
+## Task 15 strengthening: scoped managed browser automation
+
+Playwright MCP 0.0.80/core 1.63.0-alpha-2026-08-31 is admitted as an explicitly configured external tool with pinned executable/module hashes. One isolated context per checkout binds to the identified local preview; shared ProjectTools owns its transport and interruption. Native OMP with local Ornith reproduced and repaired the broken form, console and layout in the same context; stale input was rejected. Final package UI and native trace evidence: [Task 15](strengthening-15/README.md). Remote/personal browser attachment remains unavailable; native allowed-origins is not a network sandbox. Task 19 owns installation.

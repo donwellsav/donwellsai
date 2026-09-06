@@ -33,6 +33,19 @@ try{
  await delay(400);assert.equal(await page.locator('webview').count(),0)
  let native=await views();report.nativeInitial=native;report.domInitial=await page.evaluate(()=>({slots:[...document.querySelectorAll('.browser-view')].map(e=>({rect:e.getBoundingClientRect().toJSON(),visibility:getComputedStyle(e).visibility})),overlays:[...document.querySelectorAll('[role="dialog"], [role="menu"], .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')].map(e=>({class:e.className,rect:e.getBoundingClientRect().toJSON(),visibility:getComputedStyle(e).visibility}))}));assert.equal(native.length,1);assert(native[0].visible);const id=native[0].id
  report.mainOwned=true
+ if(process.env.DONWELLS_BROWSER_TOOL_PACKAGE){
+   await page.getByRole('button',{name:'Browser testing',exact:true}).filter({visible:true}).click()
+   await page.getByRole('button',{name:'Open preview in testing context',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('dialog pre')?.textContent.includes('Page URL:'))
+   await page.getByRole('button',{name:'Inspect',exact:true}).click()
+   await page.waitForFunction(()=>document.querySelector('dialog pre')?.textContent.includes('Native preview'))
+   await page.screenshot({path:join(evidence,'managed-browser-tools.png')})
+   await page.getByRole('button',{name:'Stop testing browser',exact:true}).click()
+   await page.getByText('Managed testing browser stopped. Human preview retained.',{exact:true}).waitFor()
+   await page.getByRole('button',{name:'Close browser testing',exact:true}).click();await delay(200)
+   assert((await views()).find(v=>v.id===id).visible);report.managedBrowserUi=true
+ }
+
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1100,720));await delay(250);const resized=(await views()).find(v=>v.id===id);assert(resized.bounds.x+resized.bounds.width<=1100&&resized.bounds.y+resized.bounds.height<=720);report.resizeClipped=true;await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1280,800));await delay(250)
  await invoke('browser.navigate',{key:realpathSync(first),url:origin+'/two'})
  assert.equal((await invoke('browser.back',{key:realpathSync(first)})).url,origin+'/one')

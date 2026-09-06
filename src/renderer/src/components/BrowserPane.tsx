@@ -1,3 +1,4 @@
+import { BrowserTestingPanel } from './BrowserTestingPanel'
 import { BrowserViewPort } from '../browser-view-port'
 import type { BrowserHistoryEntry } from '@shared/browser-history'
 import type { BrowserShortcutAction } from '@shared/types'
@@ -74,6 +75,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyClearConfirm, setHistoryClearConfirm] = useState(false)
   const [historyClearing, setHistoryClearing] = useState(false)
+  const [testingOpen, setTestingOpen] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1)
@@ -643,6 +645,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           <Icon name="edit" size={12} />
           <span>Design</span>
         </button>
+        <button type="button" className="icon-btn browser-control browser-design-toggle" aria-label="Browser testing" onClick={()=>setTestingOpen(true)}>Test</button>
         <div className="browser-zoom" role="group" aria-label="Page zoom">
           <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(-0.1)}>−</button>
           <button type="button" aria-label="Reset zoom" title="Reset zoom" onClick={resetZoom}>{Math.round(zoomFactor * 100)}%</button>
@@ -783,6 +786,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           </div>
         ) : null}
       </div>
+      {testingOpen && <BrowserTestingPanel workspacePath={worktreePath} onClose={()=>setTestingOpen(false)} />}
       {attachmentDraft ? (
         <AgentDeliveryDialog attachment={attachmentDraft} onClose={closeAttachment} />
       ) : null}

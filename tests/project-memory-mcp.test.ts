@@ -203,7 +203,8 @@ describe('project memory MCP protocol', () => {
           { name: 'code_graph_status' },
           { name: 'code_graph_index' },
           { name: 'code_graph_callers' },
-          ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` }))
+          ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` })),
+          ...['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({name:`browser_test_${action}`}))
         ]
       }
     })
@@ -473,6 +474,11 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'needle', maxResults: 10, showHidden: false, includeIgnored: false } })
   expect(toolValue(await call('code_search', { query: 'console.log($A)', language: 'typescript' }))).toMatchObject({ hits: [] })
   expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'console.log($A)', language: 'typescript', showHidden: false, includeIgnored: false } })
+  await call('browser_test_click',{target:'e3',revision:2})
+  expect(calls.at(-1)).toEqual({method:'tool.call',params:{workspacePath:primaryWorkspace,id:'browser-testing',operation:'click',arguments:{target:'e3',revision:2}}})
+  const beforeBrowser=calls.length
+  expect(await call('browser_test_open',{workspacePath:'/foreign',url:'https://example.com'})).toMatchObject({result:{isError:true}})
+  expect(calls).toHaveLength(beforeBrowser)
   expect(toolValue(await call('code_graph_status'))).toEqual({ available: false, service: null })
   expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: native })
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'callers', arguments: { function_name: 'target' } } })
