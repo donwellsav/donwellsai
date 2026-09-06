@@ -123,7 +123,7 @@ export const PROJECT_MEMORY_MCP_TOOLS: readonly McpTool[] = [
   {
     name: 'memory_search',
     title: 'Search project memory',
-    description: 'Lexically search shared memory for the pinned registered project. Title and tags rank above content.',
+    description: 'Lexically search shared memory for the pinned registered project. Returns entries with full content, id, revision and provenance; content is the saved knowledge, not an ID. Answer directly from matching entries.content. Use only entries.id for follow-up reads or updates. Title and tags rank above content.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -139,7 +139,7 @@ export const PROJECT_MEMORY_MCP_TOOLS: readonly McpTool[] = [
   {
     name: 'memory_read',
     title: 'Read project memory',
-    description: 'Read one memory entry by ID from the pinned registered project.',
+    description: 'Read one memory entry using its exact id returned by memory_search or memory_record. Never use its content or title as the id. Search already returns full content; a second read is usually unnecessary.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,

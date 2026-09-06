@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync, realpathSync } from 'node:fs'
+import { join, resolve, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
@@ -13,7 +13,7 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
-  'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
+  'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
 } })
 assert(values.playwright, '--playwright is required')
 const responseTimeout = Number(values['response-timeout-ms'])
@@ -24,6 +24,7 @@ assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepse
 assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-profile'], 'DSH memory trial requires a configured native --dsh-profile')
 assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports all four providers in disposable profiles')
 assert(!values['native-write'] || (values.memory && values.managed && agentIds[0] === 'omp' && agentIds.length > 1), '--native-write requires managed memory with OMP first and at least one reader')
+assert(!values['dsh-completed-answer'] || (values.memory && agentIds.includes('deepseek-harness') && values['dsh-sessions'] && values.zstd), '--dsh-completed-answer requires memory, DSH, --dsh-sessions and --zstd')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -47,10 +48,36 @@ const hermesProfile = hermesMemory
   : join(profile, 'profiles', 'hermes')
 if (hermesMemory) env.HERMES_HOME = hermesProfile
 delete env.DONWELLS_SMOKE; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL
+function completedDshAnswer() {
+  const root = resolve(values['dsh-sessions'])
+  const projects = readdirSync(root).filter(name => name.endsWith(`-${basename(fixture)}--`))
+  if (!projects.length) return null
+  assert.equal(projects.length, 1, 'Ambiguous native DSH project logs')
+  const directory = join(root, projects[0])
+  const sessions = readdirSync(directory).filter(name => name.startsWith('session-'))
+  assert.equal(sessions.length, 1, 'Ambiguous native DSH session logs')
+  const path = join(directory, sessions[0], 'session.jsonl.zstd')
+  let events
+  try {
+    events = execFileSync(values.zstd, ['-dc', path], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n').map(JSON.parse)
+  } catch { return null } // A concurrent append may expose an incomplete compressed frame; retry the same log.
+  assert.equal(events[0].cwd, realpathSync(fixture))
+  const end = events.findLast(event => event.type === 'turn/end')
+  if (!end) return null
+  assert.equal(end.data.reason?.kind, 'completed', 'Native DSH turn did not complete normally')
+  const messages = events.filter(event => event.type === 'assistant/message' && event.data.turn === end.data.turn)
+  const content = messages.at(-1)?.data.message.content ?? []
+  assert(!content.some(part => part.type === 'tool-call'), 'Last assistant message still requests a tool')
+  const answer = content.filter(part => part.type === 'text').map(part => part.text).join('')
+  assert(answer.includes(memoryWord), 'Completed DSH answer did not contain the saved decision')
+  const errors = events.filter(event => event.type === 'tool/result' && event.data.turn === end.data.turn).flatMap(event => event.data.message.content).filter(part => part.type === 'tool-result' && part.isError)
+  assert.equal(errors.length, 0, 'Native DSH recall included a failed tool call')
+  return { nativeSessionId: events[0].id, turnReason: end.data.reason, answerSha256: hash(answer), failedToolCalls: errors.length, transcript: path }
+}
 const start = performance.now()
 const report = {
   startedAt: new Date().toISOString(), source: sourceIdentity(), executable, profile, fixture,
-  artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))) },
+  artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))), memoryMcpSha256: hash(readFileSync(join(resources, 'dist-cli/cli/project-memory-mcp.js'))) },
   agents: {}, limitations: [values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
@@ -267,6 +294,10 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
               result.memoryCalls = calls
             }
             if (managedMemory) assert(output.includes('memory_search'), 'Native memory tool output was not observed')
+            if (id === 'deepseek-harness' && values['dsh-completed-answer']) {
+              result.completedAnswer = completedDshAnswer()
+              if (!result.completedAnswer) { await delay(250); continue }
+            }
             result[outcome] = 'fixture-word-observed'; break
           }
           if ((await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)?.liveness === 'exited') break
