@@ -26,7 +26,8 @@ export async function forceTerminatePosixProcessGroup(processGroupId: number): P
   try {
     process.kill(-processGroupId, 'SIGKILL')
   } catch {
-    return !processGroupExists(processGroupId)
+    if (!processGroupExists(processGroupId)) return true
+    // A group can exit during signalling while unreaped members still answer kill(0).
   }
   return waitForPosixProcessGroupQuiescence(processGroupId)
 }

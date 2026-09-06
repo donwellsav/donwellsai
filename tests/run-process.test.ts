@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { forceTerminatePosixProcessGroup } from '../src/shared/child-process/process-tree-termination'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +22,17 @@ function delay(ms: number): Promise<void> {
 }
 
 describe('safe child-process boundary', () => {
+  it.skipIf(process.platform === 'win32')('verifies quiescence when a group disappears during signalling', async () => {
+    const original = process.kill.bind(process)
+    const group = 2147483647
+    const probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid !== -group) return original(pid, signal)
+      if (signal === 'SIGKILL') throw Object.assign(new Error('Group exited'), { code: 'ESRCH' })
+      return true
+    })
+    try { expect(await forceTerminatePosixProcessGroup(group)).toBe(true) }
+    finally { probe.mockRestore() }
+  })
   it('streams output before exit and terminates safely when the consumer cancels or throws', async () => {
     for (const throws of [false, true]) {
       const controller = new AbortController()
