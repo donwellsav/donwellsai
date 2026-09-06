@@ -5,10 +5,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import { expect, it } from 'vitest'
-import { PROJECT_MEMORY_MAX_CONTENT_LENGTH } from '../src/shared/project-memory'
+import { PROJECT_MEMORY_MAX_CONTENT_LENGTH, projectMemoryRevisionFromEntry } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
 import { prepareProjectMemoryMigration } from '../src/main/project-memory-migration'
 import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
+import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from '../src/main/project-memory-sqlite'
 
 it('stages private SQLite memory with exact backup, history, archives and project isolation without cutover', async () => {
   const root = mkdtempSync(join(tmpdir(), 'donwells-memory-migration-'))
@@ -65,6 +66,45 @@ it('stages private SQLite memory with exact backup, history, archives and projec
     expect(empty.backupPath).toBeNull()
     expect(empty.sourceSha256).toBeNull()
     expect(empty.projects).toEqual([])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+it('commits scoped SQLite revisions and FTS atomically while rejecting stale revisions and rewritten history', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-sqlite-cas-'))
+  try {
+    const project = { projectKey: 'a'.repeat(64), projectPath: '/a' }
+    const service = new ProjectMemoryService(root, async () => project)
+    const first = await service.projectMemoryCreate({ workspacePath: '/a', kind: 'decision', title: 'oldmarker', content: 'original', attribution: { harness: 'omp' } })
+    const stage = prepareProjectMemoryMigration(root)
+    const db = new DatabaseSync(stage.databasePath)
+    try {
+      const next = { current: { ...first, title: 'newmarker', revision: 2, updatedAt: new Date(Date.parse(first.updatedAt) + 1000).toISOString() }, history: [projectMemoryRevisionFromEntry(first)] }
+      expect(() => replaceSqliteMemoryEntry(db, { ...project, projectKey: 'b'.repeat(64) }, 1, next)).toThrow('not found in this project')
+      const altered = structuredClone(next)
+      altered.history[0].content = 'rewritten past'
+      expect(() => replaceSqliteMemoryEntry(db, project, 1, altered)).toThrow('preserve retained revision history')
+      expect(readSqliteMemoryDocument(db).projects[0].entries[0].current).toEqual(first)
+      expect(replaceSqliteMemoryEntry(db, project, 1, next)).toEqual(next.current)
+      expect(() => replaceSqliteMemoryEntry(db, project, 1, next)).toThrow('revision 2; expected revision 1')
+      expect(readSqliteMemoryDocument(db).projects[0].entries[0]).toEqual(next)
+      expect(db.prepare("SELECT count(*) AS n FROM memory_search WHERE memory_search MATCH 'newmarker'").get()).toEqual({ n: 1 })
+      expect(db.prepare("SELECT count(*) AS n FROM memory_search WHERE memory_search MATCH 'oldmarker'").get()).toEqual({ n: 0 })
+      db.exec('CREATE TRIGGER fail_project_update BEFORE UPDATE ON projects BEGIN SELECT RAISE(ABORT, \'injected storage failure\'); END')
+      const third = { current: { ...next.current, title: 'failedmarker', revision: 3, updatedAt: new Date(Date.parse(first.updatedAt) + 2000).toISOString() }, history: [...next.history, projectMemoryRevisionFromEntry(next.current)] }
+      expect(() => replaceSqliteMemoryEntry(db, project, 2, third)).toThrow('injected storage failure')
+      expect(readSqliteMemoryDocument(db).projects[0].entries[0]).toEqual(next)
+      expect(db.prepare("SELECT count(*) AS n FROM memory_search WHERE memory_search MATCH 'failedmarker'").get()).toEqual({ n: 0 })
+      const other = { projectKey: 'b'.repeat(64), projectPath: '/b' }
+      expect(() => createSqliteMemoryEntry(db, other, { current: first, history: [] })).toThrow('revision 1')
+      expect(readSqliteMemoryDocument(db).projects).toHaveLength(1)
+      const fresh = { ...first, id: 'independent-entry', title: 'independentmarker' }
+      expect(createSqliteMemoryEntry(db, other, { current: fresh, history: [] })).toEqual(fresh)
+      expect(readSqliteMemoryDocument(db).projects[1].entries[0].current).toEqual(fresh)
+      expect(db.prepare("SELECT count(*) AS n FROM memory_search WHERE memory_search MATCH 'independentmarker'").get()).toEqual({ n: 1 })
+      db.exec('PRAGMA user_version = 999')
+      expect(() => readSqliteMemoryDocument(db)).toThrow('Unsupported project memory database schema')
+      expect(() => replaceSqliteMemoryEntry(db, project, 2, third)).toThrow('Unsupported project memory database schema')
+    } finally { db.close() }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

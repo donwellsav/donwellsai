@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto'
 import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { parseProjectMemoryDocument, type ProjectMemoryDocument } from '@shared/project-memory'
+import { type ProjectMemoryDocument } from '@shared/project-memory'
 import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
+import { readSqliteMemoryDocument } from './project-memory-sqlite'
 
 function digest(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -85,15 +86,7 @@ function prepareLockedMigration(profile: string) {
     db.exec('COMMIT')
     db.close()
     db = new DatabaseSync(databasePath, { readOnly: true })
-    const readEntries = db.prepare('SELECT current_json,history_json FROM entries WHERE project_key = ? ORDER BY id')
-    const imported = parseProjectMemoryDocument({
-      schemaVersion: source.document.schemaVersion,
-      projects: db.prepare('SELECT project_key,project_path FROM projects ORDER BY project_key').all().map(project => ({
-        projectKey: project.project_key,
-        projectPath: project.project_path,
-        entries: readEntries.all(project.project_key!).map(entry => ({ current: JSON.parse(String(entry.current_json)), history: JSON.parse(String(entry.history_json)) }))
-      }))
-    })
+    const imported = readSqliteMemoryDocument(db)
     const projects = projectEvidence(imported)
     if (JSON.stringify(projects) !== JSON.stringify(projectEvidence(source.document))) throw new Error('Memory import count or content verification failed')
     if (Object.values(db.prepare('PRAGMA integrity_check').get() ?? {})[0] !== 'ok') throw new Error('Memory database integrity check failed')
