@@ -322,7 +322,7 @@ export class ParallelRunOrchestrator {
     }
   }
 
-  async onDaemonEvent(kind: 'data' | 'exit', sessionId: string, data = '', exitCode = 0): Promise<void> {
+  async onDaemonEvent(kind: 'data' | 'exit', sessionId: string, data = '', exitCode?: number): Promise<void> {
     const index = this.sessionIndex.get(sessionId)
     if (!index) return
     if (kind === 'data') {

@@ -691,3 +691,16 @@ describe('parallel finite command lifecycle', () => {
     expect(jobs.launches).toHaveLength(1)
   })
 })
+
+it('never converts a missing daemon exit code into successful verification', async () => {
+  const profile=tempDir('unknown-exit')
+  const scheduler=new ScheduledRunScheduler(new ScheduledRunStore(profile),async()=> 'scheduled-unknown')
+  const definition=scheduler.save({name:'Unknown exit',target:target(profile),command:'true',schedule:{kind:'interval',minutes:30},enabled:false})
+  await scheduler.runNow(definition.id)
+  await scheduler.onDaemonEvent('exit','scheduled-unknown','output without status')
+  expect(scheduler.history(definition.id)[0]).toMatchObject({status:'failed',exitCode:undefined,error:'Command exited with code unknown'})
+  const parallel=new ParallelRunOrchestrator(new ParallelRunStore(profile),async()=> 'parallel-unknown',async()=>{})
+  const run=await parallel.start({name:'Unknown exit',command:'true',targets:[target(profile)],concurrency:1})
+  await parallel.onDaemonEvent('exit','parallel-unknown','output without status')
+  expect(parallel.list().find(item=>item.id===run.id)?.tasks[0]).toMatchObject({status:'failed',exitCode:undefined,error:'Command exited with code unknown'})
+})

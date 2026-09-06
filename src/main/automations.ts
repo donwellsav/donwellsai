@@ -621,7 +621,7 @@ export class ScheduledRunScheduler {
     }
   }
 
-  async onDaemonEvent(kind: 'data' | 'exit', sessionId: string, data = '', exitCode = 0): Promise<void> {
+  async onDaemonEvent(kind: 'data' | 'exit', sessionId: string, data = '', exitCode?: number): Promise<void> {
     const active = this.activeBySession.get(sessionId)
     if (!active) return
     if (kind === 'data') {
