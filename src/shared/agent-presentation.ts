@@ -43,6 +43,7 @@ function presentationStatus(run: RunningAgent): AgentPresentationStatus {
 
 export function agentPresentation(run: RunningAgent): AgentPresentation {
   const status = presentationStatus(run)
+  const processOnly = status === 'working' && !run.hook.connected
   const label = status === 'permission'
     ? 'Permission needed'
     : status === 'unverifiable'
@@ -59,8 +60,8 @@ export function agentPresentation(run: RunningAgent): AgentPresentation {
         : 'working'
   return {
     status,
-    label,
-    description: run.detail?.trim() || defaultDescription(status, run.exitCode),
+    label: processOnly ? 'Running' : label,
+    description: run.detail?.trim() || (processOnly ? 'Process is running; task activity is not reported by this agent.' : defaultDescription(status, run.exitCode)),
     tone,
     needsAttention,
     inProgress

@@ -69,6 +69,7 @@ const api: IpcApi = {
   agentStart: (workspacePath, command) => ipcRenderer.invoke('agentStart', workspacePath, command),
   agentList: () => ipcRenderer.invoke('agentList'),
   agentInterrupt: (sessionId) => ipcRenderer.invoke('agentInterrupt', sessionId),
+  agentStop: (sessionId) => ipcRenderer.invoke('agentStop', sessionId),
   agentDismiss: (sessionId) => ipcRenderer.invoke('agentDismiss', sessionId),
   agentDeliver: (request) => ipcRenderer.invoke('agentDeliver', request),
   openExternal: (url) => ipcRenderer.invoke('openExternal', url),

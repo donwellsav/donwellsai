@@ -184,6 +184,7 @@ describe('DaemonClient transport lifecycle', () => {
     await expect(daemon.startAgent('/tmp', 'codex', 'codex')).rejects.toThrow(/upgrade required.*left running/)
     await expect(daemon.startAgent('/tmp', 'codex', 'codex', { executable: '/bin/codex', args: [] })).rejects.toThrow(/upgrade required.*left running/)
     await expect(daemon.writeAgent('owned-session', 'payload')).rejects.toThrow(/upgrade required.*left running/)
+    await expect(daemon.stopAgent('owned-session')).rejects.toThrow(/upgrade required.*left running/)
     await expect(daemon.attentionInboxList()).resolves.toEqual({
       available: false,
       reason: 'daemon-upgrade-required'

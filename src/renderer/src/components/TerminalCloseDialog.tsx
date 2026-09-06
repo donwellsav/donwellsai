@@ -22,7 +22,7 @@ export function TerminalCloseDialog() {
         <Icon name="alert" size={15} />
         <div>
           <strong>{agent ? exited ? 'This agent has exited.' : 'Stop this agent before closing its tab.' : 'This terminal session is still live.'}</strong>
-          <p>{agent ? exited ? 'Closing releases its retained terminal output.' : 'Stopping sends an interrupt. Output remains available until the execution host confirms exit.' : 'Stopping terminates the shell and any command running inside it. Hiding the view keeps them running.'}</p>
+          <p>{agent ? exited ? 'Closing releases its retained terminal output.' : 'Stopping ends the agent process. Its output remains available until you close the tab.' : 'Stopping terminates the shell and any command running inside it. Hiding the view keeps them running.'}</p>
         </div>
       </div>
       <dl className="terminal-close-details">

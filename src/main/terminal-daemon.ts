@@ -45,6 +45,7 @@ export const DAEMON_CAPABILITIES = [
   'idle-shutdown',
   'agent-runs-v1',
   'agent-argv-v1',
+  'agent-stop-v1',
   'agent-hooks-v1',
   'agent-input-v1',
   ATTENTION_INBOX_CAPABILITY
@@ -485,7 +486,7 @@ export class TerminalDaemon {
     const stopRequestedAt = new Date().toISOString()
     record.run = {
       ...record.run,
-      activity: 'stopping',
+      detail: 'Interrupt sent; the native process may remain open.',
       stopRequestedAt,
       updatedAt: stopRequestedAt
     }
@@ -581,6 +582,17 @@ export class TerminalDaemon {
           }
           this.pty.writeAgent(sessionId, data)
           reply(true, {})
+          break
+        }
+        case 'agent.stop': {
+          const record = this.agentsBySession.get(String(message['sessionId']))
+          if (!record) throw new Error('unknown agent session')
+          if (record.run.liveness !== 'exited') {
+            record.run = { ...record.run, activity: 'stopping', stopRequestedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+            this.publishAgent(record.run)
+          }
+          await this.pty.stop(record.run.sessionId)
+          reply(true, { run: cloneRun(record.run) })
           break
         }
         case 'agent.interrupt': {

@@ -457,6 +457,7 @@ export type IpcApi = ProjectCreationApi & ProjectMemoryApi & RecoveryApi & Atten
   agentStart(workspacePath: string, command: string | import('./agent-runtime').AgentExecutable): Promise<AgentStartResult>
   agentList(): Promise<RunningAgent[]>
   agentInterrupt(sessionId: string): Promise<RunningAgent>
+  agentStop(sessionId: string): Promise<RunningAgent>
   agentDismiss(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   pickDirectory(): Promise<string | null>

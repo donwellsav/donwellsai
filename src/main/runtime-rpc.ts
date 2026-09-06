@@ -73,7 +73,7 @@ export type RpcDeps = {
   store: Store
   git: GitWorktrees
   terminals: DaemonClient
-  agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'dismiss'>
+  agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'>
   deliverAgentAttachment: (request: AgentDeliveryRequest) => Promise<AgentDeliveryReceipt>
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
   runs: OperationalRunsApi
@@ -476,6 +476,8 @@ export class RuntimeRpcServer {
         return this.deps.agents.start(str('workspacePath'), params['launch'] === undefined ? str('command') : parseAgentExecutable(params['launch']))
       case 'agent.interrupt':
         return this.deps.agents.interrupt(str('sessionId'))
+      case 'agent.stop':
+        return this.deps.agents.stop(str('sessionId'))
       case 'agent.dismiss':
         await this.deps.agents.dismiss(str('sessionId'))
         return {}

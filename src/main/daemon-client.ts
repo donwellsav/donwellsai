@@ -488,6 +488,12 @@ export class DaemonClient {
     return requireRunningAgent(response.run)
   }
 
+  async stopAgent(sessionId: string): Promise<RunningAgent> {
+    await this.requireCapability('agent-stop-v1', 'stopping an agent process')
+    const response = await this.request<{ run: unknown }>('agent.stop', { sessionId })
+    return requireRunningAgent(response.run)
+  }
+
   async dismissAgent(sessionId: string): Promise<void> {
     await this.requireCapability(AGENT_RUNS, 'dismissing an agent run')
     await this.request('agent.dismiss', { sessionId })

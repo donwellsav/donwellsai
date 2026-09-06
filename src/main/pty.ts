@@ -232,8 +232,8 @@ export class PtyManager {
     }
   }
 
-  /** Kill a session and resolve only after node-pty confirms process exit. */
-  async close(sessionId: string): Promise<void> {
+  /** Stop the owned process, retaining its terminal until explicit dismissal. */
+  async stop(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) {
       throw new Error('terminal ' + sessionId + ' exit is unverifiable because the daemon does not own the session')
@@ -246,6 +246,11 @@ export class PtyManager {
       }
     }
     if (!session.settled) {
+      const escalation = session.kind === 'agent' ? setTimeout(() => {
+        if (this.sessions.get(sessionId) === session && !session.session.exited) {
+          try { session.proc.kill('SIGKILL') } catch { /* Exit still requires the bounded node-pty acknowledgment below. */ }
+        }
+      }, 1000) : undefined
       const timeout = Promise.withResolvers<never>()
       const timer = setTimeout(() => timeout.reject(new Error(
         'terminal ' + sessionId + ' exit is unverifiable after cancellation'
@@ -253,9 +258,15 @@ export class PtyManager {
       try {
         await Promise.race([session.exit, timeout.promise])
       } finally {
+        clearTimeout(escalation)
         clearTimeout(timer)
       }
     }
+  }
+
+  /** Kill a session and resolve only after node-pty confirms process exit. */
+  async close(sessionId: string): Promise<void> {
+    await this.stop(sessionId)
     this.removeSession(sessionId)
   }
 

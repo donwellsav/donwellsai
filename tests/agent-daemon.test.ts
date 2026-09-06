@@ -113,6 +113,25 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
+it('stops a native TUI that consumes Ctrl-C and retains its output until dismissal', async () => {
+  const { daemon, userDataDir, workspacePath } = await disposableDaemon()
+  const capture = eventCapture()
+  const client = daemonClient(userDataDir, capture.events)
+  expect(typeof client.stopAgent).toBe('function')
+  const launch = { executable: process.execPath, args: ['-e', 'process.stdin.setRawMode(true); process.stdin.resume(); process.stdin.on("data",()=>{}); process.on("SIGHUP",()=>{}); console.log("TUI_READY"); setTimeout(()=>process.exit(0),20000)'] }
+  const started = await client.startAgent(workspacePath, 'native TUI fixture', undefined, launch)
+  await waitFor(() => capture.output.get(started.session.id)?.includes('TUI_READY') ?? false)
+  await client.interruptAgent(started.session.id)
+  await delay(50)
+  expect((await client.agentStatus(started.session.id)).liveness).toBe('live')
+  const stopped = await client.stopAgent(started.session.id)
+  expect(stopped.liveness).toBe('exited')
+  await expect(client.writeAgent(started.session.id, 'late')).rejects.toThrow(/liveness is exited/)
+  expect((await client.attach(started.session.id)).scrollback).toContain('TUI_READY')
+  await client.dismissAgent(started.session.id)
+  expect(await daemon.stopIfIdle()).toBe(true)
+})
+
 describe('daemon-owned finite agent runs', () => {
   it('authenticates scoped hook events, rejects a wrong token, and never exposes daemon authority', async () => {
     const { daemon, userDataDir, workspacePath } = await disposableDaemon()
@@ -198,8 +217,7 @@ describe('daemon-owned finite agent runs', () => {
     }])
 
     const stopping = await second.interruptAgent(started.run.sessionId)
-    expect(stopping).toMatchObject({ liveness: 'live', activity: 'stopping' })
-    await expect(second.writeAgent(started.run.sessionId, 'too late')).rejects.toThrow(/activity is stopping/)
+    expect(stopping).toMatchObject({ liveness: 'live', activity: 'working', detail: 'Interrupt sent; the native process may remain open.' })
     const exited = await waitForAgent(second, started.run.sessionId, (run) => run.liveness === 'exited')
     expect(exited).toMatchObject({
       liveness: 'exited',

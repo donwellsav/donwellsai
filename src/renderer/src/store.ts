@@ -765,7 +765,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const agent = get().runningAgents[sessionId]
       if (agent) {
         if (agent.liveness !== 'exited') {
-          get().applyAgentRun(await window.donwells.agentInterrupt(sessionId))
+          get().applyAgentRun(await window.donwells.agentStop(sessionId))
           return false
         }
         await window.donwells.agentDismiss(sessionId)
@@ -1767,7 +1767,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async stopAgent(sessionId: string) {
     try {
-      const run = await window.donwells.agentInterrupt(sessionId)
+      const run = await window.donwells.agentStop(sessionId)
       get().applyAgentRun(run)
       return { ok: true as const }
     } catch (cause) {

@@ -90,6 +90,7 @@ describe('agent runtime workspace authority', () => {
         return [run]
       },
       interruptAgent: async () => run,
+      stopAgent: async () => run,
       dismissAgent: async () => {}
     }
     const runtime = new AgentRuntime(daemon, {
@@ -118,6 +119,7 @@ describe('agent runtime workspace authority', () => {
       },
       listAgents: async () => [],
       interruptAgent: async () => liveRun(registered.root),
+      stopAgent: async () => liveRun(registered.root),
       dismissAgent: async () => {}
     }
     const runtime = new AgentRuntime(daemon, {
@@ -134,6 +136,7 @@ describe('agent presentation authority', () => {
   it('never presents attention or uncertain states as working', () => {
     const working = liveRun('/workspace')
     expect(agentPresentation(working)).toMatchObject({ status: 'working', tone: 'working', needsAttention: false, inProgress: true })
+    expect(agentPresentation({ ...working, hook: { ...working.hook, connected: false } })).toMatchObject({ label: 'Running', description: 'Process is running; task activity is not reported by this agent.' })
 
     const waiting: RunningAgent = { ...working, activity: 'waiting' }
     const permission: RunningAgent = { ...working, activity: 'permission' }

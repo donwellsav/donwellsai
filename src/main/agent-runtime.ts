@@ -132,8 +132,16 @@ export class AgentRuntime {
   }
 
   async interrupt(sessionId: string): Promise<RunningAgent> {
+    return this.controlAgent(sessionId, 'interruptAgent')
+  }
+
+  async stop(sessionId: string): Promise<RunningAgent> {
+    return this.controlAgent(sessionId, 'stopAgent')
+  }
+
+  private async controlAgent(sessionId: string, operation: 'interruptAgent' | 'stopAgent'): Promise<RunningAgent> {
     try {
-      const run = await this.daemon.interruptAgent(sessionId)
+      const run = await this.daemon[operation](sessionId)
       this.observe(run)
       return structuredClone(run)
     } catch (error) {
@@ -160,5 +168,6 @@ export type AgentRuntimeDaemonContract = {
   ) => Promise<AgentStartResult>
   listAgents: () => Promise<RunningAgent[]>
   interruptAgent: (sessionId: string) => Promise<RunningAgent>
+  stopAgent: (sessionId: string) => Promise<RunningAgent>
   dismissAgent: (sessionId: string) => Promise<void>
 }

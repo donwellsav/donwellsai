@@ -1,0 +1,36 @@
+{
+  "startedAt": "2026-09-06T04:18:34.608Z",
+  "source": {
+    "commit": "267b30d41e18ed3bfb8643306fc3b26013bd91c8",
+    "dirty": true,
+    "contentHash": "027716eb28d4383cf2972cbe861e48b525e8e46db50178cee8058688b0c01d57"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-query-profile-05",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-kKAIR5",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "4111bde0ac476ba3e3aa0beb6c9c49b91493dff261f3221133772fba30a398c8"
+  },
+  "agents": {
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "fixture-word-observed",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "sessionId": "1fadf40b-3714-4e00-89cd-2504d4fc28f9",
+      "liveness": "live",
+      "outputBytes": 19002,
+      "startup": "output-observed",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks."
+  ],
+  "idleDaemonStopped": true,
+  "durationMs": 17238.7525
+}

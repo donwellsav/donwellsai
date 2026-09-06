@@ -248,7 +248,7 @@ export function AgentsSection() {
           <p>Open retained output, retry exited work, or stop and dismiss sessions with explicit confirmation.</p>
         </div>
         <div className="agent-totals" aria-label="Agent status totals">
-          <span><strong>{activeCount}</strong> in progress</span>
+          <span><strong>{activeCount}</strong> running</span>
           <span className={attentionCount > 0 ? 'attention' : ''}><strong>{attentionCount}</strong> need attention</span>
         </div>
       </div>
@@ -299,7 +299,7 @@ export function AgentsSection() {
               <dl className="agent-facts">
                 <div><dt>Workspace</dt><dd title={run.workspacePath}>{run.workspacePath}</dd></div>
                 <div><dt>Harness</dt><dd><strong>{provider}</strong><code title={run.command}>{run.command}</code></dd></div>
-                <div><dt>Activity</dt><dd><strong>{run.activity}</strong><span>{presentation.description}</span></dd></div>
+                <div><dt>Activity</dt><dd><strong>{presentation.label}</strong><span>{presentation.description}</span></dd></div>
                 <div><dt>Liveness</dt><dd><strong>{run.liveness}</strong><span>{run.hook.connected ? 'Activity hook connected' : run.hook.support === 'native' ? 'Hook not connected' : 'Process observation only'}</span></dd></div>
               </dl>
 
@@ -333,7 +333,7 @@ export function AgentsSection() {
             {confirmation.kind === 'stop'
               ? confirmation.run.liveness === 'unverifiable'
                 ? 'The daemon cannot currently prove whether this process is live. A stop will be attempted, but the session remains Unverifiable unless the daemon acknowledges the result.'
-                : 'The daemon will interrupt this exact session. It is only shown as stopped after the request is acknowledged.'
+                : 'This ends the agent process. Its terminal output stays available until you dismiss it.'
               : 'This removes the exited session, retained terminal output, and agent history. The working project is not changed.'}
           </p>
           <dl className="agent-confirm-facts">

@@ -322,6 +322,7 @@ function registerIpc(): void {
   ipcMain.handle('agentStart', (_e, ...args: Parameters<IpcApi['agentStart']>) => agentRuntime.start(...args))
   ipcMain.handle('agentList', () => agentRuntime.list())
   ipcMain.handle('agentInterrupt', (_e, sessionId: string) => agentRuntime.interrupt(sessionId))
+  ipcMain.handle('agentStop', (_e, sessionId: string) => agentRuntime.stop(sessionId))
   ipcMain.handle('agentDismiss', (_e, sessionId: string) => agentRuntime.dismiss(sessionId))
   ipcMain.handle('agentDeliver', (_e, request: Parameters<IpcApi['agentDeliver']>[0]) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request))
 
