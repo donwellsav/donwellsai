@@ -120,8 +120,8 @@ const HANDOFF_MCP_TOOLS: readonly McpTool[] = ['receive', 'acknowledge'].map(act
 const CODE_MCP_TOOLS: readonly McpTool[] = [
   {
     name: 'code_search', title: 'Search checkout code',
-    description: 'Search literal text in the pinned checkout with ripgrep. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: { query: { type: 'string', minLength: 1, maxLength: 1000 }, maxResults: { type: 'integer', minimum: 1, maximum: 1000, default: 200 }, showHidden: { type: 'boolean', default: false }, includeIgnored: { type: 'boolean', default: false } }, required: ['query'] },
+    description: 'Search literal text in the pinned checkout with ripgrep. Supply language (for example typescript) to interpret query as an ast-grep syntax pattern instead; installed ast-grep is required and project grammar/config files are not loaded. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { query: { type: 'string', minLength: 1, maxLength: 1000 }, language: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$', description: 'Optional ast-grep language; makes query a syntax pattern rather than literal text.' }, maxResults: { type: 'integer', minimum: 1, maximum: 1000, default: 200 }, showHidden: { type: 'boolean', default: false }, includeIgnored: { type: 'boolean', default: false } }, required: ['query'] },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   },
   ...(['status', 'index', 'callers'] as const).map(action => ({
@@ -542,7 +542,7 @@ export class ProjectMemoryMcpSession {
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
     switch (name) {
       case 'code_search': {
-        allowedKeys(input, ['query', 'maxResults', 'showHidden', 'includeIgnored'], 'code_search arguments')
+        allowedKeys(input, ['query', 'language', 'maxResults', 'showHidden', 'includeIgnored'], 'code_search arguments')
         return this.invoke('file.searchContent', validateCommandParams('file.searchContent', { workspacePath: this.workspacePath, showHidden: false, includeIgnored: false, ...input }))
       }
       case 'code_graph_status': {

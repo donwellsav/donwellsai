@@ -1,0 +1,25 @@
+{
+  "baseCommit": "8acec3857184e5f5a8aeb849028b17465ac710d1",
+  "sourceSha256": {
+    "src/main/project-code-search.ts": "5afe4bb1baf6d9b55b8aee8bbb8b94a6e551b67517ea56a12e7ebc0cd52a4100",
+    "src/shared/project-tools.ts": "97ab81b4f2ee6da794fb2bfca45d215f1d4595883252a00bc4c39f00e0e0acfc",
+    "src/shared/command-catalog.ts": "05e8cc4ef2293dd9a72fd84ec04e447ff4216e445c953641875cff5273ce2f25",
+    "src/main/runtime-rpc.ts": "f0a3d63eaf94a2563325f86afdebcb3e82eac3ac5a3e56b4725387d7603814b3",
+    "src/cli/project-memory-mcp.ts": "82d53e46e6c9cd7574705d278de79ed7e23cad475b1c224265b631ac0b6c2987",
+    "tests/project-code-search.test.ts": "5f1c09ae753562eb6af78c6748805f6c968f6b98b0a4ffca9b80fb6a9114bdac",
+    "tests/project-memory-mcp.test.ts": "04ef020da54245fef0299577bfb6b1af4fb0125ba72f0a4c39b27780b154dec0"
+  },
+  "checks": {
+    "donwells-task12-focused-02.log": "(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n\n RUN  v4.1.11 /Users/muzikfirst/Documents/donwellsai/terminal-foundation\n\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  09:39:16\n   Duration  614ms (transform 354ms, setup 0ms, import 529ms, tests 693ms, environment 0ms)\n\n",
+    "donwells-task12-typecheck.log": "$ tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json\n",
+    "donwells-task12-code-search-scale.log": "(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n\n RUN  v4.1.11 /Users/muzikfirst/Documents/donwellsai/terminal-foundation\n\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  09:40:39\n   Duration  49.21s (transform 82ms, setup 0ms, import 114ms, tests 49.00s, environment 0ms)\n\n"
+  },
+  "fileWriteRegression": {
+    "command": "pnpm exec vitest run tests/file-write.test.ts",
+    "testsPassed": 16,
+    "exitCode": 0
+  },
+  "nativeGraphEvidence": "current-code-graph-native.json",
+  "astGrepAdmission": "current-ast-grep-admission.json",
+  "installedBuildQualified": false
+}

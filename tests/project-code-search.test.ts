@@ -54,3 +54,30 @@ it.skipIf(!new AgentRegistry().findExecutable('rg'))('streams scoped literal rip
     } finally { process.env.PATH = originalPath }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+it.skipIf(!new AgentRegistry().findExecutable('ast-grep'))('searches native syntax without loading project configuration or matching comments', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'donwells-structural-')))
+  const checkout = join(root, 'checkout'); mkdirSync(checkout)
+  const scope = { checkoutPath: checkout, projectPath: checkout, projectKey: 'a'.repeat(64), indexKey: 'b'.repeat(64) }
+  const resolveScope = async (path: string) => { if (path !== checkout) throw new Error('Unregistered'); return scope }
+  try {
+    execFileSync('git', ['init', '-q', checkout])
+    writeFileSync(join(checkout, 'sgconfig.yml'), 'customLanguages: invalid-untrusted-project-config\n')
+    writeFileSync(join(checkout, '.gitignore'), 'ignored.ts\n')
+    writeFileSync(join(checkout, 'mémoire.ts'), '// console.log(1)\nconst text="console.log(2)";\nconsole.log(3);\n')
+    writeFileSync(join(checkout, '.hidden.ts'), 'console.log(4);\n')
+    writeFileSync(join(checkout, 'ignored.ts'), 'console.log(5);\n')
+    writeFileSync(join(root, 'outside.ts'), 'console.log(6);\n')
+    symlinkSync(join(root, 'outside.ts'), join(checkout, 'link.ts'))
+    const request = { query: 'console.log($A)', language: 'typescript', showHidden: false, includeIgnored: false }
+    const result = await searchProjectCode(checkout, request, resolveScope)
+    expect(result.hits).toHaveLength(1)
+    expect(result.hits[0]).toMatchObject({ path: 'mémoire.ts', line: 3, excerpt: 'console.log(3);' })
+    const all = await searchProjectCode(checkout, { ...request, showHidden: true, includeIgnored: true }, resolveScope)
+    expect(all.hits.map(hit => hit.path).sort()).toEqual(['.hidden.ts', 'ignored.ts', 'mémoire.ts'])
+    const controller = new AbortController()
+    await expect(searchProjectCode(checkout, request, resolveScope, () => controller.abort(), controller.signal)).rejects.toMatchObject({ kind: 'cancelled' })
+    await expect(searchProjectCode(checkout, { ...request, language: '--rewrite' }, resolveScope)).rejects.toThrow('language')
+    expect((await searchProjectCode(checkout, { ...request, query: 'absent($A)' }, resolveScope)).hits).toEqual([])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

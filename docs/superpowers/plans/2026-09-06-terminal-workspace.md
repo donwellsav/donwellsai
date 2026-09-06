@@ -329,14 +329,16 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes checkout-specific scope and admitted ripgrep/code-index binary. Produces file/code ProjectSearchHit results; file-write APIs remain unchanged.
 
-- [ ] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
-- [ ] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
-- [ ] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
-- [ ] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
+- [x] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
+- [x] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
+- [x] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Fallback to bounded existing discovery when tool unavailable; make loss of content/graph search visible.
+
+**Evidence:** [Current code-search qualification](../../architecture/current-code-search-qualification.json), [100k-file measurements](../../architecture/current-code-search-scale.json), and Task 12 in [component decisions](../../architecture/component-decisions.md).
 
 ### Task 13: Unified search and source navigation
 
@@ -658,7 +660,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current task: **02 — Native IME and VoiceOver qualification**. Tasks 01, 03 and 04 are complete; Tasks 11 and 12 are independently unblocked. Execute against `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, preserving existing implementation and uncommitted work. The separate `plan-restart` checkout is not the execution target.
+Current task: **11 — Document retrieval fallback qualification** (depends on completed 03 and 04). Task 02 remains open for native IME and VoiceOver. Tasks 01, 03, 04 and 12 are complete. Execute against `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, preserving existing implementation and uncommitted work. The separate `plan-restart` checkout is not the execution target.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

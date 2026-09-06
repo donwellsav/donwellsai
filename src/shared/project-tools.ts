@@ -24,7 +24,7 @@ export type ProjectSearchHit = {
   stale: boolean
 }
 
-export type ProjectCodeSearchRequest = { query: string; showHidden: boolean; includeIgnored: boolean; maxResults?: number }
+export type ProjectCodeSearchRequest = { query: string; language?: string; showHidden: boolean; includeIgnored: boolean; maxResults?: number }
 export type ProjectCodeSearchResult = { hits: ProjectSearchHit[]; truncated: boolean; skipped: number }
 
 export function parseCodeGraphFunctionName(value: unknown): string {

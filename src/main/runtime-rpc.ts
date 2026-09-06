@@ -325,6 +325,7 @@ export class RuntimeRpcServer {
       case 'file.searchContent':
         return git.searchWorkspaceContent(str('workspacePath'), {
           query: str('query'),
+          ...(params['language'] === undefined ? {} : { language: str('language') }),
           maxResults: params['maxResults'] as number | undefined,
           showHidden: params['showHidden'] === true,
           includeIgnored: params['includeIgnored'] === true

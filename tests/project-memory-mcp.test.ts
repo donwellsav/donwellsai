@@ -470,6 +470,8 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   const call = (name: string, args: Record<string, unknown> = {}) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
   expect(toolValue(await call('code_search', { query: 'needle', maxResults: 10 }))).toMatchObject({ hits: [] })
   expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'needle', maxResults: 10, showHidden: false, includeIgnored: false } })
+  expect(toolValue(await call('code_search', { query: 'console.log($A)', language: 'typescript' }))).toMatchObject({ hits: [] })
+  expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'console.log($A)', language: 'typescript', showHidden: false, includeIgnored: false } })
   expect(toolValue(await call('code_graph_status'))).toEqual({ available: false, service: null })
   expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: native })
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'callers', arguments: { function_name: 'target' } } })
