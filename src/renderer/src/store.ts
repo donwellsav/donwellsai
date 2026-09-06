@@ -222,6 +222,7 @@ type AppState = {
   previews: Record<string, Record<string, FileContent & { v: number; mode?: PreviewMode }>>
   documentNavigation: Record<string, Record<string, DocumentNavigationTarget>>
   fileSearchMru: Record<string, string[]>
+  contentSearch: { query: string; hidden: boolean; ignored: boolean }
   gitCommitDrafts: Record<string, string>
   /** loading flags */
   busy: Record<string, boolean>
@@ -522,6 +523,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   previews: {},
   documentNavigation: {},
   fileSearchMru: {},
+  contentSearch: { query: '', hidden: false, ignored: false },
   gitCommitDrafts: {},
   busy: {},
   settings: structuredClone(DEFAULT_SETTINGS),

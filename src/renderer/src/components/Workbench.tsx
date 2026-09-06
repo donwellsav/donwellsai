@@ -33,7 +33,7 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} />
           : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
-          : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} />
+          : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
           : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} /> : null}
       </div>}
   </div>

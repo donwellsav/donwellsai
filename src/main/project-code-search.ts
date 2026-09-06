@@ -54,7 +54,7 @@ export async function searchProjectCode(
   }
   await runProcess({
     program: executable,
-    args: ['--no-config', '--json', '--fixed-strings', '--line-number', '--color', 'never', '--no-follow', '--glob', '!.git', ...(request.showHidden ? ['--hidden'] : []), ...(request.includeIgnored ? ['--no-ignore'] : []), '--', request.query, '.'],
+    args: ['--no-config', '--json', '--line-buffered', '--fixed-strings', '--line-number', '--color', 'never', '--no-follow', '--glob', '!.git', ...(request.showHidden ? ['--hidden'] : []), ...(request.includeIgnored ? ['--no-ignore'] : []), '--', request.query, '.'],
     cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env), signal: combined,
     maxOutputBytes: 8 * 1024 * 1024, timeoutMs: 30_000, acceptExitCodes: [0, 1],
     onStdout: chunk => {

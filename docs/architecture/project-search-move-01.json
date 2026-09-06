@@ -1,0 +1,18 @@
+{
+  "source": {
+    "commit": "9aa8218fe1cfc7f9354a5f216394ab421d59f82b",
+    "dirty": true,
+    "contentHash": "1a7c41ce0e46c8ca0dafcf66383ff353292f1cd464fa0b833453b8f6888ab1de"
+  },
+  "artifactSha256": "1625dc12570dbbb733259c254a453540ac4e40262e701c9efb60e442398a7336",
+  "editorInputClass": "native-edit-context",
+  "openedAndEditedRequestedLine": true,
+  "missingSourceVisible": true,
+  "previousProjectEventSuppressed": true,
+  "stoppedBeforeLaunch": true,
+  "searchSurvivesMove": true,
+  "movableSearchPanel": true,
+  "ignoredOptIn": true,
+  "idleDaemonStopped": true,
+  "elapsedMs": 6436.676542
+}

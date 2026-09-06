@@ -3,11 +3,12 @@ import type { ProjectSearchHit } from '@shared/project-tools'
 import { useAppStore } from '../store'
 import './project-search.css'
 
-export function ProjectSearch({ workspacePath }: { workspacePath: string }) {
+export function ProjectSearch({ workspacePath, active = true }: { workspacePath: string; active?: boolean }) {
   const inputId = useId()
-  const [query, setQuery] = useState('')
-  const [hidden, setHidden] = useState(false)
-  const [ignored, setIgnored] = useState(false)
+  const { query, hidden, ignored } = useAppStore(state => state.contentSearch)
+  const setSearch = (patch: Partial<{ query: string; hidden: boolean; ignored: boolean }>): void => {
+    useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, ...patch } }))
+  }
   const [hits, setHits] = useState<ProjectSearchHit[]>([])
   const [status, setStatus] = useState('Search the text in this checkout.')
   const [running, setRunning] = useState(false)
@@ -25,6 +26,7 @@ export function ProjectSearch({ workspacePath }: { workspacePath: string }) {
   }), [])
   useEffect(() => {
     setHits([]); setError('')
+    if (!active) { setRunning(false); return }
     if (!query.trim()) { setRunning(false); setStatus('Search the text in this checkout.'); return }
     setRunning(true); setStatus('Searching…')
     const id = crypto.randomUUID()
@@ -45,7 +47,7 @@ export function ProjectSearch({ workspacePath }: { workspacePath: string }) {
       if (current.current?.id === id) current.current = null
       void window.donwells.cancelWorkspaceContentSearch(id).catch(() => {})
     }
-  }, [workspacePath, query, hidden, ignored, refresh])
+  }, [workspacePath, query, hidden, ignored, refresh, active])
   const open = async (hit: ProjectSearchHit): Promise<void> => {
     if (!hit.path || !hit.line) return
     setError('')
@@ -64,8 +66,8 @@ export function ProjectSearch({ workspacePath }: { workspacePath: string }) {
   return <section className="project-search" aria-label="Search file contents">
     <form onSubmit={event => { event.preventDefault(); stop(); setRefresh(value => value + 1) }}>
       <label htmlFor={inputId}>Search text</label>
-      <div className="project-search-input"><input id={inputId} type="search" value={query} maxLength={1000} placeholder="A phrase, function or setting" onChange={event => { stop(); setQuery(event.target.value) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
-      <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setHidden(event.target.checked) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setIgnored(event.target.checked) }} />Ignored files</label></div>
+      <div className="project-search-input"><input id={inputId} type="search" value={query} maxLength={1000} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
+      <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>
     </form>
     <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={() => { stop(); setStatus('Stopped · results received so far') }}>Stop</button>}</div>
     {error && <p className="project-search-error" role="alert">{error}</p>}

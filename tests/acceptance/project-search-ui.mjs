@@ -76,7 +76,17 @@ try {
   await page.screenshot({ path: join(evidence, 'search-sidebar.png') })
   await page.getByRole('button', { name: 'Move panel into workspace', exact: true }).click()
   await page.locator('[data-pane-kind="search"]').waitFor()
+  assert.equal(await page.getByRole('searchbox', { name: 'Search text', exact: true }).inputValue(), 'searchfixture')
+  await page.getByRole('list', { name: 'Content matches' }).getByRole('button', { name: /beta.ts:1/ }).waitFor()
+  report.searchSurvivesMove = true
   report.movableSearchPanel = true
+  await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
+  await page.getByRole('button', { name: 'Content search', exact: true }).click()
+  await page.evaluate(() => { window.searchEvents = [] })
+  await page.getByRole('searchbox', { name: 'Search text', exact: true }).fill('search')
+  await delay(500)
+  assert.equal(await page.evaluate(path => window.searchEvents.filter(event => event.workspacePath === path).length, second), 0)
+  report.hiddenProjectSearchPaused = true
   report.ignoredOptIn = true
 } catch (error) {
   report.error = String(error); process.exitCode = 1
