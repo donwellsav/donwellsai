@@ -74,6 +74,18 @@ describe('GitWorktrees.writeFile', () => {
     await expect(configureAgentMemory({ ...options, workspacePath: '/tmp' })).rejects.toThrow()
   })
 
+  it('prepares native Hermes setup with a selected profile and per-session workspace binding', async () => {
+    const { git, path } = await repoContext()
+    const options = { files: git, workspacePath: path, provider: 'hermes', userDataDir: path, executable: '/native/Electron', cliPath: '/native/cli/donwells.mjs', launchArgs: ['--tui', '--profile', 'work'] }
+    const result = await configureAgentMemory(options)
+    expect(result.changed).toBe(false)
+    expect(result.setupArgs?.slice(0, 5)).toEqual(['--profile', 'work', 'mcp', 'add', 'donwells-project-memory'])
+    expect(result.setupArgs).toContain('${workspaceFolder}')
+    expect(result.setupArgs).toContain('ELECTRON_RUN_AS_NODE=1')
+    expect((await configureAgentMemory({ ...options, launchArgs: ['--profile=other'] })).setupArgs?.slice(0, 2)).toEqual(['--profile', 'other'])
+    await expect(configureAgentMemory({ ...options, launchArgs: ['--profile'] })).rejects.toThrow(/profile/)
+  })
+
   it('round-trips new and existing files inside the worktree', async () => {
     const { git, path } = await repoContext()
     mkdirSync(join(path, 'src'))

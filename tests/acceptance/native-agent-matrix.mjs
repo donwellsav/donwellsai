@@ -22,7 +22,7 @@ assert(!values.sqlite || values.memory, '--sqlite requires --memory')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
 assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-profile'], 'DSH memory trial requires a configured native --dsh-profile')
-assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports OMP/Kimi/DSH; Hermes uses a native trial profile')
+assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports all four providers in disposable profiles')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -104,7 +104,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         mkdirSync(hermesProfile, { mode: 0o700 })
         ownsHermesProfile = true
         // Use Hermes's installed YAML parser and a private profile; never rewrite the user's source files.
-        execFileSync(values['hermes-python'], ['-c', 'import json, pathlib, sys, yaml; source, target, servers = sys.argv[1:]; config = yaml.safe_load(pathlib.Path(source).read_text()); config["mcp_servers"] = json.loads(servers); p = pathlib.Path(target); p.touch(mode=0o600, exist_ok=False); p.write_text(yaml.safe_dump(config, allow_unicode=True)); yaml.load(p.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))', join(resolve(values['hermes-home']), 'config.yaml'), join(hermesProfile, 'config.yaml'), JSON.stringify(servers)], { stdio: 'pipe' })
+        execFileSync(values['hermes-python'], ['-c', 'import json, pathlib, sys, yaml; source, target, servers = sys.argv[1:]; config = yaml.safe_load(pathlib.Path(source).read_text()); config["mcp_servers"] = json.loads(servers); p = pathlib.Path(target); p.touch(mode=0o600, exist_ok=False); p.write_text(yaml.safe_dump(config, allow_unicode=True)); yaml.load(p.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))', join(resolve(values['hermes-home']), 'config.yaml'), join(hermesProfile, 'config.yaml'), JSON.stringify(values.managed ? { 'existing-disabled': { command: 'donwells-disabled-fixture', enabled: false } } : servers)], { stdio: 'pipe' })
         writeFileSync(join(hermesProfile, '.env'), readFileSync(join(resolve(values['hermes-home']), '.env')), { mode: 0o600, flag: 'wx' })
       } else {
         const directory = join(fixture, id === 'omp' ? '.omp' : '.kimi-code')
@@ -116,7 +116,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
-    const managedMemory = values.managed && ['omp', 'kimi', 'deepseek-harness'].includes(id)
+    const managedMemory = values.managed
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
     const result = report.agents[id] = { installed: true, executable: provider.executablePath, query: 'not-run', memory: 'not-run', resume: 'not-run' }
@@ -126,7 +126,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       await page.getByRole('button', { name: 'Add agent', exact: true }).click()
       await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
       await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
-      if (managedMemory) {
+      if (managedMemory && id !== 'hermes') {
         await page.getByRole('button', { name: 'Set up shared project memory', exact: true }).click()
         await page.getByText(id === 'deepseek-harness' ? 'Project memory patch ready for this launch. Keep your native profile arguments below.' : 'Project memory setup saved. New agent sessions will load it.', { exact: true }).waitFor()
         const configPath = join(fixture, id === 'omp' ? '.omp/mcp.json' : id === 'kimi' ? '.kimi-code/mcp.json' : '.dsh/donwells-memory.patch.json')
@@ -135,6 +135,47 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         assert.equal(server.command, executable)
         assert.deepEqual(server.args, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', fixture.replace(/^\/var\//, '/private/var/'), '--harness', id, '--user-data', profile])
         result.managedConfiguration = configPath
+      }
+      if (managedMemory && id === 'hermes') {
+        const configPath = join(hermesProfile, 'config.yaml')
+        const settingsHash = () => execFileSync(values['hermes-python'], ['-c', 'import hashlib,json,sys,yaml; c=yaml.safe_load(open(sys.argv[1])); c.pop("mcp_servers",None); print(hashlib.sha256(json.dumps(c,sort_keys=True).encode()).hexdigest())', configPath], { encoding: 'utf8' }).trim()
+        const beforeSettings = settingsHash()
+        await page.getByRole('button', { name: 'Set up shared project memory', exact: true }).click()
+        const setupDeadline = Date.now() + 45000
+        let setupSession
+        while (!setupSession) {
+          setupSession = (await invoke('agent.list')).agents.find(run => !existing.has(run.sessionId))?.sessionId
+          assert(Date.now() < setupDeadline, 'Hermes native setup did not start')
+          if (!setupSession) await delay(100)
+        }
+        existing.add(setupSession)
+        let approved = false
+        while (true) {
+          const output = stripVTControlCharacters((await page.evaluate(async id => window.donwells.attachTerminal(id), setupSession)).scrollback)
+          assert(!output.includes('Failed to connect:'), output)
+          if (!approved && output.includes('Enable all 6 tools?')) {
+            await page.locator(`[data-pane-key="term:${setupSession}"] .xterm-helper-textarea`).focus()
+            await page.keyboard.press('Enter')
+            approved = true
+          }
+          if (output.includes('6/6 tools enabled')) break
+          assert(Date.now() < setupDeadline, 'Hermes native setup did not save its discovered tools')
+          await delay(200)
+        }
+        assert.equal(settingsHash(), beforeSettings, 'Native setup changed unrelated Hermes settings')
+        const servers = JSON.parse(execFileSync(values['hermes-python'], ['-c', 'import json,sys,yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))["mcp_servers"]))', configPath], { encoding: 'utf8' }))
+        assert.deepEqual(servers['existing-disabled'], { command: 'donwells-disabled-fixture', enabled: false })
+        result.existingHermesSettingsPreserved = true
+        const config = servers['donwells-project-memory']
+        assert.equal(config.command, executable)
+        assert(config.args.includes('${workspaceFolder}'))
+        result.managedConfiguration = configPath
+        result.nativeSetupSession = setupSession
+        result.nativeToolsApproved = 6
+        await invoke('agent.stop', { sessionId: setupSession })
+        await page.getByRole('button', { name: 'Add agent', exact: true }).click()
+        await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
+        await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
       }
       const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory && !managedMemory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
       for (const [index, value] of args.entries()) {

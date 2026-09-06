@@ -193,8 +193,8 @@ function runtimeMetadata(): AppMeta {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('agentConfigureMemory', (_e, workspacePath: string, provider: string) => configureAgentMemory({
-    files: git, workspacePath, provider, userDataDir: app.getPath('userData'), executable: process.execPath,
+  ipcMain.handle('agentConfigureMemory', async (_e, workspacePath: string, provider: string, launchArgs?: string[]) => configureAgentMemory({
+    files: git, workspacePath: await resolveRegisteredWorkspace(workspacePath), provider, launchArgs, userDataDir: app.getPath('userData'), executable: process.execPath,
     cliPath: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'cli', 'donwells.mjs')
   }))
   ipcMain.handle('meta', runtimeMetadata)

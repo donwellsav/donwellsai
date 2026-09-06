@@ -205,12 +205,18 @@ export function AgentsSection() {
         )}
 
         {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Memory connection unverified</p>}
-        {targetPath && selectedPreset && ['omp', 'kimi', 'deepseek-harness'].includes(selectedPreset.id) && <div className="agent-command-field">
+        {targetPath && selectedPreset && ['omp', 'kimi', 'deepseek-harness', 'hermes'].includes(selectedPreset.id) && <div className="agent-command-field">
           <button type="button" className="btn btn-secondary" disabled={configuringMemory || launching} onClick={async () => {
             const target = `${targetPath}:${selectedPreset.id}`
             setConfiguringMemory(true)
             try {
-              const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id)
+              const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id, args)
+              if (setup.setupArgs) {
+                const result = await runAgent(targetPath, { executable: selectedPreset.executablePath ?? selectedPreset.command, args: setup.setupArgs })
+                if (!result.ok) throw new Error(result.error)
+                setMemorySetup({ target, message: 'Complete the Hermes setup in its terminal, then start a new session.' })
+                return
+              }
               setMemorySetup({ target, launchArgs: setup.launchArgs, message: setup.launchArgs ? 'Project memory patch ready for this launch. Keep your native profile arguments below.' : 'Project memory setup saved. New agent sessions will load it.' })
             } catch (error) {
               setMemorySetup({ target, message: error instanceof Error ? error.message : String(error) })
@@ -218,6 +224,7 @@ export function AgentsSection() {
           }}>Set up shared project memory</button>
           {memorySetup?.target === `${targetPath}:${selectedPreset.id}` && <p role="status">{memorySetup.message}</p>}
         </div>}
+        {selectedPreset?.id === 'hermes' && <p className="agent-unavailable">Memory setup opens Hermes’s native tool selection in a terminal. It updates the selected Hermes profile; each session resolves its own registered project. Existing servers stay under Hermes’s controls.</p>}
         <label><input type="checkbox" disabled={memoryLaunchArgs.length > 0} checked={launchDirect} onChange={(event) => setDirectLaunch(event.currentTarget.checked)} /> Pass arguments separately</label>
         <label className="agent-command-field" htmlFor="agent-launch-command">
           <span>{launchDirect ? 'Executable' : 'Shell command'}</span>

@@ -1,0 +1,57 @@
+{
+  "startedAt": "2026-09-06T06:45:50.070Z",
+  "source": {
+    "commit": "a93bcb0870deafa64e5cd8563d8aeaff67ae5a4c",
+    "dirty": true,
+    "contentHash": "77e553b8afccefc4f8a1579f06d70bc08ec352b45a49c89e683edc5c1b40a324"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-hermes-managed-profile-02",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-qrqfO3",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "d4e453d74a24fea5ea18e55f23ca0baa3a880b0bf88d24a3a3f739e8dcbb9417"
+  },
+  "agents": {
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "existingHermesSettingsPreserved": true,
+      "managedConfiguration": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-baaf7e87-db70-432e-bdfa-a939c1a7bee6/config.yaml",
+      "nativeSetupSession": "27e83f2c-f670-4e8d-baf2-06a5e4be2fe0",
+      "nativeToolsApproved": 6,
+      "sessionId": "b59c3786-b980-4e5d-8e44-a163acf7ae4f",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 13131,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks."
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "af702a99-80b1-4b06-8fd8-83eba7e39143",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      6977,
+      7084
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-baaf7e87-db70-432e-bdfa-a939c1a7bee6",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": true,
+  "durationMs": 38637.867458
+}
