@@ -25,7 +25,7 @@
 
 ## How to execute
 
-All paths below are relative to the actual Git root `/Users/muzikfirst/Documents/donwellsai/donwellsai`. Existing source baseline is `18eddb407008ae36bd157945987dd00e53cafa36`. Preserve dirty state at execution time. Use a local working branch and small local commits; do not move the user's current checkout without accounting for changes. No release promises based on the research snapshots.
+All paths below are relative to the execution Git root `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`. Existing source baseline is `18eddb407008ae36bd157945987dd00e53cafa36`. Preserve dirty state at execution time. Use a local working branch and small local commits; do not move the user's current checkout without accounting for changes. No release promises based on the research snapshots.
 
 For each task: read named source/tests and every caller of changed shared functions; add the smallest failing regression or live acceptance case; verify it fails for the intended reason; implement; run focused checks; review the diff; save evidence; make a local commit when the task is complete. Do not add tests for static copy/token edits. Commands below describe checks to run during execution, not tests run while planning.
 
@@ -130,6 +130,8 @@ Then run the installed OMP→Hermes→Kimi→DSH live recall scenario and actual
 
 ## Task cards
 
+**Strengthening pass, 2026-09-06:** Every unchecked task must be reverified and improved where current evidence exposes a gap. Historical receipts below are retained as history, not completion of this pass. Task 02 and native VoiceOver/additional-language testing are deferred by the user. Keep ordinary keyboard operation, contrast, focus and resizing checks. Commit verified chunks; after every completed task show all 28 statuses and immediately continue.
+
 ### Task 01: Baseline, dependency admission and recovery evidence
 
 **Depends on:** None.
@@ -138,16 +140,16 @@ Then run the installed OMP→Hermes→Kimi→DSH live recall scenario and actual
 
 **Interfaces:** Consumes current app and research snapshots. Produces a pinned component decision record and an installed-build baseline; no production interface changes.
 
-- [x] **Step 1:** Record checkout, dirty state, OS/hardware, installed artifact path, source/artifact hashes and actual user-data path. Use a temporary test profile; never benchmark by changing real project memory.
-- [x] **Step 2:** Capture the six spec journeys in the current installed build, noting unsupported steps. Record input/focus latency, app/service RAM, idle CPU, startup and restart behavior separately from model resources.
-- [x] **Step 3:** For each proposed dependency, record exact release, source SHA, checksum, runtime/model requirements, package licenses/notices, maintenance status, install/remove method and rollback. Fail admission on unresolved redistribution rights.
-- [x] **Step 4:** Add the smallest Electron live runner around existing smoke infrastructure, with required `--app`, `--profile` and `--evidence` arguments pointing to the actual executable, disposable profile and evidence directory. Reuse `DONWELLS_USER_DATA`; do not enable `DONWELLS_SMOKE` for human journeys. The existing smoke runner launches developer Electron from node_modules and cannot by itself prove packaged acceptance. Record executable hash, source fingerprint and monotonic duration in each result.
-- [x] **Verification:** Run `pnpm typecheck`, `pnpm test`, and `pnpm package:dir`. Launch the resulting artifact with the acceptance profile and save baseline results. Never report the packaged app as tested without launching it.
-- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [ ] **Step 1:** Record checkout, dirty state, OS/hardware, installed artifact path, source/artifact hashes and actual user-data path. Use a temporary test profile; never benchmark by changing real project memory.
+- [ ] **Step 2:** Capture the six spec journeys in the current installed build, noting unsupported steps. Record input/focus latency, app/service RAM, idle CPU, startup and restart behavior separately from model resources.
+- [ ] **Step 3:** For each proposed dependency, record exact release, source SHA, checksum, runtime/model requirements, package licenses/notices, maintenance status, install/remove method and rollback. Fail admission on unresolved redistribution rights.
+- [ ] **Step 4:** Add the smallest Electron live runner around existing smoke infrastructure, with required `--app`, `--profile` and `--evidence` arguments pointing to the actual executable, disposable profile and evidence directory. Reuse `DONWELLS_USER_DATA`; do not enable `DONWELLS_SMOKE` for human journeys. The existing smoke runner launches developer Electron from node_modules and cannot by itself prove packaged acceptance. Record executable hash, source fingerprint and monotonic duration in each result.
+- [ ] **Verification:** Run `pnpm typecheck`, `pnpm test`, and `pnpm package:dir`. Launch the resulting artifact with the acceptance profile and save baseline results. Never report the packaged app as tested without launching it.
+- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Remove only the temporary profile and trial artifacts. Keep all user data untouched.
 
-### Task 02: Choose terminal rendering and docking with a real session
+### Task 02: SKIPPED by user — retain xterm/FlexLayout
 
 **Depends on:** 01.
 
@@ -155,11 +157,11 @@ Then run the installed OMP→Hermes→Kimi→DSH live recall scenario and actual
 
 **Interfaces:** Consumes existing attach/input/resize session API. Produces a recorded renderer/layout winner; the trial must not alter PTY ownership.
 
-- [x] **Step 1:** First compare xterm and Ghostty Web in the same minimal layout, then compare FlexLayout and Dockview with the winning renderer. Keep daemon session and workload identical so layout effects are not mistaken for renderer effects. Pin trial dependencies separately; keep production lockfile unchanged during comparison.
+- [ ] **Step 1:** First compare xterm and Ghostty Web in the same minimal layout, then compare FlexLayout and Dockview with the winning renderer. Keep daemon session and workload identical so layout effects are not mistaken for renderer effects. Pin trial dependencies separately; keep production lockfile unchanged during comparison.
 - [ ] **Step 2:** Exercise existing search, links, selection, custom key handlers, multiline paste, IME, VoiceOver, Unicode, mouse reporting, alternate screen and terminal resize. Record unsupported Ghostty APIs explicitly.
-- [x] **Step 3:** Move/split/focus views 100 times and prove identical daemon session/process identity, no duplicate subscriptions and unchanged editor unsaved content. Capture terminal frames and input latency under output load.
+- [ ] **Step 3:** Move/split/focus views 100 times and prove identical daemon session/process identity, no duplicate subscriptions and unchanged editor unsaved content. Capture terminal frames and input latency under output load.
 - [ ] **Step 4:** Choose the pair that passes every critical behavior and materially improves arrangement or measured performance. Reject a renderer with lost accessibility/addons. Record native Ghostty as a separate experiment if needed, not an assumed fallback.
-- [x] **Verification:** Run `pnpm exec vitest run tests/terminal-bus.test.ts tests/terminal-daemon.test.ts tests/editor-tabs.test.ts`. Run `node tests/acceptance/terminal-layout.mjs` after creating its documented profile arguments.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/terminal-bus.test.ts tests/terminal-daemon.test.ts tests/editor-tabs.test.ts`. Run `node tests/acceptance/terminal-layout.mjs` after creating its documented profile arguments.
 - [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Delete rejected trial code/dependencies. Retain the baseline renderer if no replacement passes.
@@ -174,12 +176,12 @@ Then run the installed OMP→Hermes→Kimi→DSH live recall scenario and actual
 
 **Interfaces:** Consumes the current ProjectMemoryApi and spec quality targets. Produces exact admitted tool versions and compatibility findings.
 
-- [x] **Step 1:** Author 50 real project questions and known source references: exact decisions, paraphrases, conflicting/obsolete facts, worktree-specific code and unrelated-project traps. Keep synthetic fixtures separate from user memory.
-- [x] **Step 2:** Compare Engram to current API semantics: revision conflicts, full history, archive, ID preservation, isolation, backup/import and offline behavior. If critical semantics need a second authoritative ledger, select SQLite/FTS5 behind the existing API instead.
-- [x] **Step 3:** Exercise QMD local retrieval and codebase-memory-mcp on a temporary copy of this repository. Record first-index time, incremental edits/deletes, warm/cold retrieval, model downloads and resident memory.
-- [x] **Step 4:** Trial Playwright MCP versus agent-browser for project-app testing and Cua Driver versus Peekaboo on a disposable native-app fixture. Score correct-target actions, interruption, background behavior and permission diagnosis. Pin one default in each category; keep others optional.
-- [x] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-mcp.test.ts`. Candidate evidence must include actual requests/results, not README benchmark numbers.
-- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [ ] **Step 1:** Author 50 real project questions and known source references: exact decisions, paraphrases, conflicting/obsolete facts, worktree-specific code and unrelated-project traps. Keep synthetic fixtures separate from user memory.
+- [ ] **Step 2:** Compare Engram to current API semantics: revision conflicts, full history, archive, ID preservation, isolation, backup/import and offline behavior. If critical semantics need a second authoritative ledger, select SQLite/FTS5 behind the existing API instead.
+- [ ] **Step 3:** Exercise QMD local retrieval and codebase-memory-mcp on a temporary copy of this repository. Record first-index time, incremental edits/deletes, warm/cold retrieval, model downloads and resident memory.
+- [ ] **Step 4:** Trial Playwright MCP versus agent-browser for project-app testing and Cua Driver versus Peekaboo on a disposable native-app fixture. Score correct-target actions, interruption, background behavior and permission diagnosis. Pin one default in each category; keep others optional.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-mcp.test.ts`. Candidate evidence must include actual requests/results, not README benchmark numbers.
+- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Uninstall trial tools only when installed into the trial directory; do not modify pre-existing user installations.
 
@@ -193,18 +195,18 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes canonical project resolution and existing process helpers. Produces ProjectToolScope/ToolServiceState and start/stop/status operations through existing runtime RPC.
 
-- [x] **Step 1:** Create a bound scope before launching a tool. Separate canonical project key from checkout-specific index key; validate real paths and reject deregistered projects.
-- [x] **Step 2:** Start one admitted service per required scope, wait for a real readiness response, cap log output, and maintain a bounded restart policy. Deduplicate simultaneous start requests. Expose minimal availability/error/retry controls now; Task 19 consolidates them. Bind requests to an unguessable launch credential or inherited private channel and fence stale service generations; localhost alone is not authentication.
-- [x] **Step 3:** Bind the permitted memory/index/browser targets server-side. Reject override attempts for search, direct get, export, history and batch calls. Never trust harness attribution as identity.
-- [x] **Step 4:** Test service crash, readiness timeout, malformed response, scope spoofing, duplicate starts and app shutdown. Retry read-only calls only; return uncertain write/action outcomes without automatic repetition.
-- [x] **Verification:** Run `pnpm exec vitest run tests/project-tools.test.ts tests/runtime-rpc.test.ts tests/run-process.test.ts tests/secret-store.test.ts`.
-- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [ ] **Step 1:** Create a bound scope before launching a tool. Separate canonical project key from checkout-specific index key; validate real paths and reject deregistered projects.
+- [ ] **Step 2:** Start one admitted service per required scope, wait for a real readiness response, cap log output, and maintain a bounded restart policy. Deduplicate simultaneous start requests. Expose minimal availability/error/retry controls now; Task 19 consolidates them. Bind requests to an unguessable launch credential or inherited private channel and fence stale service generations; localhost alone is not authentication.
+- [ ] **Step 3:** Bind the permitted memory/index/browser targets server-side. Reject override attempts for search, direct get, export, history and batch calls. Never trust harness attribution as identity.
+- [ ] **Step 4:** Test service crash, readiness timeout, malformed response, scope spoofing, duplicate starts and app shutdown. Retry read-only calls only; return uncertain write/action outcomes without automatic repetition.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/project-tools.test.ts tests/runtime-rpc.test.ts tests/run-process.test.ts tests/secret-store.test.ts`.
+- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable the added capability; running terminal agents remain usable. Stop only app-owned services.
 
 ### Task 05: Design tokens and a distinctive primary workspace
 
-**Depends on:** 01, 02.
+**Depends on:** 01. Task 02 skipped by user; retain xterm/FlexLayout.
 
 **Files:** Modify `src/renderer/src/main.css`, `components/Workbench.tsx`, `WorktreeSidebar.tsx`, `RightSidebar.tsx`, `SettingsModal.tsx`; reuse `src/shared/appearance.ts` and `src/renderer/src/terminal-themes.ts`; create `tests/acceptance/workspace-accessibility.mjs`.
 
@@ -221,7 +223,7 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 ### Task 06: Persistent movable modules and stable terminal views
 
-**Depends on:** 02, 05.
+**Depends on:** 05. Task 02 skipped by user; retain xterm/FlexLayout.
 
 **Files:** Modify `components/Workbench.tsx`, `TerminalPane.tsx`, `EditorPane.tsx`, `src/renderer/src/store.ts`, `src/shared/settings.ts`; create `tests/workspace-layout.test.ts`.
 
@@ -282,7 +284,7 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 - [ ] **Step 2:** Implement the eight-step migration protocol from the spec. Preserve IDs or an auditable bijection. Verify counts and content hashes before changing the active backend manifest.
 - [ ] **Step 3:** Preserve conflict errors and provenance. Enforce project scope for every backend operation, including direct ID lookup. No runtime dual-write to the old JSON file.
 - [ ] **Step 4:** Test a concurrent old-client write during migration, subprocess death at every cutover boundary, disk full, interruption before/after manifest switch, backend unavailable, duplicate migration and downgrade after new writes. Expose migration diagnosis and export without deleting the old backup.
-- [x] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/project-memory.test.ts tests/project-memory-migration.test.ts tests/project-memory-mcp.test.ts`; run the live four-agent recall matrix against the migrated temporary profile.
 - [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four native agents recalling one revision-2 SQLite decision after a packaged app restart. The full 378-test run includes the named memory suites. Disk-full qualification and the other unchecked implementation gates remain outstanding.
@@ -314,12 +316,12 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes scoped QMD service and selected document roots. Produces ProjectSearchHit document results and source retrieval bound to the same project.
 
-- [x] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
-- [x] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
-- [x] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
-- [x] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
-- [x] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
-- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [ ] **Step 1:** Create checkout-specific collections for repository documents and explicitly shared collections for selected external project references, with explicit exclusions for secrets, binaries and generated output. Avoid indexing the whole home directory.
+- [ ] **Step 2:** Use QMD indexing/search rather than implementing chunking/vector fusion. Share model residency where supported and show index progress, cancellation, model size and paused state.
+- [ ] **Step 3:** Enforce scope on query, get and multi-get as well as discovery. Include resolvable source and index timestamp; reject references escaping the selected roots.
+- [ ] **Step 4:** Test edited/deleted/renamed files, symlinks, non-ASCII paths, corrupt index, unavailable model and lexical fallback. Benchmark the authored 50-question corpus.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/project-documents.test.ts tests/filesystem-confinement.test.ts`; record QMD cold/warm retrieval and deletion results.
+- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Delete/rebuild derived indexes only; authoritative source documents and durable decisions remain untouched.
 
@@ -333,12 +335,12 @@ Evidence: `docs/architecture/native-four-memory-sqlite-01.json` records the four
 
 **Interfaces:** Consumes checkout-specific scope and admitted ripgrep/code-index binary. Produces file/code ProjectSearchHit results; file-write APIs remain unchanged.
 
-- [x] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
-- [x] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
-- [x] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
-- [x] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
-- [x] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
-- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [ ] **Step 1:** Return streaming/cancellable ripgrep results with proper ignore behavior; map existing showHidden/includeIgnored settings to explicit arguments. Use argv, not interpolated shell strings.
+- [ ] **Step 2:** Build code indexes per checkout/revision. Route caller/impact questions to the existing code-index tool; offer ast-grep for structural queries without building a second parser.
+- [ ] **Step 3:** Test nested .gitignore, ignored directories, hidden files, symlinks, large repositories, deleted files and cancellation. Keep root validation on every result open.
+- [ ] **Step 4:** Verify known imports/callers and a rename across two diverged worktrees. Invalidate only affected indexes and label unsupported dynamic resolution.
+- [ ] **Verification:** Run `pnpm exec vitest run tests/project-code-search.test.ts tests/filesystem-confinement.test.ts tests/workspace-navigation.test.ts`; benchmark the 100k-file fixture.
+- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Fallback to bounded existing discovery when tool unavailable; make loss of content/graph search visible.
 
@@ -664,7 +666,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current task: **02 — Native terminal IME and VoiceOver qualification**. Task 02 remains open for native IME and VoiceOver. Tasks 01, 03, 04, 11 and 12 are complete. Execute against `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, preserving existing implementation and uncommitted work. The separate `plan-restart` checkout is not the execution target.
+Current position: **Task 01 active — strengthening pass requested by the user.** All previous completion claims are reopened for current verification. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 
@@ -688,13 +690,13 @@ Tasks 23–26 are gated evaluation/design work followed by implementation of adm
 
 ## Plan completion check
 
-- [x] Current source baseline and actual nested Git root identified.
-- [x] Preferred components, challengers and selection rules recorded.
-- [x] Current data/state boundaries preserved in the proposed architecture.
-- [x] Migration, rollback, service failure and project-isolation rules specified.
-- [x] Every product requirement mapped to task ownership and acceptance.
-- [x] Source/test paths grounded in this checkout; new paths explicitly identified as proposed.
-- [x] Research claims separated from unperformed runtime qualification.
-- [x] Production code, dependencies, native agent settings and user data unchanged by planning.
+- [ ] Current source baseline and actual nested Git root identified.
+- [ ] Preferred components, challengers and selection rules recorded.
+- [ ] Current data/state boundaries preserved in the proposed architecture.
+- [ ] Migration, rollback, service failure and project-isolation rules specified.
+- [ ] Every product requirement mapped to task ownership and acceptance.
+- [ ] Source/test paths grounded in this checkout; new paths explicitly identified as proposed.
+- [ ] Research claims separated from unperformed runtime qualification.
+- [ ] Production code, dependencies, native agent settings and user data unchanged by planning.
 
 Implementation task boxes remain unchecked. No task is complete because its plan exists.
