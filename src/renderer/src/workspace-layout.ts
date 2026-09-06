@@ -31,21 +31,24 @@ export function restoreWorkspaceLayout(value: unknown, panes: readonly PaneRefer
   const valid = isObject(value) && value.version === 1 && modelValue && isObject(modelValue.layout)
   if (value !== undefined && !valid) recovered = true
   const hidden = valid && Array.isArray(value.hidden) ? [...new Set(value.hidden.filter((key): key is string => typeof key === 'string' && known.has(key)))] : []
+  if (valid && (!Array.isArray(value.hidden) || hidden.length !== value.hidden.length)) recovered = true
   const hiddenKeys = new Set(hidden)
   const weight = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.min(1000, Math.max(1, value)) : 50
   const clean = (node: unknown, depth = 0): Group | null => {
     if (!isObject(node) || depth > 12 || ++count > 256 || !Array.isArray(node.children)) { recovered = true; return null }
     if (node.type === 'tabset') {
       const children: IJsonTabNode[] = []
+      const selected = node.children[Number.isInteger(node.selected) ? Number(node.selected) : 0]
       for (const child of node.children.slice(0, 256)) {
         if (!isObject(child) || child.type !== 'tab' || typeof child.id !== 'string' || !known.has(child.id) || used.has(child.id)) { recovered = true; continue }
         if (hiddenKeys.has(child.id)) continue
         used.add(child.id); children.push(tab(known.get(child.id)!))
       }
       if (node.children.length > 256) recovered = true
-      return children.length ? { type: 'tabset', weight: weight(node.weight), selected: Math.min(children.length - 1, Math.max(0, Number.isInteger(node.selected) ? Number(node.selected) : 0)), children } : null
+      return children.length ? { type: 'tabset', weight: weight(node.weight), selected: Math.max(0, children.findIndex(child => isObject(selected) && child.id === selected.id)), children } : null
     }
     if (node.type !== 'row') { recovered = true; return null }
+    if (node.children.length > 256) recovered = true
     return { type: 'row', weight: weight(node.weight), children: node.children.slice(0, 256).map(child => clean(child, depth + 1)).filter((child): child is Group => child !== null) }
   }
   const migrate = (node: unknown, orientation: 'row' | 'col', depth = 0): Group | null => {

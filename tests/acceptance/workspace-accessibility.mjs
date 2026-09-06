@@ -210,11 +210,26 @@ try {
   const exited = new Promise(resolve => app.process().once('exit', resolve))
   app.process().kill('SIGKILL') // Deliberate crash of only this disposable acceptance app.
   await exited
+  const savedPath = join(profile, 'donwells-data.json')
+  const damaged = JSON.parse(readFileSync(savedPath, 'utf8'))
+  const savedRepo = Object.values(damaged.workspaceSession.repos).find(repo => repo.panes[workspacePath])
+  savedRepo.panes[workspacePath].push({ ...savedRepo.panes[workspacePath][0] })
+  savedRepo.docking[workspacePath].hidden.push('removed-resource')
+  savedRepo.docking[workspacePath].model.layout.children.push({ type: 'tabset', children: [
+    { type: 'tab', id: 'preview:README.md', component: 'pane' },
+    { type: 'tab', id: 'removed-resource', component: 'pane' }
+  ] })
+  writeFileSync(savedPath, JSON.stringify(damaged))
   app = await _electron.launch({ executablePath: executable, env })
   page = await app.firstWindow()
   page.setDefaultTimeout(15000)
   page.on('pageerror', error => report.errors.push(error.message))
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+  await page.getByText('Some saved panel references were invalid. Existing resources were recovered into a usable layout.', { exact: true }).waitFor()
+  const restoredState = await invoke('ui.state')
+  const restoredKeys = restoredState.panes[workspacePath].map(pane => pane.key)
+  assert.equal(new Set(restoredKeys).size, restoredKeys.length)
+  report.checks.corruptLayoutWarnsAndRecoversWithoutDuplicateResources = true
   await page.getByRole('button', { name: 'Layout', exact: true }).click()
   await page.getByText('Hidden (1)', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Layout', exact: true }).click()

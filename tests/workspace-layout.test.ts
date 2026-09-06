@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { Model, TabNode } from 'flexlayout-react'
+import { Model, TabNode, TabSetNode } from 'flexlayout-react'
 import { restoreWorkspaceLayout, workspacePreset, moveWorkspacePane, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout } from '../src/renderer/src/workspace-layout'
 const panes = [{ key: 'a', kind: 'terminal' }, { key: 'b', kind: 'terminal' }, { key: 'file', kind: 'preview' }, { key: 'web', kind: 'browser' }, { key: 'diff', kind: 'diff' }]
 const ids = (layout: WorkspaceLayout) => { const found: string[] = []; Model.fromJson(layout.model).visitNodes(node => { if (node instanceof TabNode) found.push(node.getId()) }); return found }
@@ -27,6 +27,22 @@ it('preserves hidden views across restart and can restore their resources withou
   const reopened = restoreWorkspaceLayout({ ...hidden, hidden: [] }, panes).layout
   expect(ids(reopened)).toContain('b')
   expect(panes[1]).toEqual({ key: 'b', kind: 'terminal' })
+})
+it('keeps the selected resource when an earlier saved tab is removed', () => {
+  const saved = workspacePreset('focus', panes, 'b')
+  const restored = restoreWorkspaceLayout(saved, panes.filter(pane => pane.key !== 'a'))
+  const model = Model.fromJson(restored.layout.model)
+  expect((model.getNodeById('b')?.getParent() as TabSetNode).getSelectedNode()?.getId()).toBe('b')
+  expect(restored.recovered).toBe(true)
+})
+it('reports invalid hidden references and keeps a selected tab when a preceding tab is hidden', () => {
+  const saved = workspacePreset('focus', panes, 'b')
+  saved.hidden = ['a', 'gone', 'a']
+  const restored = restoreWorkspaceLayout(saved, panes)
+  expect(restored.recovered).toBe(true)
+  expect(restored.layout.hidden).toEqual(['a'])
+  const model = Model.fromJson(restored.layout.model)
+  expect((model.getNodeById('b')?.getParent() as TabSetNode).getSelectedNode()?.getId()).toBe('b')
 })
 it.each(['focus','pair','build','review'] as const)('composes %s using every existing resource exactly once', preset => {
   const layout = workspacePreset(preset, panes, 'a')

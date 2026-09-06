@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 06 active — persistent movable modules.** Tasks 01, 03, 04 and 05 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 07 active — native agents and capability discovery.** Tasks 01, 03, 04, 05 and 06 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -116,14 +116,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes the chosen layout library and current pane/session IDs. Produces versioned layout persistence referencing stable resource identities.
 
-- [ ] **Step 1:** Integrate the winning docking library and terminal renderer using stable models and keys. Port required renderer addons, search and accessibility behavior; explicitly retain xterm if it wins. Deliver the movable preset compositions specified in Task 05. A panel location is not a process owner; moving it cannot invoke terminal stop.
-- [ ] **Step 2:** Serialize layout with a schema version. Migrate existing split trees, preserve hidden panels and filter missing resources with a recoverable warning.
-- [ ] **Step 3:** Implement focus, move, split, close-view and reopen commands through the existing command catalog. Make Stop process distinct from Close view.
-- [ ] **Step 4:** Test corrupt saved layout, removed project, duplicate panel references, render remount, unsaved editor state and app restart. Remove the superseded split implementation once migration passes.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/workspace-layout.test.ts tests/terminal-bus.test.ts tests/editor-save.test.ts tests/editor-recovery.test.ts`; repeat the Task 02 live lifecycle workload.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Integrate the winning docking library and terminal renderer using stable models and keys. Port required renderer addons, search and accessibility behavior; explicitly retain xterm if it wins. Deliver the movable preset compositions specified in Task 05. A panel location is not a process owner; moving it cannot invoke terminal stop.
+- [x] **Step 2:** Serialize layout with a schema version. Migrate existing split trees, preserve hidden panels and filter missing resources with a recoverable warning.
+- [x] **Step 3:** Implement focus, move, split, close-view and reopen commands through the existing command catalog. Make Stop process distinct from Close view.
+- [x] **Step 4:** Test corrupt saved layout, removed project, duplicate panel references, render remount, unsaved editor state and app restart. Remove the superseded split implementation once migration passes.
+- [x] **Verification:** Run `pnpm exec vitest run tests/workspace-layout.test.ts tests/terminal-bus.test.ts tests/editor-save.test.ts tests/editor-recovery.test.ts`; repeat the Task 02 live lifecycle workload.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Keep one pre-migration layout backup. Reverting layout must not revert file contents or memory.
+
+**Strengthening evidence:** [selection recovery and damaged-layout packaged restart](../../architecture/strengthening-06/README.md).
 
 ### Task 07: Four native agents and honest capability discovery
 
