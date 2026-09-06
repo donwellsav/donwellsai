@@ -7,7 +7,7 @@ import { once } from 'node:events'
 import { expect, it } from 'vitest'
 import { PROJECT_MEMORY_MAX_CONTENT_LENGTH, projectMemoryRevisionFromEntry } from '../src/shared/project-memory'
 import { ProjectMemoryService } from '../src/main/project-memory'
-import { abortProjectMemoryMigration, exportProjectMemoryForDowngrade, migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
+import { abortProjectMemoryMigration, reverseProjectMemoryMigration, exportProjectMemoryForDowngrade, migrateProjectMemory, prepareProjectMemoryMigration, type MemoryMigrationBoundary } from '../src/main/project-memory-migration'
 import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
 import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from '../src/main/project-memory-sqlite'
 
@@ -83,6 +83,7 @@ it('keeps SQLite active when its full retained history exceeds the legacy docume
       }
     } finally { db.close() }
     expect(() => exportProjectMemoryForDowngrade(root)).toThrow('exceeds the legacy reader limit')
+    expect(() => reverseProjectMemoryMigration(root)).toThrow('exceeds the legacy reader limit')
     expect(readdirSync(root).filter(name => name.startsWith('project-memory-export-'))).toEqual([])
     expect(JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8')).state).toBe('sqlite')
   } finally { rmSync(root, { recursive: true, force: true }) }
@@ -334,4 +335,61 @@ it('fences every JSON writer during maintenance and releases the lock when its o
     }
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+
+it.each(['reverse-prepared', 'reverse-marked', 'reverse-unfenced', 'reverse-published', 'reverse-active'] as const)('preserves post-upgrade writes when reverse migration resumes at %s', async boundary => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-reverse-'))
+  try {
+    const resolver = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
+    const service = new ProjectMemoryService(root, resolver)
+    const request = { workspacePath: '/a', kind: 'decision' as const, title: 'Reverse migration', content: 'before upgrade', attribution: { harness: 'omp' } }
+    const entry = await service.projectMemoryCreate(request)
+    await service.projectMemoryStorageAction('migrate')
+    const authority = JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8'))
+    const backupPath = join(root, authority.directory, 'project-memory.json.backup')
+    const backup = readFileSync(backupPath)
+    const changed = await service.projectMemoryUpdate({ ...request, id: entry.id, expectedRevision: 1, content: 'written to SQLite', attribution: { harness: 'hermes' } })
+    const history = await service.projectMemoryHistory({ workspacePath: '/a', id: entry.id })
+    expect(() => reverseProjectMemoryMigration(root, step => { if (step === boundary) throw new Error('reverse interrupted') })).toThrow('reverse interrupted')
+    if (boundary === 'reverse-prepared') {
+      expect((await service.projectMemoryStorageStatus()).backend).toBe('sqlite')
+      await service.projectMemoryStorageAction('reverse')
+    }
+    const reopened = new ProjectMemoryService(root, resolver)
+    expect(await reopened.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(changed)
+    expect(await reopened.projectMemoryHistory({ workspacePath: '/a', id: entry.id })).toEqual(history)
+    expect((await reopened.projectMemoryStorageStatus()).backend).toBe('json')
+    const next = await reopened.projectMemoryUpdate({ ...request, id: entry.id, expectedRevision: 2, content: 'written after downgrade' })
+    expect(await new ProjectMemoryService(root, resolver).projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(next)
+    expect(readFileSync(backupPath)).toEqual(backup)
+    expect(reverseProjectMemoryMigration(root).state).toBe('json')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+
+it('keeps conflicting legacy writes and the frozen SQLite snapshot during reverse recovery', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-reverse-conflict-'))
+  try {
+    const resolver = async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' })
+    const service = new ProjectMemoryService(root, resolver)
+    const request = { workspacePath: '/a', kind: 'fact' as const, title: 'Conflict', content: 'SQLite value', attribution: { harness: 'cli' } }
+    const entry = await service.projectMemoryCreate(request)
+    await service.projectMemoryStorageAction('migrate')
+    expect(await service.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    expect(() => reverseProjectMemoryMigration(root, step => { if (step === 'reverse-published') throw new Error('interrupted') })).toThrow('interrupted')
+    const authority = JSON.parse(readFileSync(join(root, 'project-memory-active.json'), 'utf8'))
+    const candidatePath = join(root, authority.directory, 'reverse-source.json')
+    const candidate = readFileSync(candidatePath)
+    const legacyPath = join(root, 'project-memory.json')
+    const changed = JSON.parse(readFileSync(legacyPath, 'utf8'))
+    changed.projects[0].entries[0].current.content = 'an old client wrote this'
+    writeFileSync(legacyPath, JSON.stringify(changed))
+    expect(() => reverseProjectMemoryMigration(root)).toThrow('neither source was overwritten')
+    expect(JSON.parse(readFileSync(legacyPath, 'utf8'))).toEqual(changed)
+    expect(readFileSync(candidatePath)).toEqual(candidate)
+    await expect(service.projectMemoryUpdate({ ...request, id: entry.id, expectedRevision: 1 })).rejects.toThrow('authority changed')
+    expect(() => abortProjectMemoryMigration(root)).toThrow('Cannot abort reverse migration')
+    expect(() => migrateProjectMemory(root)).toThrow('Reverse migration is in progress')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

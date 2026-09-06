@@ -5,21 +5,25 @@ import { createServer } from 'vite'
 const profile = process.argv[2]
 const requestedBoundary = process.argv[3] ?? 'legacy-fenced'
 if (!profile) throw new Error('Disposable acceptance profile is required')
+const reversing = ['reverse-prepared', 'reverse-marked', 'reverse-unfenced', 'reverse-published', 'reverse-active'].includes(requestedBoundary)
 const aborting = ['abort-marked', 'json-restored'].includes(requestedBoundary)
-if (!aborting && !['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active'].includes(requestedBoundary)) throw new Error('Unknown crash boundary')
+if (requestedBoundary !== 'upgrade-only' && !reversing && !aborting && !['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active'].includes(requestedBoundary)) throw new Error('Unknown crash boundary')
 const root = resolve(import.meta.dirname, '../..')
 const server = await createServer({ root, configFile: false, server: { middlewareMode: true }, resolve: { alias: { '@shared': join(root, 'src/shared') } } })
 try {
-  const { migrateProjectMemory, abortProjectMemoryMigration } = await server.ssrLoadModule('/src/main/project-memory-migration.ts')
+  const { migrateProjectMemory, abortProjectMemoryMigration, reverseProjectMemoryMigration } = await server.ssrLoadModule('/src/main/project-memory-migration.ts')
   if (aborting) {
     try { migrateProjectMemory(profile, boundary => { if (boundary === 'legacy-fenced') throw new Error('prepare abort fixture') }) }
     catch (error) { if (error.message !== 'prepare abort fixture') throw error }
   }
-  const operation = aborting ? abortProjectMemoryMigration : migrateProjectMemory
-  operation(profile, boundary => {
-    if (boundary !== requestedBoundary) return
-    writeSync(1, JSON.stringify({ pid: process.pid, boundary }) + '\n')
-    process.kill(process.pid, 'SIGKILL')
-  })
-  throw new Error('Migration did not reach the requested crash boundary')
+  if (requestedBoundary === 'upgrade-only') { migrateProjectMemory(profile); console.log('upgraded') }
+  else {
+    const operation = reversing ? reverseProjectMemoryMigration : aborting ? abortProjectMemoryMigration : migrateProjectMemory
+    operation(profile, boundary => {
+      if (boundary !== requestedBoundary) return
+      writeSync(1, JSON.stringify({ pid: process.pid, boundary }) + '\n')
+      process.kill(process.pid, 'SIGKILL')
+    })
+    throw new Error('Migration did not reach the requested crash boundary')
+  }
 } finally { await server.close() }

@@ -26,7 +26,7 @@ import {
   type ProjectMemoryUpdateRequest
 } from '@shared/project-memory'
 import { ProjectMemoryStore } from './project-memory-store'
-import { abortProjectMemoryMigration, exportProjectMemoryForDowngrade, inspectProjectMemoryStorage, migrateProjectMemory } from './project-memory-migration'
+import { abortProjectMemoryMigration, reverseProjectMemoryMigration, exportProjectMemoryForDowngrade, inspectProjectMemoryStorage, migrateProjectMemory } from './project-memory-migration'
 
 export type ProjectMemoryResolver = (workspacePath: string) => Promise<ProjectMemoryProject>
 
@@ -69,9 +69,10 @@ export class ProjectMemoryService implements ProjectMemoryApi {
       const exported = exportProjectMemoryForDowngrade(this.userDataDir)
       return { status: inspectProjectMemoryStorage(this.userDataDir), exportPath: exported.path }
     }
-    if (action !== 'migrate' && action !== 'abort') throw new Error('Unknown project memory storage action')
+    if (action !== 'migrate' && action !== 'abort' && action !== 'reverse') throw new Error('Unknown project memory storage action')
     try {
       if (action === 'migrate') migrateProjectMemory(this.userDataDir)
+      else if (action === 'reverse') reverseProjectMemoryMigration(this.userDataDir)
       else abortProjectMemoryMigration(this.userDataDir)
     } finally { this.loadedStore = undefined }
     return { status: inspectProjectMemoryStorage(this.userDataDir) }

@@ -28,7 +28,7 @@ function writePrivate(path: string, bytes: string | Buffer, mode = 0o600): void 
 
 export type ProjectMemoryAuthority = {
   schemaVersion: 1
-  state: 'preparing' | 'sqlite' | 'aborting'
+  state: 'preparing' | 'sqlite' | 'aborting' | 'reversing'
   directory: string
   sourceSha256: string | null
   contentSha256: string
@@ -52,7 +52,7 @@ export function readProjectMemoryAuthority(profile: string): ProjectMemoryAuthor
     catch (error) { throw new Error('Invalid project memory authority manifest', { cause: error }) }
   } finally { closeSync(fd) }
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'contentSha256,directory,schemaVersion,sourceSha256,state'
-    || value.schemaVersion !== 1 || !['preparing', 'sqlite', 'aborting'].includes(value.state)
+    || value.schemaVersion !== 1 || !['preparing', 'sqlite', 'aborting', 'reversing'].includes(value.state)
     || typeof value.directory !== 'string' || !/^project-memory-migration-[A-Za-z0-9]+$/.test(value.directory)
     || typeof value.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentSha256)
     || !(value.sourceSha256 === null || typeof value.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(value.sourceSha256))) throw new Error('Invalid project memory authority manifest')
@@ -116,6 +116,7 @@ export function migrateProjectMemory(userDataDir: string, onBoundary: (boundary:
   const profile = resolve(userDataDir)
   return withProjectMemoryWriteLock(profile, () => {
     let authority = readProjectMemoryAuthority(profile)
+    if (authority?.state === 'reversing') throw new Error('Reverse migration is in progress; resume it before upgrading')
     if (authority?.state === 'aborting') throw new Error('Project memory abort is in progress; reopen memory to complete recovery')
     if (!authority) {
       const prepared = prepareLockedMigration(profile)
@@ -167,6 +168,7 @@ export function abortProjectMemoryMigration(userDataDir: string, onBoundary: (bo
       readProjectMemorySnapshot(sourcePath)
       return { state: 'json' as const, sourcePath }
     }
+    if (authority.state === 'reversing') throw new Error('Cannot abort reverse migration; resume it to preserve current memory')
     if (authority.state === 'sqlite') throw new Error('Cannot abort an active migration; export current SQLite memory to preserve later writes')
     authority = { ...authority, state: 'aborting' }
     publishAuthority(profile, authority)
@@ -208,31 +210,88 @@ export function abortProjectMemoryMigration(userDataDir: string, onBoundary: (bo
 /** Export the current authority, never its pre-cutover backup. Publication/switching remains a separate fenced operation. */
 export function exportProjectMemoryForDowngrade(userDataDir: string) {
   const profile = resolve(userDataDir)
+  return withProjectMemoryWriteLock(profile, () => exportLockedMemory(profile))
+}
+
+function exportLockedMemory(profile: string) {
+  const authority = readProjectMemoryAuthority(profile)
+  if (authority?.state !== 'sqlite') throw new Error('Downgrade export requires an active SQLite memory authority')
+  const db = openProjectMemoryDatabase(profile, authority, true)
+  let document: ProjectMemoryDocument
+  const tooLarge = () => new Error(`Current memory exceeds the legacy reader limit of ${PROJECT_MEMORY_MAX_DOCUMENT_BYTES} bytes; keep SQLite active`)
+  try {
+    const entries = Number(db.prepare('SELECT coalesce(sum(length(CAST(current_json AS BLOB)) + length(CAST(history_json AS BLOB))),0) AS bytes FROM entries').get()!.bytes)
+    const projects = Number(db.prepare('SELECT coalesce(sum(length(CAST(project_key AS BLOB)) + length(CAST(project_path AS BLOB))),0) AS bytes FROM projects').get()!.bytes)
+    if (entries + projects > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
+    document = readSqliteMemoryDocument(db)
+  } finally { db.close() }
+  const bytes = Buffer.from(JSON.stringify(document, null, 2) + '\n')
+  if (bytes.length > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
+  const path = join(profile, `project-memory-export-${randomUUID()}.json`)
+  try {
+    writePrivate(path, bytes)
+    const verified = readProjectMemorySnapshot(path)
+    if (!verified.bytes?.equals(bytes) || JSON.stringify(projectEvidence(verified.document)) !== JSON.stringify(projectEvidence(document))) throw new Error('Downgrade export verification failed')
+    syncDirectory(profile)
+    return { path, sha256: digest(bytes), bytes: bytes.length, sourceDirectory: authority.directory, projects: projectEvidence(document) }
+  } catch (error) {
+    rmSync(path, { force: true })
+    throw error
+  }
+}
+
+export type MemoryReverseBoundary = 'reverse-prepared' | 'reverse-marked' | 'reverse-unfenced' | 'reverse-published' | 'reverse-active'
+
+/** Freeze SQLite before publishing its current contents at the legacy path. Both backups remain intact. */
+export function reverseProjectMemoryMigration(userDataDir: string, onBoundary: (boundary: MemoryReverseBoundary) => void = () => {}) {
+  const profile = resolve(userDataDir)
+  const sourcePath = join(profile, 'project-memory.json')
   return withProjectMemoryWriteLock(profile, () => {
-    const authority = readProjectMemoryAuthority(profile)
-    if (authority?.state !== 'sqlite') throw new Error('Downgrade export requires an active SQLite memory authority')
-    const db = openProjectMemoryDatabase(profile, authority, true)
-    let document: ProjectMemoryDocument
-    const tooLarge = () => new Error(`Current memory exceeds the legacy reader limit of ${PROJECT_MEMORY_MAX_DOCUMENT_BYTES} bytes; keep SQLite active`)
-    try {
-      const entries = Number(db.prepare('SELECT coalesce(sum(length(CAST(current_json AS BLOB)) + length(CAST(history_json AS BLOB))),0) AS bytes FROM entries').get()!.bytes)
-      const projects = Number(db.prepare('SELECT coalesce(sum(length(CAST(project_key AS BLOB)) + length(CAST(project_path AS BLOB))),0) AS bytes FROM projects').get()!.bytes)
-      if (entries + projects > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
-      document = readSqliteMemoryDocument(db)
-    } finally { db.close() }
-    const bytes = Buffer.from(JSON.stringify(document, null, 2) + '\n')
-    if (bytes.length > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
-    const path = join(profile, `project-memory-export-${randomUUID()}.json`)
-    try {
-      writePrivate(path, bytes)
-      const verified = readProjectMemorySnapshot(path)
-      if (!verified.bytes?.equals(bytes) || JSON.stringify(projectEvidence(verified.document)) !== JSON.stringify(projectEvidence(document))) throw new Error('Downgrade export verification failed')
-      syncDirectory(profile)
-      return { path, sha256: digest(bytes), bytes: bytes.length, sourceDirectory: authority.directory, projects: projectEvidence(document) }
-    } catch (error) {
-      rmSync(path, { force: true })
-      throw error
+    let authority = readProjectMemoryAuthority(profile)
+    if (!authority) {
+      readProjectMemorySnapshot(sourcePath)
+      return { state: 'json' as const, sourcePath }
     }
+    if (authority.state !== 'sqlite' && authority.state !== 'reversing') throw new Error('Finish the pending upgrade or abort before reverse migration')
+    const directory = join(profile, authority.directory)
+    privatePath(directory, true)
+    const candidatePath = join(directory, 'reverse-source.json')
+    if (authority.state === 'sqlite') {
+      const exported = exportLockedMemory(profile)
+      const temporary = join(directory, `reverse-${randomUUID()}.tmp`)
+      try { linkSync(exported.path, temporary); renameSync(temporary, candidatePath) }
+      finally { rmSync(temporary, { force: true }) }
+      syncDirectory(directory)
+      onBoundary('reverse-prepared')
+      authority = { ...authority, state: 'reversing', contentSha256: digest(JSON.stringify(exported.projects)) }
+      publishAuthority(profile, authority)
+      onBoundary('reverse-marked')
+    }
+    const candidate = readProjectMemorySnapshot(candidatePath)
+    if (!candidate.bytes || digest(JSON.stringify(projectEvidence(candidate.document))) !== authority.contentSha256) throw new Error('Reverse migration snapshot is missing or changed; preserved SQLite memory remains available')
+    let legacyStat
+    try { legacyStat = lstatSync(sourcePath) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    if (legacyStat?.isDirectory()) {
+      privatePath(sourcePath, true)
+      rmdirSync(sourcePath) // Refuse unexpected contents instead of deleting recovery data.
+      legacyStat = undefined
+    }
+    onBoundary('reverse-unfenced')
+    if (!legacyStat) {
+      // Copy before linking: future in-place legacy writes must not modify the preserved export.
+      const temporary = join(directory, `reverse-publish-${randomUUID()}.tmp`)
+      try { writePrivate(temporary, candidate.bytes); linkSync(temporary, sourcePath) }
+      finally { rmSync(temporary, { force: true }) }
+    }
+    const published = readProjectMemorySnapshot(sourcePath)
+    if (!published.bytes?.equals(candidate.bytes)) throw new Error('Legacy memory changed during reverse migration; neither source was overwritten')
+    syncDirectory(profile)
+    onBoundary('reverse-published')
+    rmSync(join(profile, 'project-memory-active.json'))
+    syncDirectory(profile)
+    onBoundary('reverse-active')
+    return { state: 'json' as const, sourcePath }
   })
 }
 

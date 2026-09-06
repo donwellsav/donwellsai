@@ -61,6 +61,14 @@ try {
   assert.equal(JSON.parse(readFileSync(exportPath, 'utf8')).projects[0].entries[0].current.id, entry.id)
   report.guiExportPassed = true
   report.exportPath = exportPath
+  const changed = await invoke('memory.update', { ...request, id: entry.id, expectedRevision: 1, content: 'Written after SQLite upgrade' })
+  await page.getByRole('button', { name: 'Return current memory to JSON', exact: true }).click()
+  await page.getByText('Current memory now uses JSON.', { exact: true }).waitFor()
+  assert.deepEqual(await invoke('memory.get', { workspacePath: fixture, id: entry.id }), changed)
+  assert.equal(JSON.parse(readFileSync(join(profile, 'project-memory.json'), 'utf8')).projects[0].entries[0].current.content, changed.content)
+  assert.equal(hash(readFileSync(join(profile, authority.directory, 'project-memory.json.backup'))), originalHash)
+  report.guiReversePreservedNewWrites = true
+
   await page.screenshot({ path: join(evidence, 'memory-storage.png') })
   report.storageWithinSidePanel = await page.locator('.memory-storage').evaluate(element => !!element.closest('.right-sidebar'))
   assert(report.storageWithinSidePanel)

@@ -143,9 +143,9 @@ export interface ProjectMemoryApi {
   projectMemoryArchive(request: ProjectMemoryArchiveRequest): Promise<ProjectMemoryEntry>
 }
 
-export type ProjectMemoryStorageAction = 'migrate' | 'abort' | 'export'
+export type ProjectMemoryStorageAction = 'migrate' | 'abort' | 'export' | 'reverse'
 export type ProjectMemoryStorageStatus = {
-  backend: 'json' | 'sqlite' | 'preparing' | 'aborting' | 'unavailable'
+  backend: 'json' | 'sqlite' | 'preparing' | 'aborting' | 'reversing' | 'unavailable'
   backupPath?: string
   backupBytes?: number
   error?: string

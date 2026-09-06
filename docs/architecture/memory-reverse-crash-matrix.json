@@ -1,0 +1,171 @@
+{
+  "boundaries": [
+    "reverse-prepared",
+    "reverse-marked",
+    "reverse-unfenced",
+    "reverse-published",
+    "reverse-active"
+  ],
+  "results": [
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "f1718f8c70a2c5a47b7639c51fa3c3db81fb13bd",
+        "dirty": true,
+        "contentHash": "14168be9d945c9b5f5307060621e49a4d13e8ac934557839352ab6036c0b6ee4"
+      },
+      "profile": "/private/tmp/donwells-reverse-prepared-profile-02",
+      "fixture": "/private/tmp/donwells-reverse-prepared-profile-02/fixture-irjeKR",
+      "artifactSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62",
+      "appPids": [
+        51410,
+        51483,
+        51489,
+        51526
+      ],
+      "lockOwnerPid": 51432,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "dcd0b963dadaa8f418b445b47c814b472bbefc0e6f8960222aa6d9e6be0012ff",
+      "postUpgradeWriteBeforeReverse": true,
+      "killedMigrationProcess": {
+        "pid": 51488,
+        "boundary": "reverse-prepared"
+      },
+      "recoveredBackend": "sqlite",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 2663
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "f1718f8c70a2c5a47b7639c51fa3c3db81fb13bd",
+        "dirty": true,
+        "contentHash": "14168be9d945c9b5f5307060621e49a4d13e8ac934557839352ab6036c0b6ee4"
+      },
+      "profile": "/private/tmp/donwells-reverse-marked-profile-02",
+      "fixture": "/private/tmp/donwells-reverse-marked-profile-02/fixture-ZdLbFu",
+      "artifactSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62",
+      "appPids": [
+        51766,
+        51822,
+        51860,
+        51865
+      ],
+      "lockOwnerPid": 51820,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "5ab91c2cc7d1a796a816e85bfe4e9982030de96353a4394ae3fdee91f519cb13",
+      "postUpgradeWriteBeforeReverse": true,
+      "killedMigrationProcess": {
+        "pid": 51827,
+        "boundary": "reverse-marked"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 2377
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "f1718f8c70a2c5a47b7639c51fa3c3db81fb13bd",
+        "dirty": true,
+        "contentHash": "14168be9d945c9b5f5307060621e49a4d13e8ac934557839352ab6036c0b6ee4"
+      },
+      "profile": "/private/tmp/donwells-reverse-unfenced-profile-02",
+      "fixture": "/private/tmp/donwells-reverse-unfenced-profile-02/fixture-BTuA21",
+      "artifactSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62",
+      "appPids": [
+        51987,
+        52075,
+        52081,
+        52102
+      ],
+      "lockOwnerPid": 52025,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "650ba1328a445d1b8b530be2bb769eec1e7bb0d636a914cf65b4a3088aafa435",
+      "postUpgradeWriteBeforeReverse": true,
+      "killedMigrationProcess": {
+        "pid": 52080,
+        "boundary": "reverse-unfenced"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 2676
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "f1718f8c70a2c5a47b7639c51fa3c3db81fb13bd",
+        "dirty": true,
+        "contentHash": "14168be9d945c9b5f5307060621e49a4d13e8ac934557839352ab6036c0b6ee4"
+      },
+      "profile": "/private/tmp/donwells-reverse-published-profile-02",
+      "fixture": "/private/tmp/donwells-reverse-published-profile-02/fixture-r2gA2M",
+      "artifactSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62",
+      "appPids": [
+        52247,
+        52334,
+        52372,
+        52377
+      ],
+      "lockOwnerPid": 52269,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "b30e93cf442bc406fe5a195032db2847354670ac0b5fbbd53933db07df2288dc",
+      "postUpgradeWriteBeforeReverse": true,
+      "killedMigrationProcess": {
+        "pid": 52339,
+        "boundary": "reverse-published"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 2650
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "f1718f8c70a2c5a47b7639c51fa3c3db81fb13bd",
+        "dirty": true,
+        "contentHash": "14168be9d945c9b5f5307060621e49a4d13e8ac934557839352ab6036c0b6ee4"
+      },
+      "profile": "/private/tmp/donwells-reverse-active-profile-02",
+      "fixture": "/private/tmp/donwells-reverse-active-profile-02/fixture-z8MYnP",
+      "artifactSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62",
+      "appPids": [
+        52513,
+        52585,
+        52591,
+        52612
+      ],
+      "lockOwnerPid": 52535,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "d57830de41933bfb193e4b9b4522c7f625f447833d77069883d894bb1e7a0a4b",
+      "postUpgradeWriteBeforeReverse": true,
+      "killedMigrationProcess": {
+        "pid": 52590,
+        "boundary": "reverse-active"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 2626
+    }
+  ]
+}

@@ -258,3 +258,13 @@ The Memory side panel now provides read-only storage diagnosis, verified JSON-to
 Split, Stop and Markdown preview actions now live in the side-rail Layout popover. Docking tabs retain session switching and drag targets, without those extra action buttons. No global header or footer was added.
 
 Validation: typecheck and package build passed; the storage implementation passed 59 test files / 372 tests. `memory-storage-ui.json` records a real packaged GUI run that split a terminal through the side control, upgraded a seeded store, verified its original backup and current entry, and exported that entry. All trial terminals and the idle daemon were closed. This does not qualify active-SQLite reverse migration, conflicting-source selection, or the entire workspace plan.
+
+### Reverse migration after SQLite writes
+
+`reverseProjectMemoryMigration` now returns the current SQLite records and retained revisions to JSON under the existing profile maintenance lock. It reuses the verified export path and legacy size limit, durably marks the authority as reversing before removing the old filename fence, publishes JSON exclusively, and only then removes the manifest. Startup resumes a marked reverse migration. The original JSON backup, SQLite database, and current export remain preserved. Oversized exports leave SQLite active. A conflicting legacy write is preserved and reported; source-choice recovery is still pending.
+
+The Memory side panel provides Return current memory to JSON and resume controls. The admin service invalidates its cached backend after a switch. The ordinary project memory MCP/RPC API remains unchanged.
+
+`memory-reverse-crash-matrix.json` records real SIGKILL at five checkpoints: verified export preparation, reverse manifest publication, legacy fence removal, JSON publication, and manifest removal. Each disposable profile receives a post-upgrade write through the packaged app before the kill, then is reopened by the package and checked again after another write and restart. Before the reverse manifest is published SQLite remains authoritative; later checkpoints recover JSON. All five passed, including original-backup preservation and idle-daemon cleanup. These checkpoints do not qualify arbitrary instruction-level crashes, physical power loss, disk full, or the four native-agent matrix.
+
+`memory-storage-reverse-ui.json` records the packaged side-panel upgrade, export, post-upgrade write, and reverse operation. Typecheck, package build, and all 59 test files / 378 tests passed. An initial fixture assertion incorrectly expected JSON before the reverse manifest was published; the corrected runner expects SQLite at that checkpoint. No production profile or installed application was changed.
