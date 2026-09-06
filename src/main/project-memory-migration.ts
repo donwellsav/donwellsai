@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { type ProjectMemoryDocument } from '@shared/project-memory'
+import { PROJECT_MEMORY_MAX_DOCUMENT_BYTES, type ProjectMemoryDocument } from '@shared/project-memory'
 import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
 import { readSqliteMemoryDocument } from './project-memory-sqlite'
@@ -127,6 +127,37 @@ export function migrateProjectMemory(userDataDir: string, onBoundary: (boundary:
     publishAuthority(profile, authority)
     onBoundary('manifest-active')
     return authority
+  })
+}
+
+/** Export the current authority, never its pre-cutover backup. Publication/switching remains a separate fenced operation. */
+export function exportProjectMemoryForDowngrade(userDataDir: string) {
+  const profile = resolve(userDataDir)
+  return withProjectMemoryWriteLock(profile, () => {
+    const authority = readProjectMemoryAuthority(profile)
+    if (authority?.state !== 'sqlite') throw new Error('Downgrade export requires an active SQLite memory authority')
+    const db = openProjectMemoryDatabase(profile, authority, true)
+    let document: ProjectMemoryDocument
+    const tooLarge = () => new Error(`Current memory exceeds the legacy reader limit of ${PROJECT_MEMORY_MAX_DOCUMENT_BYTES} bytes; keep SQLite active`)
+    try {
+      const entries = Number(db.prepare('SELECT coalesce(sum(length(CAST(current_json AS BLOB)) + length(CAST(history_json AS BLOB))),0) AS bytes FROM entries').get()!.bytes)
+      const projects = Number(db.prepare('SELECT coalesce(sum(length(CAST(project_key AS BLOB)) + length(CAST(project_path AS BLOB))),0) AS bytes FROM projects').get()!.bytes)
+      if (entries + projects > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
+      document = readSqliteMemoryDocument(db)
+    } finally { db.close() }
+    const bytes = Buffer.from(JSON.stringify(document, null, 2) + '\n')
+    if (bytes.length > PROJECT_MEMORY_MAX_DOCUMENT_BYTES) throw tooLarge()
+    const path = join(profile, `project-memory-export-${randomUUID()}.json`)
+    try {
+      writePrivate(path, bytes)
+      const verified = readProjectMemorySnapshot(path)
+      if (!verified.bytes?.equals(bytes) || JSON.stringify(projectEvidence(verified.document)) !== JSON.stringify(projectEvidence(document))) throw new Error('Downgrade export verification failed')
+      syncDirectory(profile)
+      return { path, sha256: digest(bytes), bytes: bytes.length, sourceDirectory: authority.directory, projects: projectEvidence(document) }
+    } catch (error) {
+      rmSync(path, { force: true })
+      throw error
+    }
   })
 }
 
