@@ -13,13 +13,14 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
-  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }
+  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }
 } })
 assert(values.playwright, '--playwright is required')
+assert(!values.sqlite || values.memory, '--sqlite requires --memory')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
 assert(!values.memory || agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id)), 'DSH memory format is not yet qualified')
-assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi'].includes(id))), 'Managed setup currently supports OMP and Kimi memory trials')
+assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id))), 'Managed setup supports OMP/Kimi; Hermes uses the isolated native profile')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -46,20 +47,40 @@ const start = performance.now()
 const report = {
   startedAt: new Date().toISOString(), source: sourceIdentity(), executable, profile, fixture,
   artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))) },
-  agents: {}, limitations: ['Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
+  agents: {}, limitations: [values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
 let ownsHermesProfile = false
 try {
   app = await _electron.launch({ executablePath: executable, env })
-  const page = await app.firstWindow()
+  let page = await app.firstWindow()
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: fixture })
   if (values.memory) {
-    await invoke('memory.create', { workspacePath: fixture, kind: 'decision', title: 'Native bridge verification', content: memoryWord, attribution: { harness: 'cli' } })
+    const entry = await invoke('memory.create', { workspacePath: fixture, kind: 'decision', title: 'Native bridge verification', content: values.sqlite ? 'Before SQLite upgrade' : memoryWord, attribution: { harness: 'cli' } })
+    if (values.sqlite) {
+      const original = hash(readFileSync(join(profile, 'project-memory.json')))
+      await page.getByRole('button', { name: /Main checkout/ }).click()
+      await page.getByRole('button', { name: 'Project memory', exact: true }).click()
+      await page.locator('.memory-storage > summary').click()
+      await page.getByRole('button', { name: 'Upgrade to SQLite', exact: true }).click()
+      await page.getByText('Shared memory now uses SQLite.', { exact: true }).waitFor()
+      const authority = JSON.parse(readFileSync(join(profile, 'project-memory-active.json'), 'utf8'))
+      assert.equal(authority.state, 'sqlite')
+      assert.equal(hash(readFileSync(join(profile, authority.directory, 'project-memory.json.backup'))), original)
+      const updated = await invoke('memory.update', { workspacePath: fixture, id: entry.id, kind: entry.kind, title: entry.title, expectedRevision: 1, content: memoryWord, attribution: { harness: 'cli' } })
+      const previousPid = app.process().pid
+      await app.close()
+      app = await _electron.launch({ executablePath: executable, env })
+      page = await app.firstWindow()
+      await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+      assert.notEqual(app.process().pid, previousPid)
+      assert.deepEqual(await invoke('memory.get', { workspacePath: fixture, id: entry.id }), updated)
+      report.migratedMemory = { backend: 'sqlite', entryId: entry.id, revision: updated.revision, originalBackupUnchanged: true, appPids: [previousPid, app.process().pid], postUpgradeWriteRecalledAfterRestart: true }
+    }
     for (const id of agentIds) {
-      if (values.managed) continue
+      if (values.managed && id !== 'hermes') continue
       const audit = join(evidence, `${id}-memory-methods.jsonl`)
       const bridge = join(profile, `${id}-memory-bridge.mjs`)
       // Reuse the packaged MCP server; record method names only to prove native calls without retaining payloads.
@@ -91,6 +112,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
+    const managedMemory = values.managed && id !== 'hermes'
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
     const result = report.agents[id] = { installed: true, executable: provider.executablePath, query: 'not-run', memory: 'not-run', resume: 'not-run' }
@@ -100,7 +122,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       await page.getByRole('button', { name: 'Add agent', exact: true }).click()
       await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
       await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
-      if (values.managed) {
+      if (managedMemory) {
         await page.getByRole('button', { name: 'Set up shared project memory', exact: true }).click()
         await page.getByText('Project memory setup saved. New agent sessions will load it.', { exact: true }).waitFor()
         const configPath = join(fixture, id === 'omp' ? '.omp/mcp.json' : '.kimi-code/mcp.json')
@@ -109,10 +131,12 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         assert.deepEqual(server.args, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', fixture.replace(/^\/var\//, '/private/var/'), '--harness', id, '--user-data', profile])
         result.managedConfiguration = configPath
       }
-      if (id === 'hermes') {
+      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile']] : []
+      for (const [index, value] of args.entries()) {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
-        await page.getByRole('textbox', { name: 'Argument 1', exact: true }).fill('--tui')
+        await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(value)
       }
+
       await page.getByRole('button', { name: 'Start agent & open terminal', exact: true }).click()
       const deadline = Date.now() + 10000
       while (!result.sessionId) {
@@ -153,7 +177,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
           result.disposableProjectTrusted = true
         }
         await page.keyboard.type(values.memory
-          ? 'Use the donwells-project-memory MCP server memory_search tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.'
+          ? `Call the ${id === 'kimi' ? 'mcp__donwells-project-memory__memory_search' : 'donwells-project-memory MCP server memory_search'} tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.`
           : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.', { delay: id === 'hermes' ? 10 : 0 })
         // Native paste-burst protection intentionally turns an immediate Enter into a newline.
         await delay(500)
@@ -170,12 +194,12 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
             result.fixtureMemoryReadApproved = true
           }
           if (output.includes(values.memory ? memoryWord : verificationWord)) {
-            if (values.memory && !values.managed) {
+            if (values.memory && !managedMemory) {
               const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
               assert(calls.some(call => call.method === 'memory.list' && call.ok), 'Native memory search was not observed')
               result.memoryCalls = calls
             }
-            if (values.managed) assert(output.includes('memory_search'), 'Native memory tool output was not observed')
+            if (managedMemory) assert(output.includes('memory_search'), 'Native memory tool output was not observed')
             result[outcome] = 'fixture-word-observed'; break
           }
           if ((await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)?.liveness === 'exited') break
@@ -232,13 +256,12 @@ finally {
     report.hermesProfileRemainedAbsent = !existsSync(hermesProfile)
     if (!report.hermesProfileRemainedAbsent) process.exitCode = 1
   }
-  if (values.query || values.memory) {
-    report.requestedChecksPassed = agentIds.every(id => {
-      const result = report.agents[id]
-      return result && !result.error && result[values.memory ? 'memory' : 'query'] === 'fixture-word-observed'
-    })
-    if (!report.requestedChecksPassed) process.exitCode = 1
-  }
+  report.requestedChecksPassed = agentIds.every(id => {
+    const result = report.agents[id]
+    return result && !result.error && result.startup === 'output-observed'
+      && (!(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === 'fixture-word-observed')
+  })
+  if (!report.requestedChecksPassed) process.exitCode = 1
   report.durationMs = performance.now() - start
   writeFileSync(join(evidence, 'native-agents.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
   console.log(JSON.stringify(report, null, 2))

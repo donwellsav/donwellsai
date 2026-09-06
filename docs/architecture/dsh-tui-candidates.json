@@ -1,0 +1,129 @@
+{
+  "candidates": [
+    {
+      "package": "@nexlineai/dsh-tui",
+      "version": "0.1.1",
+      "declaredLicense": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nexlineai/dsh-tui.git"
+      },
+      "archive": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-0.1.2-rc.1/nexlineai-dsh-tui-0.1.1.tgz",
+      "archiveSha256": "311e81a3b9597d60267557986e6764a8b82565591836ef5e23cdf1f3beb24b1e",
+      "licenseFilePresent": true,
+      "licenseFileSha256": "dc5007a92426ee962c9b0d6d046ba9225c90cc110351519f82a1a2ef53b03fed",
+      "peerDependencies": {
+        "@deepseek-ai/dsh": ">=0.1.0-rc.6"
+      }
+    },
+    {
+      "package": "@tomowang/dsh-tui",
+      "version": "0.8.0",
+      "declaredLicense": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/tomowang/dsh-tui.git"
+      },
+      "archive": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-0.1.2-rc.1/tomowang-dsh-tui-0.8.0.tgz",
+      "archiveSha256": "a725fe35c52bc9fafdf698228dc34952fe98d85dac4265c349f495851a3533aa",
+      "licenseFilePresent": true,
+      "licenseFileSha256": "b23c7c5b6d983e606882b9d79140afc558645c9c3ed821a19dc67202cf5fb0f3",
+      "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.0.1",
+        "@deepseek-ai/dsh-agent": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-agent-default-model": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-agent-presets": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-compaction": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-credentials": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-goal": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-permission-presets": "0.1.1-rc.2",
+        "@deepseek-ai/dsh-plan-mode": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-sandbox-policy": "0.1.1-rc.2",
+        "@deepseek-ai/dsh-scope": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-persistence": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-projection": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-stats": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-title": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-subagent": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-token-meter": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-user-approval": "0.1.1-rc.2",
+        "@deepseek-ai/dsh-user-questions": "^0.1.1-rc.2"
+      }
+    },
+    {
+      "package": "@ruhooai/dsh-tui",
+      "version": "0.1.0-rc.9",
+      "declaredLicense": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/papachong/deepseek-harness-tui.git",
+        "directory": "packages/bundle/tui"
+      },
+      "archive": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-0.1.2-rc.1/ruhooai-dsh-tui-0.1.0-rc.9.tgz",
+      "archiveSha256": "8a211499906d77203092e18e2bc152372ee81aabedfe2cff84d0060f0393ec36",
+      "licenseFilePresent": true,
+      "licenseFileSha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.0.1",
+        "@deepseek-ai/cordis-plugin-loader": "^1.0.2",
+        "@deepseek-ai/dsh-agent": "^0.1.1-rc.2",
+        "@deepseek-ai/cordis-plugin-include": "^1.0.6",
+        "@deepseek-ai/dsh-agent-default-model": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-agent-presets": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-agent-spine-demo": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-atomic-write": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-bash-local": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-command-compact": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-brand": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-command-feedback": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-commands": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-command-goal": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-compaction-basic": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-compaction-tool-result-pruner": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-file-reference-local": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-fs-local": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-file-reference": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-goal": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-goal-round-driver": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-invariants": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-home-paths": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-llm-deepseek": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-llm-replay": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-plan-mode": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-output-retention": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-scope": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-persistence": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-persistence-jsonl": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-query": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-title": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-reference": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-subprocess-local": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-session-query-sqlite": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-system-prompt": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-token-meter": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-tool-fs": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-user-approval": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-user-questions": "^0.1.1-rc.2",
+        "@deepseek-ai/dsh-tools": "^0.1.1-rc.2"
+      }
+    }
+  ],
+  "testedPair": {
+    "harness": "@deepseek-ai/dsh@0.1.2-rc.1",
+    "tui": "@tomowang/dsh-tui@0.8.0",
+    "lockPath": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-runtime/package-lock.json",
+    "lockSha256": "ff70d960b73355d3e32f5414e25d3ebea2324b744e9f858ee44cfab473bf7372",
+    "installScriptsEnabled": false,
+    "packagedStartupPassed": false,
+    "failure": "ctx.systemPrompt.getSectionOrder is not a function",
+    "nextTrial": "Matching harness 0.1.1-rc.2 declared by the TUI peer dependencies"
+  },
+  "admittedToApplication": false
+}

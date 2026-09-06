@@ -1,0 +1,95 @@
+{
+  "startedAt": "2026-09-06T06:11:26.679Z",
+  "source": {
+    "commit": "c34e1dc297fb66b356afc4486e07c5d2ee2c7748",
+    "dirty": true,
+    "contentHash": "603cc3923ae6cba63bfc74833dd4d374474fbae17c3d92d568fc57197f1a32bc"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-sqlite-profile-06",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-b9Bham",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "86746c15e114565a399c08a4fadb8dc813136e3f11db83b797b2e536026bfc62"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-b9Bham/.omp/mcp.json",
+      "sessionId": "ab7d4f32-9859-475d-bd4d-67fc821777f0",
+      "liveness": "live",
+      "outputBytes": 81903,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-b9Bham/.kimi-code/mcp.json",
+      "sessionId": "d0eccf96-bf64-4c96-9d39-c089b154f89b",
+      "liveness": "live",
+      "outputBytes": 2394,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "fixtureMemoryReadApproved": true,
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "sessionId": "06475926-4bdf-4823-9ed1-db7b1eb2458c",
+      "liveness": "live",
+      "outputBytes": 13376,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "memoryCalls": [
+        {
+          "method": "memory.list",
+          "ok": true,
+          "pid": 77958
+        }
+      ],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks."
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "6fdb6e27-aafc-4263-800a-fd96d47ac4a7",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      76239,
+      76321
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/Users/muzikfirst/.hermes/profiles/donwells-acceptance-46ee3e02-9f45-4274-a790-d5f4d955fe31",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": true,
+  "durationMs": 76647.049834
+}
