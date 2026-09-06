@@ -1,0 +1,47 @@
+{
+  "native": {
+    "integrity": "sha512-gM5rnBo/ZKfGW1nmbd10U9q2hZfOr8U4Q0Nq5naCQbDxoUkXzV+h84wcMybicl/7w2W9r9bjJkasbdqSPplmBw==",
+    "shasum": "8447b2e1b49c3ff93bbc45ed9066229832e2a3d3",
+    "tarball": "https://registry.npmjs.org/backlog.md-darwin-arm64/-/backlog.md-darwin-arm64-1.51.0.tgz",
+    "fileCount": 4,
+    "unpackedSize": 70812754,
+    "attestations": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/backlog.md-darwin-arm64@1.51.0",
+      "provenance": {
+        "predicateType": "https://slsa.dev/provenance/v1"
+      }
+    },
+    "signatures": [
+      {
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+        "sig": "MEQCIDWjsLOvRkNlZ4da1sQXtcYAc1GzpLlJj2uJ+DeilGySAiAkugyw7AOh0QICgvMIxB4QWJNoGftuX4oHmVQq+fuIug=="
+      }
+    ]
+  },
+  "wrapper": {
+    "integrity": "sha512-tVNl1XrLThAvnuvP3XgUlofCWsNKP6OWGiWRcIdnyxeL/ovWq/RycWTJDpedUqISoFiPlkUENB2AbH7ag04q7g==",
+    "shasum": "a0115c3eceb5ee4abcdadb76d2e704d32b32dcec",
+    "tarball": "https://registry.npmjs.org/backlog.md/-/backlog.md-1.51.0.tgz",
+    "fileCount": 6,
+    "unpackedSize": 26958,
+    "attestations": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/backlog.md@1.51.0",
+      "provenance": {
+        "predicateType": "https://slsa.dev/provenance/v1"
+      }
+    },
+    "signatures": [
+      {
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+        "sig": "MEQCIEbrQsvSt9EG2/mbWSWCyRj6wPLbfmAHtsV+LB/Zf0ZWAiAC2uCIGTl0l+TBhM9o0uesah3SXIJAwLl1FqpDa+Bivw=="
+      }
+    ]
+  },
+  "source": {
+    "url": "https://github.com/MrLesk/Backlog.md/tree/v1.51.0",
+    "commit": "9a9fe226d5889b75778208c39ff72a7214876b4a",
+    "license": "MIT"
+  },
+  "executableSha256": "f8ecec1e9e748db9ccddf6ec71fbff06e406bc0db106891e7e60fd1af2713415",
+  "integration": "Optional external executable; no redistribution or dependency installation into the app"
+}

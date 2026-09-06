@@ -80,6 +80,7 @@ function validateRepos(value: unknown, path: string): Repo[] {
     if (typeof repo !== 'object' || repo === null || Array.isArray(repo)) {
       throw new StoreLoadError('corrupt', path, 'Persisted repo must be an object')
     }
+    if ('taskAuthority' in repo && repo.taskAuthority !== undefined && repo.taskAuthority !== 'backlog.md') throw new StoreLoadError('corrupt', path, 'Invalid project task authority')
     if (!('id' in repo) || typeof repo.id !== 'string'
       || !('path' in repo) || typeof repo.path !== 'string'
       || !('addedAt' in repo) || typeof repo.addedAt !== 'string') {
@@ -272,6 +273,16 @@ export class Store {
     if (this.state.repos.some((candidate) => candidate.id === repo.id)) return
     const next = structuredClone(this.state)
     next.repos.push(structuredClone(repo))
+    this.commit(next)
+  }
+
+  setTaskAuthority(repoId: string, enabled: boolean): void {
+    if (typeof enabled !== 'boolean') throw new Error('Invalid task authority choice')
+    const next = structuredClone(this.state)
+    const repo = next.repos.find(repo => repo.id === repoId)
+    if (!repo) throw new Error('Project is no longer registered')
+    if (enabled) repo.taskAuthority = 'backlog.md'
+    else delete repo.taskAuthority
     this.commit(next)
   }
 

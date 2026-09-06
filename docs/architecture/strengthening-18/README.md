@@ -1,0 +1,23 @@
+# Task 18: checkout coordination and native task tools
+
+The existing agent launcher offers shared/main or existing worktrees with branch and path labels. Create isolated worktree opens the existing safe worktree creation flow. Optional task intent and relative file scopes live under a collapsed section. Overlapping live or uncertain sessions are shown before launch, including nested working directories. These are advisory declarations: native agents can edit outside them. The app does not promise a filesystem lock or infer exclusive ownership.
+
+Intent and an optional native task ID travel through the existing daemon launch contract and remain on retained agent sessions across app restarts. The daemon advertises `agent-task-intent-v1`; a daemon without support refuses metadata rather than losing it. Launches with no intent keep the existing contract. Restart uses retained identities, and retry preserves the declared intent. Intent is operator metadata; it is not silently inserted into every provider's prompt. Existing handoff delivery remains the explicit agent-to-agent context route from Task 10.
+
+## Native tools and authority
+
+Lazygit 0.62.2 uses the existing Homebrew installation as a normal named terminal. Its file/index operations stay native Git operations. Backlog.md 1.51.0 is an optional external executable configured by `DONWELLS_BACKLOG_BINARY`. Exact admitted SHA256 values, source commits, npm integrity and licenses are adjacent to this document. Neither binary is redistributed, and no application dependency or installation into the user's global toolchain was added. The admitted binaries are Darwin arm64; other distributions are unqualified.
+
+Backlog.md is disabled as project authority until explicitly selected. The app persists that choice in the existing project record. It requires a native Backlog project configuration in the selected checkout; native initialization/configuration remain native workflows. Its JSON schema 1 task list/view commands supply task identity and status; the UI shows at most 100 tasks and the full board remains available in a terminal. Native edits are reflected on refresh. The app stores no second editable task database and performs no automatic task status transitions. An external task ID must resolve in the selected authority before an agent starts. Turning the integration off keeps native task files intact.
+
+Native tools are hash checked before execution, run with explicit cwd, and Backlog's inherited working-directory override is replaced with that checkout. Missing tools, wrong binaries, absent configuration and revoked authority are explicit errors. Read operations are bounded and revalidate the registered checkout. Optional tool launches use the existing owned PTY/job lifecycle; stopping them does not remove worktrees or task files.
+
+OpenSpec uses its documented `openspec/changes/<change>/proposal.md` artifact layout through the existing confined file/editor operations. The focused check creates a proposal and proves an existing document cannot be overwritten by a repeated create. This adds no OpenSpec runtime, alternate task ledger or generation engine. OpenSpec CLI validation/archive execution is not claimed. [Official artifact conventions](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md).
+
+## Qualification
+
+`checks.txt` records the focused task-coordination, Git, lineage, retirement, agent-runtime and daemon checks plus verification regressions. Tests include shared/nested overlap, uncertain/exited sessions, invalid relative paths, absent tools, opt-in persistence, missing external IDs, removed checkouts, a real competing-commit merge conflict, and safe OpenSpec file operations. TypeScript passed. The daemon transport follow-up is separately committed as `0f04922` with Task 17's framed-socket exit-code evidence.
+
+`result.json` records the packaged native workflow: opt into Backlog, observe a native task edit, start shared and isolated sessions, retain intent across app restart, display a conflict without changing its bytes, then open Lazygit and Backlog in ordinary retained terminals. Screenshots are from that package. Native terminal output receipts identify the actual sessions' bytes. Test fixtures use custom `/bin/cat` agents to isolate coordination behavior; this is not a new hosted-model or provider-authentication qualification. Native provider/memory handoffs remain covered by Tasks 07 and 10.
+
+Reproduce using `tests/acceptance/project-task-coordination.mjs` with packaged `--app`, fresh `--profile`/`--evidence`, installed `--playwright` module and admitted `--backlog` executable. The run cleans up its own retained sessions and idle daemon. It does not push or publish.

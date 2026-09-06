@@ -730,3 +730,7 @@ Playwright MCP 0.0.80/core 1.63.0-alpha-2026-08-31 is admitted as an explicitly 
 ## Task 16 strengthening: native control ownership
 
 Cua Driver 0.23.2 is integrated as an optional pinned external executable using app-owned direct MCP. No release archive is redistributed. Per-target controller identities and snapshot generations fence input; foreground and synthesized keyboard routes share one desktop lease until confirmed termination. Actual package qualification proves AppKit background input, refusal of ambiguous Electron background typing, explicit foreground screenshot fallback, partial-action interruption without replay, stale coordinates, closed targets and movable control UI. A hard stop can leave the foreground target active; this is recorded rather than presented as focus-neutral. [Task 16 evidence](strengthening-16/README.md).
+
+## Task 18 native task tools
+
+Lazygit 0.62.2 and Backlog.md 1.51.0 are now admitted as optional external Darwin arm64 executables, with source commits, exact hashes, native JSON/terminal qualification and MIT notices in [Task 18 evidence](strengthening-18/README.md). Neither binary is redistributed. Backlog requires explicit project authority selection; native task files remain editable through its own CLI/TUI. OpenSpec proposal artifacts reuse the existing confined editor without adding an engine.

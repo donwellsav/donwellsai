@@ -277,6 +277,7 @@ type AppState = {
   createWorktree(repoId: string, name?: string, branch?: string): Promise<{ ok: true } | { ok: false; error: string }>
   removeWorktree(worktreePath: string, force?: boolean): Promise<{ ok: true } | { ok: false; error: string }>
   setDeleteTarget(path: string | null): void
+  openProjectTaskTool(worktreePath: string, tool: 'lazygit' | 'backlog'): Promise<void>
   openTerminal(worktreePath: string): Promise<TerminalSession | null>
   closeTerminal(worktreePath: string, sessionId: string): Promise<boolean>
   writeTerminal(sessionId: string, data: string): void
@@ -328,7 +329,7 @@ type AppState = {
   refreshScan(worktreePath: string): Promise<void>
 
   focusAgentSession(sessionId: string): Promise<boolean>
-  runAgent(worktreePath: string, command: string | AgentExecutable): Promise<{ ok: true } | { ok: false; error: string }>
+  runAgent(worktreePath: string, command: string | AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent): Promise<{ ok: true } | { ok: false; error: string }>
   stopAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
   dismissAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
 
@@ -748,6 +749,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error })
       return { ok: false as const, error }
     }
+  },
+
+  async openProjectTaskTool(worktreePath: string, tool: 'lazygit' | 'backlog') {
+    const session = await window.donwells.projectTaskTool(worktreePath, tool)
+    set(state => ({ ...activateTerminalSession(state, session), runsOpen: false }))
+    get().renamePane(worktreePath, 'term:' + session.id, tool === 'lazygit' ? 'Lazygit' : 'Backlog board')
+    persistSessionSoon()
   },
 
   async openTerminal(worktreePath: string) {
@@ -1742,7 +1750,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async runAgent(worktreePath: string, command: string | AgentExecutable) {
+  async runAgent(worktreePath: string, command: string | AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent) {
     const trimmed = typeof command === 'string' ? command.trim() : command
     if (!trimmed) {
       const error = 'Enter an agent command.'
@@ -1751,7 +1759,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const preset = typeof trimmed === 'string' ? get().agents.find(agent => agent.command === trimmed && agent.executablePath) : undefined
-      const result = await window.donwells.agentStart(worktreePath, preset?.executablePath ? { executable: preset.executablePath, args: [] } : trimmed)
+      const result = await window.donwells.agentStart(worktreePath, preset?.executablePath ? { executable: preset.executablePath, args: [] } : trimmed, task)
       set((state) => ({
         ...activateTerminalSession(state, result.session),
         runningAgents: { ...state.runningAgents, [result.run.sessionId]: result.run },

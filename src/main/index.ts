@@ -1,3 +1,4 @@
+import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
@@ -458,12 +459,17 @@ app.whenReady().then(() => {
     },
     join(__dirname, 'terminal-daemon-entry.js')
   )
+  const projectTasks = new ProjectTaskCoordination(store, terminalBus)
   agentRuntime = new AgentRuntime(terminalBus, {
+    requireTask: (path, id) => projectTasks.requireTask(path, id),
     registeredWorkspaces: async () => (await git.listAll()).flatMap<AgentWorkspaceRegistration>((summary) => [
       { path: summary.repo.path, host: { kind: 'local' } },
       ...summary.worktrees.map<AgentWorkspaceRegistration>((worktree) => ({ path: worktree.path, host: { kind: 'local' } }))
     ])
   })
+  ipcMain.handle('projectTasksInspect', (_e, path: string) => projectTasks.inspect(path))
+  ipcMain.handle('projectTaskAuthority', (_e, path: string, enabled: boolean) => projectTasks.setAuthority(path, enabled))
+  ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
   operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
   void terminalBus.connect().catch((e) => {
     console.error('terminal daemon connect failed:', e)
@@ -593,6 +599,7 @@ app.whenReady().then(() => {
       deliverAgentAttachment: (request) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request),
       skills,
       runs: operationalRuns,
+      projectTasks,
       browserHistory,
       diffReview,
       projectMemory,

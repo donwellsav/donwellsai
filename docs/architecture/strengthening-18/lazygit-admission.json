@@ -1,0 +1,9 @@
+{
+  "version": "0.62.2",
+  "source": "https://github.com/jesseduffield/lazygit/tree/v0.62.2",
+  "commit": "ccce7bf01c9c9d2b5dd6033b46770e2ce5bba4a5",
+  "license": "MIT",
+  "executable": "/opt/homebrew/Cellar/lazygit/0.62.2/bin/lazygit",
+  "sha256": "f7ff3785fc0b85305933da9ab1ea46e099557c2e73d03d9bb8545e59cd72807c",
+  "integration": "Existing Homebrew external installation, normal terminal; no redistribution"
+}

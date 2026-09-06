@@ -1,3 +1,4 @@
+import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   chmodSync,
@@ -45,6 +46,7 @@ export const DAEMON_CAPABILITIES = [
   'idle-shutdown',
   'agent-runs-v1',
   'agent-argv-v1',
+  'agent-task-intent-v1',
   'agent-stop-v1',
   'agent-hooks-v1',
   'agent-session-auth-v1',
@@ -400,7 +402,8 @@ export class TerminalDaemon {
     requestedProviderId: AgentProviderId | undefined,
     cols: number,
     rows: number,
-    launch?: AgentExecutable
+    launch?: AgentExecutable,
+    task?: AgentTaskIntent
   ): { run: RunningAgent; session: TerminalSession } {
     if (!command.trim() || command.includes('\0') || Buffer.byteLength(command) > MAX_AGENT_COMMAND_BYTES) {
       throw new Error('agent command is empty or invalid')
@@ -432,6 +435,7 @@ export class TerminalDaemon {
     })
     const now = new Date().toISOString()
     const run: RunningAgent = {
+      ...(task ? { task: parseAgentTaskIntent(task) } : {}),
       ...(launch ? { launch: structuredClone(launch) } : {}),
       id: runId,
       sessionId,
@@ -556,7 +560,8 @@ export class TerminalDaemon {
             providerId,
             Number(message['cols'] ?? 100),
             Number(message['rows'] ?? 30),
-            message['launch'] === undefined ? undefined : parseAgentExecutable(message['launch'])
+            message['launch'] === undefined ? undefined : parseAgentExecutable(message['launch']),
+            message['task'] === undefined ? undefined : parseAgentTaskIntent(message['task'])
           )
           reply(true, result)
           break

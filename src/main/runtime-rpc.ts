@@ -1,3 +1,5 @@
+import type { ProjectTaskCoordination } from './project-task-coordination'
+import { parseAgentTaskIntent } from '@shared/agent-runtime'
 import type { ProjectSessionHistory } from './project-session-history'
 import type { ProjectHandoffService } from './project-handoff'
 import type { AgentSessionCredential } from '@shared/agent-runtime'
@@ -79,6 +81,7 @@ export type RpcDeps = {
   agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'>
   deliverAgentAttachment: (request: AgentDeliveryRequest) => Promise<AgentDeliveryReceipt>
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
+  projectTasks: Pick<ProjectTaskCoordination, 'inspect' | 'setAuthority' | 'openTool'>
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
   sessionHistory?: Pick<ProjectSessionHistory, 'index' | 'search' | 'get'>
@@ -484,13 +487,16 @@ export class RuntimeRpcServer {
         return this.deps.handoffs.receive(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
       case 'handoff.acknowledge':
         return this.deps.handoffs.acknowledge(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
+      case 'project.tasks': return this.deps.projectTasks.inspect(str('workspacePath'))
+      case 'project.task-authority': return this.deps.projectTasks.setAuthority(str('workspacePath'), params['enabled'] as boolean)
+      case 'project.task-tool': return this.deps.projectTasks.openTool(str('workspacePath'), str('tool') as 'lazygit' | 'backlog')
       case 'agent.providers':
         return { providers: this.deps.agents.listAgents() }
       case 'agent.list':
         return { agents: await this.deps.agents.list() }
       case 'agent.start':
         if ((params['launch'] !== undefined) === (params['command'] !== undefined)) throw new Error('Supply exactly one of command or launch')
-        return this.deps.agents.start(str('workspacePath'), params['launch'] === undefined ? str('command') : parseAgentExecutable(params['launch']))
+        return this.deps.agents.start(str('workspacePath'), params['launch'] === undefined ? str('command') : parseAgentExecutable(params['launch']), params['task'] === undefined ? undefined : parseAgentTaskIntent(params['task']))
       case 'agent.interrupt':
         return this.deps.agents.interrupt(str('sessionId'))
       case 'agent.stop':

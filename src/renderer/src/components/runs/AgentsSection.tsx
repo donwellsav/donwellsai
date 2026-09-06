@@ -1,3 +1,4 @@
+import { overlappingAgentIntents, type ProjectTasksInspection } from '@shared/agent-runtime'
 import { useEffect, useMemo, useState } from 'react'
 import {
   agentPresentation,
@@ -43,10 +44,28 @@ export function AgentsSection() {
   const [confirmation, setConfirmation] = useState<AgentConfirmation | null>(null)
   const [confirmationError, setConfirmationError] = useState<string | null>(null)
 
-  const targetPath = useMemo(
+  const [chosenPath, setChosenPath] = useState('')
+  const [intent, setIntent] = useState('')
+  const [files, setFiles] = useState('')
+  const [externalId, setExternalId] = useState('')
+  const [taskState, setTaskState] = useState<ProjectTasksInspection | null>(null)
+  const [taskRefresh, setTaskRefresh] = useState(0)
+  const [taskSaving, setTaskSaving] = useState(false)
+  const pinnedPath = useMemo(
     () => pinnedWorktree(useAppStore.getState()),
     [activeRepoId, activeWorktreePath, repos]
   )
+  const targetPath = chosenPath || pinnedPath
+  useEffect(() => {setTaskState(null); setExternalId('')}, [targetPath])
+  useEffect(() => {
+    let live = true
+    if (targetPath) void window.donwells.projectTasksInspect(targetPath).then(result => {if (live) setTaskState(result)}).catch(error => {if (live) setLaunchError(String(error))})
+    return () => {live = false}
+  }, [targetPath, taskRefresh])
+  const targetRepo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === targetPath))
+  const targetBranch = targetRepo?.worktrees.find(worktree => worktree.path === targetPath)?.branch
+  const intendedFiles = files.split('\n').map(file => file.trim()).filter(Boolean)
+  const overlaps = overlappingAgentIntents(Object.values(runningAgents), targetPath ?? '', intendedFiles)
   const availablePresets = useMemo(
     () => presets.filter((preset) => preset.available).sort((left, right) => left.name.localeCompare(right.name)),
     [presets]
@@ -88,7 +107,7 @@ export function AgentsSection() {
     setLaunching(true)
     setLaunchError(null)
     try {
-      const result = await runAgent(targetPath, launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed)
+      const result = await runAgent(targetPath, launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed, intent || intendedFiles.length || externalId ? { intent, files: intendedFiles, ...(externalId ? {externalId} : {}) } : undefined)
       if (!result.ok) {
         setLaunchError(result.error)
         return
@@ -118,7 +137,7 @@ export function AgentsSection() {
     setOperation(key)
     setSessionError(run.sessionId, null)
     try {
-      const result = await runAgent(run.workspacePath, run.launch ?? run.command)
+      const result = await runAgent(run.workspacePath, run.launch ?? run.command, run.task)
       if (!result.ok) {
         setSessionError(run.sessionId, result.error)
         return
@@ -162,14 +181,29 @@ export function AgentsSection() {
           <span className="agent-harness-count">{availablePresets.length} installed</span>
         </div>
 
-        <div className={`agent-launch-target${targetPath ? '' : ' is-missing'}`}>
-          <span>Working project</span>
-          {targetPath ? (
-            <div><strong>{workspaceName(targetPath)}</strong><code title={targetPath}>{targetPath}</code></div>
-          ) : (
-            <div><strong>No project selected</strong><span>Select a registered project before starting an agent.</span></div>
-          )}
-        </div>
+        <label className="modal-field">Checkout
+          <select className="input" aria-label="Agent checkout" value={targetPath ?? ''} disabled={launching} onChange={event => setChosenPath(event.target.value)}>
+            {!targetPath && <option value="">Select a checkout</option>}
+            {repos.flatMap(repo => repo.worktrees.map(worktree => <option key={worktree.path} value={worktree.path}>{worktree.isMain ? 'Shared checkout' : 'Existing worktree'} · {workspaceName(repo.repo.path)} · {worktree.branch ?? 'detached'} · {worktree.path}</option>))}
+          </select>
+        </label>
+        <p>Branch: {targetBranch ?? 'No Git branch'} · Other sessions in this checkout share its files.</p>
+        {targetRepo?.repo.kind !== 'folder' && targetRepo && <button type="button" className="btn btn-secondary" onClick={() => {useAppStore.setState({activeRepoId:targetRepo.repo.id, runsOpen:false, createOpen:true})}}>Create isolated worktree…</button>}
+        <details className="agent-command-field"><summary>Task and file scope</summary>
+        {targetPath && <details className="agent-command-field"><summary>Project tasks and native tools</summary>
+          <label><input type="checkbox" checked={taskState?.authority === 'backlog.md'} disabled={!taskState || launching || taskSaving} onChange={event => {const enabled=event.target.checked;setTaskSaving(true);setTaskState(state=>state?{...state,authority:enabled?'backlog.md':null}:state);void window.donwells.projectTaskAuthority(targetPath,enabled).catch(error=>setLaunchError(String(error))).finally(()=>{setTaskSaving(false);setTaskRefresh(value=>value+1)})}}/> Use Backlog.md as this project's task authority</label>
+          <p>Native task files stay authoritative. This choice stores no editable copy of the board.</p>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setTaskRefresh(value=>value+1)}>Refresh native tasks</button>
+          {taskState?.tools.map(tool=><div key={tool.id}><button type="button" className="btn btn-secondary btn-sm" disabled={!tool.available || (tool.id==='backlog' && (!taskState.authority || !!taskState.problem))} onClick={()=>void useAppStore.getState().openProjectTaskTool(targetPath,tool.id).catch(error=>setLaunchError(String(error)))}>Open {tool.id==='backlog'?'Backlog board':'Lazygit'}</button><span> {tool.version} · {tool.available?'available':tool.problem}</span></div>)}
+          {taskState?.problem && <p role="status">{taskState.problem}</p>}
+        </details>}
+        {taskState?.authority && <label className="modal-field">Native task reference<select className="input" value={externalId} onChange={event=>setExternalId(event.target.value)}><option value="">No task reference</option>{taskState.tasks.map(task=><option key={task.id} value={task.id}>{task.id} · {task.title} · {task.status}</option>)}</select><small>Showing up to 100 native tasks; use the native board for the full project.</small></label>}
+        <label className="modal-field">Task intent<input className="input" value={intent} maxLength={2000} onChange={event => setIntent(event.target.value)} placeholder="What this session will work on"/></label>
+        <label className="modal-field">Intended files or directories<textarea className="input" value={files} onChange={event => setFiles(event.target.value)} rows={2} placeholder="Project-relative paths, one per line"/></label>
+
+        <p>File intent is advisory. Native agents can edit other files; this does not lock the checkout.</p>
+        </details>
+        {overlaps.length > 0 && <div role="status"><strong>{overlaps.length} session(s) may overlap.</strong>{overlaps.map(run => <p key={run.sessionId}>{agentProviderName(run)}: {run.task?.intent || 'Intent unspecified'} · {run.task?.files.join(', ') || 'File scope unspecified'}</p>)}</div>}
 
         {availablePresets.length > 0 ? (
           <div className="agent-harness-grid" role="radiogroup" aria-label="Available agent harnesses">
@@ -322,6 +356,7 @@ export function AgentsSection() {
 
               <dl className="agent-facts">
                 <div><dt>Workspace</dt><dd title={run.workspacePath}>{run.workspacePath}</dd></div>
+                {run.task && <div><dt>Task intent</dt><dd>{run.task.externalId && <strong>{run.task.externalId} · </strong>}{run.task.intent || 'Unspecified'}<span>{run.task.files.join(', ') || 'File scope unspecified'}</span></dd></div>}
                 <div><dt>Harness</dt><dd><strong>{provider}</strong><code title={run.command}>{run.command}</code></dd></div>
                 <div><dt>Activity</dt><dd><strong>{presentation.label}</strong><span>{presentation.description}</span></dd></div>
                 <div><dt>Liveness</dt><dd><strong>{run.liveness}</strong><span>{run.hook.connected ? 'Activity hook connected' : run.hook.support === 'native' ? 'Hook not connected' : 'Process observation only'}</span></dd></div>

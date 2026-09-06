@@ -23,6 +23,7 @@ import type {
 export type RepoKind = 'git' | 'folder'
 
 export type Repo = {
+  taskAuthority?: 'backlog.md'
   id: string
   path: string
   addedAt: string
@@ -462,7 +463,10 @@ export type IpcApi = import('./browser-view').BrowserViewApi & import('./project
   getWorkspaceSession(): Promise<PersistedState['workspaceSession']>
   saveWorkspaceSession(ws: NonNullable<PersistedState['workspaceSession']>): Promise<void>
   listAgents(): Promise<AgentPreset[]>
-  agentStart(workspacePath: string, command: string | import('./agent-runtime').AgentExecutable): Promise<AgentStartResult>
+  projectTasksInspect(workspacePath: string): Promise<import('./agent-runtime').ProjectTasksInspection>
+  projectTaskAuthority(workspacePath: string, enabled: boolean): Promise<void>
+  projectTaskTool(workspacePath: string, tool: 'lazygit' | 'backlog'): Promise<TerminalSession>
+  agentStart(workspacePath: string, command: string | import('./agent-runtime').AgentExecutable, task?: import('./agent-runtime').AgentTaskIntent): Promise<AgentStartResult>
   agentList(): Promise<RunningAgent[]>
   agentInterrupt(sessionId: string): Promise<RunningAgent>
   agentStop(sessionId: string): Promise<RunningAgent>

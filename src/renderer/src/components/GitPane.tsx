@@ -401,6 +401,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   return (
     <div className="git-pane" onKeyDown={handlePaneKeyDown}>
       <div className="pane-header git-pane-header">
+        <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openProjectTaskTool(worktreePath, 'lazygit').catch(reportError)}>Lazygit</button>
         <div className="git-pane-title"><Icon name="git" size={15} /><strong>Source control</strong></div>
         <button className="icon-btn" type="button" title="Refresh source control" aria-label="Refresh source control" disabled={busy !== null} onClick={() => void runTask('refresh', refreshGit)}>
           <Icon name="refresh" size={14} />

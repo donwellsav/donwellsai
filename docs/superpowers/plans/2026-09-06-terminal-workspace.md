@@ -467,12 +467,14 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes current project/worktree and task identity. Produces shared/isolated task launch, advisory file ownership and optional native Lazygit/Backlog.md modules.
 
-- [ ] **Step 1:** Make shared checkout versus new/existing worktree an explicit launch choice. Label branch and overlapping task/file intent.
-- [ ] **Step 2:** Offer Lazygit as a normal terminal command in the selected checkout. Do not intercept its Git state with a second mutation engine.
-- [ ] **Step 3:** Admit Backlog.md only as the chosen task authority for an opted-in project; map IDs rather than duplicating editable task records. Add OpenSpec-compatible artifacts without imposing a new orchestration engine.
-- [ ] **Step 4:** Test simultaneous edits/conflicts, task handoff, removed worktrees and optional-tool absence. Advisory ownership must not claim to enforce filesystem locks against native agents.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-task-coordination.test.ts tests/git.test.ts tests/worktree-lineage.test.ts tests/worktree-retirement.test.ts`; demonstrate conflict review without data loss.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Make shared checkout versus new/existing worktree an explicit launch choice. Label branch and overlapping task/file intent.
+- [x] **Step 2:** Offer Lazygit as a normal terminal command in the selected checkout. Do not intercept its Git state with a second mutation engine.
+- [x] **Step 3:** Admit Backlog.md only as the chosen task authority for an opted-in project; map IDs rather than duplicating editable task records. Add OpenSpec-compatible artifacts without imposing a new orchestration engine.
+- [x] **Step 4:** Test simultaneous edits/conflicts, task handoff, removed worktrees and optional-tool absence. Advisory ownership must not claim to enforce filesystem locks against native agents.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-task-coordination.test.ts tests/git.test.ts tests/worktree-lineage.test.ts tests/worktree-retirement.test.ts`; demonstrate conflict review without data loss.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+
+**Strengthening evidence:** [Task 18 qualification](../../architecture/strengthening-18/README.md).
 
 **Rollback:** Disable task integration while preserving task files; never delete worktrees to make a failed task disappear.
 
@@ -694,7 +696,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 18 active — tasks, shared-checkout coordination and Lazygit.** Tasks 01, 03–17 and 27 are strengthened. Task 02 remains skipped. Tasks 18–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 19 active — tool catalog, setup doctor and resource controls.** Tasks 01, 03–18 and 27 are strengthened. Task 02 remains skipped. Tasks 19–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

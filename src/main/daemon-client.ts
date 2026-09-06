@@ -1,4 +1,4 @@
-import { parseAgentExecutable } from '@shared/agent-runtime'
+import { parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable } from '@shared/agent-runtime'
 import { createConnection, type Socket } from 'node:net'
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -117,7 +117,7 @@ function isRunningAgent(value: unknown): value is RunningAgent {
 
 function requireRunningAgent(value: unknown): RunningAgent {
   if (!isRunningAgent(value)) throw new Error('terminal daemon returned an invalid agent record')
-  return { ...structuredClone(value), ...(value.launch === undefined ? {} : { launch: parseAgentExecutable(value.launch) }) }
+  return { ...structuredClone(value), ...(value.task === undefined ? {} : { task: parseAgentTaskIntent(value.task) }), ...(value.launch === undefined ? {} : { launch: parseAgentExecutable(value.launch) }) }
 }
 
 export class DaemonClient {
@@ -354,7 +354,7 @@ export class DaemonClient {
     } else if (event === 'title') {
       this.events.title(sessionId, String(message['title'] ?? ''))
     } else if (event === 'agent' && isRunningAgent(message['run'])) {
-      this.events.agent(structuredClone(message['run']))
+      try { this.events.agent(requireRunningAgent(message['run'])) } catch { /* Ignore malformed unsolicited records. */ }
     } else if (event === 'agent-dismissed') {
       this.events.agentDismissed(sessionId)
     }
@@ -422,8 +422,10 @@ export class DaemonClient {
     providerId?: AgentProviderId,
     launch?: AgentExecutable,
     cols = 100,
-    rows = 30
+    rows = 30,
+    task?: AgentTaskIntent
   ): Promise<AgentStartResult> {
+    if (task) { task = parseAgentTaskIntent(task); await this.requireCapability('agent-task-intent-v1', 'retaining task intent') }
     if (launch) await this.requireCapability('agent-argv-v1', 'starting an agent with explicit arguments')
     await this.requireCapability(AGENT_RUNS, 'starting an agent run')
     await this.requireCapability(SEQUENCED_OUTPUT, 'starting an agent run')
@@ -432,6 +434,7 @@ export class DaemonClient {
       command,
       ...(providerId ? { providerId } : {}),
       ...(launch ? { launch } : {}),
+      ...(task ? { task } : {}),
       cols,
       rows
     })

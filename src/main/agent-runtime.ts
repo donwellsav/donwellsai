@@ -1,4 +1,4 @@
-import { parseAgentExecutable, agentProviderForExecutable, type AgentExecutable } from '@shared/agent-runtime'
+import { parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable, agentProviderForExecutable, type AgentExecutable } from '@shared/agent-runtime'
 import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
@@ -18,6 +18,7 @@ export type AgentRuntimeOptions = {
   registeredWorkspaces: () =>
     | readonly AgentWorkspaceRegistration[]
     | Promise<readonly AgentWorkspaceRegistration[]>
+  requireTask?: (path: string, id: string) => Promise<void>
   registry?: AgentRegistry
 }
 
@@ -87,7 +88,8 @@ export class AgentRuntime {
     this.cachedRuns.delete(sessionId)
   }
 
-  async start(workspacePath: string, command: string | AgentExecutable): Promise<AgentStartResult> {
+  async start(workspacePath: string, command: string | AgentExecutable, task?: AgentTaskIntent): Promise<AgentStartResult> {
+    const intent = task === undefined ? undefined : parseAgentTaskIntent(task)
     const launch = typeof command === 'string' ? undefined : parseAgentExecutable(command)
     if (launch) {
       const executable = this.registry.findExecutable(launch.executable)
@@ -99,11 +101,16 @@ export class AgentRuntime {
     if (normalizedCommand.length > MAX_AGENT_COMMAND_LENGTH) throw new Error('agent command exceeds limit')
     const registrations = await this.options.registeredWorkspaces()
     const cwd = validateAgentWorkspacePath(workspacePath, registrations)
+    if (intent?.externalId) {
+      if (!this.options.requireTask) throw new Error('External task authority is unavailable')
+      await this.options.requireTask(cwd, intent.externalId)
+      validateAgentWorkspacePath(workspacePath, await this.options.registeredWorkspaces())
+    }
     const provider = launch ? agentProviderForExecutable(launch.executable) : this.registry.providerForCommand(normalizedCommand)
     if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
       throw new Error(`${provider.name} executable is unavailable`)
     }
-    const result = launch ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch) : await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
+    const result = intent ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch, 100, 30, intent) : launch ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch) : await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
     this.observe(result.run)
     return structuredClone(result)
   }
@@ -161,7 +168,10 @@ export type AgentRuntimeDaemonContract = {
     cwd: string,
     command: string,
     providerId?: AgentProviderId,
-    launch?: AgentExecutable
+    launch?: AgentExecutable,
+    cols?: number,
+    rows?: number,
+    task?: AgentTaskIntent
   ) => Promise<AgentStartResult>
   listAgents: () => Promise<RunningAgent[]>
   interruptAgent: (sessionId: string) => Promise<RunningAgent>
