@@ -9,8 +9,10 @@ import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
-const { values } = parseArgs({ options: { app: { type: 'string' }, playwright: { type: 'string' }, evidence: { type: 'string' } } })
+const { values } = parseArgs({ options: { app: { type: 'string' }, playwright: { type: 'string' }, evidence: { type: 'string' }, restarts: { type: 'string', default: '1' } } })
 assert(values.app && values.playwright && values.evidence, 'Supply --app, --playwright and --evidence')
+const restarts = Number(values.restarts)
+assert(Number.isInteger(restarts) && restarts >= 1 && restarts <= 20, '--restarts must be 1..20')
 const executable = resolve(values.app), evidence = resolve(values.evidence)
 mkdirSync(evidence, { mode: 0o700 })
 const profile = mkdtempSync(join(tmpdir(), 'donwells-gui-profile-'))
@@ -35,7 +37,7 @@ const until = async (predicate, label) => {
   while (!(await predicate())) { assert(Date.now() < deadline, `Timed out: ${label}`); await delay(50) }
 }
 const start = performance.now()
-const report = { startedAt: new Date().toISOString(), source: sourceIdentity(), artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(resolve(dirname(executable), '../Resources/app.asar'))) }, profile, fixture, executable, checks: {}, errors: [], limitations: ['VoiceOver speech/navigation needs native manual qualification.', 'This exercises the workspace shell, not all six completed product journeys.'] }
+const report = { startedAt: new Date().toISOString(), source: sourceIdentity(), artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(resolve(dirname(executable), '../Resources/app.asar'))) }, profile, fixture, executable, checks: {}, errors: [], limitations: ['VoiceOver and additional-language qualification deferred by the user.', 'This exercises the workspace shell, not all six completed product journeys.'] }
 try {
   app = await _electron.launch({ executablePath: executable, env })
   page = await app.firstWindow()
@@ -68,9 +70,9 @@ try {
   for (const label of ['Files', 'Changes', 'Project memory', 'Recover unsaved files']) {
     const button = page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true })
     await button.focus(); await page.keyboard.press('Enter')
-    assert.equal(await button.getAttribute('aria-pressed'), 'true')
-    await page.keyboard.press('Enter')
-    assert.equal(await button.getAttribute('aria-pressed'), 'false')
+    await until(async () => await button.getAttribute('aria-pressed') === 'true', label + ' opens by keyboard')
+    await button.focus(); await page.keyboard.press('Enter')
+    await until(async () => await button.getAttribute('aria-pressed') === 'false', label + ' closes by keyboard')
   }
   sessions = await invoke('terminal.list')
   assert.deepEqual(sessions.map(item => item.id), [session])
@@ -238,6 +240,38 @@ try {
   assert(!readFileSync(join(fixture, 'README.md'), 'utf8').includes(draft))
   assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
   report.checks.crashRestartRetainsHiddenLayoutUnsavedDraftAndSessions = true
+  const memory = await invoke('memory.create', { workspacePath, kind: 'fact', title: 'Restart qualification', content: 'RESTART_FACT_21', attribution: { harness: 'cli' } })
+  report.checks.restartCycles = [{ cycle: 1, crash: true, sessions: sessionIds.length, unsavedDraft: true }]
+  for (let cycle = 2; cycle <= restarts; cycle++) {
+    const began = performance.now()
+    const crashed = new Promise(resolve => app.process().once('exit', resolve))
+    app.process().kill('SIGKILL')
+    await crashed
+    app = await _electron.launch({ executablePath: executable, env, timeout: 30000 })
+    page = await app.firstWindow(); page.setDefaultTimeout(15000)
+    page.on('pageerror', error => report.errors.push(error.message))
+    await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+    await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
+    assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
+    assert.equal((await invoke('memory.get', { workspacePath, id: memory.id })).content, 'RESTART_FACT_21')
+    assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+    assert(!readFileSync(join(fixture, 'README.md'), 'utf8').includes(draft))
+    report.checks.restartCycles.push({ cycle, crash: true, durationMs: performance.now() - began, sessions: sessionIds.length, unsavedDraft: true, memory: true })
+  }
+  await app.close()
+  assert.equal(readFileSync(join(fixture, 'README.md'), 'utf8'), before.content)
+  app = await _electron.launch({ executablePath: executable, env, timeout: 30000 })
+  page = await app.firstWindow(); page.setDefaultTimeout(15000)
+  page.on('pageerror', error => report.errors.push(error.message))
+  await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+  assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
+  assert.equal((await invoke('memory.get', { workspacePath, id: memory.id })).content, 'RESTART_FACT_21')
+  assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
+  report.checks.gracefulCloseSavesDraftAndRestartRetainsMemoryAndSessions = true
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  report.checks.reducedMotion = await page.evaluate(() => [...document.querySelectorAll('.workspace-frame button')].every(element => { const style = getComputedStyle(element); return style.animationName === 'none' && style.transitionDuration.split(',').every(value => parseFloat(value) === 0) }))
+  assert(report.checks.reducedMotion)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   for (const [label, kind] of [['Files', 'explorer'], ['Changes', 'git-status'], ['Project memory', 'memory'], ['Recover unsaved files', 'recovery']]) {
     await page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true }).click()
     await page.getByRole('button', { name: 'Move panel into workspace', exact: true }).click()
@@ -302,7 +336,7 @@ try {
   assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
   report.checks.fourCompositionsWithRealPreviewAndDiff = true
   assert.deepEqual(report.errors, [])
-} catch (error) { report.failure = error.message; process.exitCode = 1 }
+} catch (error) { report.failure = error.stack; process.exitCode = 1; if (page) await page.screenshot({ path: join(evidence, 'failure.png') }).catch(() => {}) }
 finally {
   if (app) {
     try { for (const session of await invoke('terminal.list')) await invoke('terminal.close', { sessionId: session.id }) }

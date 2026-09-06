@@ -1,0 +1,259 @@
+{
+  "startedAt": "2026-09-06T22:37:23.734Z",
+  "source": {
+    "commit": "0b64f056e23da85be1404154920e2c90276e2d28",
+    "dirty": true,
+    "contentHash": "d59513cf7588f55a393d2fc4029f53d41f62de396ea7313eda0d264c7276151d"
+  },
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "6cba18b2f03385350e2b034273985d37f562927c54a3357878b0a0d0d6a6a4df"
+  },
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-5xbmuz",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-49AA8G",
+  "executable": "/tmp/donwells-strengthen-20-package-final/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "checks": {
+    "admittedToolRegistry": true,
+    "realTerminalInput": true,
+    "toolKeyboardNavigationRetainsSession": true,
+    "openSecondTerminal": true,
+    "sessionSidebarOpensExistingTerminal": true,
+    "panelResizeBesideToolRail": true,
+    "hideReopenAnd100LayoutChangesRetainLiveSessions": true,
+    "agentLauncherAccessible": true,
+    "darkBackground": "#16161d",
+    "contrast": {
+      "text": 14.337259172523769,
+      "muted": 8.629830976444998,
+      "focus": 9.546813470308347
+    },
+    "zoomLayout": {
+      "width": 640,
+      "height": 384,
+      "scale": 4,
+      "elements": [
+        {
+          "name": "workspace-desk",
+          "rect": {
+            "x": 160,
+            "y": 0,
+            "width": 436,
+            "height": 384,
+            "top": 0,
+            "right": 596,
+            "bottom": 384,
+            "left": 160
+          }
+        },
+        {
+          "name": "workspace-docking-body",
+          "rect": {
+            "x": 160,
+            "y": 0,
+            "width": 436,
+            "height": 384,
+            "top": 0,
+            "right": 596,
+            "bottom": 384,
+            "left": 160
+          }
+        },
+        {
+          "name": "workspace-rail",
+          "rect": {
+            "x": 596,
+            "y": 0,
+            "width": 44,
+            "height": 384,
+            "top": 0,
+            "right": 640,
+            "bottom": 384,
+            "left": 596
+          }
+        }
+      ]
+    },
+    "terminalWorkspaceUsesFullHeight": true,
+    "keyboardControlsAt200Percent": true,
+    "editorUndoRedoSurvives100Moves": true,
+    "unsavedEditorRetainsDomAndContentAcross100Moves": true,
+    "corruptLayoutWarnsAndRecoversWithoutDuplicateResources": true,
+    "crashRestartRetainsHiddenLayoutUnsavedDraftAndSessions": true,
+    "restartCycles": [
+      {
+        "cycle": 1,
+        "crash": true,
+        "sessions": 2,
+        "unsavedDraft": true
+      },
+      {
+        "cycle": 2,
+        "crash": true,
+        "durationMs": 586.0193749999999,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 3,
+        "crash": true,
+        "durationMs": 621.0552079999998,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 4,
+        "crash": true,
+        "durationMs": 628.4092920000003,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 5,
+        "crash": true,
+        "durationMs": 620.4163339999996,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 6,
+        "crash": true,
+        "durationMs": 618.3835839999992,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 7,
+        "crash": true,
+        "durationMs": 618.767167,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 8,
+        "crash": true,
+        "durationMs": 628.8853749999998,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 9,
+        "crash": true,
+        "durationMs": 618.0684590000001,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 10,
+        "crash": true,
+        "durationMs": 634.953125,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 11,
+        "crash": true,
+        "durationMs": 637.5293750000001,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 12,
+        "crash": true,
+        "durationMs": 621.2797920000012,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 13,
+        "crash": true,
+        "durationMs": 615.0307090000006,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 14,
+        "crash": true,
+        "durationMs": 630.7720419999987,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 15,
+        "crash": true,
+        "durationMs": 611.3055420000019,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 16,
+        "crash": true,
+        "durationMs": 631.9259160000001,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 17,
+        "crash": true,
+        "durationMs": 635.5180839999994,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 18,
+        "crash": true,
+        "durationMs": 628.3842910000021,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 19,
+        "crash": true,
+        "durationMs": 625.107082999999,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      },
+      {
+        "cycle": 20,
+        "crash": true,
+        "durationMs": 612.4046249999992,
+        "sessions": 2,
+        "unsavedDraft": true,
+        "memory": true
+      }
+    ],
+    "gracefulCloseSavesDraftAndRestartRetainsMemoryAndSessions": true,
+    "reducedMotion": true,
+    "filesChangesMemoryRecoveryDockWithoutNewProcesses": true,
+    "nativeArgvFromLauncher": {
+      "sessionId": "cc25be2d-81a0-4bb0-8519-1ae39a6096db",
+      "exitCode": 0,
+      "literalArgumentsPreserved": true
+    },
+    "fourCompositionsWithRealPreviewAndDiff": true,
+    "idleDaemonStopped": true
+  },
+  "errors": [],
+  "limitations": [
+    "VoiceOver and additional-language qualification deferred by the user.",
+    "This exercises the workspace shell, not all six completed product journeys."
+  ],
+  "durationMs": 23961.375249999997
+}
