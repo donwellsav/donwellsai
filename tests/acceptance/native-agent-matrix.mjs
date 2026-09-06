@@ -201,17 +201,19 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         }
         existing.add(setupSession)
         result.nativeSetupSession = setupSession
-        let approved = false
+        let approvedTools = 0
         while (true) {
           const output = stripVTControlCharacters((await page.evaluate(async id => window.donwells.attachTerminal(id), setupSession)).scrollback)
           writeFileSync(join(evidence, 'hermes-setup.txt'), output, { mode: 0o600 })
           assert(!output.includes('Failed to connect:'), output)
-          if (!approved && output.includes('Enable all 8 tools?')) {
+          const offeredTools = Number(output.match(/Enable all (\d+) tools\?/)?.[1])
+          if (!approvedTools && offeredTools) {
+            assert(offeredTools >= 8, 'Native setup did not discover the required memory/handoff tools')
             await page.locator(`[data-pane-key="term:${setupSession}"] .xterm-helper-textarea`).focus()
             await page.keyboard.press('Enter')
-            approved = true
+            approvedTools = offeredTools
           }
-          if (output.includes('8/8 tools enabled')) break
+          if (approvedTools && output.includes(`${approvedTools}/${approvedTools} tools enabled`)) break
           assert(Date.now() < setupDeadline, 'Hermes native setup did not save its discovered tools')
           await delay(200)
         }
@@ -226,7 +228,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         for (const name of ['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN']) assert(config.env[name] === '${' + name + '}', 'Hermes configuration must retain credential references, not values')
         result.managedConfiguration = configPath
         result.nativeSetupSession = setupSession
-        result.nativeToolsApproved = 8
+        result.nativeToolsApproved = approvedTools
         const exitDeadline = Date.now() + 15000
         while ((await invoke('agent.list')).agents.find(run => run.sessionId === setupSession)?.liveness !== 'exited') {
           assert(Date.now() < exitDeadline, 'Hermes setup did not finish its native shutdown')

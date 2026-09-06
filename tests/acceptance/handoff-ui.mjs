@@ -38,7 +38,7 @@ try {
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const source = await invoke('agent.start', { workspacePath: fixture, command: '/bin/cat' })
   await page.getByRole('button', { name: 'Agent sessions', exact: true }).click()
-  await page.getByRole('button', { name: 'Resume terminal', exact: true }).click()
+  await page.getByRole('button', { name: 'Open terminal', exact: true }).click()
   const terminalSelector = `[data-pane-key="term:${source.run.sessionId}"] .xterm-helper-textarea`
   await page.locator(terminalSelector).focus()
   for (const closeUsing of ['button', 'rail']) {

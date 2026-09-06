@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 07 active — native agents and capability discovery.** Tasks 01, 03, 04, 05 and 06 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
+Current position: **Task 08 active — attention and reconnect lifecycle.** Tasks 01, 03, 04, 05, 06 and 07 are reverified; all other previous completion claims remain reopened. Task 02 is skipped by explicit user instruction; retain xterm/FlexLayout and do not block this pass on VoiceOver or additional-language IME checks. Preserve existing implementation and historical evidence; this is not a rollback.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -135,14 +135,16 @@ Validate lifecycle with a harmless fixture service; real adapters require their 
 
 **Interfaces:** Consumes admitted native agent versions and scoped service launch. Produces first-class OMP/Hermes/Kimi/DSH presets and preserved custom-command support.
 
-- [ ] **Step 1:** Add explicit executable/argv handling while preserving existing command compatibility. Distinguish installed, launchable, authenticated, hook-supported and memory-connected states.
-- [ ] **Step 2:** Generate project/launch scoped MCP overlays in each native format. Back up any managed file and preserve unknown/user-owned entries. Verify Hermes profiles and DSH overlays on actual selected releases.
-- [ ] **Step 3:** Launch each real TUI, submit a benign project query, observe output, stop/resume using its supported native mechanism, and expose unsupported resume/status capability honestly.
-- [ ] **Step 4:** Test spaces/non-ASCII paths, custom arguments, missing binary, invalid config, absent credentials, disconnect and process exit. Never substitute another agent or synthetic TUI on failure.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/agent-discovery.test.ts tests/agent-runtime.test.ts tests/agent-provider-hooks.test.ts tests/windows-command-line.test.ts`; record live results for all four agents.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Add explicit executable/argv handling while preserving existing command compatibility. Distinguish installed, launchable, authenticated, hook-supported and memory-connected states.
+- [x] **Step 2:** Generate project/launch scoped MCP overlays in each native format. Back up any managed file and preserve unknown/user-owned entries. Verify Hermes profiles and DSH overlays on actual selected releases.
+- [x] **Step 3:** Launch each real TUI, submit a benign project query, observe output, stop/resume using its supported native mechanism, and expose unsupported resume/status capability honestly.
+- [x] **Step 4:** Test spaces/non-ASCII paths, custom arguments, missing binary, invalid config, absent credentials, disconnect and process exit. Never substitute another agent or synthetic TUI on failure.
+- [x] **Verification:** Run `pnpm exec vitest run tests/agent-discovery.test.ts tests/agent-runtime.test.ts tests/agent-provider-hooks.test.ts tests/windows-command-line.test.ts`; record live results for all four agents.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Remove only app-managed configuration entries and restore backups after checking user edits; leave existing native sessions and credentials intact.
+
+**Strengthening evidence:** [four native agents, managed shared memory and real continuation](../../architecture/strengthening-07/README.md).
 
 ### Task 08: Attention, reconnect and process lifecycle
 

@@ -204,7 +204,7 @@ export function AgentsSection() {
           <p className="agent-unavailable">Not found on PATH: {unavailablePresets.map((preset) => preset.name).join(', ')}</p>
         )}
 
-        {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Memory connection unverified</p>}
+        {selectedPreset && <p className="agent-unavailable">Installed · Launch unverified · Authentication unverified · Memory connection unverified</p>}
         {targetPath && selectedPreset && ['omp', 'kimi', 'deepseek-harness', 'hermes'].includes(selectedPreset.id) && <div className="agent-command-field">
           <button type="button" className="btn btn-secondary" disabled={configuringMemory || launching} onClick={async () => {
             const target = `${targetPath}:${selectedPreset.id}`
@@ -298,7 +298,7 @@ export function AgentsSection() {
                 <div className="agent-card-actions">
                   <button type="button" className="btn btn-secondary btn-sm" disabled={openingThis || operation !== null} onClick={() => void openTerminal(run)}>
                     <Icon name="terminal" size={13} />
-                    {openingThis ? 'Opening…' : run.liveness === 'exited' ? 'Open output' : 'Resume terminal'}
+                    {openingThis ? 'Opening…' : run.liveness === 'exited' ? 'Open output' : 'Open terminal'}
                   </button>
                   {canDismiss && (
                     <button type="button" className="btn btn-secondary btn-sm" disabled={operation !== null} onClick={() => void retry(run)}>

@@ -1,0 +1,32 @@
+{
+  "startedAt": "2026-09-06T16:06:15.336Z",
+  "source": {
+    "commit": "d655dbb5bf57b43060c637167e5572d05b9e086d",
+    "dirty": true,
+    "contentHash": "f1f7e7e027374e7835076d9e06be80a93c970bfa080366714dd9d02374e11495"
+  },
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "13a4abf43ccd9eb809203ea053c18d7dce8c4bbe54b361b81e903fecf4abe855",
+    "memoryMcpSha256": "f08c2fc2521422a825b60d4472a18f14d2ca8609f7fb68256f584a010f264bd7"
+  },
+  "fixture": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-vGmS29",
+  "profile": "/private/tmp/donwells-strengthen-07-dsh-profile",
+  "priorReceipt": "/tmp/donwells-strengthen-07-dsh/native-agents.json",
+  "agents": {
+    "deepseek-harness": {
+      "resumed": true,
+      "nativeSessionId": "cbdf6d5c-cf25-4226-8c74-74c56bb41e7b",
+      "args": [
+        "--profile",
+        "tui",
+        "--resume",
+        "cbdf6d5c-cf25-4226-8c74-74c56bb41e7b"
+      ],
+      "sessionId": "1107a1e4-9a64-4627-889a-bd5fbe94a3aa",
+      "historyRestored": true,
+      "answerSha256": "de6b372a94f959cfa6b8252e4783829c997fba15541b5105dc7a8472bbf2538a"
+    }
+  },
+  "idleDaemonStopped": true
+}

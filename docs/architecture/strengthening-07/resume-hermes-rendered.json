@@ -1,0 +1,30 @@
+{
+  "startedAt": "2026-09-06T16:14:11.437Z",
+  "source": {
+    "commit": "d655dbb5bf57b43060c637167e5572d05b9e086d",
+    "dirty": true,
+    "contentHash": "1cd7a268b3183d1a0464ad516c61dc7b84d6081a8092637ba3dcbd313b2539b7"
+  },
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "13a4abf43ccd9eb809203ea053c18d7dce8c4bbe54b361b81e903fecf4abe855",
+    "memoryMcpSha256": "f08c2fc2521422a825b60d4472a18f14d2ca8609f7fb68256f584a010f264bd7"
+  },
+  "fixture": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-RuK4TI",
+  "profile": "/private/tmp/donwells-strengthen-07-native-profile",
+  "priorReceipt": "/tmp/donwells-strengthen-07-native/native-agents.json",
+  "agents": {
+    "hermes": {
+      "resumed": true,
+      "args": [
+        "--tui",
+        "--continue"
+      ],
+      "sessionId": "de266730-be63-454a-8923-1f337667d186",
+      "historyRestored": true,
+      "answerFoundInRenderedTerminal": true,
+      "answerSha256": "39c3480bbb4692914667d59c33db90ed91e4800c8a96c015d448f4a79ca15fd0"
+    }
+  },
+  "idleDaemonStopped": true
+}
