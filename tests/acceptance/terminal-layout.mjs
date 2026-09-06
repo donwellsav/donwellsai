@@ -44,9 +44,9 @@ try {
     })
     report.processesBefore = processes()
     assert.equal(report.processesBefore.length, 2, 'Expected two daemon-owned shells')
-    for (const session of sessions.values()) await client.request('session.write', { sessionId: session.id, data: "printf '\\106\\111\\116\\104_THIS_MARKER\\n日本語 café é → ✓\\n'\r" })
   }
-  for (const renderer of values.app ? ['xterm'] : ['xterm', 'ghostty']) for (const layout of ['flexlayout', 'dockview']) {
+  // Compare renderers in the same layout first, then the compatible renderer across layouts.
+  for (const [renderer, layout] of [['xterm', 'flexlayout'], ['ghostty', 'flexlayout'], ['xterm', 'dockview']]) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
     page.setDefaultTimeout(15000)
     currentPage = page
@@ -55,6 +55,8 @@ try {
     page.on('pageerror', error => { result.errors.push(error.message); console.error(layout, error.message) })
     try {
       if (client) {
+        // Refresh fixture markers after output-load runs exceed the renderer scrollback limit.
+        for (const session of sessions.values()) await client.request('session.write', { sessionId: session.id, data: "printf '\\106\\111\\116\\104_THIS_MARKER\\n日本語 café é → ✓\\n'\r" })
         const owned = id => { const session = sessions.get(id); assert(session, 'Unknown terminal resource'); return session.id }
         await page.exposeFunction('__trialAttach', id => client.request('session.attach', { sessionId: owned(id) }))
         await page.exposeFunction('__trialInput', (id, data) => { assert(typeof data === 'string' && data.length <= 65536); return client.request('session.write', { sessionId: owned(id), data }) })
@@ -93,6 +95,20 @@ try {
       result.search = await page.evaluate(() => window.trialSearch())
       result.searchCompatible = ['terminal-a:find', 'terminal-b:find'].every(key => result.search.checks[key] === true)
       result.candidateStatus = result.searchCompatible ? values.app ? 'automated native continuity passed; accessibility pending' : 'preliminary fixture gates passed; native qualification pending' : 'blocked: required search compatibility failed'
+      if (!result.searchCompatible) {
+        result.remainingFidelity = 'Not qualified: required existing search addon failed; candidate rejected.'
+        await page.screenshot({ path: `${evidence}/${renderer}-${layout}-rejected.png` })
+        continue
+      }
+      assert(['terminal-a', 'terminal-b'].every(id => result.search.checks[id + ':webLinksAddon'] === 'activated'), 'Existing web links addon failed')
+      for (const id of ['terminal-a', 'terminal-b']) assert.equal(await page.evaluate(id => window.trialSelectMarker(id), id), 'FIND_THIS_MARKER')
+      result.selection = 'exact marker selected in both terminal buffers'
+      result.webLinks = 'Existing addon activated; pointer activation remains separate'
+      await page.waitForFunction(() => [...document.querySelectorAll('.xterm-accessibility')].some(node => node.textContent.includes('FIND_THIS_MARKER')))
+      const accessibility = await page.locator('body').ariaSnapshot()
+      assert(accessibility.includes('FIND_THIS_MARKER'), 'Terminal output absent from accessibility tree')
+      result.accessibleOutput = 'screenReaderMode exposes terminal rows; native VoiceOver navigation remains unqualified'
+      writeFileSync(`${evidence}/${renderer}-${layout}-accessibility.txt`, accessibility)
       if (client) {
         assert.deepEqual(after.report.nativeSessions, before.report.nativeSessions)
         assert.deepEqual(processes(), report.processesBefore)
@@ -110,9 +126,9 @@ try {
         result.nativeUnicode = await page.evaluate(() => window.trialText('terminal-a').includes('日本語 café'))
         assert(result.nativeUnicode)
         await page.evaluate(() => window.trialResize('terminal-a', 90, 28))
-        await page.keyboard.type('stty size')
+        await page.keyboard.type("printf '\\123IZE_" + layout + " '; stty size")
         await page.keyboard.press('Enter')
-        await page.waitForFunction(() => window.trialText('terminal-a').split('\n').some(line => line.trim() === '28 90'))
+        await page.waitForFunction(marker => window.trialText('terminal-a').split('\n').some(line => line.trim() === marker), 'SIZE_' + layout + ' 28 90')
         result.nativeResize = true
         await page.keyboard.type("printf '\\033[?1049h\\033[2J\\033[HALT_SCREEN_MARKER'")
         await page.keyboard.press('Enter')
@@ -121,6 +137,47 @@ try {
         await page.keyboard.press('Enter')
         await page.waitForFunction(() => !window.trialProbe().terminals.find(item => item.id === 'terminal-a').alternateScreen)
         result.alternateScreenRoundTrip = true
+        const pasteReady = 'PASTE_READY_' + layout, pasteDone = 'PASTE_DONE_' + layout
+        await page.keyboard.type("stty -echo; printf '\\120ASTE_READY_" + layout + "\\n'; /bin/cat")
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(marker => window.trialText('terminal-a').split('\n').some(line => line.trim() === marker), pasteReady)
+        const pasteLines = ['PASTE_LINE_A_' + layout, 'PASTE_LINE_B_' + layout]
+        await page.evaluate(lines => window.trialPaste('terminal-a', lines.join('\n') + '\n'), pasteLines)
+        await page.waitForFunction(markers => markers.every(marker => window.trialText('terminal-a').split('\n').some(line => line.trim() === marker)), pasteLines)
+        await page.keyboard.press('Control+c')
+        await page.keyboard.type("stty echo; printf '\\120ASTE_DONE_" + layout + "\\n'")
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(marker => window.trialText('terminal-a').split('\n').some(line => line.trim() === marker), pasteDone)
+        result.multilinePaste = 'Terminal paste API delivered both lines through the real PTY cat fixture'
+        const mouseProbe = 'import os,sys,termios,tty,select; old=termios.tcgetattr(0); tty.setraw(0); sys.stdout.write("\\x1b[?1000h\\x1b[?1006h\\x4dOUSE_READY\\r\\n"); sys.stdout.flush(); ready=select.select([0],[],[],5)[0]; data=os.read(0,128) if ready else b""; ready=select.select([0],[],[],1)[0]; data+=os.read(0,128) if ready else b""; termios.tcsetattr(0,termios.TCSANOW,old); sys.stdout.write("\\x1b[?1000l\\x1b[?1006l\\r\\n\\x4dOUSE_HEX_"+data.hex()+"\\r\\n"); sys.stdout.flush()'
+        const scopedMouseProbe = mouseProbe.replace('OUSE_READY', 'OUSE_READY_' + layout).replace('OUSE_HEX_', 'OUSE_HEX_' + layout + '_')
+        await page.keyboard.type("python3 -c '" + scopedMouseProbe + "'")
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(marker => window.trialText('terminal-a').includes(marker), 'MOUSE_READY_' + layout)
+        const screen = await page.locator('.terminal-resource').filter({ has: page.locator('textarea:focus') }).locator('.xterm-screen').boundingBox()
+        assert(screen, 'Focused terminal screen missing')
+        await page.mouse.click(screen.x + screen.width / 2, screen.y + screen.height / 2)
+        await page.waitForFunction(marker => window.trialText('terminal-a').includes(marker), 'MOUSE_HEX_' + layout + '_1b5b3c')
+        result.mouseReporting = 'Real pointer click produced SGR mouse bytes in the PTY'
+        const link = await page.evaluate(() => window.trialLink('terminal-a'))
+        await page.mouse.move(link.x, link.y)
+        await page.mouse.click(link.x, link.y)
+        await page.waitForFunction(() => window.trialReport.linkActivated === 'https://example.test/terminal')
+        result.webLinks = 'Pointer activated the existing addon; fixture callback captured the URL without opening a browser'
+        const echo = await page.evaluate(() => window.trialMeasureEcho('terminal-a'))
+        const summarize = values => { const sorted = [...values].sort((a, b) => a - b); return { count: sorted.length, medianMs: sorted[Math.floor(sorted.length / 2)], p95Ms: sorted[Math.ceil(sorted.length * .95) - 1] } }
+        result.echo = { method: 'Fixture input bridge to matching native PTY output, plus two frames; includes Playwright bridge overhead, excludes physical keyboard/display latency.', samples: echo, conditions: Object.fromEntries(['idle', '4KiB-output'].map(condition => { const samples = echo.filter(sample => sample.condition === condition); return [condition, { output: summarize(samples.map(sample => sample.outputMs)), nextFrame: summarize(samples.map(sample => sample.nextFrameMs)) }] })) }
+        const focus = await page.evaluate(async () => {
+          const samples = []
+          for (let index = 0; index < 200; index++) {
+            const start = performance.now()
+            await window.trialFocus(index % 2 ? 'terminal-a' : 'terminal-b')
+            if (!document.activeElement?.classList.contains('xterm-helper-textarea')) throw new Error('Terminal keyboard focus lost')
+            samples.push(performance.now() - start)
+          }
+          return samples
+        })
+        result.focus = { method: 'Select terminal tab, two frames, focus input; 200 alternating selections.', samples: focus, ...summarize(focus) }
       }
       assert.deepEqual(result.errors, [], 'Unexpected page errors')
       // Wall-clock automation timing includes Playwright waits; it is not input-feedback latency.

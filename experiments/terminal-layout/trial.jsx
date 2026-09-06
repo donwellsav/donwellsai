@@ -6,6 +6,7 @@ import { Terminal } from '@xterm/xterm'
 import * as monaco from 'monaco-editor/editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal as GhosttyTerminal, init } from 'ghostty-web'
 import '@xterm/xterm/css/xterm.css'
 import 'flexlayout-react/style/dark.css'
@@ -23,7 +24,7 @@ const resources = new Map()
 await (renderer === 'ghostty' ? init() : Promise.resolve())
 for (const id of ['terminal-a', 'terminal-b']) {
   const host = document.createElement('div'); host.className = 'terminal-resource'
-  const term = new (renderer === 'ghostty' ? GhosttyTerminal : Terminal)({ cols: 64, rows: 22, fontSize: 14, fontFamily: 'Menlo, monospace', theme: { background: '#16161d', foreground: '#e5e2df', cursor: '#d9ba86' }, allowProposedApi: true })
+  const term = new (renderer === 'ghostty' ? GhosttyTerminal : Terminal)({ cols: 64, rows: 22, fontSize: 14, fontFamily: 'Menlo, monospace', theme: { background: '#16161d', foreground: '#e5e2df', cursor: '#d9ba86' }, allowProposedApi: true, screenReaderMode: true })
   resources.set(id, { host, term, opened: false, sequence: null, pending: [] })
   report.terminalIds[id] = crypto.randomUUID()
 }
@@ -34,6 +35,9 @@ function attach(id, element) {
   if (!resource.opened) {
     resource.term.open(resource.host); resource.opened = true
     report.mounts[id] = (report.mounts[id] ?? 0) + 1
+    for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) resource.host.addEventListener(type, event => {
+      report.composition ??= []; report.composition.push({ id, type, data: event.data }); report.composition = report.composition.slice(-50)
+    })
     if (native) {
       resource.term.onData(data => window.__trialInput(id, data))
       resource.term.onResize(size => window.__trialResize(id, size))
@@ -44,6 +48,7 @@ function attach(id, element) {
         for (const frame of resource.pending.splice(0)) window.trialNativeOutput(id, frame)
       })
     } else {
+    resource.term.onData(data => { report.fixtureInput ??= []; report.fixtureInput.push({ id, data }); report.fixtureInput = report.fixtureInput.slice(-50); resource.term.write(data) })
     resource.term.write('\x1b[2J\x1b[H\x1b[38;5;180mDONWELLS / TERMINAL FIXTURE\x1b[0m\r\n\r\nRenderer and docking trial. No agent is running.\r\n\r\nUnicode: 日本語 café e\u0301 → ✓\r\nTrue color: \x1b[38;2;142;191;167mreadable output\x1b[0m\r\n\r\nMove this tab between groups.\r\nThe terminal object must stay alive.\r\n\r\nFIND_THIS_MARKER\r\n')
     }
     // Exercise the actual addon used by Donwells, including activation-time incompatibility.
@@ -51,6 +56,10 @@ function attach(id, element) {
       const search = new SearchAddon(); resource.term.loadAddon(search)
       resource.search = search; report.checks[id + ':searchAddon'] = 'activated'
     } catch (error) { report.checks[id + ':searchAddon'] = error.message }
+    try {
+      resource.term.loadAddon(new WebLinksAddon((_event, uri) => { report.linkActivated = uri }))
+      report.checks[id + ':webLinksAddon'] = 'activated'
+    } catch (error) { report.checks[id + ':webLinksAddon'] = error.message }
   }
 }
 const model = Model.fromJson({ global: { tabEnableClose: false, tabSetEnableMaximize: true }, borders: [], layout: { type: 'row', id: 'root', children: [
@@ -127,6 +136,26 @@ window.trialNativeOutput = (id, frame) => {
   if (frame.sequence <= resource.sequence) return
   resource.sequence = frame.sequence
   resource.term.write(frame.data)
+  resource.observeOutput?.(frame.data)
+}
+window.trialMeasureEcho = async id => {
+  const resource = resources.get(id), samples = []
+  for (const condition of ['idle', '4KiB-output']) for (let index = 0; index < 200; index++) {
+    const marker = `MEASURE_${engine}_${condition}_${index}_END`, start = performance.now()
+    let timer, output = ''
+    try {
+      await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Native echo timeout')), 5000)
+        resource.observeOutput = data => { output = (output + data).slice(-8192); if (output.includes(marker)) resolve() }
+        const load = condition === '4KiB-output' ? "printf '%4096s\\n' x; " : ''
+        window.__trialInput(id, `${load}printf '\\115${marker.slice(1)}\\n'\r`).catch(reject)
+      })
+      const outputMs = performance.now() - start
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      samples.push({ condition, outputMs, nextFrameMs: performance.now() - start })
+    } finally { clearTimeout(timer); delete resource.observeOutput }
+  }
+  return samples
 }
 window.trialFocusedElement = () => document.activeElement?.className
 window.trialText = id => {
@@ -140,6 +169,21 @@ window.trialFocus = async id => {
   resources.get(id).term.focus()
 }
 window.trialResize = (id, cols, rows) => resources.get(id).term.resize(cols, rows)
+window.trialPaste = (id, text) => resources.get(id).term.paste(text)
+window.trialLink = async id => {
+  const { term, host } = resources.get(id)
+  await new Promise(resolve => term.write('\r\nhttps://example.test/terminal', resolve))
+  const screen = host.querySelector('.xterm-screen').getBoundingClientRect()
+  return { x: screen.x + screen.width / term.cols * 10, y: screen.y + screen.height / term.rows * (term.buffer.active.cursorY + .5) }
+}
+window.trialSelectMarker = id => {
+  const terminal = resources.get(id).term
+  const row = Array.from({ length: terminal.buffer.active.length }, (_, i) => i).find(i => terminal.buffer.active.getLine(i)?.translateToString().includes('FIND_THIS_MARKER'))
+  if (row === undefined) throw new Error('Selection marker missing')
+  const column = terminal.buffer.active.getLine(row).translateToString().indexOf('FIND_THIS_MARKER')
+  terminal.select(column, row, 'FIND_THIS_MARKER'.length)
+  return terminal.getSelection()
+}
 window.trialMoveEditor = () => {
   if (engine === 'flexlayout') {
     const parent = model.getNodeById('notes').getParent().getId()

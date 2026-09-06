@@ -1,0 +1,46 @@
+{
+  "id": "3985a453-1c62-4d77-b2b7-db74ec220d7b",
+  "ok": true,
+  "result": {
+    "screenshotStatus": {
+      "reason": "no_screenshot_flag",
+      "state": "skipped"
+    },
+    "screenshot": null,
+    "snapshot": {
+      "app": {
+        "name": "donwells.ai",
+        "pid": 5330,
+        "bundleId": "ai.donwells.desktop"
+      },
+      "id": "3CAC66C2-9402-4E1C-A948-BC4105815001",
+      "coordinateSpace": "window",
+      "truncation": {
+        "maxNodes": 1200,
+        "maxDepth": 64,
+        "maxDepthReached": false,
+        "truncated": false
+      },
+      "window": {
+        "height": 800,
+        "isOffscreen": false,
+        "id": 20281,
+        "screenIndex": 0,
+        "isMinimized": false,
+        "y": 159,
+        "title": "Donwells — Task 02 accessibility fixture",
+        "x": 224,
+        "width": 1280,
+        "platform": {
+          "layer": 0
+        }
+      },
+      "treeText": "App=ai.donwells.desktop (pid 5330)\nWindow: \"Donwells — Task 02 accessibility fixture\", App: donwells.ai.\n\n0 standard window Donwells — Task 02 accessibility fixture\n\t1 container Donwells — Task 02 accessibility fixture\n\t\t2 HTML content donwells.ai\n\t\t\t3 container\n\t\t\t\t4 container Workspace tools\n\t\t\t\t\t5 button Terminal\n\t\t\t\t\t6 button Add agent\n\t\t\t\t\t7 button Layout\n\t\t\t\t\t8 toggle button Content search, Value: 0\n\t\t\t\t\t9 button Find a command\n\t\t\t\t\t10 toggle button Projects, Value: 1\n\t\t\t\t\t11 toggle button Files, Value: 0\n\t\t\t\t\t12 toggle button Changes, Value: 0\n\t\t\t\t\t13 toggle button Project memory, Value: 0\n\t\t\t\t\t14 toggle button Agent sessions, Value: 0\n\t\t\t\t\t15 toggle button Recover unsaved files, Value: 0\n\t\t\t\t\t16 button Settings\n\t\t\t\t17 container Projects and checkouts\n\t\t\t\t\t18 container\n\t\t\t\t\t\t19 button Go to Projects\n\t\t\t\t\t\t20 button New project\n\t\t\t\t\t21 button Open folder\n\t\t\t\t\t22 container\n\t\t\t\t\t\t23 button (expanded) donwells-task02-ax-project-Qkilwd\n\t\t\t\t\t\t24 button Remove donwells-task02-ax-project-Qkilwd from donwells.ai\n\t\t\t\t\t\t25 container\n\t\t\t\t\t\t\t26 button Main checkout main\n\t\t\t\t\t\t\t27 disclosure triangle Actions for donwells-task02-ax-project-Qkilwd\n\t\t\t\t\t\t28 button New worktree\n\t\t\t\t\t29 text Working tree clean\n\t\t\t\t\t30 container, Text: 5 MB · 0 % CPU\n\t\t\t\t\t31 button Refresh projects\n\t\t\t\t\t32 splitter Resize project navigation, Value: 280\n\t\t\t\t33 container\n\t\t\t\t\t34 container Workspace panels\n\t\t\t\t\t\t35 container\n\t\t\t\t\t\t\t36 container\n\t\t\t\t\t\t\t\t37 text FindBorderBarSize\n\t\t\t\t\t\t\t38 container\n\t\t\t\t\t\t\t\t39 tab group\n\t\t\t\t\t\t\t\t\t40 tab (selected) Terminal 1, Value: 1\n\t\t\t\t\t\t\t41 container Terminal 1\n\t\t\t\t\t\t\t\t42 container\n\t\t\t\t\t\t\t\t\t43 container\n\t\t\t\t\t\t\t\t\t\t44 text field (settable) Terminal input\n\t\t\t\t\t\t\t\t\t\t45 image\n\t\t\t\t\t\t\t\t\t\t46 image\n\t47 close button\n\t48 full screen button, Secondary Actions: zoom the window\n\t49 minimize button\n\nNo UI element is currently focused.",
+      "elementCount": 50,
+      "focusedElementId": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "ff624832-18a5-4723-82aa-69ced8a45b15"
+  }
+}

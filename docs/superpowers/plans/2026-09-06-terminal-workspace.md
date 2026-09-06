@@ -155,14 +155,16 @@ Then run the installed OMP→Hermes→Kimi→DSH live recall scenario and actual
 
 **Interfaces:** Consumes existing attach/input/resize session API. Produces a recorded renderer/layout winner; the trial must not alter PTY ownership.
 
-- [ ] **Step 1:** First compare xterm and Ghostty Web in the same minimal layout, then compare FlexLayout and Dockview with the winning renderer. Keep daemon session and workload identical so layout effects are not mistaken for renderer effects. Pin trial dependencies separately; keep production lockfile unchanged during comparison.
+- [x] **Step 1:** First compare xterm and Ghostty Web in the same minimal layout, then compare FlexLayout and Dockview with the winning renderer. Keep daemon session and workload identical so layout effects are not mistaken for renderer effects. Pin trial dependencies separately; keep production lockfile unchanged during comparison.
 - [ ] **Step 2:** Exercise existing search, links, selection, custom key handlers, multiline paste, IME, VoiceOver, Unicode, mouse reporting, alternate screen and terminal resize. Record unsupported Ghostty APIs explicitly.
-- [ ] **Step 3:** Move/split/focus views 100 times and prove identical daemon session/process identity, no duplicate subscriptions and unchanged editor unsaved content. Capture terminal frames and input latency under output load.
+- [x] **Step 3:** Move/split/focus views 100 times and prove identical daemon session/process identity, no duplicate subscriptions and unchanged editor unsaved content. Capture terminal frames and input latency under output load.
 - [ ] **Step 4:** Choose the pair that passes every critical behavior and materially improves arrangement or measured performance. Reject a renderer with lost accessibility/addons. Record native Ghostty as a separate experiment if needed, not an assumed fallback.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/terminal-bus.test.ts tests/terminal-daemon.test.ts tests/editor-tabs.test.ts`. Run `node tests/acceptance/terminal-layout.mjs` after creating its documented profile arguments.
+- [x] **Verification:** Run `pnpm exec vitest run tests/terminal-bus.test.ts tests/terminal-daemon.test.ts tests/editor-tabs.test.ts`. Run `node tests/acceptance/terminal-layout.mjs` after creating its documented profile arguments.
 - [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Delete rejected trial code/dependencies. Retain the baseline renderer if no replacement passes.
+
+**Open gates:** Native IME composition and VoiceOver speech/navigation are unverified. Completed comparison measurements are in [native terminal comparison](../../architecture/current-terminal-layout-native.json); [native-input blockers](../../architecture/current-terminal-native-input-gates.json) remain explicit. Task 02 is not complete.
 
 ### Task 03: Select memory, retrieval and control engines
 

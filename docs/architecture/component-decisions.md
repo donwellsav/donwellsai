@@ -652,6 +652,15 @@ These receipts prove the shipped MCP transport and runtime routes, not a new com
 
 Both packaged receipts use ASAR SHA-256 `8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78`.
 
+
+### Current Task 02 verification in progress
+
+The current comparison reuses the same two packaged-daemon processes: xterm/FlexLayout, Ghostty/FlexLayout, then xterm/Dockview. Ghostty 0.4.0 again fails the actual SearchAddon (`onWriteParsed` missing) with native output. Both xterm layouts pass 100 terminal moves, 102 Monaco moves with the same model/draft, selection, native input/Unicode/resize/alternate-screen, multiline paste, SGR pointer reporting and real WebLinks activation with a non-navigating fixture callback. The completed run records equal per-layout input/load/focus distributions in current-terminal-layout-native.json. FlexLayout idle/loaded echo p95 was 3.6/4.8 ms; Dockview was 2.5/3.2 ms. These measurements do not establish a material performance advantage. Native IME and VoiceOver remain open; no final renderer/layout selection is credited.
+
+[Native accessibility baseline](current-terminal-accessibility-before.json) exposes the actual app's terminal input but no terminal output rows. The existing TerminalPane does not enable xterm screenReaderMode. Enabling that native option in the isolated trial exposes output through the browser accessibility tree. This is not native VoiceOver speech/navigation qualification and has not changed production rendering. Only the U.S. input source is enabled on this Mac; Unicode insertion is not credited as native IME composition. Those Task 02 gates stay open.
+
+Failed pointer fixtures are retained locally: run 05 leaked the release report after the probe stopped reading; run 07 reused marker text across layouts. The probe now consumes press/release input and uses layout-specific markers. These were acceptance-runner errors, not product defects. A temporary native accessibility fixture initially raced project registration and was retried with the existing renderer-state boundary; an interrupted cleanup left one owned shell, which was explicitly closed through its authenticated daemon before shutdown succeeded. User sessions were untouched.
+
 ### Task 03 admission scope before browser trials
 
 Playwright MCP 0.0.80 and agent-browser 0.36.0 will be compared as unchanged external CLI tools in a disposable local directory, preserving every package notice. This does not admit either distribution into the product installer. The exact npm/source/native hashes remain the Task 01 pins. Playwright's Apache package includes further MIT/ISC/BSD/data-license notices; agent-browser additionally ships an MPL-2.0 axe-core notice, so it is not classified as an exclusively MIT/Apache distribution. No copied source, stripped notice, modified MPL component or redistributed browser binary is authorized by this trial. A production redistribution decision remains rejected until the exact delivered artifact and required notices/source access are settled.
