@@ -126,7 +126,7 @@ function errorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code : undefined
 }
 
-function readDocument(path: string): ProjectMemoryDocument {
+export function readProjectMemorySnapshot(path: string): { document: ProjectMemoryDocument; bytes: Buffer | null } {
   let stat
   try {
     const linkStat = lstatSync(path)
@@ -158,8 +158,10 @@ function readDocument(path: string): ProjectMemoryDocument {
         }
       }
       let decoded: unknown
+      let bytes: Buffer
       try {
-        decoded = JSON.parse(readFileSync(descriptor, 'utf8'))
+        bytes = readFileSync(descriptor)
+        decoded = JSON.parse(bytes.toString('utf8'))
       } catch (error) {
         if (error instanceof SyntaxError) {
           throw new ProjectMemoryLoadError('corrupt', path, 'Project memory persistence contains invalid JSON', error)
@@ -175,7 +177,7 @@ function readDocument(path: string): ProjectMemoryDocument {
         )
       }
       try {
-        return parseProjectMemoryDocument(decoded)
+        return { document: parseProjectMemoryDocument(decoded), bytes }
       } catch (error) {
         throw new ProjectMemoryLoadError('corrupt', path, 'Project memory persistence failed validation', error)
       }
@@ -183,7 +185,7 @@ function readDocument(path: string): ProjectMemoryDocument {
       closeSync(descriptor)
     }
   } catch (error) {
-    if (errorCode(error) === 'ENOENT') return emptyDocument()
+    if (errorCode(error) === 'ENOENT') return { document: emptyDocument(), bytes: null }
     if (error instanceof ProjectMemoryLoadError) throw error
     throw new ProjectMemoryLoadError('read', path, 'Project memory persistence could not be read', error)
   }
@@ -289,7 +291,7 @@ export class ProjectMemoryStore {
 
   constructor(userDataDir: string) {
     this.path = join(userDataDir, FILE_NAME)
-    this.document = readDocument(this.path)
+    this.document = readProjectMemorySnapshot(this.path).document
   }
 
   list(projectKey: string, options: ProjectMemoryListOptions): { entries: ProjectMemoryEntry[]; total: number } {
