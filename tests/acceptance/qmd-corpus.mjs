@@ -8,10 +8,11 @@ import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 
-const { values } = parseArgs({ options: { package: { type: 'string' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
+const { values } = parseArgs({ options: { package: { type: 'string' }, evidence: { type: 'string' }, corpus: { type: 'string' }, repetitions: { type: 'string', default: '1' }, 'embedding-model': { type: 'string' }, 'reranking-model': { type: 'string' }, 'expansion-model': { type: 'string' }, hybrid: { type: 'boolean' }, 'source-commit': { type: 'string' } } })
 assert(values.package && values.evidence, '--package and --evidence are required')
 assert(!values.hybrid || values['embedding-model'], '--hybrid requires --embedding-model')
 assert(!values['reranking-model'] || values.hybrid, '--reranking-model requires --hybrid')
+assert(!values['expansion-model'] || (values.hybrid && values['reranking-model']), '--expansion-model requires --hybrid and --reranking-model')
 assert(!values['source-commit'] || /^[a-f0-9]{40}$/.test(values['source-commit']), 'Use a full source commit hash')
 const repository = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
 const corpusPath = values.corpus ? resolve(values.corpus) : join(repository, 'tests/fixtures/project-knowledge.json')
@@ -31,7 +32,7 @@ const docs = join(root, 'checkout'); mkdirSync(docs)
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const manifest = []
 let store
-const report = { mode: values.hybrid ? values['reranking-model'] ? 'hybrid-with-rerank' : 'hybrid-without-rerank' : values['embedding-model'] ? 'vector' : 'lexical', metric: 'macro gold source-file recall in first five results', corpusSha256: hash(readFileSync(corpusPath)), corpusVersion: corpus.schemaVersion, repetitions, rows: [] }
+const report = { mode: values['expansion-model'] ? 'expanded-hybrid-with-rerank' : values.hybrid ? values['reranking-model'] ? 'hybrid-with-rerank' : 'hybrid-without-rerank' : values['embedding-model'] ? 'vector' : 'lexical', metric: 'macro gold source-file recall in first five results', corpusSha256: hash(readFileSync(corpusPath)), runnerSha256: hash(readFileSync(new URL(import.meta.url))), corpusVersion: corpus.schemaVersion, repetitions, rows: [] }
 try {
   const sourceCommit = values['source-commit']
   const tracked = execFileSync('git', sourceCommit ? ['ls-tree', '-rz', '--name-only', sourceCommit, '--', 'src', 'docs'] : ['ls-files', '-z', 'src', 'docs'], { cwd: repository }).toString().split('\0').filter(path => /\.(md|ts|tsx|css|json)$/.test(path))
@@ -71,18 +72,15 @@ try {
   }
   const model = values['embedding-model'] ? resolve(values['embedding-model']) : undefined
   const reranker = values['reranking-model'] ? resolve(values['reranking-model']) : undefined
-  if (model) {
-    report.embeddingParallelism = process.env.QMD_EMBED_PARALLELISM ?? 'automatic'
+  const expansion = values['expansion-model'] ? resolve(values['expansion-model']) : undefined
+  if (model) report.embeddingParallelism = process.env.QMD_EMBED_PARALLELISM ?? 'automatic'
+  for (const [path, key] of [[model, 'modelSha256'], [reranker, 'rerankerSha256'], [expansion, 'expansionSha256']]) {
+    if (!path) continue
     const digest = createHash('sha256')
-    for await (const bytes of createReadStream(model)) digest.update(bytes)
-    report.modelSha256 = digest.digest('hex')
+    for await (const bytes of createReadStream(path)) digest.update(bytes)
+    report[key] = digest.digest('hex')
   }
-  if (reranker) {
-    const digest = createHash('sha256')
-    for await (const bytes of createReadStream(reranker)) digest.update(bytes)
-    report.rerankerSha256 = digest.digest('hex')
-  }
-  store = await createStore({ dbPath: join(root, 'index.sqlite'), config: { ...(model ? { models: { embed: model, ...(reranker ? { rerank: reranker } : {}) } } : {}), collections: { project: { path: docs, pattern: '**/*.{md,ts,tsx,css,json}' } } } })
+  store = await createStore({ dbPath: join(root, 'index.sqlite'), config: { ...(model ? { models: { embed: model, ...(reranker ? { rerank: reranker } : {}), ...(expansion ? { generate: expansion } : {}) } } : {}), collections: { project: { path: docs, pattern: '**/*.{md,ts,tsx,css,json}' } } } })
   let start = performance.now()
   report.index = await store.update()
   report.indexMs = performance.now() - start
@@ -92,7 +90,7 @@ try {
     report.embeddingMs = performance.now() - start
   }
   const search = query => values.hybrid
-    ? store.search({ queries: [{ type: 'lex', query }, { type: 'vec', query }], collections: ['project'], rerank: Boolean(reranker), limit: 5 })
+    ? store.search({ ...(expansion ? { query } : { queries: [{ type: 'lex', query }, { type: 'vec', query }] }), collections: ['project'], rerank: Boolean(reranker), limit: 5 })
     : model ? store.searchVector(query, { collection: 'project', limit: 5 }) : store.searchLex(query, { collection: 'project', limit: 5 })
   const reference = hit => values.hybrid ? hit.file : hit.filepath
   for (let repetition = 1; repetition <= repetitions; repetition++) for (const row of corpus.questions) {
@@ -105,6 +103,7 @@ try {
     const recall = new Set(sources.filter(path => row.expectedSources.includes(path))).size / row.expectedSources.length
     for (const hit of hits) assert(!('error' in await store.get(reference(hit))), 'Unresolvable result citation')
     report.rows.push({ id: row.id, kind: row.kind, repetition, rank: rank || null, recall, elapsedMs, sources })
+    if (report.rows.length % 10 === 0) console.error(JSON.stringify({ completed: report.rows.length, total: corpus.questions.length * repetitions }))
   }
   report.recallAt5 = report.rows.reduce((sum, row) => sum + row.recall, 0) / report.rows.length
   const exact = report.rows.filter(row => row.kind === 'exact')
