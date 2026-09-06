@@ -1,0 +1,9 @@
+{
+  "repository": "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
+  "revision": "a02f48bb4f057028298c21fa033da2b30d7742d5",
+  "file": "qwen3-reranker-0.6b-q8_0.gguf",
+  "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+  "bytes": 639153184,
+  "license": "apache-2.0",
+  "baseModel": "Qwen/Qwen3-Reranker-0.6B"
+}
