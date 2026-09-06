@@ -17,7 +17,12 @@ export async function forceTerminateProcessTree(child: ChildProcess): Promise<bo
   }
   if (process.platform === 'win32') return taskkillTree(child, child.pid)
 
-  const processGroupId = child.pid
+  return forceTerminatePosixProcessGroup(child.pid)
+}
+
+/** Only call for a private group created by this owner (detached spawn or forkpty). */
+export async function forceTerminatePosixProcessGroup(processGroupId: number): Promise<boolean> {
+  if (!Number.isSafeInteger(processGroupId) || processGroupId <= 1) return false
   try {
     process.kill(-processGroupId, 'SIGKILL')
   } catch {

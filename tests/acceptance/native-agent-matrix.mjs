@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -215,6 +215,10 @@ finally {
   if (ownsHermesProfile && report.idleDaemonStopped) {
     rmSync(hermesProfile, { recursive: true, force: true })
     report.temporaryHermesConfigurationRemoved = true
+    report.hermesProfile = hermesProfile
+    await delay(10000)
+    report.hermesProfileRemainedAbsent = !existsSync(hermesProfile)
+    if (!report.hermesProfileRemainedAbsent) process.exitCode = 1
   }
   if (values.query || values.memory) {
     report.requestedChecksPassed = agentIds.every(id => {

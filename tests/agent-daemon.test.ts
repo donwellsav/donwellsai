@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { symlinkSync, existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { symlinkSync, existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -111,6 +111,20 @@ afterEach(async () => {
   }
   for (const client of clients.splice(0)) client.disconnect()
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
+
+it('stops native agent children that survive their parent and ignore hangup', async () => {
+  const { userDataDir, workspacePath } = await disposableDaemon()
+  const capture = eventCapture(), client = daemonClient(userDataDir, capture.events)
+  const heartbeat = join(workspacePath, 'child-heartbeat')
+  const childCode = `process.on('SIGHUP',()=>{}); const fs=require('node:fs'); setInterval(()=>fs.appendFileSync(${JSON.stringify(heartbeat)},'.'),25); setTimeout(()=>process.exit(),3000)`
+  const code = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(childCode)}],{stdio:'inherit'}); setInterval(()=>{},1000)`
+  const started = await client.startAgent(workspacePath, 'agent with child', undefined, { executable: process.execPath, args: ['-e', code] })
+  await waitFor(() => existsSync(heartbeat))
+  await client.stopAgent(started.session.id)
+  const stopped = readFileSync(heartbeat, 'utf8')
+  await delay(150)
+  expect(readFileSync(heartbeat, 'utf8')).toBe(stopped)
 })
 
 it('stops a native TUI that consumes Ctrl-C and retains its output until dismissal', async () => {

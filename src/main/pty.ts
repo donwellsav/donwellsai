@@ -4,6 +4,7 @@ import type { AgentLiveness, AgentExecutable } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { windowsSystem32Binary } from '@shared/child-process/windows-system-binary'
+import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
 import { AGENT_HOOK_ENV } from './agents/provider-hooks'
 
 /** Exited interactive terminals are kept briefly for reattach/scrollback. */
@@ -240,9 +241,14 @@ export class PtyManager {
     }
     if (!session.session.exited) {
       try {
-        session.proc.kill()
+        if (session.kind === 'agent' && process.platform !== 'win32') {
+          // forkpty creates a private process group. Stop must include children, not just the TUI root.
+          if (!await forceTerminatePosixProcessGroup(session.proc.pid)) {
+            throw new Error('agent process group exit is unverifiable after cancellation')
+          }
+        } else session.proc.kill()
       } catch (error) {
-        if (!session.session.exited) throw error
+        if (session.kind === 'agent' || !session.session.exited) throw error
       }
     }
     if (!session.settled) {
