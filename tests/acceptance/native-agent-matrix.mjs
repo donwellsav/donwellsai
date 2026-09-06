@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -12,12 +12,15 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
-  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false }
+  playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
+  'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }
 } })
 assert(values.playwright, '--playwright is required')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
-assert(!values.memory || agentIds.every(id => ['omp', 'kimi'].includes(id)), 'Memory format trial currently supports OMP and Kimi only')
+assert(!values.memory || agentIds.every(id => ['omp', 'kimi', 'hermes'].includes(id)), 'DSH memory format is not yet qualified')
+const hermesMemory = values.memory && agentIds.includes('hermes')
+assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
 const fixture = mkdtempSync(join(tmpdir(), 'donwells-native-agents-'))
@@ -33,6 +36,10 @@ const invoke = async (method, params = {}) => {
   return result.result
 }
 const env = { ...process.env, DONWELLS_USER_DATA: profile, KIMI_CODE_NO_AUTO_UPDATE: '1', KIMI_CLI_NO_AUTO_UPDATE: '1' }
+const hermesProfile = hermesMemory
+  ? join(resolve(values['hermes-home']), 'profiles', `donwells-acceptance-${randomUUID()}`)
+  : join(profile, 'profiles', 'hermes')
+if (hermesMemory) env.HERMES_HOME = hermesProfile
 delete env.DONWELLS_SMOKE; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL
 const start = performance.now()
 const report = {
@@ -41,6 +48,7 @@ const report = {
   agents: {}, limitations: ['Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
+let ownsHermesProfile = false
 try {
   app = await _electron.launch({ executablePath: executable, env })
   const page = await app.firstWindow()
@@ -63,9 +71,19 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   return response.result;
 }});
 `, { mode: 0o600 })
-      const directory = join(fixture, id === 'omp' ? '.omp' : '.kimi-code')
-      mkdirSync(directory)
-      writeFileSync(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { 'donwells-project-memory': { command: executable, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1' } } } }, null, 2), { mode: 0o600 })
+      const servers = { 'donwells-project-memory': { command: executable, args: [bridge], env: { ELECTRON_RUN_AS_NODE: '1' } } }
+      if (id === 'hermes') {
+        mkdirSync(join(resolve(values['hermes-home']), 'profiles'), { recursive: true, mode: 0o700 })
+        mkdirSync(hermesProfile, { mode: 0o700 })
+        ownsHermesProfile = true
+        // Use Hermes's installed YAML parser and a private profile; never rewrite the user's source files.
+        execFileSync(values['hermes-python'], ['-c', 'import json, pathlib, sys, yaml; source, target, servers = sys.argv[1:]; config = yaml.safe_load(pathlib.Path(source).read_text()); config["mcp_servers"] = json.loads(servers); p = pathlib.Path(target); p.touch(mode=0o600, exist_ok=False); p.write_text(yaml.safe_dump(config, allow_unicode=True)); yaml.load(p.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))', join(resolve(values['hermes-home']), 'config.yaml'), join(hermesProfile, 'config.yaml'), JSON.stringify(servers)], { stdio: 'pipe' })
+        writeFileSync(join(hermesProfile, '.env'), readFileSync(join(resolve(values['hermes-home']), '.env')), { mode: 0o600, flag: 'wx' })
+      } else {
+        const directory = join(fixture, id === 'omp' ? '.omp' : '.kimi-code')
+        mkdirSync(directory)
+        writeFileSync(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: servers }, null, 2), { mode: 0o600 })
+      }
     }
   }
   await page.getByRole('button', { name: /Main checkout/ }).click()
@@ -125,7 +143,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         }
         await page.keyboard.type(values.memory
           ? 'Use the donwells-project-memory MCP server memory_search tool to search for "Native bridge verification" and reply with the decision content. Do not read files, edit anything, or use another memory server.'
-          : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.')
+          : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.', { delay: id === 'hermes' ? 10 : 0 })
         // Native paste-burst protection intentionally turns an immediate Enter into a newline.
         await delay(500)
         await page.keyboard.press('Enter')
@@ -194,6 +212,10 @@ finally {
   }
   report.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
   if (!report.idleDaemonStopped) process.exitCode = 1
+  if (ownsHermesProfile && report.idleDaemonStopped) {
+    rmSync(hermesProfile, { recursive: true, force: true })
+    report.temporaryHermesConfigurationRemoved = true
+  }
   if (values.query || values.memory) {
     report.requestedChecksPassed = agentIds.every(id => {
       const result = report.agents[id]
