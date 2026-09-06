@@ -405,7 +405,7 @@ export type UiCommand =
 
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
-export type IpcApi = ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+export type IpcApi = import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   projectToolsList(workspacePath: string): Promise<import('./project-tools').ToolServiceState[]>
   projectToolCall(workspacePath: string, id: string, operation: string, args: Record<string, unknown>): Promise<unknown>
   projectToolStop(workspacePath: string, id: string): Promise<void>

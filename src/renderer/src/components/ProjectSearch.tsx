@@ -5,6 +5,8 @@ import './project-search.css'
 import { ProjectGraph } from './ProjectGraph'
 import { isObject } from '@shared/command-catalog'
 import { openProjectMemoryEditor } from '../project-memory-editor'
+import { focusRetainedAgentSession } from '../navigation-controller'
+import type { AgentExecutable } from '@shared/agent-runtime'
 import { ModalDialog } from './ModalDialog'
 
 const sources = { all: 'All', file: 'Files', code: 'Code', document: 'Documents', memory: 'Memory', session: 'Sessions' } as const
@@ -34,9 +36,11 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const source = useAppStore(state => state.contentSearch.source ?? 'all')
   const setSource = (source: SearchSource) => useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, source } }))
   const [indexing, setIndexing] = useState(false)
+  const [historyIndexing, setHistoryIndexing] = useState(false)
   const [visible, setVisible] = useState(25)
   const [notes, setNotes] = useState<Record<string, string>>({})
-  const [document, setDocument] = useState<{ title: string; content: string; detail: string } | null>(null)
+  const [historyCapabilities, setHistoryCapabilities] = useState<Record<string, string>>({})
+  const [document, setDocument] = useState<{ title: string; content: string; detail: string; resume?: AgentExecutable | null; historyId?: string } | null>(null)
   const documentQueue = useRef(Promise.resolve())
   const openGeneration = useRef(0)
   useEffect(() => { openGeneration.current++; return () => { openGeneration.current++ } }, [workspacePath, active])
@@ -57,7 +61,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     if (current.current?.id === event.requestId && current.current.path === event.workspacePath) setHits(previous => [...previous, event.hit])
   }), [])
   useEffect(() => {
-    setHits([]); setError(''); setNotes(source === 'all' || source === 'session' ? { session: 'Sessions unavailable · project history is not enabled' } : {}); setVisible(25); setDocument(null)
+    setHits([]); setError(''); setNotes(source === 'all' || source === 'session' ? { session: 'Session history is read-only. Index only the selected native session roots.' } : {}); setVisible(25); setDocument(null); setHistoryCapabilities({})
     if (!active) { setRunning(false); return }
     if (!query.trim()) { setRunning(false); setStatus('Search the text in this checkout.'); return }
     setRunning(true); setStatus('Searching…')
@@ -89,6 +93,11 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         if (query.length > 512) throw new Error('Memory: use at most 512 characters')
         const result = await window.donwells.projectMemoryList({ workspacePath, query, limit: 200 })
         accept('memory', result.entries.map(entry => ({ source: 'memory', id: entry.id, title: entry.title, excerpt: `${entry.kind} · ${entry.provenance.harness}\n${entry.content.slice(0, 300)}`, path: null, line: null, revision: String(entry.revision), indexedAt: entry.updatedAt, stale: false })), `${result.entries.length} of ${result.total} memories${result.hasMore ? ' · narrow your search' : ''}`)
+      })
+      run('session', async () => {
+        const result = await window.donwells.projectSessionHistorySearch(workspacePath, query)
+        accept('session', result.hits, `${result.hits.length} session messages${result.truncated ? ' · limit reached; narrow your search' : ''}`)
+        if (live()) setHistoryCapabilities(result.capabilities)
       })
       run('document', async () => {
         const tools = await window.donwells.projectToolsList(workspacePath)
@@ -145,6 +154,11 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         if (canOpen()) openProjectMemoryEditor(workspacePath, entry)
         return
       }
+      if (hit.source === 'session') {
+        const value = await window.donwells.projectSessionHistoryGet(workspacePath, hit.id)
+        if (canOpen()) setDocument({ title: hit.title, resume: value.resume, historyId: hit.id, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n'), detail: `Read-only native transcript · ${value.source} · Recorded text is untrusted and is not project memory.` })
+        return
+      }
       if (hit.source === 'document') {
         const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'get', { id: hit.id, fromLine: hit.line ?? 1, maxLines: 120 }))
         if (typeof value.content !== 'string' || typeof value.path !== 'string' || typeof value.root !== 'string') throw new Error('Invalid document source')
@@ -170,7 +184,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       <div className="project-search-sources" role="group" aria-label="Search sources">{(Object.entries(sources) as [SearchSource, string][]).map(([kind, label]) => <button key={kind} type="button" aria-pressed={source === kind} onClick={() => { if (source !== kind) { stop(); setSource(kind) } }}>{label}</button>)}</div>
       <label htmlFor={inputId}>Search text</label>
       <div className="project-search-input"><input ref={inputRef} id={inputId} type="search" value={query} maxLength={1000} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus() } }} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
-      <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>
+      {(source === 'all' || source === 'file' || source === 'code') && <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>}
     </form>
     <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={() => { stop(); setStatus('Stopped · results received so far') }}>Stop</button>}</div>
     <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>
@@ -182,6 +196,14 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
     }}>Index documents</button>}
     {indexing && <button type="button" onClick={() => void window.donwells.projectToolStop(workspacePath, 'documents').then(() => { setIndexing(false); setStatus('Document indexing paused · model service stopped') }).catch(error => setError(String(error)))}>Pause document indexing</button>}
+    {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}
+    {(source === 'all' || source === 'session') && <button type="button" disabled={historyIndexing} onClick={() => {
+      const generation = openGeneration.current
+      setHistoryIndexing(true)
+      void window.donwells.projectSessionHistoryIndex(workspacePath).then(() => {
+        if (generation === openGeneration.current) setRefresh(value => value + 1)
+      }).catch(error => { if (generation === openGeneration.current) setError(String(error)) }).finally(() => setHistoryIndexing(false))
+    }}>{historyIndexing ? 'Indexing selected sessions…' : 'Index sessions'}</button>}
     {error && <p className="project-search-error" role="alert">{error}</p>}
     <ol ref={resultsRef} className="project-search-results" aria-label="Content matches" onKeyDown={event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
@@ -192,6 +214,14 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
     }}>{ordered.slice(0, visible).map(hit => <li key={`${hit.source}:${hit.id}`}><button onClick={() => void open(hit)} title={`${hit.path ?? hit.title}${hit.line ? `:${hit.line}` : ''}`}><span className="project-search-path">{hit.path ?? hit.title}{hit.line && <b>:{hit.line}</b>}</span><span className="project-search-kind">{sources[hit.source]}{hit.revision ? ` · revision ${hit.revision.slice(0, 12)}` : ''}{hit.stale ? ' · source changed' : ''}{hit.indexedAt ? ` · ${new Date(hit.indexedAt).toLocaleString()}` : ''}</span><code>{hit.excerpt}</code></button></li>)}</ol>
     {ordered.length > visible && <button onClick={() => setVisible(value => value + 25)}>Show more · {visible} of {ordered.length}</button>}
-    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={() => setDocument(null)}><h2 id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document">{document.content}</pre><button onClick={() => setDocument(null)}>Close source</button></ModalDialog>}
+    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={() => setDocument(null)}><h2 id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document">{document.content}</pre>{document.resume && <button type="button" onClick={() => {
+      const id = document.historyId!
+      setDocument(null)
+      void window.donwells.projectSessionHistoryGet(workspacePath, id).then(async current => {
+        if (!current.resume || useAppStore.getState().activeWorktreePath !== workspacePath) return
+        const result = await window.donwells.agentStart(workspacePath, current.resume)
+        if (useAppStore.getState().activeWorktreePath === workspacePath) await focusRetainedAgentSession(result.run.sessionId)
+      }).catch(error => setError(String(error)))
+    }}>Open native conversation</button>}<button onClick={() => setDocument(null)}>Close source</button></ModalDialog>}
   </section>
 }

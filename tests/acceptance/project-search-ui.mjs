@@ -255,7 +255,7 @@ try {
   await page.keyboard.press('Escape')
   report.memoryOpenedCurrentRevision = updatedMemory.revision
   await choose('Sessions')
-  await panel.getByText('Sessions unavailable · project history is not enabled', { exact: true }).waitFor()
+  await panel.getByText(/Session history unavailable: configure/).waitFor()
   report.sessionsUnavailableVisible = true
   await choose('Documents'); await query.fill('Small source')
   if (env.DONWELLS_DOCUMENT_QMD_PACKAGE && env.DONWELLS_DOCUMENT_LANCE_PACKAGE) {

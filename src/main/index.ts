@@ -1,6 +1,7 @@
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
+import { ProjectSessionHistory } from './project-session-history'
 import { ProjectTools, resolveProjectToolScope } from './project-tools'
 import { createCodeGraphDefinition } from './project-code-graph'
 import { createDocumentDefinition } from './project-documents'
@@ -68,6 +69,7 @@ let mainWindow: BrowserWindow | null = null
 let quitRequested = false
 let allowQuit = false
 let projectTools: ProjectTools | undefined
+let sessionHistory: ProjectSessionHistory | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
@@ -512,6 +514,18 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
+  const historyBinary = process.env['DONWELLS_HISTORY_BINARY']
+  if (historyBinary) {
+    const roots: unknown = JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] ?? '{"omp":[],"deepseek-harness":[]}')
+    if (!roots || typeof roots !== 'object' || Array.isArray(roots) || Object.keys(roots).some(key => !['omp', 'deepseek-harness'].includes(key))) throw new Error('Invalid session history roots')
+    const selected = roots as Record<string, unknown>
+    for (const key of ['omp', 'deepseek-harness']) if (!Array.isArray(selected[key]) || selected[key].length > 16 || selected[key].some((path: unknown) => typeof path !== 'string' || !path || path.length > 4096)) throw new Error('Invalid session history roots')
+    sessionHistory = new ProjectSessionHistory({ binary: historyBinary, cache: join(app.getPath('userData'), 'project-tools', 'history'), roots: selected as { omp: string[]; 'deepseek-harness': string[] } }, path => resolveProjectToolScope(path, resolveToolWorkspace))
+  }
+  const history = () => { if (!sessionHistory) throw new Error('Session history unavailable: configure the admitted engine and selected native session roots'); return sessionHistory }
+  ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => history().index(path))
+  ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => history().search(path, query))
+  ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => history().get(path, id))
   const codeGraphBinary = process.env['DONWELLS_CODE_GRAPH_BINARY']
   const documentPackage = process.env['DONWELLS_DOCUMENT_QMD_PACKAGE']
   const lancePackage = process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE']
@@ -563,6 +577,7 @@ app.whenReady().then(() => {
       projectMemory,
       handoffs,
       projectTools,
+      sessionHistory,
       meta: async () => runtimeMetadata(),
       onChanged: (repoId) => send('worktree:changed', { repoId }),
       onSettingsChanged: publishSettings,
@@ -592,7 +607,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', (event) => {
   if (projectTools && !toolsClosed) {
     event.preventDefault()
-    closingTools ??= projectTools.close().catch(() => {
+    closingTools ??= Promise.all([projectTools.close(), sessionHistory?.close()]).catch(() => {
       dialog.showErrorBox('Tool shutdown incomplete', 'An owned tool process could not be confirmed stopped. Check it before starting another instance.')
     }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
     return

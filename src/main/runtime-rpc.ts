@@ -1,3 +1,4 @@
+import type { ProjectSessionHistory } from './project-session-history'
 import type { ProjectHandoffService } from './project-handoff'
 import type { AgentSessionCredential } from '@shared/agent-runtime'
 import { parseAgentExecutable } from '@shared/agent-runtime'
@@ -80,6 +81,7 @@ export type RpcDeps = {
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
+  sessionHistory?: Pick<ProjectSessionHistory, 'index' | 'search' | 'get'>
   projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'>
   handoffs: Pick<ProjectHandoffService, 'receive' | 'acknowledge'>
   projectMemory: ProjectMemoryApi
@@ -626,6 +628,15 @@ export class RuntimeRpcServer {
         })
         await this.deps.diffReview.remove(request)
         return {}
+      }
+      case 'history.index':
+      case 'history.search':
+      case 'history.get': {
+        const history = this.deps.sessionHistory
+        if (!history) throw new Error('Session history is not configured')
+        if (method === 'history.index') return history.index(str('workspacePath'))
+        if (method === 'history.search') return history.search(str('workspacePath'), str('query'))
+        return history.get(str('workspacePath'), str('id'))
       }
       case 'tool.list':
         return this.deps.projectTools.list(str('workspacePath'))

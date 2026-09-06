@@ -1,0 +1,14 @@
+{
+  "source": {
+    "commit": "d0e91656ea220f4af247870b8ad0c698b8e1761f",
+    "dirty": true,
+    "contentHash": "62718569290f35a15e1145765e9c32b6c8cfc7bd19345adfd7c6166b1780a096"
+  },
+  "artifactSha256": "7119f6669d379cf1cbc39a71533ef6f7783bed9a2d1e6eb7fd0aa9f32d71fb9c",
+  "crossProjectLookupDenied": true,
+  "nativeExcerptMatches": true,
+  "nativeResumeRecalledToken": true,
+  "changedTranscriptRejected": true,
+  "refreshedTranscript": true,
+  "idleDaemonStopped": true
+}

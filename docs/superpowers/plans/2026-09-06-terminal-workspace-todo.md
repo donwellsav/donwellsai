@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 27 active — native session history and AgentsView integration.** Tasks 01 and 03–13 are strengthened. Task 02 remains skipped. Tasks 14–28 remain reopened; Task 27 runs next to enable Sessions before browser work. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 14 active — browser preview hosting migration.** Tasks 01, 03–13 and 27 are strengthened. Task 02 remains skipped. Tasks 14–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -495,14 +495,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes native agent session roots resolved by the selected history tool and current project scope. Produces `ProjectSearchHit` with `source: 'session'`; archived transcript data remains read-only and separate from memory.
 
-- [ ] **Step 1:** Compare AgentsView's parsers against the four admitted native agent versions. Record supported discovery/search/resume separately; do not invent compatibility for an unsupported log format.
-- [ ] **Step 2:** Index only selected project sessions, with explicit source provenance and deletion policy. Do not import the user's entire home-wide history by default.
-- [ ] **Step 3:** Return project-scoped snippets and open the original session with its supported native command. Treat transcript text as untrusted and never convert it automatically into durable facts.
-- [ ] **Step 4:** Test renamed project paths, duplicate session IDs across agents, malformed/partial logs, deleted sessions, changed parser versions and cross-project direct lookup.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-session-history.test.ts tests/project-search.test.ts` once both files exist. Compare displayed history against real native sessions for every supported agent; unsupported parsers display an explicit capability message.
-- [ ] **Review and commit:** Record the selected tool/version, parser coverage and focused evidence; make a local commit.
+- [x] **Step 1:** Compare AgentsView's parsers against the four admitted native agent versions. Record supported discovery/search/resume separately; do not invent compatibility for an unsupported log format.
+- [x] **Step 2:** Index only selected project sessions, with explicit source provenance and deletion policy. Do not import the user's entire home-wide history by default.
+- [x] **Step 3:** Return project-scoped snippets and open the original session with its supported native command. Treat transcript text as untrusted and never convert it automatically into durable facts.
+- [x] **Step 4:** Test renamed project paths, duplicate session IDs across agents, malformed/partial logs, deleted sessions, changed parser versions and cross-project direct lookup.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-session-history.test.ts tests/project-search.test.ts` once both files exist. Compare displayed history against real native sessions for every supported agent; unsupported parsers display an explicit capability message.
+- [x] **Review and commit:** Record the selected tool/version, parser coverage and focused evidence; make a local commit.
 
 **Rollback:** Disable the derived archive and retain the original native conversation files unchanged.
+
+**Strengthening evidence:** [native parser admission, original-session continuity and packaged scope checks](../../architecture/strengthening-27/README.md).
 
 ### Task 28: Optional ACP capabilities and additional agent adapters
 
