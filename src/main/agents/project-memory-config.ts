@@ -30,7 +30,7 @@ export async function configureAgentMemory(options: {
     return { path: 'config.yaml', changed: false, setupArgs: [
       ...profileArgs, 'mcp', 'add', 'donwells-project-memory', '--command', executable,
       '--env', 'ELECTRON_RUN_AS_NODE=1',
-      ...['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN'].flatMap(name => ['--env', `${name}=\${${name}}`]),
+      ...['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN'].map(name => `${name}=\${${name}}`),
       '--args', cliPath, 'memory-mcp',
       '--workspace', '${workspaceFolder}', '--harness', provider, '--user-data', userDataDir
     ] }

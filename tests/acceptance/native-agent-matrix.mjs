@@ -13,6 +13,7 @@ import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
   playwright: { type: 'string' }, query: { type: 'boolean', default: false }, agents: { type: 'string' }, memory: { type: 'boolean', default: false },
+  'hermes-cli': { type: 'boolean', default: false },
   handoff: { type: 'boolean', default: false },
   'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
 } })
@@ -87,6 +88,17 @@ let ownsHermesProfile = false
 try {
   app = await _electron.launch({ executablePath: executable, env })
   let page = await app.firstWindow()
+  await app.evaluate(({ app, BrowserWindow }, path) => {
+    const { appendFileSync } = process.getBuiltinModule('node:fs')
+    const log = (event, detail = '') => appendFileSync(path, JSON.stringify({ event, detail, at: Date.now(), stack: new Error().stack }) + '\n', { mode: 0o600 })
+    for (const event of ['before-quit', 'will-quit', 'window-all-closed']) app.on(event, () => log(event))
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.on('close', () => log('window-close'))
+      window.webContents.on('render-process-gone', (_event, detail) => log('renderer-gone', detail.reason))
+      window.webContents.on('before-input-event', (_event, input) => { if (input.meta && ['w', 'q'].includes(input.key.toLowerCase())) log('window-shortcut', input.key) })
+    }
+  }, join(evidence, 'window-lifecycle.jsonl'))
+
   report.windowEvents = []
   page.on('close', () => report.windowEvents.push({ event: 'closed', atMs: performance.now() - start }))
   page.on('crash', () => report.windowEvents.push({ event: 'crashed', atMs: performance.now() - start }))
@@ -158,6 +170,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
     const result = report.agents[id] = { installed: true, executable: provider.executablePath, query: 'not-run', memory: 'not-run', resume: 'not-run' }
+    if (id === 'hermes') result.interface = values['hermes-cli'] ? 'cli' : 'tui'
     try {
       result.executableSha256 = hash(readFileSync(provider.executablePath))
       const existing = new Set((await invoke('agent.list')).agents.map(run => run.sessionId))
@@ -209,15 +222,21 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         const config = servers['donwells-project-memory']
         assert.equal(config.command, executable)
         assert(config.args.includes('${workspaceFolder}'))
+        assert(config.env.ELECTRON_RUN_AS_NODE === '1', 'Hermes setup lost Node mode')
+        for (const name of ['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN']) assert(config.env[name] === '${' + name + '}', 'Hermes configuration must retain credential references, not values')
         result.managedConfiguration = configPath
         result.nativeSetupSession = setupSession
         result.nativeToolsApproved = 8
-        await invoke('agent.stop', { sessionId: setupSession })
+        const exitDeadline = Date.now() + 15000
+        while ((await invoke('agent.list')).agents.find(run => run.sessionId === setupSession)?.liveness !== 'exited') {
+          assert(Date.now() < exitDeadline, 'Hermes setup did not finish its native shutdown')
+          await delay(100)
+        }
         await page.getByRole('button', { name: 'Add agent', exact: true }).click()
         await page.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
         await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
       }
-      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory && !managedMemory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
+      const args = id === 'hermes' ? (values['hermes-cli'] ? [] : ['--tui']) : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory && !managedMemory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
       for (const [index, value] of args.entries()) {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
         await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(value)
@@ -247,7 +266,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       const text = stripVTControlCharacters(snapshot.scrollback)
       result.diagnostics = ['login', 'authenticate', 'API key', 'error', 'trust'].filter(word => text.toLowerCase().includes(word.toLowerCase()))
       if ((values.query || values.memory) && run?.liveness === 'live') {
-        if (id === 'hermes') {
+        if (id === 'hermes' && !values['hermes-cli']) {
           const deadline = Date.now() + 30000
           while (true) {
             const output = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
@@ -407,6 +426,8 @@ finally {
   report.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
   if (!report.idleDaemonStopped) process.exitCode = 1
   if (ownsHermesProfile && report.idleDaemonStopped) {
+    const stderrPath = join(hermesProfile, 'logs', 'mcp-stderr.log')
+    if (existsSync(stderrPath)) writeFileSync(join(evidence, 'hermes-mcp-stderr.log'), readFileSync(stderrPath), { mode: 0o600 })
     rmSync(hermesProfile, { recursive: true, force: true })
     report.temporaryHermesConfigurationRemoved = true
     report.hermesProfile = hermesProfile

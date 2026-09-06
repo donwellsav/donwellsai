@@ -83,6 +83,8 @@ describe('GitWorktrees.writeFile', () => {
     expect(result.changed).toBe(false)
     expect(result.setupArgs?.slice(0, 5)).toEqual(['--profile', 'work', 'mcp', 'add', 'donwells-project-memory'])
     expect(result.setupArgs).toContain('${workspaceFolder}')
+    expect(result.setupArgs?.filter(arg => arg === '--env')).toHaveLength(1)
+    expect(result.setupArgs?.slice(result.setupArgs.indexOf('--env') + 1, result.setupArgs.indexOf('--args'))).toHaveLength(4)
     expect(result.setupArgs).toContain('ELECTRON_RUN_AS_NODE=1')
     expect(result.setupArgs).toContain('DONWELLS_AGENT_HOOK_TOKEN=${DONWELLS_AGENT_HOOK_TOKEN}')
     expect(result.setupArgs).toContain('DONWELLS_AGENT_HOOK_SESSION_ID=${DONWELLS_AGENT_HOOK_SESSION_ID}')
