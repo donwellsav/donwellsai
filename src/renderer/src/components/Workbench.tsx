@@ -41,7 +41,6 @@ function DockingSurface({ worktreePath, active }: { worktreePath: string; active
   const panes = useAppStore(state => state.panes[worktreePath] ?? EMPTY_PANES)
   const saved = useAppStore(state => state.docking[worktreePath])
   const agents = useAppStore(state => state.runningAgents)
-  const previews = useAppStore(state => state.previews[worktreePath])
   const legacy = useAppStore(state => state.layouts[worktreePath])
   const activePane = useAppStore(state => state.activePane[worktreePath])
   const hosts = useRef(new Map<string, HTMLDivElement>())
@@ -91,14 +90,6 @@ function DockingSurface({ worktreePath, active }: { worktreePath: string; active
         const pane = panes.find(pane => pane.key === node.getId()), agent = pane?.sessionId ? agents[pane.sessionId] : undefined
         values.leading = <Icon name={pane?.kind === 'terminal' ? 'terminal' : 'file'} size={12} />
         if (agent) values.content = <span title={agentPresentation(agent).description}>{agentProviderName(agent)} · {agentPresentation(agent).label}</span>
-      }}
-      onRenderTabSet={(node, values) => {
-        const key = node.getSelectedNode()?.getId(), pane = panes.find(pane => pane.key === key)
-        if (pane?.kind === 'terminal') {
-          values.stickyButtons.push(<button key="split" className="icon-btn" aria-label="Split terminal right" title="Split terminal right" onClick={() => { const state = useAppStore.getState(); state.setActivePane(worktreePath, pane.key); void state.splitTerminal(worktreePath, 'row') }}><Icon name="columns" size={12} /></button>)
-          values.stickyButtons.push(<button key="stop" className="icon-btn danger" aria-label={`Stop ${workspacePaneLabel(pane)} process`} title="Stop process" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}><Icon name="stop" size={12} /></button>)
-        }
-        if (pane?.kind === 'preview' && pane.file && isMarkdownFile(pane.file)) values.stickyButtons.push(<button key="markdown" className="icon-btn" aria-label="Toggle Markdown preview" onClick={() => useAppStore.getState().setPreviewMode(worktreePath, pane.file!, previews?.[pane.file!]?.mode === 'preview' ? 'edit' : 'preview')}><Icon name="eye" size={12} /></button>)
       }} />
     {panes.map(pane => {
       const node = model.getNodeById(pane.key), parent = node?.getParent()
@@ -115,10 +106,18 @@ export function WorkspaceControls() {
   const docking = useAppStore(state => state.docking)
   const [urlOpen, setUrlOpen] = useState(false)
   const [url, setUrl] = useState('')
+  const activeKey = useAppStore(state => activePath ? state.activePane[activePath] : undefined)
+  const previews = useAppStore(state => activePath ? state.previews[activePath] : undefined)
+  const selected = activePath ? panes[activePath]?.find(pane => pane.key === activeKey) : undefined
   const hidden = activePath ? docking[activePath]?.hidden ?? [] : []
   return <><button aria-label="Layout" title="Workspace layout" popoverTarget={popoverId} disabled={!activePath}><Icon name="columns" size={19} /><span>Layout</span></button><div id={popoverId} popover="auto" className="workspace-layout-popover">
     <div className="workspace-arrangements" aria-label="Workspace arrangement">
       <NavigationControls />
+      {activePath && selected?.kind === 'terminal' && <>
+        <button onClick={() => void useAppStore.getState().splitTerminal(activePath, 'row')}><Icon name="columns" size={12} />Split terminal right</button>
+        <button className="danger" onClick={() => useAppStore.getState().requestClosePane(activePath, selected.key)}><Icon name="stop" size={12} />Stop {workspacePaneLabel(selected)} process</button>
+      </>}
+      {activePath && selected?.kind === 'preview' && selected.file && isMarkdownFile(selected.file) && <button onClick={() => useAppStore.getState().setPreviewMode(activePath, selected.file!, previews?.[selected.file!]?.mode === 'preview' ? 'edit' : 'preview')}><Icon name="eye" size={12} />Toggle Markdown preview</button>}
       <div className="workspace-preset-buttons">{([['focus', 'Focus'], ['pair', 'Pair'], ['build', 'Build & preview'], ['review', 'Review']] as const).map(([preset, label]) => <button key={preset} onClick={event => { if (activePath) useAppStore.getState().arrangeWorkspace(activePath, preset as WorkspacePreset); event.currentTarget.closest<HTMLElement>('.workspace-layout-popover')?.hidePopover() }}>{label}</button>)}</div>
       <button onClick={() => setUrlOpen(!urlOpen)} aria-expanded={urlOpen}><Icon name="globe" size={13} />Preview URL</button>
       {hidden.length > 0 && <details className="workspace-hidden-views"><summary>Hidden ({hidden.length})</summary><div>{hidden.map(key => <button key={key} onClick={event => { if (activePath) useAppStore.getState().setActivePane(activePath, key); event.currentTarget.closest<HTMLElement>('.workspace-layout-popover')?.hidePopover() }}>{workspacePaneLabel(panes[activePath!]?.find(pane => pane.key === key) ?? { key, kind: 'panel' })}</button>)}</div></details>}

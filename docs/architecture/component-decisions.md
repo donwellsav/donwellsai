@@ -250,3 +250,11 @@ ProjectMemoryService now initializes its store on the first authorized memory re
 The regression still rejects corrupt and insecure persistence without overwriting it and now proves retry after a deliberate repair. [Packaged damaged-memory receipt](memory-damaged-start.json) records startup with a corrupt disposable source, a rejected memory request with unchanged source bytes, and a real PTY command that successfully wrote its fixture result. After the runner repairs only that synthetic source, memory succeeds in the same app process. Subsequent lock and app-restart checks also pass, and the owned idle daemon shuts down. Reproduce with `tests/acceptance/memory-write-fence.mjs` using fresh profile/evidence paths and `--corrupt-start`.
 
 Validation: 59 files / 371 tests, focused memory checks 3 files / 22 tests, typecheck and package build pass. This is packaged RPC/PTY evidence, not a visual recovery-panel test. The user-facing migration/repair/export controls and active-SQLite reverse switch remain outstanding.
+
+### Side-panel storage controls and terminal actions
+
+The Memory side panel now provides read-only storage diagnosis, verified JSON-to-SQLite upgrade, interrupted-upgrade recovery, and current SQLite export. These profile-wide administrative actions are desktop IPC operations; the project-scoped agent MCP contract is unchanged. A failed memory load does not remove the diagnostic controls. Backend changes invalidate the service cache so the next request uses the current authority.
+
+Split, Stop and Markdown preview actions now live in the side-rail Layout popover. Docking tabs retain session switching and drag targets, without those extra action buttons. No global header or footer was added.
+
+Validation: typecheck and package build passed; the storage implementation passed 59 test files / 372 tests. `memory-storage-ui.json` records a real packaged GUI run that split a terminal through the side control, upgraded a seeded store, verified its original backup and current entry, and exported that entry. All trial terminals and the idle daemon were closed. This does not qualify active-SQLite reverse migration, conflicting-source selection, or the entire workspace plan.

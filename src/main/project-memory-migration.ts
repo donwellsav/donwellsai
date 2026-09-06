@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { PROJECT_MEMORY_MAX_DOCUMENT_BYTES, type ProjectMemoryDocument } from '@shared/project-memory'
+import { PROJECT_MEMORY_MAX_DOCUMENT_BYTES, type ProjectMemoryDocument, type ProjectMemoryStorageStatus } from '@shared/project-memory'
 import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
 import { readSqliteMemoryDocument } from './project-memory-sqlite'
@@ -65,6 +65,32 @@ export function openProjectMemoryDatabase(profile: string, authority: ProjectMem
   const path = join(directory, 'project-memory.sqlite')
   privatePath(path)
   return new DatabaseSync(path, { readOnly })
+}
+
+/** Read-only diagnosis remains available even when normal memory requests fail. */
+export function inspectProjectMemoryStorage(userDataDir: string): ProjectMemoryStorageStatus {
+  const profile = resolve(userDataDir)
+  const status: ProjectMemoryStorageStatus = { backend: 'unavailable' }
+  try {
+    const authority = readProjectMemoryAuthority(profile)
+    status.backend = authority?.state ?? 'json'
+    if (!authority) readProjectMemorySnapshot(join(profile, 'project-memory.json'))
+    else {
+      if (authority.sourceSha256 !== null) {
+        const backup = join(profile, authority.directory, 'project-memory.json.backup')
+        privatePath(join(profile, authority.directory), true); privatePath(backup)
+        status.backupPath = backup
+        status.backupBytes = lstatSync(backup).size
+      }
+      if (authority.state === 'sqlite') {
+        const db = openProjectMemoryDatabase(profile, authority, true)
+        try {
+          if (db.prepare('PRAGMA user_version').get()?.user_version !== 1 || db.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok') throw new Error('Project memory database failed its schema or integrity check')
+        } finally { db.close() }
+      }
+    }
+  } catch (error) { status.error = error instanceof Error ? error.message : String(error) }
+  return status
 }
 
 function syncDirectory(path: string): void {

@@ -11,6 +11,28 @@ import { abortProjectMemoryMigration, exportProjectMemoryForDowngrade, migratePr
 import { withProjectMemoryWriteLock } from '../src/main/project-memory-lock'
 import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from '../src/main/project-memory-sqlite'
 
+it('reports storage failures and switches the live service through validated desktop administration actions', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'donwells-memory-admin-'))
+  try {
+    const service = new ProjectMemoryService(root, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
+    expect(await service.projectMemoryStorageStatus()).toEqual({ backend: 'json' })
+    const entry = await service.projectMemoryCreate({ workspacePath: '/a', kind: 'decision', title: 'Keep the live service', content: 'preserved', attribution: { harness: 'omp' } })
+    await expect(service.projectMemoryStorageAction({ action: 'migrate' })).rejects.toThrow('Unknown project memory storage action')
+    expect((await service.projectMemoryStorageAction('migrate')).status).toMatchObject({ backend: 'sqlite', backupPath: expect.any(String), backupBytes: expect.any(Number) })
+    expect(await service.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    const result = await service.projectMemoryStorageAction('export')
+    expect(JSON.parse(readFileSync(result.exportPath!, 'utf8')).projects[0].entries[0].current).toEqual(entry)
+    await expect(service.projectMemoryStorageAction('abort')).rejects.toThrow('export current SQLite memory')
+    expect(await service.projectMemoryGet({ workspacePath: '/a', id: entry.id })).toEqual(entry)
+    const damaged = join(root, 'damaged')
+    mkdirSync(damaged, { mode: 0o700 })
+    writeFileSync(join(damaged, 'project-memory.json'), '{bad', { mode: 0o600 })
+    const unavailable = new ProjectMemoryService(damaged, async () => ({ projectKey: 'a'.repeat(64), projectPath: '/a' }))
+    expect(await unavailable.projectMemoryStorageStatus()).toMatchObject({ backend: 'json', error: expect.stringContaining('invalid JSON') })
+    expect(readFileSync(join(damaged, 'project-memory.json'), 'utf8')).toBe('{bad')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 it('exports later SQLite writes and archive history into a legacy-readable profile without restoring the old backup', async () => {
   const root = mkdtempSync(join(tmpdir(), 'donwells-memory-downgrade-'))
   try {

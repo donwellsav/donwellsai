@@ -289,3 +289,9 @@
   .memory-panel-actions,
   .memory-panel-filters { flex-wrap: wrap; }
 }
+.memory-storage { flex: 0 0 auto; max-height: 45%; overflow: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+.memory-storage summary { cursor: pointer; padding: 4px 0; }
+.memory-storage p { font-size: 12px; line-height: 1.5; color: var(--muted-fg); }
+.memory-storage-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.memory-storage-path { overflow-wrap: anywhere; }
+.memory-storage summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

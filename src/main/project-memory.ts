@@ -26,6 +26,7 @@ import {
   type ProjectMemoryUpdateRequest
 } from '@shared/project-memory'
 import { ProjectMemoryStore } from './project-memory-store'
+import { abortProjectMemoryMigration, exportProjectMemoryForDowngrade, inspectProjectMemoryStorage, migrateProjectMemory } from './project-memory-migration'
 
 export type ProjectMemoryResolver = (workspacePath: string) => Promise<ProjectMemoryProject>
 
@@ -59,6 +60,21 @@ export class ProjectMemoryService implements ProjectMemoryApi {
   /** A damaged memory store must not prevent the terminal workspace from starting. */
   private get store(): ProjectMemoryStore {
     return this.loadedStore ??= new ProjectMemoryStore(this.userDataDir)
+  }
+
+  async projectMemoryStorageStatus() { return inspectProjectMemoryStorage(this.userDataDir) }
+
+  async projectMemoryStorageAction(action: unknown) {
+    if (action === 'export') {
+      const exported = exportProjectMemoryForDowngrade(this.userDataDir)
+      return { status: inspectProjectMemoryStorage(this.userDataDir), exportPath: exported.path }
+    }
+    if (action !== 'migrate' && action !== 'abort') throw new Error('Unknown project memory storage action')
+    try {
+      if (action === 'migrate') migrateProjectMemory(this.userDataDir)
+      else abortProjectMemoryMigration(this.userDataDir)
+    } finally { this.loadedStore = undefined }
+    return { status: inspectProjectMemoryStorage(this.userDataDir) }
   }
 
   async projectMemoryList(value: ProjectMemoryListRequest): Promise<ProjectMemoryListResult> {

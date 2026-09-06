@@ -509,6 +509,12 @@ app.whenReady().then(() => {
     return { projectPath, projectKey }
   }, { onChanged: ({ projectKey }) => send('project-memory:changed', { projectKey }) })
   ipcMain.handle('projectMemoryList', (_e, request: Parameters<IpcApi['projectMemoryList']>[0]) => projectMemory.projectMemoryList(request))
+  ipcMain.handle('projectMemoryStorageStatus', () => projectMemory.projectMemoryStorageStatus())
+  ipcMain.handle('projectMemoryStorageAction', async (_e, action: unknown) => {
+    const result = await projectMemory.projectMemoryStorageAction(action)
+    if (result.exportPath) shell.showItemInFolder(result.exportPath)
+    return result
+  })
   ipcMain.handle('projectMemoryGet', (_e, request: Parameters<IpcApi['projectMemoryGet']>[0]) => projectMemory.projectMemoryGet(request))
   ipcMain.handle('projectMemoryCreate', (_e, request: Parameters<IpcApi['projectMemoryCreate']>[0]) => projectMemory.projectMemoryCreate(request))
   ipcMain.handle('projectMemoryUpdate', (_e, request: Parameters<IpcApi['projectMemoryUpdate']>[0]) => projectMemory.projectMemoryUpdate(request))

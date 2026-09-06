@@ -143,6 +143,14 @@ export interface ProjectMemoryApi {
   projectMemoryArchive(request: ProjectMemoryArchiveRequest): Promise<ProjectMemoryEntry>
 }
 
+export type ProjectMemoryStorageAction = 'migrate' | 'abort' | 'export'
+export type ProjectMemoryStorageStatus = {
+  backend: 'json' | 'sqlite' | 'preparing' | 'aborting' | 'unavailable'
+  backupPath?: string
+  backupBytes?: number
+  error?: string
+}
+
 export const PROJECT_MEMORY_RPC_METHODS = {
   list: 'memory.list',
   get: 'memory.get',

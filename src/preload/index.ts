@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
+  projectMemoryStorageStatus: () => ipcRenderer.invoke('projectMemoryStorageStatus'),
+  projectMemoryStorageAction: action => ipcRenderer.invoke('projectMemoryStorageAction', action),
   meta: () => ipcRenderer.invoke('meta'),
   createProject: (request) => ipcRenderer.invoke('createProject', request),
   getProjectCreationDefaults: () => ipcRenderer.invoke('getProjectCreationDefaults'),

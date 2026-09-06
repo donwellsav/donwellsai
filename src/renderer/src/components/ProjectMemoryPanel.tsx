@@ -4,6 +4,7 @@ import type { ProjectMemoryListResult } from '@shared/project-memory'
 import { openProjectMemoryEditor, useProjectMemoryEditor } from '../project-memory-editor'
 import { pathBasename } from '../workspace-navigation'
 import { ProjectMemoryConnection } from './ProjectMemoryConnection'
+import { ProjectMemoryStorage } from './ProjectMemoryStorage'
 import { Icon } from './Icon'
 import './project-memory.css'
 
@@ -22,6 +23,7 @@ export function ProjectMemoryPanel({ workspacePath }: { workspacePath: string })
     let cancelled = false
     setLoading(true)
     setError(null)
+    setResult(null)
     const timer = window.setTimeout(() => {
       const selectedKind = PROJECT_MEMORY_KINDS.find((value) => value === kind)
       void window.donwells.projectMemoryList({ workspacePath, ...(query.trim() ? { query: query.trim() } : {}), includeArchived, limit: 100, ...(selectedKind ? { kinds: [selectedKind] } : {}) }).then((value) => {
@@ -66,6 +68,7 @@ export function ProjectMemoryPanel({ workspacePath }: { workspacePath: string })
         {result?.hasMore && <p className="memory-guidance">Showing the first 100 matches. Narrow the search to find older entries.</p>}
       </div>
       {connecting && <ProjectMemoryConnection workspacePath={workspacePath} onClose={() => setConnecting(false)} />}
+      <ProjectMemoryStorage onChanged={refresh} />
     </section>
   )
 }

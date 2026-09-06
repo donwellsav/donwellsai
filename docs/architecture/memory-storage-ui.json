@@ -1,0 +1,16 @@
+{
+  "source": {
+    "commit": "1999b50035b45ff9e588bafb9509039ab87c5ade",
+    "dirty": true,
+    "contentHash": "1fb0c40865e63da7d58117cc496c2d284e62f1fd6f1219c88c6120b52c28040b"
+  },
+  "artifactSha256": "7a67b25480ec8a8d8d66323c78c060b449f3777e12ac9506dd88175b5d8c7e86",
+  "profile": "/private/tmp/donwells-storage-ui-profile-03",
+  "fixture": "/private/tmp/donwells-storage-ui-profile-03/project-uOYnMB",
+  "sidePanelSplitPassed": true,
+  "guiUpgradePassed": true,
+  "guiExportPassed": true,
+  "exportPath": "/private/tmp/donwells-storage-ui-profile-03/project-memory-export-fecfb14e-4fbd-4dcb-9643-e8c1238cf782.json",
+  "storageWithinSidePanel": true,
+  "idleDaemonStopped": true
+}

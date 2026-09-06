@@ -1,6 +1,6 @@
 import type { ProjectCreationApi } from './project-creation'
 import type { PersistedNavigationHistoryV1 } from './navigation-history'
-import type { ProjectMemoryApi } from './project-memory'
+import type { ProjectMemoryApi, ProjectMemoryStorageAction, ProjectMemoryStorageStatus } from './project-memory'
 import type { RecoveryApi } from './editor-recovery'
 import type { AttentionInboxApi } from './attention-inbox'
 import type { AppearanceApi } from './appearance'
@@ -403,6 +403,8 @@ export type UiCommand =
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
 export type IpcApi = ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+  projectMemoryStorageStatus(): Promise<ProjectMemoryStorageStatus>
+  projectMemoryStorageAction(action: ProjectMemoryStorageAction): Promise<{ status: ProjectMemoryStorageStatus; exportPath?: string }>
   meta(): Promise<AppMeta>
   listRepos(): Promise<RepoSummary[]>
   /** Browser control surface (renderer executes on its webviews). */
