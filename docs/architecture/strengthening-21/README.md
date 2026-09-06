@@ -99,3 +99,13 @@ continuity, keyboard source-to-terminal copy and current memory revision opening
 integration/shared-checkout conflict handling and actual failing/passing script,
 source/artifact staleness, browser artifacts and review workflows. Each receipt
 records its exact package and owned-process cleanup.
+
+`handoff-ui.json`, `project-doctor.json`, `computer-control.json` and
+`terminal-recovery.json` also passed on the rebuilt package. These cover
+handoff ownership/revision fences, recoverable tool configuration, native indexing
+pause/resume/stop, history scoping, native target/control ownership and interrupted
+input, and reconnect/redraw of the same terminal process. All owned daemons stopped.
+Physical system sleep was not induced on the user's workstation; window visibility
+and explicit reconnect recovery are the exercised fallback. Native foreground input
+can leave its target foreground when interrupted; the control receipt retains that
+limit rather than claiming background control for unsupported Electron targets.
