@@ -62,6 +62,8 @@ export class ProjectMemoryService implements ProjectMemoryApi {
     return this.loadedStore ??= new ProjectMemoryStore(this.userDataDir)
   }
 
+  reloadStorage(): void { this.loadedStore = undefined }
+
   async projectMemoryStorageStatus() { return inspectProjectMemoryStorage(this.userDataDir) }
 
   async projectMemoryStorageAction(action: unknown) {

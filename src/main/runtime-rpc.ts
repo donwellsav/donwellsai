@@ -81,6 +81,7 @@ export type RpcDeps = {
   agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'>
   deliverAgentAttachment: (request: AgentDeliveryRequest) => Promise<AgentDeliveryReceipt>
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
+  projectKit?: import('@shared/project-export').ProjectKitApi
   projectTasks: Pick<ProjectTaskCoordination, 'inspect' | 'setAuthority' | 'openTool'>
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
@@ -487,6 +488,10 @@ export class RuntimeRpcServer {
         return this.deps.handoffs.receive(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
       case 'handoff.acknowledge':
         return this.deps.handoffs.acknowledge(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
+      case 'project.kit.export': return this.deps.projectKit!.projectKitExport(str('workspacePath'), str('outputPath'), (params['artifacts'] as string | undefined)?.split('\n').filter(Boolean) ?? [])
+      case 'project.kit.preview': return this.deps.projectKit!.projectKitPreview(str('archivePath'))
+      case 'project.kit.import': return this.deps.projectKit!.projectKitImport(str('archivePath'), str('destinationPath'), str('expectedSha256'), str('sourceProjectKey'))
+      case 'project.kit.report': return this.deps.projectKit!.projectKitReport(str('workspacePath'))
       case 'project.tasks': return this.deps.projectTasks.inspect(str('workspacePath'))
       case 'project.task-authority': return this.deps.projectTasks.setAuthority(str('workspacePath'), params['enabled'] as boolean)
       case 'project.task-tool': return this.deps.projectTasks.openTool(str('workspacePath'), str('tool') as 'lazygit' | 'backlog')

@@ -1,3 +1,4 @@
+import { ProjectKitSettings } from './settings/ProjectKitSettings'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { appCommandPlatform } from '@shared/app-commands'
@@ -435,7 +436,7 @@ export function SettingsModal({ open }: { open: boolean }) {
       <>
         {metadata.length > 0 ? <SettingsList metadata={metadata} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={(key) => void resetOne(key)} /> : <SettingsState kind="empty" title="No preferences in this section" />}
         {target === 'agents' && <><ProjectToolsSettings /><SkillsManager /></>}
-        {target === 'advanced' && <AdvancedFacts facts={facts} onRetry={loadFacts} />}
+        {target === 'advanced' && <><ProjectKitSettings /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
       </>
     )
   }

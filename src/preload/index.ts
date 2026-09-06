@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
+  projectKitExport: (...args) => ipcRenderer.invoke('projectKitExport', ...args),
+  projectKitPreview: (...args) => ipcRenderer.invoke('projectKitPreview', ...args),
+  projectKitImport: (...args) => ipcRenderer.invoke('projectKitImport', ...args),
+  projectKitReport: (...args) => ipcRenderer.invoke('projectKitReport', ...args),
   browserView: request => ipcRenderer.invoke('browser:view', request),
   onBrowserView: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/browser-view').BrowserViewEvent) => callback(message); ipcRenderer.on('browser:view', listener); return () => ipcRenderer.removeListener('browser:view', listener) },
   projectMemoryStorageStatus: () => ipcRenderer.invoke('projectMemoryStorageStatus'),

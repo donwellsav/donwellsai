@@ -505,14 +505,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes authoritative memory/task/layout/config data. Produces a versioned export with manifest, checksums and redacted portable references.
 
-- [ ] **Step 1:** Export current facts/history/handoffs, selected task artifacts, layout and tool version manifest. Exclude secrets, auth cookies and machine-specific credential values.
-- [ ] **Step 2:** Import into a new project only after validating schema, checksums, resource sizes and path traversal. Map project identity explicitly; do not merge on folder-name coincidence.
-- [ ] **Step 3:** Show unsupported tools and stale evidence after import. Rebuild code/document indexes instead of packaging opaque machine-bound cache files by default.
-- [ ] **Step 4:** Test interrupted export, corrupt archive, duplicate IDs, missing tool, import twice and successful restore to a clean profile.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/project-export.test.ts tests/cli.test.ts tests/project-memory-migration.test.ts`; restore and query the exported project in a second clean profile.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Export current facts/history/handoffs, selected task artifacts, layout and tool version manifest. Exclude secrets, auth cookies and machine-specific credential values.
+- [x] **Step 2:** Import into a new project only after validating schema, checksums, resource sizes and path traversal. Map project identity explicitly; do not merge on folder-name coincidence.
+- [x] **Step 3:** Show unsupported tools and stale evidence after import. Rebuild code/document indexes instead of packaging opaque machine-bound cache files by default.
+- [x] **Step 4:** Test interrupted export, corrupt archive, duplicate IDs, missing tool, import twice and successful restore to a clean profile.
+- [x] **Verification:** Run `pnpm exec vitest run tests/project-export.test.ts tests/cli.test.ts tests/project-memory-migration.test.ts`; restore and query the exported project in a second clean profile.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Abort import before activation on validation failure; keep the destination existing project unchanged.
+
+**Strengthening evidence:** [Task 20 qualification](../../architecture/strengthening-20/README.md).
 
 ### Task 21: Daily-driver performance and accessibility qualification
 
@@ -698,7 +700,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 20 active — portable project kit and backup/restore.** Tasks 01, 03–19 and 27 are strengthened. Task 02 remains skipped. Tasks 20–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 21 active — daily-driver performance and accessibility qualification.** Tasks 01, 03–20 and 27 are strengthened. Task 02 remains skipped. Tasks 21–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

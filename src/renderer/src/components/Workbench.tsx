@@ -36,7 +36,8 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
           : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
           : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
-          : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} /> : null}
+          : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} />
+          : pane.kind === 'browser' ? <p style={{ padding: 16 }}>Set a preview URL from Layout in the side toolbar.</p> : null}
       </div>}
   </div>
 }

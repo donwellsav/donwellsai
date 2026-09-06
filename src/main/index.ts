@@ -1,3 +1,4 @@
+import { ProjectExport } from './project-export'
 import { createHash } from 'node:crypto'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
@@ -600,6 +601,11 @@ app.whenReady().then(() => {
   ipcMain.handle('projectMemoryUpdate', (_e, request: Parameters<IpcApi['projectMemoryUpdate']>[0]) => projectMemory.projectMemoryUpdate(request))
   ipcMain.handle('projectMemoryHistory', (_e, request: Parameters<IpcApi['projectMemoryHistory']>[0]) => projectMemory.projectMemoryHistory(request))
   ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
+  const projectKit = new ProjectExport(app.getPath('userData'), store, resolveToolWorkspace, projectTools, () => projectMemory.reloadStorage())
+  ipcMain.handle('projectKitExport', (_e, ...args: Parameters<IpcApi['projectKitExport']>) => projectKit.projectKitExport(...args))
+  ipcMain.handle('projectKitPreview', (_e, ...args: Parameters<IpcApi['projectKitPreview']>) => projectKit.projectKitPreview(...args))
+  ipcMain.handle('projectKitImport', (_e, ...args: Parameters<IpcApi['projectKitImport']>) => projectKit.projectKitImport(...args))
+  ipcMain.handle('projectKitReport', (_e, ...args: Parameters<IpcApi['projectKitReport']>) => projectKit.projectKitReport(...args))
   const runtimePaths = localRuntimePaths(app.getPath('userData'), 'app')
   const rpc = new RuntimeRpcServer(
     runtimePaths.socketPath,
@@ -614,6 +620,7 @@ app.whenReady().then(() => {
       skills,
       runs: operationalRuns,
       projectTasks,
+      projectKit,
       browserHistory,
       diffReview,
       projectMemory,

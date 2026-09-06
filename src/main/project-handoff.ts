@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import type { ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
 import type { ProjectToolScope } from '@shared/project-tools'
@@ -55,6 +56,25 @@ export class ProjectHandoffStore {
       if (Number(count.total) >= 10000 || Number(count.scoped) >= 2500) throw new Error('Handoff storage limit reached')
       db.prepare('INSERT INTO handoffs(id,project,document) VALUES (?,?,?)').run(handoff.id, handoff.projectKey, JSON.stringify(handoff))
       return handoff
+    })
+  }
+
+  importProject(projectKey: string, values: ProjectHandoff[]): void {
+    const handoffs = values.map(parseProjectHandoff)
+    if (handoffs.length > 2500 || new Set(handoffs.map(item => item.id)).size !== handoffs.length || handoffs.some(item => item.projectKey !== projectKey)) throw new Error('Invalid handoff import identities')
+    this.transaction(db => {
+      if (db.prepare('SELECT id FROM handoffs WHERE project=? LIMIT 1').get(projectKey)) throw new Error('Handoff project already exists')
+      if (Number(db.prepare('SELECT count(*) AS n FROM handoffs').get()!.n) + handoffs.length > 10000) throw new Error('Handoff storage limit reached')
+      const insert = db.prepare('INSERT INTO handoffs(id,project,document) VALUES (?,?,?)')
+      for (const handoff of handoffs) insert.run(handoff.id, projectKey, JSON.stringify(handoff))
+    })
+  }
+
+  removeImportedProject(projectKey: string, expected: ProjectHandoff[]): void {
+    this.transaction(db => {
+      const actual = db.prepare('SELECT document FROM handoffs WHERE project=? ORDER BY id').all(projectKey).map(row => parseProjectHandoff(JSON.parse(String(row.document))))
+      if (!isDeepStrictEqual(actual, expected.toSorted((a, b) => a.id.localeCompare(b.id)))) throw new Error('Imported handoffs changed; rollback refused')
+      db.prepare('DELETE FROM handoffs WHERE project=?').run(projectKey)
     })
   }
 

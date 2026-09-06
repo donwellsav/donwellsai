@@ -92,7 +92,7 @@ const FORBIDDEN_CAPTURE_TAGS: Record<string, true> = {
   textarea: true
 }
 
-const SECRET_ASSIGNMENT_PATTERN = /\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|authorization|cookie|session(?:id|[_-]?token)?|private[_-]?key)\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi
+const SECRET_ASSIGNMENT_PATTERN = /\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|authorization|cookie|session(?:id|[_-]?token)?|private[_-]?key)["']?\s*[:=]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi
 const SECRET_TOKEN_PATTERN = /\b(?:sk-(?:live|test|proj)?-?[A-Za-z0-9_-]{16,}|gh[opusr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/g
 const PRIVATE_KEY_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
 const FORBIDDEN_BLOCK_MARKUP_PATTERN = /<(script|style|iframe|object|embed|form|textarea|select|option)\b[^>]*>[\s\S]*?<\/\1\s*>/gi

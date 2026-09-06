@@ -276,6 +276,16 @@ export class Store {
     this.commit(next)
   }
 
+  /** Publish a fully prepared restore and its layout in one existing state-file commit. */
+  addImportedRepo(repo: Repo, workspace: NonNullable<PersistedState['workspaceSession']>['repos'][string]): void {
+    if (this.state.repos.some(value => value.id === repo.id || value.path === repo.path)) throw new Error('Restore destination is already registered')
+    const next = structuredClone(this.state)
+    next.repos.push(repo)
+    next.workspaceSession ??= { activeRepoId: null, repos: {} }
+    next.workspaceSession.repos[repo.id] = workspace
+    this.commit(next)
+  }
+
   setTaskAuthority(repoId: string, enabled: boolean): void {
     if (typeof enabled !== 'boolean') throw new Error('Invalid task authority choice')
     const next = structuredClone(this.state)
@@ -327,6 +337,11 @@ export class Store {
   setWorkspaceSession(workspaceSession: NonNullable<PersistedState['workspaceSession']>): void {
     const next = structuredClone(this.state)
     next.workspaceSession = structuredClone(workspaceSession)
+    // Preserve layouts for registered projects not yet loaded by this renderer (including a CLI restore).
+    for (const repo of next.repos) {
+      const previous = this.state.workspaceSession?.repos[repo.id]
+      if (previous && !next.workspaceSession.repos[repo.id]) next.workspaceSession.repos[repo.id] = structuredClone(previous)
+    }
     for (const [id, repo] of Object.entries(next.workspaceSession.repos)) {
       const previous = this.state.workspaceSession?.repos[id]
       const backup = previous?.preDockingLayouts ?? (repo.docking ? previous?.layouts ?? repo.layouts : undefined)

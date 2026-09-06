@@ -269,6 +269,7 @@ type AppState = {
   closeRequest: { worktreePath: string; key: string; sessionId: string; label: string } | null
   load(): Promise<void>
   addRepo(dir: string): Promise<void>
+  openImportedProject(repoId: string): Promise<void>
   openProject(summary: RepoSummary): void
   removeRepo(repoId: string): Promise<{ ok: true } | { ok: false; error: string }>
   /** Re-pull the repo list after a CLI/RPC client mutates repos behind our back. */
@@ -398,7 +399,7 @@ async function restoreSession(
       for (const pane of panes) {
         if (seen.has(pane.key)) { state.error = 'Duplicate saved panel references were removed.'; continue }
         seen.add(pane.key)
-        if (pane.kind !== 'terminal' || !pane.sessionId) {
+        if (pane.kind !== 'terminal') {
           if (pane.kind === 'preview' && pane.file) {
             try {
               const files = (restoredPreviews[worktreePath] ??= {})
@@ -417,18 +418,18 @@ async function restoreSession(
           valid.push(pane)
           continue
         }
-        const live = liveById.get(pane.sessionId)
-        if (live && (!live.exited || managedAgentIds.has(pane.sessionId))) {
+        const live = pane.sessionId ? liveById.get(pane.sessionId) : undefined
+        if (live && pane.sessionId && (!live.exited || managedAgentIds.has(pane.sessionId))) {
           valid.push(pane)
           restored.terminals[pane.sessionId] ??= { session: live, cols: 100, rows: 30 }
           continue
         }
         // Lost shells may be replaced; managed agents require a daemon-owned PTY.
-        if (managedAgentIds.has(pane.sessionId)) continue
+        if (pane.sessionId && managedAgentIds.has(pane.sessionId)) continue
         try {
           const fresh = await window.donwells.openTerminal(worktreePath, worktreePath)
           restored.terminals[fresh.id] = { session: fresh, cols: 100, rows: 30 }
-          valid.push({ ...pane, key: 'term:' + fresh.id, sessionId: fresh.id })
+          valid.push({ ...pane, key: pane.sessionId ? 'term:' + fresh.id : pane.key, sessionId: fresh.id })
         } catch {
           // The workspace disappeared; dropping only this pane preserves siblings.
         }
@@ -600,6 +601,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       const error = cause instanceof Error ? cause.message : String(cause)
       set({ loading: false, initializationError: error, error })
     }
+  },
+
+  async openImportedProject(repoId: string) {
+    if (get().repos.some(repo => repo.repo.id === repoId)) throw new Error('Restored project is already open')
+    const summary = await window.donwells.refreshRepo(repoId), path = summary.repo.path
+    const saved = await window.donwells.getWorkspaceSession()
+    const restored: Partial<AppState> = { activeRepoId: summary.repo.id }
+    await restoreSession(saved ?? null, [summary], restored, [])
+    set(state => ({
+      repos: [...state.repos, summary], activeRepoId: summary.repo.id, activeWorktreePath: path,
+      panes: { ...state.panes, ...restored.panes }, activePane: { ...state.activePane, ...restored.activePane },
+      activeTerminal: { ...state.activeTerminal, ...restored.activeTerminal }, terminalOrder: { ...state.terminalOrder, ...restored.terminalOrder },
+      terminals: { ...state.terminals, ...restored.terminals }, docking: { ...state.docking, ...restored.docking },
+      layouts: { ...state.layouts, ...restored.layouts }, error: restored.error ?? null
+    }))
   },
 
   openProject(summary: RepoSummary) {

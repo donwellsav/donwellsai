@@ -443,6 +443,60 @@ export class ProjectMemoryStore {
     }
   }
 
+  /** Scoped portable snapshot; retain archived entries and every retained revision. */
+  exportProject(project: ProjectMemoryProject): ProjectMemoryDocument['projects'][number] {
+    this.refreshProject(project.projectKey)
+    if (!this.authority) this.document = readProjectMemorySnapshot(this.path).document
+    return structuredClone(this.document.projects.find(value => value.projectKey === project.projectKey) ?? { ...project, entries: [] })
+  }
+
+  /** Restore only into an absent identity; never merge or overwrite another project. */
+  importProject(value: ProjectMemoryDocument['projects'][number]): void {
+    const project = parseProjectMemoryDocument({ schemaVersion: 1, projects: [value] }).projects[0]!
+    withProjectMemoryWriteLock(dirname(this.path), () => {
+      if (this.authority) {
+        this.withSqlite(false, db => {
+          db.exec('BEGIN IMMEDIATE')
+          try {
+            if (db.prepare('SELECT project_key FROM projects WHERE project_key=?').get(project.projectKey)) throw new Error('Memory project already exists')
+            if (Number(db.prepare('SELECT count(*) AS n FROM entries').get()!.n) + project.entries.length > PROJECT_MEMORY_MAX_ENTRIES) throw new ProjectMemoryLimitError('Project memory entry limit reached')
+            db.prepare('INSERT INTO projects(project_key,project_path) VALUES (?,?)').run(project.projectKey, project.projectPath)
+            const insert = db.prepare('INSERT INTO entries(id,project_key,current_json,history_json) VALUES (?,?,?,?)')
+            for (const entry of project.entries) insert.run(entry.current.id, project.projectKey, JSON.stringify(entry.current), JSON.stringify(entry.history))
+            db.exec('COMMIT')
+          } catch (error) { db.exec('ROLLBACK'); throw error }
+        })
+      } else {
+        assertJsonAuthority(this.path)
+        const current = readProjectMemorySnapshot(this.path).document
+        if (current.projects.some(value => value.projectKey === project.projectKey)) throw new Error('Memory project already exists')
+        const next = parseProjectMemoryDocument({ schemaVersion: 1, projects: [...current.projects, project] })
+        writeDocument(this.path, next); this.document = next
+      }
+    })
+  }
+
+  /** Roll back only the exact just-imported snapshot, never subsequent edits. */
+  removeImportedProject(expected: ProjectMemoryDocument['projects'][number]): void {
+    withProjectMemoryWriteLock(dirname(this.path), () => {
+      if (this.authority) this.withSqlite(false, db => {
+        const actual = readSqliteMemoryDocument(db, expected.projectKey).projects[0]
+        const sorted = (value: typeof expected | undefined) => value && { ...value, entries: value.entries.toSorted((a, b) => a.current.id.localeCompare(b.current.id)) }
+        if (!isDeepStrictEqual(sorted(actual), sorted(expected))) throw new Error('Imported memory changed; rollback refused')
+        db.exec('BEGIN IMMEDIATE')
+        try { db.prepare('DELETE FROM entries WHERE project_key=?').run(expected.projectKey); db.prepare('DELETE FROM projects WHERE project_key=?').run(expected.projectKey); db.exec('COMMIT') }
+        catch (error) { db.exec('ROLLBACK'); throw error }
+      })
+      else {
+        assertJsonAuthority(this.path)
+        const current = readProjectMemorySnapshot(this.path).document
+        if (!isDeepStrictEqual(current.projects.find(value => value.projectKey === expected.projectKey), expected)) throw new Error('Imported memory changed; rollback refused')
+        const next = { ...current, projects: current.projects.filter(value => value.projectKey !== expected.projectKey) }
+        writeDocument(this.path, next); this.document = next
+      }
+    })
+  }
+
   private storedEntry(projectKey: string, id: string): StoredProjectMemoryEntry {
     return this.locate(projectKey, id).stored
   }
