@@ -1,0 +1,51 @@
+{
+  "startedAt": "2026-09-06T06:38:33.506Z",
+  "source": {
+    "commit": "4851d730c033e06856972f3d0814bc9184d31f03",
+    "dirty": true,
+    "contentHash": "bb86204dd87257c6ab09242cc974008c96675b0efaa9434835060aaf6327fe8d"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-dsh-managed-profile-01",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-9spnbx",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "c5b0b25a877d4e3a9bdd9d6ab8df66035990d2aacf8a324fe73413597bad2275"
+  },
+  "agents": {
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-9spnbx/.dsh/donwells-memory.patch.json",
+      "sessionId": "40da87c8-67a7-4262-ac3d-321eac3b4044",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 10699,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks."
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "8ae100dc-fc3a-4127-8426-45b3376a4572",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      78735,
+      79079
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": true,
+  "durationMs": 22263.830375
+}

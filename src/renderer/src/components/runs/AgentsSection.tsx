@@ -35,7 +35,7 @@ export function AgentsSection() {
   const [commandTouched, setCommandTouched] = useState(false)
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
-  const [memorySetup, setMemorySetup] = useState<{ target: string; message: string } | null>(null)
+  const [memorySetup, setMemorySetup] = useState<{ target: string; message: string; launchArgs?: string[] } | null>(null)
   const [configuringMemory, setConfiguringMemory] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const [operation, setOperation] = useState<string | null>(null)
@@ -53,6 +53,8 @@ export function AgentsSection() {
   )
   const unavailablePresets = useMemo(() => presets.filter((preset) => !preset.available), [presets])
   const selectedPreset = availablePresets.find((preset) => preset.command === command.trim() || preset.executablePath === command.trim())
+  const memoryLaunchArgs = memorySetup?.target === `${targetPath}:${selectedPreset?.id}` ? memorySetup.launchArgs ?? [] : []
+  const launchDirect = directLaunch || memoryLaunchArgs.length > 0
 
   useEffect(() => {
     if (!commandTouched) setCommand(defaultCommand)
@@ -86,7 +88,7 @@ export function AgentsSection() {
     setLaunching(true)
     setLaunchError(null)
     try {
-      const result = await runAgent(targetPath, directLaunch ? { executable: trimmed, args } : trimmed)
+      const result = await runAgent(targetPath, launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed)
       if (!result.ok) {
         setLaunchError(result.error)
         return
@@ -203,22 +205,22 @@ export function AgentsSection() {
         )}
 
         {selectedPreset && <p className="agent-unavailable">Installed · Authentication unverified · Memory connection unverified</p>}
-        {targetPath && selectedPreset && ['omp', 'kimi'].includes(selectedPreset.id) && <div className="agent-command-field">
+        {targetPath && selectedPreset && ['omp', 'kimi', 'deepseek-harness'].includes(selectedPreset.id) && <div className="agent-command-field">
           <button type="button" className="btn btn-secondary" disabled={configuringMemory || launching} onClick={async () => {
             const target = `${targetPath}:${selectedPreset.id}`
             setConfiguringMemory(true)
             try {
-              await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id)
-              setMemorySetup({ target, message: 'Project memory setup saved. New agent sessions will load it.' })
+              const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id)
+              setMemorySetup({ target, launchArgs: setup.launchArgs, message: setup.launchArgs ? 'Project memory patch ready for this launch. Keep your native profile arguments below.' : 'Project memory setup saved. New agent sessions will load it.' })
             } catch (error) {
               setMemorySetup({ target, message: error instanceof Error ? error.message : String(error) })
             } finally { setConfiguringMemory(false) }
           }}>Set up shared project memory</button>
           {memorySetup?.target === `${targetPath}:${selectedPreset.id}` && <p role="status">{memorySetup.message}</p>}
         </div>}
-        <label><input type="checkbox" checked={directLaunch} onChange={(event) => setDirectLaunch(event.currentTarget.checked)} /> Pass arguments separately</label>
+        <label><input type="checkbox" disabled={memoryLaunchArgs.length > 0} checked={launchDirect} onChange={(event) => setDirectLaunch(event.currentTarget.checked)} /> Pass arguments separately</label>
         <label className="agent-command-field" htmlFor="agent-launch-command">
-          <span>{directLaunch ? 'Executable' : 'Shell command'}</span>
+          <span>{launchDirect ? 'Executable' : 'Shell command'}</span>
           <input
             id="agent-launch-command"
             className="input"
@@ -226,7 +228,7 @@ export function AgentsSection() {
             maxLength={4096}
             spellCheck={false}
             autoComplete="off"
-            placeholder={directLaunch ? 'Executable name or full path' : 'Agent executable and arguments'}
+            placeholder={launchDirect ? 'Executable name or full path' : 'Agent executable and arguments'}
             onChange={(event) => {
               setCommand(event.currentTarget.value)
               setCommandTouched(true)
@@ -234,7 +236,7 @@ export function AgentsSection() {
             }}
           />
         </label>
-        {directLaunch && <div className="agent-command-field">
+        {launchDirect && <div className="agent-command-field">
           <span>Arguments — one per field, no shell quoting</span>
           {args.map((arg, index) => <div key={index} className="agent-launcher-actions">
             <input className="input" aria-label={`Argument ${index + 1}`} value={arg} maxLength={4096} spellCheck={false} autoComplete="off" onChange={(event) => {

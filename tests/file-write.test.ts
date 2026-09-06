@@ -59,6 +59,21 @@ describe('GitWorktrees.writeFile', () => {
     expect(JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8')).mcpServers['donwells-project-memory'].command).toBe('user-edited')
   })
 
+  it('creates a scoped DSH launch patch and refuses to overwrite an edited patch', async () => {
+    const { git, path } = await repoContext()
+    const options = { files: git, workspacePath: path, provider: 'deepseek-harness', userDataDir: path, executable: '/native/Electron', cliPath: '/native/cli/donwells.mjs' }
+    const result = await configureAgentMemory(options)
+    expect(result.launchArgs).toEqual(['--patch', join(path, result.path)])
+    const patch = JSON.parse(readFileSync(join(path, result.path), 'utf8'))
+    expect(patch[0].insert[0].config.args).toContain(path)
+    expect(patch[0].insert[0].name).toBe('@deepseek-ai/dsh-mcp-client')
+    expect((await configureAgentMemory(options)).changed).toBe(false)
+    writeFileSync(join(path, result.path), '[]')
+    await expect(configureAgentMemory(options)).rejects.toThrow(/left unchanged/)
+    expect(readFileSync(join(path, result.path), 'utf8')).toBe('[]')
+    await expect(configureAgentMemory({ ...options, workspacePath: '/tmp' })).rejects.toThrow()
+  })
+
   it('round-trips new and existing files inside the worktree', async () => {
     const { git, path } = await repoContext()
     mkdirSync(join(path, 'src'))

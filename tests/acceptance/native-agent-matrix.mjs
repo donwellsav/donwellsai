@@ -22,7 +22,7 @@ assert(!values.sqlite || values.memory, '--sqlite requires --memory')
 const agentIds = values.agents?.split(',') ?? ['omp', 'hermes', 'kimi', 'deepseek-harness']
 assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepseek-harness'].includes(id)), 'Unknown agent selection')
 assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-profile'], 'DSH memory trial requires a configured native --dsh-profile')
-assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports OMP/Kimi; other agents use native trial overlays')
+assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports OMP/Kimi/DSH; Hermes uses a native trial profile')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -82,7 +82,7 @@ try {
       report.migratedMemory = { backend: 'sqlite', entryId: entry.id, revision: updated.revision, originalBackupUnchanged: true, appPids: [previousPid, app.process().pid], postUpgradeWriteRecalledAfterRestart: true }
     }
     for (const id of agentIds) {
-      if (values.managed && ['omp', 'kimi'].includes(id)) continue
+      if (values.managed && ['omp', 'kimi', 'deepseek-harness'].includes(id)) continue
       const audit = join(evidence, `${id}-memory-methods.jsonl`)
       const bridge = join(profile, `${id}-memory-bridge.mjs`)
       // Reuse the packaged MCP server; record method names only to prove native calls without retaining payloads.
@@ -116,7 +116,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
   await page.getByRole('button', { name: /Main checkout/ }).click()
   const providers = (await invoke('agent.providers')).providers
   for (const id of agentIds) {
-    const managedMemory = values.managed && ['omp', 'kimi'].includes(id)
+    const managedMemory = values.managed && ['omp', 'kimi', 'deepseek-harness'].includes(id)
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
     const result = report.agents[id] = { installed: true, executable: provider.executablePath, query: 'not-run', memory: 'not-run', resume: 'not-run' }
@@ -128,14 +128,15 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       await page.getByLabel('Executable', { exact: true }).fill(provider.executablePath)
       if (managedMemory) {
         await page.getByRole('button', { name: 'Set up shared project memory', exact: true }).click()
-        await page.getByText('Project memory setup saved. New agent sessions will load it.', { exact: true }).waitFor()
-        const configPath = join(fixture, id === 'omp' ? '.omp/mcp.json' : '.kimi-code/mcp.json')
-        const server = JSON.parse(readFileSync(configPath, 'utf8')).mcpServers['donwells-project-memory']
+        await page.getByText(id === 'deepseek-harness' ? 'Project memory patch ready for this launch. Keep your native profile arguments below.' : 'Project memory setup saved. New agent sessions will load it.', { exact: true }).waitFor()
+        const configPath = join(fixture, id === 'omp' ? '.omp/mcp.json' : id === 'kimi' ? '.kimi-code/mcp.json' : '.dsh/donwells-memory.patch.json')
+        const config = JSON.parse(readFileSync(configPath, 'utf8'))
+        const server = id === 'deepseek-harness' ? config[0].insert[0].config : config.mcpServers['donwells-project-memory']
         assert.equal(server.command, executable)
         assert.deepEqual(server.args, [join(resources, 'cli/donwells.mjs'), 'memory-mcp', '--workspace', fixture.replace(/^\/var\//, '/private/var/'), '--harness', id, '--user-data', profile])
         result.managedConfiguration = configPath
       }
-      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
+      const args = id === 'hermes' ? ['--tui'] : id === 'deepseek-harness' && values['dsh-profile'] ? ['--profile', values['dsh-profile'], ...(values.memory && !managedMemory ? ['--patch', join(profile, 'dsh-memory.patch.yml')] : [])] : []
       for (const [index, value] of args.entries()) {
         await page.getByRole('button', { name: 'Add argument', exact: true }).click()
         await page.getByRole('textbox', { name: `Argument ${index + 1}`, exact: true }).fill(value)

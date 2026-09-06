@@ -294,3 +294,11 @@ The DSH file-read and memory trials used the actual local oMLX server through DS
 ### Donwells terminal surface
 
 New terminals now default to a selectable Donwells ANSI palette with `#16161D` background and the interface's warm neutral foreground. Existing Tomorrow Night, Dracula, Solarized Dark and GitHub Dark selections retain their palettes. The settings picker and validation consume the existing palette registry; no dependency or new layout layer was introduced. All four packaged native terminal wrappers measured `rgb(22, 22, 29)`. Typecheck, the package build, and 59 test files / 378 tests passed; the live four-agent run verified the resulting package and palette.
+
+### DSH memory setup through the production launcher
+
+`native-dsh-managed-memory-01.json` records the packaged setup button creating `.dsh/donwells-memory.patch.json` in the selected registered checkout, then launching DSH with that patch and the existing `--profile tui` arguments. The patch mounts the native MCP client directly against the packaged memory CLI, bound to the selected checkout, harness attribution and application profile. No acceptance audit bridge is used for this run. The real local Qwen model recalled the random revision-2 SQLite decision after main-process restart; the native terminal remained on `#16161D`, and owned sessions/daemon stopped afterward.
+
+The setup helper uses existing registered-workspace file operations. Repeated setup accepts identical content, refuses edited or malformed patches, and does not rewrite the native DSH profile. A regression failed on the previous unsupported-provider guard, then passed with the implementation. Typecheck, all 59 files / 379 tests, and the local package build passed. The DSH runtime remains the separately installed, previously qualified harness 0.1.1-rc.2 / tomowang TUI 0.8.0 pair; it is not bundled or installed globally.
+
+The launcher retains patch arguments for this selected project/provider while its setup state is present; the launch record retains them for Retry. A fresh launcher requires pressing setup again, which reuses the identical patch. Native profile discovery, persistent automatic setup selection, Hermes production setup, cross-agent writes, native resume and handoff remain outstanding. This change adds no toolbar or vertical workspace chrome.

@@ -460,7 +460,7 @@ export type IpcApi = ProjectCreationApi & ProjectMemoryApi & RecoveryApi & Atten
   agentList(): Promise<RunningAgent[]>
   agentInterrupt(sessionId: string): Promise<RunningAgent>
   agentStop(sessionId: string): Promise<RunningAgent>
-  agentConfigureMemory(workspacePath: string, provider: string): Promise<{ path: string; changed: boolean; backupPath?: string }>
+  agentConfigureMemory(workspacePath: string, provider: string): Promise<{ path: string; changed: boolean; backupPath?: string; launchArgs?: string[] }>
   agentDismiss(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   pickDirectory(): Promise<string | null>
