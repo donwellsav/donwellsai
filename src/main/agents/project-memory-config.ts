@@ -45,8 +45,13 @@ export async function configureAgentMemory(options: {
   }
   const snapshot = await exists(path) ? await files.readFile(workspacePath, path) : undefined
   if (provider === 'deepseek-harness') {
+    // DSH scrubs inherited credentials; its native loader resolves these at launch, never at setup.
+    const env = { ...server.env, ...Object.fromEntries(
+      ['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN']
+        .map(name => [name, { __jsExpr: `process.env.${name} ?? ""` }])
+    ) }
     const patch = [{ insert: [{ id: 'donwells-project-memory', name: '@deepseek-ai/dsh-mcp-client', config: {
-      serverName: 'donwells-project-memory', transport: 'stdio', ...server, failOnStartupError: true, reconnect: { enabled: false }
+      serverName: 'donwells-project-memory', transport: 'stdio', ...server, env, failOnStartupError: true, reconnect: { enabled: false }
     } }] }]
     const launchArgs = ['--patch', join(workspacePath, path)]
     if (snapshot) {

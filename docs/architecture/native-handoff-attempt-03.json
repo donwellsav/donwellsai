@@ -1,0 +1,77 @@
+{
+  "startedAt": "2026-09-06T08:16:31.585Z",
+  "source": {
+    "commit": "0364056faae6e45584925e0a859f33f39f3ab492",
+    "dirty": true,
+    "contentHash": "6ad0d36f1ee2ad5db3f2e6e33e326e9d4f36091cd164c9a5d52d327b459f8e60"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-handoff-profile-15",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-skABOK",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "74f6661cbb0de1981f759bc8d201b751cfc14988f6fde4c2c70199fc293e9336",
+    "memoryMcpSha256": "c73ef3ada8cae72657a6d054ff5f4c25dacc7e62723e64d1c2413344098d0534"
+  },
+  "agents": {
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "handoff-step-completed",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-skABOK/.kimi-code/mcp.json",
+      "sessionId": "830a8198-1125-47ab-ab0d-9034021c975c",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2395,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "no-verified-response",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-skABOK/.dsh/donwells-memory.patch.json",
+      "sessionId": "bc633630-d70b-428a-aec1-ee9cf666f583",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 10699,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "error": "page.evaluate: Target page, context or browser has been closed",
+      "errorStack": "page.evaluate: Target page, context or browser has been closed\n    at /Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/native-agent-matrix.mjs:326:37"
+    }
+  },
+  "limitations": [
+    "Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 94758.33075000001
+    }
+  ],
+  "handoffSource": {
+    "sessionId": "830a8198-1125-47ab-ab0d-9034021c975c",
+    "contentSha256": "3d6ffc74d729c9c015ddab9851ab598d4a5fa53397ee2f7c556d3f81a5a9269a"
+  },
+  "handoff": {
+    "id": "122c2d22-551f-4401-b094-1f6242144c13",
+    "from": "830a8198-1125-47ab-ab0d-9034021c975c",
+    "to": "bc633630-d70b-428a-aec1-ee9cf666f583"
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": false,
+  "durationMs": 96242.52716700001
+}

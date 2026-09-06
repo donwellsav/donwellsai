@@ -252,7 +252,23 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       await page.locator(`[data-pane-key="term:${result.sessionId}"]`).waitFor()
       result.terminalBackground = await page.locator(`[data-pane-key="term:${result.sessionId}"] .terminal-host-wrap`).evaluate(element => getComputedStyle(element).backgroundColor)
       assert.equal(result.terminalBackground, 'rgb(22, 22, 29)', 'Fresh terminals must use the Donwells main surface')
-      await delay(4000)
+      if (id === 'hermes' && values['hermes-python']) {
+        result.mcpProcesses = []
+        for (let probe = 0; probe < 8; probe++) {
+          await delay(400)
+          const found = JSON.parse(execFileSync(values['hermes-python'], ['-c', `import json,os,psutil,sys
+rows=[]
+for p in psutil.process_iter(['pid','ppid','cmdline']):
+ try:
+  args=p.info['cmdline'] or []
+  if 'memory-mcp' not in args or sys.argv[1] not in args: continue
+  e=p.environ()
+  rows.append({'pid':p.pid,'ppid':p.ppid(),'pgid':os.getpgid(p.pid),'nodeMode':e.get('ELECTRON_RUN_AS_NODE'),'bound':all(bool(e.get(k)) for k in ['DONWELLS_AGENT_HOOK_RUN_ID','DONWELLS_AGENT_HOOK_SESSION_ID','DONWELLS_AGENT_HOOK_TOKEN'])})
+ except (psutil.NoSuchProcess,psutil.AccessDenied): pass
+print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
+          result.mcpProcesses.push(...found)
+        }
+      } else await delay(4000)
       const snapshot = await page.evaluate(async sessionId => window.donwells.attachTerminal(sessionId), result.sessionId)
       const run = (await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)
       result.liveness = run?.liveness
@@ -294,7 +310,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
         await page.keyboard.type(values.handoff
           ? handoffSource
             ? `Write handoff-source.txt in this current checkout containing exactly ${verificationWord} with no newline. Do not edit any other file. This is the first step of a two-agent fixture. Stop after writing it.`
-            : `Call the donwells-project-memory handoff_receive tool with id ${handoff.id} and expectedRevision ${handoff.revision}. Read the returned context and acknowledge it with handoff_acknowledge using its id and returned revision, then complete its next steps. Do not retry an uncertain receive.`
+            : `Call the ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_receive' : 'donwells-project-memory handoff_receive'} tool with id ${handoff.id} and expectedRevision ${handoff.revision}. Read the returned context and acknowledge it with ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_acknowledge' : 'handoff_acknowledge'} using its id and returned revision, then complete its next steps. Do not retry an uncertain receive.`
           : nativeWriter
           ? `Call the donwells-project-memory MCP server memory_record tool exactly once with kind decision, title ${JSON.stringify(memoryTitle)}, and content ${JSON.stringify(memoryWord)}. Save that decision to shared project memory. Do not edit files or use another memory server. Do not repeat a write if its outcome is uncertain.`
           : values.memory
@@ -318,7 +334,6 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
             const outputPath = join(fixture, handoffSource ? 'handoff-source.txt' : 'handoff-result.txt')
             if (existsSync(outputPath) && readFileSync(outputPath, 'utf8') === (handoffSource ? verificationWord : memoryWord)) {
               if (handoffSource) {
-                await invoke('agent.stop', { sessionId: result.sessionId })
                 report.handoffSource = { sessionId: result.sessionId, contentSha256: hash(readFileSync(outputPath)) }
               } else {
                 const status = await page.evaluate(({ workspacePath, id }) => window.donwells.projectHandoffGet(workspacePath, id), { workspacePath: fixture, id: handoff.id })
@@ -359,8 +374,7 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
           await delay(250)
         }
       }
-      const window = await app.browserWindow(page)
-      writeFileSync(join(evidence, `${id}.png`), Buffer.from(await window.evaluate(async win => (await win.webContents.capturePage()).toPNG().toString('base64')), 'base64'), { mode: 0o600 })
+      await page.screenshot({ path: join(evidence, `${id}.png`) })
       // Local diagnostic output stays private; receipts contain observations, not conversation transcripts.
       const finalOutput = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
       writeFileSync(join(evidence, `${id}.txt`), stripVTControlCharacters(finalOutput), { mode: 0o600 })

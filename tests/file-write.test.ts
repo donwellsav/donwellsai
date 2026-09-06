@@ -69,6 +69,13 @@ describe('GitWorktrees.writeFile', () => {
     const patch = JSON.parse(readFileSync(join(path, result.path), 'utf8'))
     expect(patch[0].insert[0].config.args).toContain(path)
     expect(patch[0].insert[0].name).toBe('@deepseek-ai/dsh-mcp-client')
+    expect(patch[0].insert[0].config.env).toEqual({
+      ELECTRON_RUN_AS_NODE: '1',
+      ...Object.fromEntries(['RUN_ID', 'SESSION_ID', 'TOKEN'].map(suffix => {
+        const name = `DONWELLS_AGENT_HOOK_${suffix}`
+        return [name, { __jsExpr: `process.env.${name} ?? ""` }]
+      }))
+    })
     expect((await configureAgentMemory(options)).changed).toBe(false)
     writeFileSync(join(path, result.path), '[]')
     await expect(configureAgentMemory(options)).rejects.toThrow(/left unchanged/)
