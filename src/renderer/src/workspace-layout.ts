@@ -9,7 +9,7 @@ type PaneReference = { key: string; kind: string; label?: string; file?: string;
 type Group = IJsonRowNode | IJsonTabSetNode
 const globals = { tabEnableClose: true, tabEnableFloat: false, tabEnablePopout: false, tabEnableRenderOnDemand: false, tabSetEnableClose: false, tabSetEnableMaximize: true, tabSetMinWidth: 120, tabSetMinHeight: 90 }
 export function workspacePaneLabel(pane: PaneReference): string {
-  return pane.label || ({ explorer: 'Files', 'git-status': 'Changes', memory: 'Project memory', recovery: 'Recover unsaved files' } as Record<string, string>)[pane.kind] || (pane.file ? pane.file.split('/').pop()! : pane.kind === 'browser' ? 'Preview' : pane.kind === 'terminal' ? 'Terminal' : pane.kind)
+  return pane.label || ({ explorer: 'Files', 'git-status': 'Changes', memory: 'Project memory', recovery: 'Recover unsaved files', search: 'Text search' } as Record<string, string>)[pane.kind] || (pane.file ? pane.file.split('/').pop()! : pane.kind === 'browser' ? 'Preview' : pane.kind === 'terminal' ? 'Terminal' : pane.kind)
 }
 const tab = (pane: PaneReference): IJsonTabNode => ({ type: 'tab', id: pane.key, name: workspacePaneLabel(pane), component: 'pane' })
 const group = (panes: readonly PaneReference[], active?: string): IJsonTabSetNode => ({ type: 'tabset', selected: Math.max(0, panes.findIndex(pane => pane.key === active)), children: panes.map(tab) })

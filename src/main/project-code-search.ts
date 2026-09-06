@@ -3,11 +3,11 @@ import { basename } from 'node:path'
 import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { isObject } from '@shared/command-catalog'
-import type { ProjectSearchHit, ProjectToolScope } from '@shared/project-tools'
+import type { ProjectSearchHit, ProjectToolScope, ProjectCodeSearchRequest, ProjectCodeSearchResult } from '@shared/project-tools'
 import { AgentRegistry } from './agents/registry'
 import { validateRelativePath, WorktreeFiles } from './worktree-files'
 
-export type ProjectCodeSearchRequest = { query: string; showHidden: boolean; includeIgnored: boolean; maxResults?: number }
+export type { ProjectCodeSearchRequest } from '@shared/project-tools'
 
 /** Native literal content search. Scope and executable discovery remain in the main process. */
 export async function searchProjectCode(
@@ -16,7 +16,7 @@ export async function searchProjectCode(
   resolveScope: (path: string) => Promise<ProjectToolScope>,
   onHit?: (hit: ProjectSearchHit) => void,
   signal?: AbortSignal
-): Promise<{ hits: ProjectSearchHit[]; truncated: boolean; skipped: number }> {
+): Promise<ProjectCodeSearchResult> {
   if (!request || typeof request.query !== 'string' || !request.query.trim() || request.query.length > 1000 || /[\0\r\n]/.test(request.query)) throw new Error('Invalid content search query')
   if (typeof request.showHidden !== 'boolean' || typeof request.includeIgnored !== 'boolean') throw new Error('Invalid content search options')
   const limit = request.maxResults ?? 200

@@ -5,12 +5,14 @@ import { ExplorerPane } from './ExplorerPane'
 import { GitPane } from './GitPane'
 import { ProjectMemoryPanel } from './ProjectMemoryPanel'
 import { RecoveryPanel } from './RecoveryPanel'
+import { ProjectSearch } from './ProjectSearch'
 
-export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery'
+export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery' | 'search'
 
 const MIN_PANEL_WIDTH = 260
 const MAX_PANEL_WIDTH = 480
 const TABS: ReadonlyArray<{ id: RightSidebarTab; label: string }> = [
+  { id: 'search', label: 'Search' },
   { id: 'explorer', label: 'Files' },
   { id: 'git', label: 'Changes' },
   { id: 'memory', label: 'Memory' },
@@ -119,6 +121,7 @@ export function RightSidebar() {
       </div>
       <div className="rs-body" id="workspace-tool-panel" role="tabpanel" aria-label={activeLabel}>
         {tab === 'recovery' ? <RecoveryPanel /> : activeWorktreePath ? (
+          tab === 'search' ? <ProjectSearch workspacePath={activeWorktreePath} /> :
           tab === 'memory' ? <ProjectMemoryPanel key={activeWorktreePath} workspacePath={activeWorktreePath} /> :
           tab === 'explorer' ? <ExplorerPane worktreePath={activeWorktreePath} /> : <GitPane worktreePath={activeWorktreePath} />
         ) : <div className="empty-note">Select a project workspace</div>}

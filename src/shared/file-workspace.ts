@@ -69,6 +69,8 @@ export type WorkspaceMutationResult = {
  * must authorize workspacePath before delegating to the confined filesystem.
  */
 export type FileWorkspaceApi = {
+  searchWorkspaceContent(workspacePath: string, requestId: string, request: import('./project-tools').ProjectCodeSearchRequest): Promise<import('./project-tools').ProjectCodeSearchResult>
+  cancelWorkspaceContentSearch(requestId: string): Promise<void>
   listWorkspaceDirectory(workspacePath: string, request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryResult>
   searchWorkspaceFiles(workspacePath: string, request: WorkspaceFileSearchRequest): Promise<WorkspaceFileSearchResult>
   readFile(workspacePath: string, relPath: string): Promise<FileContent>

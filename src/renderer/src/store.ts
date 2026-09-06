@@ -48,7 +48,7 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery'
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search'
 export type Pane = {
   key: string
   kind: PaneKind
@@ -261,7 +261,7 @@ type AppState = {
   sidebarWidth: number
   rightSidebarWidth: number
   rightSidebarOpen: boolean
-  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery'
+  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'
   createOpen: boolean
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
@@ -286,7 +286,7 @@ type AppState = {
   saveDocking(worktreePath: string, layout: WorkspaceLayout): void
   arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
   hidePaneView(worktreePath: string, key: string): void
-  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery'): void
+  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search'): void
   requestClosePane(worktreePath: string, key: string): void
   confirmClosePane(): Promise<void>
   cancelClosePane(): void
@@ -344,7 +344,7 @@ type AppState = {
   setRightSidebarWidth(w: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): number | null
   setRightSidebarOpen(open: boolean): void
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery'): void
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search'): void
   setCreateOpen(open: boolean): void
 
   toggleRepoCollapsed(repoId: string): void
@@ -1884,7 +1884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return clamped
   },
 
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery') {
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search') {
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
   },
 

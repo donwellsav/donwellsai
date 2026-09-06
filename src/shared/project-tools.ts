@@ -23,3 +23,6 @@ export type ProjectSearchHit = {
   indexedAt: string | null
   stale: boolean
 }
+
+export type ProjectCodeSearchRequest = { query: string; showHidden: boolean; includeIgnored: boolean; maxResults?: number }
+export type ProjectCodeSearchResult = { hits: ProjectSearchHit[]; truncated: boolean; skipped: number }

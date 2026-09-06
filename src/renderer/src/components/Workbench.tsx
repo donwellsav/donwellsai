@@ -10,6 +10,7 @@ import { ExplorerPane } from './ExplorerPane'
 import { GitPane } from './GitPane'
 import { ProjectMemoryPanel } from './ProjectMemoryPanel'
 import { RecoveryPanel } from './RecoveryPanel'
+import { ProjectSearch } from './ProjectSearch'
 import { agentPresentation, agentProviderName } from '@shared/agent-presentation'
 import { NavigationControls } from './NavigationControls'
 import { Icon } from './Icon'
@@ -32,6 +33,7 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} />
           : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
+          : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} />
           : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} /> : null}
       </div>}
   </div>
@@ -85,7 +87,7 @@ function DockingSurface({ worktreePath, active }: { worktreePath: string; active
   }
   return <section className={`workspace-docking-surface${active ? '' : ' workspace-docking-hidden'}`} aria-label="Workspace panels">
     <Layout model={model} supportsPopout={false} onAction={action} onModelChange={publish}
-      factory={node => <div className="workspace-pane-slot" ref={element => { const host = hosts.current.get(node.getId()); if (element && host) element.append(host) }} />}
+      factory={node => <div className="workspace-pane-slot" ref={element => { const host = hosts.current.get(node.getId()); if (element && host && host.parentElement !== element) element.append(host) }} />}
       onRenderTab={(node, values) => {
         const pane = panes.find(pane => pane.key === node.getId()), agent = pane?.sessionId ? agents[pane.sessionId] : undefined
         values.leading = <Icon name={pane?.kind === 'terminal' ? 'terminal' : 'file'} size={12} />

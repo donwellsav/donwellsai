@@ -30,6 +30,7 @@ import { registerBrowserShortcuts } from './browser-shortcuts'
 import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
+import { registerProjectSearchHandlers } from './project-search-ipc'
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
@@ -302,6 +303,7 @@ function registerIpc(): void {
   ipcMain.handle('writeFile', (_e, worktreePath: string, relPath: string, content: string, expectedRevision?: string) => git.writeFile(worktreePath, relPath, content, expectedRevision))
   ipcMain.handle('readPreviewImage', (_e, worktreePath: string, documentPath: string, source: string) => git.readPreviewImage(worktreePath, documentPath, source))
   registerMediaPreviewHandlers(git)
+  registerProjectSearchHandlers(git)
   ipcMain.handle('applyAppearance', (_e, request: Parameters<IpcApi['applyAppearance']>[0]) => {
     if (!mainWindow) throw new Error('The application window is unavailable')
     applyWindowAppearance(mainWindow, request)

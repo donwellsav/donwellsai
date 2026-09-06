@@ -208,12 +208,15 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       else if (recovered?.viewState) restoreEditorRecoveryViewState(editor, recovered.viewState)
       latestRecoveryViewState = captureEditorRecoveryViewState(editor) ?? latestRecoveryViewState
 
-      if (navigation && navigation.mode !== 'preview' && navigation.line !== undefined) {
-        const lineNumber = Math.min(Math.max(1, navigation.line), editorDocument.model.getLineCount())
-        const column = Math.min(Math.max(1, navigation.column ?? 1), editorDocument.model.getLineMaxColumn(lineNumber))
+      const currentState = useAppStore.getState()
+      const initialNavigation = currentState.documentNavigation[worktreePath]?.[relPath]
+      if (initialNavigation && initialNavigation.mode !== 'preview' && initialNavigation.line !== undefined) {
+        const lineNumber = Math.min(Math.max(1, initialNavigation.line), editorDocument.model.getLineCount())
+        const column = Math.min(Math.max(1, initialNavigation.column ?? 1), editorDocument.model.getLineMaxColumn(lineNumber))
         const position = { lineNumber, column }
         editor.setPosition(position)
         editor.revealPositionInCenterIfOutsideViewport(position)
+        if (currentState.activeWorktreePath === worktreePath && currentState.activePane[worktreePath] === 'preview:' + relPath) editor.focus()
       }
 
       const stopStatus = editorDocument.save.subscribe((state) => {
