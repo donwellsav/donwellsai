@@ -8,8 +8,9 @@ import { ProjectTools } from '../src/main/project-tools'
 import type { ProjectToolScope } from '../src/shared/project-tools'
 
 const scopes = ['a','b'].map(indexKey => ({indexKey,projectKey:indexKey,checkoutPath:'/tmp/'+indexKey,projectPath:'/tmp/'+indexKey}))
-it('fences target ownership, stale frames and desktop input until confirmed termination', async () => {
+it.each([false, true])('fences target ownership and desktop input across separate definitions: %s', async separate => {
  const definition=createComputerToolDefinition('/unused'), scope=scopes[0]!, other=scopes[1]!
+ const otherDefinition=separate?createComputerToolDefinition('/another-path'):definition
  let moved=false, denied=false, hold: (()=>void)|undefined
  const native=async(tool?:string,args:Record<string,unknown>={})=>{
   if(tool==='check_permissions')return {structuredContent:{accessibility:!denied,screen_recording:true}}
@@ -18,7 +19,7 @@ it('fences target ownership, stale frames and desktop input until confirmed term
   if(tool==='type_text')return new Promise<unknown>(resolve=>{hold=()=>resolve({content:[],structuredContent:{effect:'unverifiable'}})})
   return {content:[],structuredContent:{effect:'unverifiable'}}
  }
- const call=(name:string,scope:ProjectToolScope,args:Record<string,unknown>={})=>definition.operations[name]!.run!(scope,native,args)
+ const call=(name:string,scope:ProjectToolScope,args:Record<string,unknown>={})=>(scope===other?otherDefinition:definition).operations[name]!.run!(scope,native,args)
  denied=true;await expect(call('attach',scope,{owner:'one',pid:10,window:1})).rejects.toThrow('permissions');denied=false
  const a=await call('attach',scope,{owner:'one',pid:10,window:1}) as any
  await expect(call('attach',other,{owner:'two',pid:10,window:1})).rejects.toThrow('already has a controller')
@@ -42,7 +43,7 @@ it('fences target ownership, stale frames and desktop input until confirmed term
  await expect(call('type',scope,{...action,revision:afterUncertain.structuredContent.attachment.revision})).rejects.toThrow('uncertain')
  definition.stopped!(scope)
  const resumed=call('type',other,{...action,owner:'two',generation:b.structuredContent.attachment.generation,revision:b.structuredContent.attachment.revision});await new Promise(resolve=>setTimeout(resolve,0));hold!();await resumed
- definition.stopped!(other)
+ otherDefinition.stopped!(other)
  await expect(call('click',scope,action)).rejects.toThrow('attach')
 })
 

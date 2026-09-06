@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict'
+import {mkdirSync,readFileSync,writeFileSync,realpathSync,readdirSync} from 'node:fs'
+import {execFileSync} from 'node:child_process'
+import {join,resolve,dirname} from 'node:path'
+import {pathToFileURL} from 'node:url'
+import {parseArgs} from 'node:util'
+import {hash,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
+import {cleanupOwnedSmokeDaemon,delay} from '../helpers/smoke-processes.mjs'
+const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},graph:{type:'string'},qmd:{type:'string'},lance:{type:'string'}}})
+const {app:executable,resources,profile,evidence}=validateOptions(values)
+mkdirSync(profile);mkdirSync(evidence);mkdirSync(join(profile,'fixture'));const project=realpathSync(join(profile,'fixture'))
+for(let n=0;n<200;n++)writeFileSync(join(project,`source-${n}.md`),'native resource controls fixture\n'.repeat(1000))
+for(const args of [['init','-b','main'],['config','user.email','fixture@example.test'],['config','user.name','Fixture'],['add','.'],['commit','-m','Fixture']])execFileSync('git',args,{cwd:project,stdio:'ignore'})
+const {_electron}=await import(pathToFileURL(resolve(values.playwright)))
+const {callRuntime}=await import(pathToFileURL(join(resources,'dist-cli/cli/rpc-client.js')))
+const invoke=async(method,params={})=>{const result=await callRuntime(method,params,profile,45000);assert(result.ok,result.error);return result.result}
+const env={...process.env,DONWELLS_USER_DATA:profile};for(const key of Object.keys(env))if(key.startsWith('DONWELLS_DOCUMENT_')||['DONWELLS_CODE_GRAPH_BINARY','DONWELLS_BROWSER_TOOL_PACKAGE','DONWELLS_BROWSER_TOOL_EXECUTABLE','DONWELLS_COMPUTER_TOOL_BINARY','ELECTRON_RUN_AS_NODE','ELECTRON_RENDERER_URL','DONWELLS_SMOKE'].includes(key))delete env[key]
+const report={source:sourceIdentity(),artifactSha256:hash(readFileSync(join(resources,'app.asar'))),project}
+let app,page
+const open=async()=>{app=await _electron.launch({executablePath:executable,env});page=await app.firstWindow();await page.getByRole('navigation',{name:'Workspace tools'}).waitFor()}
+const inspect=()=>page.evaluate(path=>window.donwells.projectDoctorInspect(path),project)
+try{
+ await open();await invoke('settings.set',{theme:'dark'});await invoke('repo.add',{dir:project});await page.getByRole('button',{name:/Main checkout/}).click();await invoke('ui.settings.open',{section:'agents'})
+ const panel=page.getByRole('region',{name:'Project tools'});await panel.getByText('Available cache disk:',{exact:false}).waitFor()
+ const graph=panel.locator('details').filter({has:page.locator('summary').filter({hasText:'Code graph'})}).first();await graph.locator(':scope > summary').click()
+ await graph.getByLabel('Code graph executable',{exact:false}).fill('/missing/admitted-binary');await panel.getByRole('button',{name:'Apply configuration and stop services'}).click();await panel.getByText('Missing path',{exact:true}).waitFor()
+ await graph.getByLabel('Code graph executable',{exact:false}).fill(resolve(values.graph));await panel.getByText('Configuration changes',{exact:true}).waitFor();await page.screenshot({path:join(evidence,'configuration-diff.png')});await panel.getByRole('button',{name:'Apply configuration and stop services'}).click()
+ await graph.getByRole('button',{name:'Retry readiness'}).click();await graph.locator(':scope > summary').filter({hasText:'ready'}).waitFor({timeout:45000});report.nativeGraphReady=(await inspect()).services.find(service=>service.id==='code-graph');assert.equal(report.nativeGraphReady.status,'ready')
+ await graph.getByLabel('Enabled for this project').uncheck();await panel.getByRole('button',{name:'Apply configuration and stop services'}).click();await graph.locator(':scope > summary').filter({hasText:'disabled'}).waitFor()
+ const documents=panel.locator('details').filter({has:page.locator('summary').filter({hasText:'Document retrieval'})}).first();await documents.locator(':scope > summary').click();await documents.getByLabel('QMD package directory',{exact:false}).fill(resolve(values.qmd));await documents.getByLabel('LanceDB package directory',{exact:false}).fill(resolve(values.lance));await panel.getByRole('button',{name:'Apply configuration and stop services'}).click();await panel.getByRole('button',{name:'Apply configuration and stop services'}).waitFor({state:'hidden'})
+ report.configured=await inspect();report.backups=readdirSync(dirname(report.configured.configurationPath)).filter(name=>name.startsWith('tools-backup-'));assert(report.backups.length>=3)
+ await page.keyboard.press('Escape');await invoke('ui.sidebar',{side:'right',open:true,tab:'search',width:480})
+ const job=await invoke('tool.call',{workspacePath:project,id:'documents',operation:'index',arguments:{}});await invoke('tool.call',{workspacePath:project,id:'documents',operation:'pause',arguments:{}})
+ const search=page.getByRole('region',{name:'Project search'});await search.getByRole('button',{name:'Resume document indexing'}).waitFor({timeout:30000});await search.getByText(/Document index: paused/).waitFor();await page.screenshot({path:join(evidence,'index-paused.png')});await search.getByRole('button',{name:'Resume document indexing'}).click();await search.getByText(/Document index: ready/).waitFor({timeout:45000});report.resumed=await invoke('tool.call',{workspacePath:project,id:'documents',operation:'progress',arguments:{}});assert.equal(report.resumed.structuredContent.job,job.structuredContent.job)
+ await search.getByRole('button',{name:'Stop document service'}).click();await delay(2200);assert.equal((await invoke('tool.list',{workspacePath:project})).find(service=>service.id==='documents').status,'stopped');await page.screenshot({path:join(evidence,'index-stopped.png')});report.pollingDidNotRestart=true
+ await app.close();await open();report.afterRestart=await inspect();assert.equal(report.afterRestart.revision,report.configured.revision);assert(report.afterRestart.configuration.disabled.includes('code-graph'));report.verified=true
+}catch(error){report.error=error.stack;process.exitCode=1;if(page)await page.screenshot({path:join(evidence,'failure.png')}).catch(()=>{})}
+finally{
+ if(app){try{for(const tool of await invoke('tool.list',{workspacePath:project}))await invoke('tool.stop',{workspacePath:project,id:tool.id});for(const session of(await invoke('terminal.list')).sessions)await invoke('terminal.close',{sessionId:session.id})}catch(error){report.cleanupError=String(error)}await app.close().catch(()=>{})}
+ report.idleDaemonStopped=await cleanupOwnedSmokeDaemon(profile);writeFileSync(join(evidence,'result.json'),JSON.stringify(report,null,2)+'\n')
+}

@@ -1986,3 +1986,13 @@ dialog::backdrop { background: var(--backdrop); }
   position: relative; inset: auto; transform: none; order: -1; flex: none;
   align-self: stretch; width: auto; max-width: none; margin: 4px 8px;
 }
+
+.project-tool-settings { display: grid; gap: 10px; margin-block: 24px; min-width: 0; }
+.project-tool-settings p { margin: 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.project-tool-settings > button { justify-self: start; }
+.project-tool-settings > details { border-top: 1px solid var(--border); padding-block: 8px; }
+.project-tool-settings summary { cursor: pointer; padding-block: 8px; font-size: 13px; font-weight: 600; }
+.project-tool-settings details > button { margin: 8px 8px 8px 0; }
+.project-tool-settings label { font-size: 12px; }
+.project-tool-settings small { display: block; color: var(--muted-fg); margin-top: 4px; }
+.project-tool-settings pre { background: var(--background); padding: 12px; font-size: 11px; line-height: 1.6; }

@@ -1,0 +1,131 @@
+{
+  "source": {
+    "commit": "f7ad09962fb96a9a91deffff30c35e85debe0906",
+    "dirty": true,
+    "contentHash": "1a203177745571e29b56d5e2e60fc4336f1b2365e0afb4979cd3b3e34970eb4b"
+  },
+  "artifactSha256": "99b352ae21b88cd2c54ec409e8c345eb84dcd38d3c5e6c22719204e147737e89",
+  "project": "/private/tmp/donwells-strengthen-19-reviewed-profile/fixture",
+  "nativeGraphReady": {
+    "id": "code-graph",
+    "status": "ready",
+    "version": "0.10.8",
+    "detail": null
+  },
+  "configured": {
+    "workspacePath": "/private/tmp/donwells-strengthen-19-reviewed-profile/fixture",
+    "configuration": {
+      "referenceRoots": [],
+      "disabled": [
+        "code-graph"
+      ],
+      "codeGraphBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/codebase-memory-0.10.8/codebase-memory-mcp",
+      "qmdPackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qmd-2.8.3/node_modules/@tobilu/qmd",
+      "lancePackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/lancedb-0.38.0/node_modules/@lancedb/lancedb"
+    },
+    "revision": "sha256:d0c6a4b5363494bcfe0890568df4e7d1f44e66bb808f4dd8674dd354ac75228f",
+    "configurationPath": "/private/tmp/donwells-strengthen-19-reviewed-profile/project-tools/configuration/1d452ce0b2b64628667827cd29fda9c721bafe945a5acf23952f7ddaa219ab9a/tools.json",
+    "problem": null,
+    "resources": [
+      {
+        "field": "codeGraphBinary",
+        "bytes": 297185328,
+        "problem": null
+      },
+      {
+        "field": "qmdPackage",
+        "bytes": null,
+        "problem": null
+      },
+      {
+        "field": "lancePackage",
+        "bytes": null,
+        "problem": null
+      }
+    ],
+    "availableDiskBytes": 559622111232,
+    "services": [
+      {
+        "id": "documents",
+        "status": "stopped",
+        "version": null,
+        "detail": null
+      }
+    ]
+  },
+  "backups": [
+    "tools-backup-02648130-ee4e-47c5-927d-4dcf10d66c65.json",
+    "tools-backup-9e9b3be7-26d3-4af0-9454-e7610e30bcd0.json",
+    "tools-backup-dfcb84f1-92cb-4faf-9805-e581fbca783a.json"
+  ],
+  "resumed": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"phase\":\"ready\",\"job\":\"5dd48110-2081-43d4-86dd-94905e90674c\",\"completed\":0,\"total\":2200,\"skipped\":0,\"error\":null,\"mode\":\"lexical\",\"modelBytes\":0,\"roots\":[{\"collection\":\"3e10c012189cc029c164361dbe87901fb8261e2a9caa0f4958da85ec340af447\",\"path\":\"/private/tmp/donwells-strengthen-19-reviewed-profile/fixture\",\"shared\":false}],\"modelSharing\":\"One model instance per active checkout service; stopping the service releases it.\"}"
+      }
+    ],
+    "structuredContent": {
+      "phase": "ready",
+      "job": "5dd48110-2081-43d4-86dd-94905e90674c",
+      "completed": 0,
+      "total": 2200,
+      "skipped": 0,
+      "error": null,
+      "mode": "lexical",
+      "modelBytes": 0,
+      "roots": [
+        {
+          "collection": "3e10c012189cc029c164361dbe87901fb8261e2a9caa0f4958da85ec340af447",
+          "path": "/private/tmp/donwells-strengthen-19-reviewed-profile/fixture",
+          "shared": false
+        }
+      ],
+      "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+    }
+  },
+  "pollingDidNotRestart": true,
+  "afterRestart": {
+    "workspacePath": "/private/tmp/donwells-strengthen-19-reviewed-profile/fixture",
+    "configuration": {
+      "referenceRoots": [],
+      "disabled": [
+        "code-graph"
+      ],
+      "codeGraphBinary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/codebase-memory-0.10.8/codebase-memory-mcp",
+      "qmdPackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qmd-2.8.3/node_modules/@tobilu/qmd",
+      "lancePackage": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/lancedb-0.38.0/node_modules/@lancedb/lancedb"
+    },
+    "revision": "sha256:d0c6a4b5363494bcfe0890568df4e7d1f44e66bb808f4dd8674dd354ac75228f",
+    "configurationPath": "/private/tmp/donwells-strengthen-19-reviewed-profile/project-tools/configuration/1d452ce0b2b64628667827cd29fda9c721bafe945a5acf23952f7ddaa219ab9a/tools.json",
+    "problem": null,
+    "resources": [
+      {
+        "field": "codeGraphBinary",
+        "bytes": 297185328,
+        "problem": null
+      },
+      {
+        "field": "qmdPackage",
+        "bytes": null,
+        "problem": null
+      },
+      {
+        "field": "lancePackage",
+        "bytes": null,
+        "problem": null
+      }
+    ],
+    "availableDiskBytes": 559589294080,
+    "services": [
+      {
+        "id": "documents",
+        "status": "stopped",
+        "version": null,
+        "detail": null
+      }
+    ]
+  },
+  "verified": true,
+  "idleDaemonStopped": true
+}

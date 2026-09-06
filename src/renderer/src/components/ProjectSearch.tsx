@@ -196,14 +196,14 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={() => { stop(); setStatus('Stopped · results received so far') }}>Stop</button>}</div>
     <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>
     {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
-    {(source === 'all' || source === 'document') && <button type="button" disabled={indexing} onClick={() => {
+    {(source === 'all' || source === 'document') && <button className="btn btn-secondary btn-sm" type="button" disabled={indexing} onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolCall(path, 'documents', 'index', {}).then(response => {
         const value = documentValue(response)
         if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
       }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
     }}>Index documents</button>}
-    {indexing && <button type="button" onClick={() => {
+    {indexing && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolCall(path, 'documents', documentPaused ? 'resume' : 'pause', {}).then(response => {
         if (useAppStore.getState().activeWorktreePath !== path) return
@@ -212,7 +212,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         setDocumentStatus(`Document index: ${String(value.phase)} · models remain loaded`)
       }).catch(error => setError(String(error)))
     }}>{documentPaused ? 'Resume document indexing' : 'Pause document indexing'}</button>}
-    {(source === 'all' || source === 'document') && <button type="button" onClick={() => {
+    {(source === 'all' || source === 'document') && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolStop(path, 'documents').then(() => {
         if (useAppStore.getState().activeWorktreePath !== path) return

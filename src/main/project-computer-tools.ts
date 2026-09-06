@@ -16,10 +16,13 @@ const data = (result: unknown): Record<string, unknown> => {
   return result.structuredContent
 }
 
-/** The same definition instance serves every checkout, so input ownership is desktop-wide. */
+// Shared across project configurations: a new definition must not grant a second desktop lease.
+const targets = new Map<string, string>(), starting = new Set<string>()
+let generation = 0, desktop: Attachment | null = null
+
+/** Each definition retains its attachments; window and input ownership span all definitions. */
 export function createComputerToolDefinition(binary: string): ProjectToolDefinition {
-  const attached = new Map<string, Attachment>(), targets = new Map<string, string>(), starting = new Set<string>()
-  let generation = 0, desktop: Attachment | null = null
+  const attached = new Map<string, Attachment>()
   const key = (item: Attachment) => `${item.pid}:${item.window}`
   const detach = (scope: ProjectToolScope) => {
     const item = attached.get(scope.indexKey)

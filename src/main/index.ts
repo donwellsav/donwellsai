@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { ProjectSessionHistory } from './project-session-history'
-import { ProjectTools, resolveProjectToolScope } from './project-tools'
+import { resolveProjectToolScope } from './project-tools'
+import { ProjectDoctor } from './project-doctor'
+import { parseProjectToolConfiguration } from '@shared/project-doctor'
 import { createCodeGraphDefinition } from './project-code-graph'
 import { createDocumentDefinition } from './project-documents'
 import { createProject } from './project-creation'
@@ -72,7 +75,7 @@ let mainWindow: BrowserWindow | null = null
 let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
-let projectTools: ProjectTools | undefined
+let projectTools: ProjectDoctor | undefined
 let sessionHistory: ProjectSessionHistory | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
@@ -548,18 +551,26 @@ app.whenReady().then(() => {
   ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => history().index(path))
   ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => history().search(path, query))
   ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => history().get(path, id))
-  const codeGraphBinary = process.env['DONWELLS_CODE_GRAPH_BINARY']
-  const documentPackage = process.env['DONWELLS_DOCUMENT_QMD_PACKAGE']
-  const lancePackage = process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE']
-  const browserToolPackage = process.env['DONWELLS_BROWSER_TOOL_PACKAGE']
-  const browserToolExecutable = process.env['DONWELLS_BROWSER_TOOL_EXECUTABLE']
-  const computerToolBinary = process.env['DONWELLS_COMPUTER_TOOL_BINARY']
-  projectTools = new ProjectTools(resolveToolWorkspace, [
-    ...(computerToolBinary ? [createComputerToolDefinition(computerToolBinary)] : []),
-    ...(browserToolPackage && browserToolExecutable ? [createBrowserToolDefinition({ packagePath: browserToolPackage, browser: browserToolExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
-    ...(codeGraphBinary ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
-    ...(documentPackage && lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: documentPackage, lancePackage, embeddingModel: process.env['DONWELLS_DOCUMENT_EMBEDDING_MODEL'], rerankingModel: process.env['DONWELLS_DOCUMENT_RERANKING_MODEL'], references: process.env['DONWELLS_DOCUMENT_REFERENCES'] })] : [])
+  projectTools = new ProjectDoctor(join(app.getPath('userData'), 'project-tools', 'configuration'), resolveToolWorkspace, projectPath => parseProjectToolConfiguration({
+    codeGraphBinary: process.env['DONWELLS_CODE_GRAPH_BINARY'],
+    qmdPackage: process.env['DONWELLS_DOCUMENT_QMD_PACKAGE'],
+    lancePackage: process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE'],
+    browserPackage: process.env['DONWELLS_BROWSER_TOOL_PACKAGE'],
+    browserExecutable: process.env['DONWELLS_BROWSER_TOOL_EXECUTABLE'],
+    computerBinary: process.env['DONWELLS_COMPUTER_TOOL_BINARY'],
+    embeddingModel: process.env['DONWELLS_DOCUMENT_EMBEDDING_MODEL'],
+    rerankingModel: process.env['DONWELLS_DOCUMENT_RERANKING_MODEL'],
+    referenceRoots: JSON.parse(process.env['DONWELLS_DOCUMENT_REFERENCES'] || '{}')[projectPath] ?? [],
+    disabled: []
+  }), (config, projectPath) => [
+    ...(config.computerBinary ? [createComputerToolDefinition(config.computerBinary)] : []),
+    ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
+    ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph', createHash('sha256').update(projectPath).digest('hex')), path => git.handoffSource(path))] : []),
+    ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
   ])
+  ipcMain.handle('projectDoctorInspect', (_e, path: string) => projectTools!.inspect(path))
+  ipcMain.handle('projectDoctorConfigure', (_e, path: string, config: unknown, revision: string | null) => projectTools!.configure(path, config, revision))
+  ipcMain.handle('projectDoctorRetry', (_e, path: string, id: string) => projectTools!.retry(path, id))
   ipcMain.handle('projectToolsList', (_e, ...args: Parameters<IpcApi['projectToolsList']>) => projectTools!.list(...args))
   ipcMain.handle('projectToolCall', (_e, ...args: Parameters<IpcApi['projectToolCall']>) => projectTools!.call(...args))
   ipcMain.handle('projectToolStop', (_e, ...args: Parameters<IpcApi['projectToolStop']>) => projectTools!.stop(...args))

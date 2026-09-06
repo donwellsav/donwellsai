@@ -22,3 +22,42 @@ sibling collection preservation, and no process launch/retry from progress reads
 Task 19 remains open: catalog/configuration, setup diagnosis and packaged UI
 qualification are still pending. This is a verified implementation chunk, not
 whole-task completion.
+
+## Project service configuration
+
+Settings → Agents now exposes the four integrated MCP services: native code graph,
+Lance/QMD document retrieval, managed Playwright testing and Cua native control.
+The catalog identifies admitted versions, upstream sources, access scopes and
+model requirements. Selected regular-file bytes and available cache-volume bytes
+are measured; package/dependency size and provider usage remain explicitly unknown.
+Selecting an installed path does not run an installer or request native permissions.
+
+Each registered project has private `project-tools/configuration/<project-key>/tools.json`.
+Linked checkouts share it; unrelated projects do not. Existing environment settings
+are the fallback until a project explicitly saves its configuration. Applying a
+reviewed diff stops that project's existing MCP owners, preserves the previous file
+in a UUID-named backup, and uses the existing confined file writer with its expected
+revision check. Corrupt content is preserved, not replaced with defaults. External
+edits block service use until reapplied. Shutdown waits for an in-flight save.
+
+Code graph native configuration/cache is separated per project. Cua definitions
+share desktop/window ownership across projects and configuration changes; only
+verified termination releases an uncertain input lease. Native agent authentication
+and shared software installations are not modified.
+
+Packaged acceptance: `configuration-result.json` is verified with idle daemon
+cleanup confirmed. The dark-theme screenshots were inspected. It proves missing
+path diagnosis, visible before/after configuration, native graph readiness,
+project disable, document package configuration, acknowledged pause, same-job
+resume to completion, stop without polling restart, backups, and persistence after
+app restart. Executable: `/tmp/donwells-strengthen-19-package-reviewed/mac-arm64/donwells.app`.
+The receipt records its ASAR hash and source fingerprint.
+
+Checks: 41 passed across six doctor/service/computer/skills/secrets/settings files,
+then all eight doctor checks passed after adding shutdown-during-save coverage.
+Native computer control remains an opt-in skipped test in this run; cross-definition
+ownership was checked without controlling the user's desktop. TypeScript/build passed.
+
+Still open for Task 19: native history/task-tool configuration integration, remaining
+setup failure qualification and complete catalog/resource/repair review. The plan
+and task checklist remain at 19; no whole-task completion is claimed.

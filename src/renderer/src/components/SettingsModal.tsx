@@ -25,6 +25,7 @@ import {
 } from './settings/SettingsControls'
 import { ShortcutEditor } from './settings/ShortcutEditor'
 import { SkillsManager } from './settings/SkillsManager'
+import { ProjectToolsSettings } from './settings/ProjectToolsSettings'
 
 type ResetConfirmation = { kind: 'section'; section: SettingsSection; label: string } | { kind: 'all' }
 type NativeFacts = {
@@ -433,7 +434,7 @@ export function SettingsModal({ open }: { open: boolean }) {
     return (
       <>
         {metadata.length > 0 ? <SettingsList metadata={metadata} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={(key) => void resetOne(key)} /> : <SettingsState kind="empty" title="No preferences in this section" />}
-        {target === 'agents' && <SkillsManager />}
+        {target === 'agents' && <><ProjectToolsSettings /><SkillsManager /></>}
         {target === 'advanced' && <AdvancedFacts facts={facts} onRetry={loadFacts} />}
       </>
     )
