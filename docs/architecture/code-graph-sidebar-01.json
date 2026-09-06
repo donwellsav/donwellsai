@@ -1,0 +1,203 @@
+{
+  "source": {
+    "commit": "5bb20f6b6a82aaca2ac14acbf1759e1a9f7fc601",
+    "dirty": true,
+    "contentHash": "f0c6bc12b891b7bad55366c2a7bb052ea395e34ea30f97f631e527c9c9183994"
+  },
+  "artifactSha256": "a9fafbab4aa2f5493dd67ba7e6aa3f63e1d989fa5ea0ef0339684048772ac954",
+  "packagedGraph": {
+    "stale": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "670c1ee551ed36d6c6992d47217db1d7380ab39a3ce91be2a3331772291d2046.graph",
+            "rows": [
+              [
+                "graphCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "stale",
+        "indexedAt": "2026-09-06T10:54:12.033Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "rebuilt": {
+      "project": "670c1ee551ed36d6c6992d47217db1d7380ab39a3ce91be2a3331772291d2046",
+      "excluded": {
+        "dirs": [
+          ".git"
+        ],
+        "count": 1,
+        "truncated": false
+      },
+      "not_indexed_files_count": 1,
+      "not_indexed_files": {
+        "files": [
+          {
+            "path": "ignored.ts",
+            "reason": "gitignore"
+          }
+        ],
+        "count": 1,
+        "truncated": false,
+        "note": "Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'."
+      },
+      "skipped_count": 0,
+      "parse_partial_count": 0,
+      "nodes": 11,
+      "edges": 11,
+      "expected_nodes": 11,
+      "expected_edges": 11,
+      "adr_present": false,
+      "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+      "artifact_present": false,
+      "status": "indexed",
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T10:54:13.675Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "renamed": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "670c1ee551ed36d6c6992d47217db1d7380ab39a3ce91be2a3331772291d2046.graph",
+            "rows": [
+              [
+                "graphRenamedCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T10:54:13.675Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "indexed": {
+      "project": "670c1ee551ed36d6c6992d47217db1d7380ab39a3ce91be2a3331772291d2046",
+      "excluded": {
+        "dirs": [
+          ".git"
+        ],
+        "count": 1,
+        "truncated": false
+      },
+      "not_indexed_files_count": 1,
+      "not_indexed_files": {
+        "files": [
+          {
+            "path": "ignored.ts",
+            "reason": "gitignore"
+          }
+        ],
+        "count": 1,
+        "truncated": false,
+        "note": "Excluded by design (gitignore/.cbmignore/skip-lists); examples only — full list in 'logfile'."
+      },
+      "skipped_count": 0,
+      "parse_partial_count": 0,
+      "nodes": 11,
+      "edges": 11,
+      "expected_nodes": 11,
+      "expected_edges": 11,
+      "adr_present": false,
+      "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+      "artifact_present": false,
+      "status": "indexed",
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T10:54:12.033Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    },
+    "callers": {
+      "function": "graphTarget",
+      "direction": "inbound",
+      "callers_total": 1,
+      "callers": {
+        "cols": [
+          "name",
+          "hop",
+          "strategy",
+          "confidence"
+        ],
+        "groups": [
+          {
+            "qn_prefix": "670c1ee551ed36d6c6992d47217db1d7380ab39a3ce91be2a3331772291d2046.graph",
+            "rows": [
+              [
+                "graphCaller",
+                1,
+                "lsp",
+                0.95
+              ]
+            ]
+          }
+        ]
+      },
+      "freshness": {
+        "state": "current",
+        "indexedAt": "2026-09-06T10:54:12.033Z",
+        "sourceRevision": null,
+        "basis": "Git-visible source; ignored files and external dependencies are not verified"
+      }
+    }
+  },
+  "graphSidebar": {
+    "rebuilt": true,
+    "staleVisible": true,
+    "renamedCaller": true,
+    "findInText": true,
+    "projectSwitchFenced": true,
+    "queryRetained": true,
+    "stopped": true
+  },
+  "editorInputClass": "native-edit-context",
+  "openedAndEditedRequestedLine": true,
+  "missingSourceVisible": true,
+  "previousProjectEventSuppressed": true,
+  "stoppedBeforeLaunch": true,
+  "graphQuerySurvivesMove": true,
+  "searchSurvivesMove": true,
+  "movableSearchPanel": true,
+  "hiddenProjectSearchPaused": true,
+  "ignoredOptIn": true,
+  "idleDaemonStopped": true,
+  "elapsedMs": 26886.857292
+}

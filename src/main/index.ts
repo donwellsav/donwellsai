@@ -511,6 +511,9 @@ app.whenReady().then(() => {
   projectTools = new ProjectTools(resolveToolWorkspace, codeGraphBinary
     ? [createCodeGraphDefinition(codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))]
     : [])
+  ipcMain.handle('projectToolsList', (_e, ...args: Parameters<IpcApi['projectToolsList']>) => projectTools!.list(...args))
+  ipcMain.handle('projectToolCall', (_e, ...args: Parameters<IpcApi['projectToolCall']>) => projectTools!.call(...args))
+  ipcMain.handle('projectToolStop', (_e, ...args: Parameters<IpcApi['projectToolStop']>) => projectTools!.stop(...args))
   const handoffs = new ProjectHandoffService(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), git, agentRuntime)
   ipcMain.handle('projectHandoffExport', (_e, ...args: Parameters<IpcApi['projectHandoffExport']>) => handoffs.projectHandoffExport(...args))
   ipcMain.handle('projectHandoffList', (_e, ...args: Parameters<IpcApi['projectHandoffList']>) => handoffs.projectHandoffList(...args))

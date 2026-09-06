@@ -14,3 +14,14 @@
 .project-search-path b { font-weight: 500; color: var(--foreground); }
 .project-search-results code { display: block; font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .project-search button:focus-visible, .project-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.project-graph-disclosure { flex-shrink: 0; max-height: 60%; overflow: auto; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.project-graph-disclosure summary { cursor: pointer; font-size: 12px; padding: 4px 0; }
+.project-graph { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+.project-graph p { margin: 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.project-graph-help { color: var(--muted-fg); }
+.project-graph-actions button, .project-graph li button { border: 1px solid var(--input); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
+.project-graph ul { list-style: none; margin: 0; padding: 0; }
+.project-graph li { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 11px; }
+.project-graph li code { width: 100%; overflow-wrap: anywhere; }
+.project-graph li span { flex: 1; color: var(--muted-fg); }
+.project-graph-disclosure summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

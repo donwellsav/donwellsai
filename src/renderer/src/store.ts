@@ -222,7 +222,7 @@ type AppState = {
   previews: Record<string, Record<string, FileContent & { v: number; mode?: PreviewMode }>>
   documentNavigation: Record<string, Record<string, DocumentNavigationTarget>>
   fileSearchMru: Record<string, string[]>
-  contentSearch: { query: string; hidden: boolean; ignored: boolean }
+  contentSearch: { query: string; hidden: boolean; ignored: boolean; graphQuery?: string; graphOpen?: boolean }
   gitCommitDrafts: Record<string, string>
   /** loading flags */
   busy: Record<string, boolean>

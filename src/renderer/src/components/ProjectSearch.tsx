@@ -2,9 +2,11 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectSearchHit } from '@shared/project-tools'
 import { useAppStore } from '../store'
 import './project-search.css'
+import { ProjectGraph } from './ProjectGraph'
 
 export function ProjectSearch({ workspacePath, active = true }: { workspacePath: string; active?: boolean }) {
   const inputId = useId()
+  const graphOpen = useAppStore(state => state.contentSearch.graphOpen ?? false)
   const { query, hidden, ignored } = useAppStore(state => state.contentSearch)
   const setSearch = (patch: Partial<{ query: string; hidden: boolean; ignored: boolean }>): void => {
     useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, ...patch } }))
@@ -64,6 +66,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     } catch (error) { setError(String(error)) }
   }
   return <section className="project-search" aria-label="Search file contents">
+    <details className="project-graph-disclosure" open={graphOpen} onToggle={event => { const open = event.currentTarget.open; useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: open } })) }}><summary>Code graph · callers</summary><ProjectGraph key={workspacePath} workspacePath={workspacePath} active={active && graphOpen} /></details>
     <form onSubmit={event => { event.preventDefault(); stop(); setRefresh(value => value + 1) }}>
       <label htmlFor={inputId}>Search text</label>
       <div className="project-search-input"><input id={inputId} type="search" value={query} maxLength={1000} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>

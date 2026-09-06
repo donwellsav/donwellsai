@@ -58,6 +58,41 @@ try {
   await page.evaluate(() => { window.searchEvents = []; window.donwells.on('project-search:hit', event => window.searchEvents.push(event)) })
   const query = page.getByRole('searchbox', { name: 'Search text', exact: true })
   const results = page.getByRole('list', { name: 'Content matches' })
+  await page.locator('.project-graph-disclosure > summary').click()
+  const graph = page.getByLabel('Code graph', { exact: true })
+  if (values['code-graph-binary']) {
+    await graph.getByRole('button', { name: 'Rebuild code index' }).click()
+    await graph.getByRole('status').filter({ hasText: 'Indexed' }).waitFor()
+    await graph.getByLabel('Function name', { exact: true }).fill('graphTarget')
+    await graph.getByRole('button', { name: 'Find callers', exact: true }).click()
+    await graph.getByRole('list', { name: 'Caller matches' }).getByText('graphRenamedCaller', { exact: true }).waitFor()
+    writeFileSync(join(first, 'graph.ts'), 'export function graphTarget() { return 3 }\nexport function sidebarCaller() { return graphTarget() }\n')
+    await graph.getByRole('button', { name: 'Find callers', exact: true }).click()
+    await graph.getByRole('status').filter({ hasText: 'Source changed' }).waitFor()
+    await graph.getByRole('button', { name: 'Rebuild code index' }).click()
+    await graph.getByRole('status').filter({ hasText: 'Indexed' }).waitFor()
+    await graph.getByRole('button', { name: 'Find callers', exact: true }).click()
+    await graph.getByRole('list', { name: 'Caller matches' }).getByText('sidebarCaller', { exact: true }).waitFor()
+    await graph.getByRole('button', { name: 'Find in text', exact: true }).click()
+    await results.getByRole('button', { name: /graph.ts:2/ }).waitFor()
+    assert.equal(await query.inputValue(), 'sidebarCaller')
+    await page.screenshot({ path: join(evidence, 'graph-sidebar.png') })
+    await graph.getByRole('button', { name: 'Rebuild code index' }).click()
+    await graph.getByRole('status').filter({ hasText: 'Building code index' }).waitFor()
+    await page.getByTitle(second, { exact: true }).and(page.getByRole('button')).click()
+    await graph.getByText('Graph service: stopped', { exact: true }).waitFor()
+    assert.equal(await graph.getByLabel('Function name', { exact: true }).inputValue(), 'graphTarget')
+    assert.equal(await graph.getByRole('list', { name: 'Caller matches' }).count(), 0)
+    await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
+    await graph.getByText('Graph service: ready', { exact: true }).waitFor()
+    await graph.getByRole('button', { name: 'Stop graph', exact: true }).click()
+    await graph.getByText('Graph service: stopped', { exact: true }).waitFor()
+    report.graphSidebar = { rebuilt: true, staleVisible: true, renamedCaller: true, findInText: true, projectSwitchFenced: true, queryRetained: true, stopped: true }
+  } else {
+    await graph.getByRole('status').filter({ hasText: 'Code graph is not enabled' }).waitFor()
+    report.graphUnavailableVisible = true
+  }
+  await page.locator('.project-graph-disclosure > summary').click()
   await query.fill('searchfixture')
   await results.getByRole('button', { name: /alpha.ts:3/ }).waitFor()
   assert.equal(await results.getByRole('button').count(), 1)
@@ -91,7 +126,7 @@ try {
   await query.fill('cancel-before-debounce')
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
   await delay(400)
-  assert.match(await page.locator('.project-search-status').innerText(), /Stopped/)
+  assert.match(await page.locator('.project-search > .project-search-status').innerText(), /Stopped/)
   report.stoppedBeforeLaunch = true
   await query.fill('searchfixture')
   await results.getByRole('button', { name: /beta.ts:1/ }).waitFor()
@@ -100,6 +135,14 @@ try {
   await page.locator('[data-pane-kind="search"]').waitFor()
   assert.equal(await page.getByRole('searchbox', { name: 'Search text', exact: true }).inputValue(), 'searchfixture')
   await page.getByRole('list', { name: 'Content matches' }).getByRole('button', { name: /beta.ts:1/ }).waitFor()
+  if (values['code-graph-binary']) {
+    const moved = page.locator('[data-pane-kind="search"]')
+    await moved.locator('.project-graph-disclosure > summary').click()
+    await moved.getByText('Graph service: stopped', { exact: true }).waitFor()
+    assert.equal(await moved.getByLabel('Function name', { exact: true }).inputValue(), 'graphTarget')
+    await moved.locator('.project-graph-disclosure > summary').click()
+    report.graphQuerySurvivesMove = true
+  }
   report.searchSurvivesMove = true
   report.movableSearchPanel = true
   await page.getByTitle(first, { exact: true }).and(page.getByRole('button')).click()
