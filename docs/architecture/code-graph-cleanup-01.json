@@ -1,0 +1,7 @@
+{
+  "previousEvidence": "/tmp/donwells-code-graph-01.json",
+  "observedPid": 71196,
+  "processExited": true,
+  "fixtureRemoved": true,
+  "note": "Initial immediate snapshot caught daemon during asynchronous shutdown; later PID check confirmed exit before removing its owned fixture."
+}
