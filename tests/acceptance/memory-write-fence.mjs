@@ -2,13 +2,16 @@
 import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { hash, sourceIdentity, validateOptions } from './workspace-baseline.mjs'
 import { delay, cleanupOwnedSmokeDaemon } from '../helpers/smoke-processes.mjs'
-const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, cutover: { type: 'boolean' } } })
+const { values } = parseArgs({ options: { app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' }, cutover: { type: 'boolean' }, 'cutover-boundary': { type: 'string' } } })
+const boundary = values['cutover-boundary'] ?? 'legacy-fenced'
+assert(['candidate-prepared', 'manifest-prepared', 'legacy-retired', 'legacy-fenced', 'manifest-active'].includes(boundary), 'Unknown cutover boundary')
+assert(!values['cutover-boundary'] || values.cutover, '--cutover-boundary requires --cutover')
 const { app: appPath, resources, profile, evidence } = validateOptions(values)
 mkdirSync(profile, { mode: 0o700 }); mkdirSync(evidence, { mode: 0o700 })
 const { callRuntime } = await import(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')))
@@ -58,29 +61,42 @@ try {
   await rpc('memory.create', { ...request, title: 'After lock owner exit' })
   await stop(app)
   if (values.cutover) {
+    report.preMigrationSourceSha256 = hash(readFileSync(join(profile, 'project-memory.json')))
     // The source fixture process dies holding the lock; recovery and later writes run in the supplied package.
     try {
-      execFileSync(process.execPath, [resolve(import.meta.dirname, '../fixtures/memory-cutover-child.mjs'), profile], { encoding: 'utf8', timeout: 30000 })
+      execFileSync(process.execPath, [resolve(import.meta.dirname, '../fixtures/memory-cutover-child.mjs'), profile, boundary], { encoding: 'utf8', timeout: 30000 })
       assert.fail('Migration fixture unexpectedly survived')
     } catch (error) {
       assert.equal(error.signal, 'SIGKILL')
       report.killedMigrationProcess = JSON.parse(error.stdout.trim())
-      assert.equal(report.killedMigrationProcess.boundary, 'legacy-fenced')
+      assert.equal(report.killedMigrationProcess.boundary, boundary)
     }
   }
   await launch()
   assert.deepEqual(await rpc('memory.get', { workspacePath: fixture, id: entry.id }), entry)
   if (values.cutover) {
-    const authority = JSON.parse(readFileSync(join(profile, 'project-memory-active.json'), 'utf8'))
-    assert.equal(authority.state, 'sqlite')
-    const backup = join(profile, authority.directory, 'project-memory.json.backup')
+    let directory
+    if (boundary === 'candidate-prepared') {
+      assert.equal(existsSync(join(profile, 'project-memory-active.json')), false)
+      const candidates = readdirSync(profile).filter(name => name.startsWith('project-memory-migration-'))
+      assert.equal(candidates.length, 1)
+      directory = candidates[0]
+      report.recoveredBackend = 'json'
+    } else {
+      const authority = JSON.parse(readFileSync(join(profile, 'project-memory-active.json'), 'utf8'))
+      assert.equal(authority.state, 'sqlite')
+      directory = authority.directory
+      report.recoveredBackend = 'sqlite'
+    }
+    const backup = join(profile, directory, 'project-memory.json.backup')
     const before = hash(readFileSync(backup))
-    const updated = await rpc('memory.update', { ...request, id: entry.id, expectedRevision: 1, content: 'written to SQLite after recovery' })
+    assert.equal(before, report.preMigrationSourceSha256)
+    const updated = await rpc('memory.update', { ...request, id: entry.id, expectedRevision: 1, content: 'written after recovery to ' + report.recoveredBackend })
     await stop(app)
     await launch()
     assert.deepEqual(await rpc('memory.get', { workspacePath: fixture, id: entry.id }), updated)
     assert.equal(hash(readFileSync(backup)), before)
-    report.sqliteRecoveryAndNewWriteRestartPassed = true
+    report.recoveryAndNewWriteRestartPassed = true
     report.originalBackupUnchanged = true
   }
   report.restartRecallPassed = true

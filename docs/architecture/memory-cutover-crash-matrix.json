@@ -1,0 +1,155 @@
+{
+  "boundaries": [
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "7af76e9fe3438ea743169123a54493f20035db78",
+        "dirty": true,
+        "contentHash": "5b832a319dd49a9b88eecb65f21e03c6db8bc00d476de32e7df75c018bcbac04"
+      },
+      "profile": "/private/tmp/donwells-crash-candidate-prepared-profile-01",
+      "fixture": "/private/tmp/donwells-crash-candidate-prepared-profile-01/fixture-D3PLCL",
+      "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+      "appPids": [
+        51447,
+        51522,
+        51543
+      ],
+      "lockOwnerPid": 51485,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "7dd25dd5009d65030dafbb4a2ee9cb0a481b3c5e74c3a2015a6019ac2014103c",
+      "killedMigrationProcess": {
+        "pid": 51502,
+        "boundary": "candidate-prepared"
+      },
+      "recoveredBackend": "json",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1938
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "7af76e9fe3438ea743169123a54493f20035db78",
+        "dirty": true,
+        "contentHash": "5b832a319dd49a9b88eecb65f21e03c6db8bc00d476de32e7df75c018bcbac04"
+      },
+      "profile": "/private/tmp/donwells-crash-manifest-prepared-profile-01",
+      "fixture": "/private/tmp/donwells-crash-manifest-prepared-profile-01/fixture-HgVB1J",
+      "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+      "appPids": [
+        51671,
+        51753,
+        51774
+      ],
+      "lockOwnerPid": 51709,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "04517433e08e3c43604e40aacc00851feb4d4d664f9d8404d08355c477b33c09",
+      "killedMigrationProcess": {
+        "pid": 51742,
+        "boundary": "manifest-prepared"
+      },
+      "recoveredBackend": "sqlite",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1955
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "7af76e9fe3438ea743169123a54493f20035db78",
+        "dirty": true,
+        "contentHash": "5b832a319dd49a9b88eecb65f21e03c6db8bc00d476de32e7df75c018bcbac04"
+      },
+      "profile": "/private/tmp/donwells-crash-legacy-retired-profile-01",
+      "fixture": "/private/tmp/donwells-crash-legacy-retired-profile-01/fixture-CtCpuY",
+      "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+      "appPids": [
+        51904,
+        51963,
+        51968
+      ],
+      "lockOwnerPid": 51942,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "00d01a3ab62d44534619475c24a30e5c2d199b3d18544db4409dacb76e5a2661",
+      "killedMigrationProcess": {
+        "pid": 51943,
+        "boundary": "legacy-retired"
+      },
+      "recoveredBackend": "sqlite",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1695
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "7af76e9fe3438ea743169123a54493f20035db78",
+        "dirty": true,
+        "contentHash": "5b832a319dd49a9b88eecb65f21e03c6db8bc00d476de32e7df75c018bcbac04"
+      },
+      "profile": "/private/tmp/donwells-crash-legacy-fenced-profile-01",
+      "fixture": "/private/tmp/donwells-crash-legacy-fenced-profile-01/fixture-Fdx9fF",
+      "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+      "appPids": [
+        52114,
+        52189,
+        52194
+      ],
+      "lockOwnerPid": 52136,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "7a3a2d1bfbd74d8daba738180cc422a7170f93d1f791cfad71e7ff19bc6e2b91",
+      "killedMigrationProcess": {
+        "pid": 52169,
+        "boundary": "legacy-fenced"
+      },
+      "recoveredBackend": "sqlite",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1970
+    },
+    {
+      "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+      "source": {
+        "commit": "7af76e9fe3438ea743169123a54493f20035db78",
+        "dirty": true,
+        "contentHash": "5b832a319dd49a9b88eecb65f21e03c6db8bc00d476de32e7df75c018bcbac04"
+      },
+      "profile": "/private/tmp/donwells-crash-manifest-active-profile-01",
+      "fixture": "/private/tmp/donwells-crash-manifest-active-profile-01/fixture-E45yb0",
+      "artifactSha256": "9ecad68e05cc1e847dc31860159eb85a4b8f69dbd47d89163d2bee4ec3615bb9",
+      "appPids": [
+        52328,
+        52403,
+        52424
+      ],
+      "lockOwnerPid": 52366,
+      "maintenanceRejected": true,
+      "preMigrationSourceSha256": "5685057c49dbde54d9d368ab7c1bd6bf0291d698db00e903dad019e318cf95f5",
+      "killedMigrationProcess": {
+        "pid": 52399,
+        "boundary": "manifest-active"
+      },
+      "recoveredBackend": "sqlite",
+      "recoveryAndNewWriteRestartPassed": true,
+      "originalBackupUnchanged": true,
+      "restartRecallPassed": true,
+      "lockReleaseAfterKillPassed": true,
+      "idleDaemonStopped": true,
+      "durationMs": 1990
+    }
+  ],
+  "allPassed": true
+}
