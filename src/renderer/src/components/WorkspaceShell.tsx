@@ -26,7 +26,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const scans = useAppStore(state => state.scans)
   const [openingFolder, setOpeningFolder] = useState(false)
   const selectedRepo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === activePath))
-  const selectedWorktree = selectedRepo?.worktrees.find(worktree => worktree.path === activePath)
   const agents = Object.values(runningAgents).filter(agent => selectedRepo?.worktrees.some(worktree => worktree.path === agent.workspacePath))
   const waiting = agents.filter(agent => agentPresentation(agent).needsAttention)
   const order = orderedWorkspacePaths(repos, navigation)
@@ -51,34 +50,23 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   }
 
   return <>
-    <header className="workspace-masthead">
-      {/Mac/.test(navigator.userAgent) && <div className="workspace-window-controls" />}
-      <button className="workspace-wordmark" onClick={() => state().setActiveRepo(null)} aria-label="Go to Projects">donwells<span aria-hidden="true"> /</span></button>
-      <div className="workspace-breadcrumb" aria-label="Current project">
-        <span>{selectedRepo ? pathBasename(selectedRepo.repo.path) : 'Projects'}</span>
-        {selectedWorktree && <><span className="workspace-slash" aria-hidden="true">/</span><span title={activePath ?? ''}>{navigation.renames[activePath!] ?? (selectedRepo?.repo.kind === 'folder' ? 'Local folder' : status?.branch || selectedWorktree.branch || 'Detached checkout')}</span></>}
-      </div>
-      <button aria-label="Find a command" className="workspace-command-search titlebar-search" onClick={() => state().setPaletteOpen(true)}><Icon name="search" size={14} /><span>Find a command</span><kbd>{formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))}</kbd></button>
-      {activePath && <div className="workspace-context-actions">
-        {waiting.length > 0 && <button className="workspace-attention" onClick={() => void state().focusAgentSession(waiting[0]!.sessionId)}>{waiting.length} waiting</button>}
-        <button className="workspace-action" onClick={() => void state().openTerminal(activePath)}><Icon name="terminal" size={14} /><span>Terminal</span></button>
-        <button className="workspace-action" onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={14} /><span>Add agent</span></button>
-        <WorkspaceControls />
-      </div>}
-      <button className="workspace-icon-control" aria-label="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={17} /></button>
-    </header>
     <div className="workspace-frame">
       <nav className="workspace-rail" aria-label="Workspace tools">
+        <button aria-label="Terminal" title="New terminal" disabled={!activePath} onClick={() => activePath && void state().openTerminal(activePath)}><Icon name="terminal" size={19} /><span>Terminal</span></button>
+        <button aria-label="Add agent" title="Add agent" disabled={!activePath} onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={19} /><span>Add agent</span></button>
+        <WorkspaceControls />
+        <button aria-label="Find a command" title={`Find a command (${formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))})`} onClick={() => state().setPaletteOpen(true)}><Icon name="search" size={19} /><span>Search</span></button>
         <button aria-label="Projects" title="Projects" aria-pressed={sidebarOpen} onClick={() => state().setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={19} /><span>Projects</span></button>
         <button aria-label="Files" title="Files" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'explorer' && !runsOpen} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>
         <button aria-label="Changes" title="Changes" disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={rightOpen && rightTab === 'git' && !runsOpen} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Changes</span></button>
         <button aria-label="Project memory" title="Project memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'memory' && !runsOpen} onClick={() => showTool('memory')}><Icon name="file" size={19} /><span>Memory</span></button>
-        <button aria-label="Agent sessions" title="Agent sessions" aria-pressed={runsOpen} onClick={() => runsOpen ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="terminal" size={19} /><span>Agents</span></button>
+        <button aria-label="Agent sessions" title="Agent sessions" aria-pressed={runsOpen} onClick={() => runsOpen ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="terminal" size={19} /><span>Agents{waiting.length > 0 ? ` · ${waiting.length} waiting` : ''}</span></button>
         <div className="workspace-rail-spacer" />
         <button aria-label="Recover unsaved files" title="Recover unsaved files" aria-pressed={rightOpen && rightTab === 'recovery' && !runsOpen} onClick={() => showTool('recovery')}><Icon name="clock" size={18} /><span>Recover</span></button>
+        <button aria-label="Settings" title="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={18} /><span>Settings</span></button>
       </nav>
       {sidebarOpen && <aside className="workspace-projects" aria-label="Projects and checkouts" style={{ width: sidebarWidth, flexBasis: sidebarWidth }}>
-        <header><h2>Projects</h2><button className="workspace-icon-control" aria-label="New project" onClick={() => openProjectSetup()}><Icon name="plus" size={17} /></button></header>
+        <header><button className="workspace-wordmark" aria-label="Go to Projects" onClick={() => state().setActiveRepo(null)}>donwells<span aria-hidden="true"> /</span></button><button className="workspace-icon-control" aria-label="New project" onClick={() => openProjectSetup()}><Icon name="plus" size={17} /></button></header>
         <button className="workspace-open-folder" onClick={() => void openFolder()} disabled={openingFolder}><Icon name="dir" size={15} />{openingFolder ? 'Opening…' : 'Open folder'}<span aria-hidden="true">↗</span></button>
         <div className="workspace-project-scroll">
           {repos.length === 0 && <p className="workspace-help">Open a folder to bring its terminals, agents and tools together.</p>}

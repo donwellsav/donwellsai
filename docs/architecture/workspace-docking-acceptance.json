@@ -1,16 +1,16 @@
 {
-  "startedAt": "2026-09-06T03:31:29.216Z",
+  "startedAt": "2026-09-06T03:36:07.916Z",
   "source": {
-    "commit": "6ae05565474155a13cbe41dc9c9275e031edfea4",
+    "commit": "1489614d48b90d20782e1a8df7b4a49c3a45ecd4",
     "dirty": true,
-    "contentHash": "8822f8dc23c9595c6aef3a0a089521df8c7561ee90de7860f08b9c7a2e0b32f4"
+    "contentHash": "8483838be70b1e0642b10e2c190c868bb9b7b31786999257e76d41de84a6c73e"
   },
   "artifact": {
     "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
-    "asarSha256": "b65d0d3f5b4cf9d7443ecb09f5f42e59d42a6a413dfd1397bc1a0017699a5914"
+    "asarSha256": "e51a8f8d1f0c451b5b5f6e1e42fcf2b544ac6687bbf27348aa391b14ab4eaf84"
   },
-  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-CTIyz1",
-  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-bhV5tQ",
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-profile-8f26Ir",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-gui-project-LYtv3V",
   "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
   "checks": {
     "admittedToolRegistry": true,
@@ -31,39 +31,26 @@
       "scale": 4,
       "elements": [
         {
-          "name": "workspace-masthead",
+          "name": "workspace-rail",
           "rect": {
             "x": 0,
             "y": 0,
-            "width": 640,
-            "height": 40,
+            "width": 56,
+            "height": 384,
             "top": 0,
-            "right": 640,
-            "bottom": 40,
+            "right": 56,
+            "bottom": 384,
             "left": 0
-          }
-        },
-        {
-          "name": "workspace-context-actions",
-          "rect": {
-            "x": 338.38671875,
-            "y": 4.5,
-            "width": 253.61328125,
-            "height": 30,
-            "top": 4.5,
-            "right": 592,
-            "bottom": 34.5,
-            "left": 338.38671875
           }
         },
         {
           "name": "workspace-desk",
           "rect": {
             "x": 231,
-            "y": 40,
+            "y": 0,
             "width": 409,
-            "height": 344,
-            "top": 40,
+            "height": 384,
+            "top": 0,
             "right": 640,
             "bottom": 384,
             "left": 231
@@ -73,10 +60,10 @@
           "name": "workspace-docking-body",
           "rect": {
             "x": 231,
-            "y": 40,
+            "y": 0,
             "width": 409,
-            "height": 314,
-            "top": 40,
+            "height": 354,
+            "top": 0,
             "right": 640,
             "bottom": 354,
             "left": 231
@@ -109,5 +96,5 @@
     "VoiceOver speech/navigation needs native manual qualification.",
     "This exercises the workspace shell, not all six completed product journeys."
   ],
-  "durationMs": 8627.052375
+  "durationMs": 11266.468209
 }

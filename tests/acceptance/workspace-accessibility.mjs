@@ -47,7 +47,7 @@ try {
   await page.getByRole('button', { name: /Main checkout/ }).waitFor()
   await page.getByRole('button', { name: /Main checkout/ }).click()
   await page.locator('.xterm-helper-textarea').first().waitFor({ state: 'attached' })
-  const arrange = async name => { await page.locator('.workspace-layout-menu > summary').click(); await page.getByRole('button', { name, exact: true }).click() }
+  const arrange = async name => { await page.getByRole('button', { name: 'Layout', exact: true }).click(); await page.getByRole('button', { name, exact: true }).click() }
   let sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 1)
   const session = sessions[0].id
@@ -75,7 +75,7 @@ try {
   await arrange('Pair')
   await page.waitForFunction(() => document.querySelectorAll('.flexlayout__tabset').length === 2)
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+w' : 'Control+w')
-  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByRole('button', { name: 'Layout', exact: true }).click()
   await page.getByText('Hidden (1)', { exact: true }).waitFor()
   assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
   await page.getByText('Hidden (1)', { exact: true }).click()
@@ -122,7 +122,7 @@ try {
   await delay(250)
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
   await capture('workspace-200-percent.png')
-  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-masthead, .workspace-desk, .workspace-context-actions, .workspace-docking-body, .workspace-footing')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
+  report.checks.zoomLayout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scale: devicePixelRatio, elements: [...document.querySelectorAll('.workspace-rail, .workspace-desk, .workspace-docking-body, .workspace-footing')].map(element => ({ name: element.className, rect: element.getBoundingClientRect().toJSON() })) }))
   for (const { name, rect } of report.checks.zoomLayout.elements) {
     assert(rect.width > 0 && rect.height > 0 && rect.right <= report.checks.zoomLayout.width + 1 && rect.bottom <= report.checks.zoomLayout.height + 1, `${name} is clipped at 200%`)
   }
@@ -183,9 +183,9 @@ try {
   page.setDefaultTimeout(15000)
   page.on('pageerror', error => report.errors.push(error.message))
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
-  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByRole('button', { name: 'Layout', exact: true }).click()
   await page.getByText('Hidden (1)', { exact: true }).waitFor()
-  await page.locator('.workspace-layout-menu > summary').click()
+  await page.getByRole('button', { name: 'Layout', exact: true }).click()
   await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
   assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
   assert(!readFileSync(join(fixture, 'README.md'), 'utf8').includes(draft))

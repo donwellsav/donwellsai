@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Actions, DockLocation, Layout, Model, TabNode, TabSetNode, type Action } from 'flexlayout-react'
 import { useAppStore, isMarkdownFile, type Pane } from '../store'
@@ -109,21 +109,22 @@ function DockingSurface({ worktreePath, active }: { worktreePath: string; active
 }
 
 export function WorkspaceControls() {
+  const popoverId = useId()
   const activePath = useAppStore(state => state.activeWorktreePath)
   const panes = useAppStore(state => state.panes)
   const docking = useAppStore(state => state.docking)
   const [urlOpen, setUrlOpen] = useState(false)
   const [url, setUrl] = useState('')
   const hidden = activePath ? docking[activePath]?.hidden ?? [] : []
-  return <details className="workspace-layout-menu"><summary>Layout</summary><div className="workspace-layout-popover">
+  return <><button aria-label="Layout" title="Workspace layout" popoverTarget={popoverId} disabled={!activePath}><Icon name="columns" size={19} /><span>Layout</span></button><div id={popoverId} popover="auto" className="workspace-layout-popover">
     <div className="workspace-arrangements" aria-label="Workspace arrangement">
       <NavigationControls />
-      <div className="workspace-preset-buttons">{([['focus', 'Focus'], ['pair', 'Pair'], ['build', 'Build & preview'], ['review', 'Review']] as const).map(([preset, label]) => <button key={preset} onClick={event => { if (activePath) useAppStore.getState().arrangeWorkspace(activePath, preset as WorkspacePreset); event.currentTarget.closest('.workspace-layout-menu')?.removeAttribute('open') }}>{label}</button>)}</div>
+      <div className="workspace-preset-buttons">{([['focus', 'Focus'], ['pair', 'Pair'], ['build', 'Build & preview'], ['review', 'Review']] as const).map(([preset, label]) => <button key={preset} onClick={event => { if (activePath) useAppStore.getState().arrangeWorkspace(activePath, preset as WorkspacePreset); event.currentTarget.closest<HTMLElement>('.workspace-layout-popover')?.hidePopover() }}>{label}</button>)}</div>
       <button onClick={() => setUrlOpen(!urlOpen)} aria-expanded={urlOpen}><Icon name="globe" size={13} />Preview URL</button>
-      {hidden.length > 0 && <details className="workspace-hidden-views"><summary>Hidden ({hidden.length})</summary><div>{hidden.map(key => <button key={key} onClick={event => { if (activePath) useAppStore.getState().setActivePane(activePath, key); event.currentTarget.closest('.workspace-layout-menu')?.removeAttribute('open') }}>{workspacePaneLabel(panes[activePath!]?.find(pane => pane.key === key) ?? { key, kind: 'panel' })}</button>)}</div></details>}
+      {hidden.length > 0 && <details className="workspace-hidden-views"><summary>Hidden ({hidden.length})</summary><div>{hidden.map(key => <button key={key} onClick={event => { if (activePath) useAppStore.getState().setActivePane(activePath, key); event.currentTarget.closest<HTMLElement>('.workspace-layout-popover')?.hidePopover() }}>{workspacePaneLabel(panes[activePath!]?.find(pane => pane.key === key) ?? { key, kind: 'panel' })}</button>)}</div></details>}
     </div>
     {urlOpen && <form className="workspace-preview-address" onSubmit={event => { event.preventDefault(); if (activePath && url.trim()) { void useAppStore.getState().openBrowser(activePath, url.trim()); setUrlOpen(false) } }}><input aria-label="Preview URL" type="url" value={url} onChange={event => setUrl(event.target.value)} autoFocus required placeholder="http://localhost:3000" /><button type="submit">Open preview</button><button type="button" onClick={() => setUrlOpen(false)}>Cancel</button></form>}
-  </div></details>
+  </div></>
 }
 
 export function Workbench() {
