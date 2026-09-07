@@ -1,0 +1,28 @@
+{
+  "engine": "hindsight",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 1536,
+  "retained": [
+    {
+      "id": "decision.md",
+      "ms": 3268.1850839871913
+    }
+  ],
+  "queries": [
+    {
+      "id": "smoke",
+      "hits": [
+        "decision.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 735.50208308734
+    }
+  ],
+  "errors": [],
+  "corpusSha256": "a4c904772303d9bdb7858cdd55dfb11475381e0bf0c0198fa1c85a327799a4cd",
+  "initializeMs": 7375.755375018343,
+  "deletedSourceAbsent": true,
+  "complete": true,
+  "closed": true,
+  "totalMs": 11561.059208004735
+}

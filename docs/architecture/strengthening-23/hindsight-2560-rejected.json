@@ -1,0 +1,15 @@
+{
+  "engine": "hindsight",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 2560,
+  "retained": [],
+  "queries": [],
+  "errors": [
+    {
+      "stage": "initialize",
+      "error": "Embedding dimension 2560 exceeds pgvector HNSW index limit of 2000. Use an embedding model with <= 2000 dimensions, or switch to a vector extension that supports higher dimensions (e.g., pgvectorscale/DiskANN or AlloyDB ScaNN)."
+    }
+  ],
+  "corpusSha256": "a4c904772303d9bdb7858cdd55dfb11475381e0bf0c0198fa1c85a327799a4cd",
+  "totalMs": 11159.049749956466
+}

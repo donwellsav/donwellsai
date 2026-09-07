@@ -1,0 +1,216 @@
+{
+  "engine": "baseline",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 2560,
+  "retained": [
+    {
+      "id": "august.md",
+      "returnedFactCount": null,
+      "ms": 1307.5914159417152
+    },
+    {
+      "id": "september.md",
+      "returnedFactCount": null,
+      "ms": 71.0102500161156
+    },
+    {
+      "id": "ownership.md",
+      "returnedFactCount": null,
+      "ms": 62.62329104356468
+    },
+    {
+      "id": "dependencies.md",
+      "returnedFactCount": null,
+      "ms": 59.53650001902133
+    },
+    {
+      "id": "retry-policy.md",
+      "returnedFactCount": null,
+      "ms": 58.440875029191375
+    },
+    {
+      "id": "temporary-code.md",
+      "returnedFactCount": null,
+      "ms": 59.874832979403436
+    },
+    {
+      "id": "foreign-private.md",
+      "returnedFactCount": null,
+      "ms": 999.9176249839365
+    },
+    {
+      "id": "retry-policy.md",
+      "returnedFactCount": null,
+      "ms": 160.55483394302428
+    }
+  ],
+  "queries": [
+    {
+      "id": "august-as-of",
+      "hits": [
+        "august.md",
+        "september.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 1120.5695410026237,
+      "forbiddenSourceLeak": false,
+      "answer": "PostgreSQL",
+      "answerCorrect": true
+    },
+    {
+      "id": "september-current",
+      "hits": [
+        "september.md",
+        "august.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 495.6184170441702,
+      "forbiddenSourceLeak": false,
+      "answer": "SQLite",
+      "answerCorrect": true
+    },
+    {
+      "id": "relationship-owner",
+      "hits": [
+        "ownership.md",
+        "dependencies.md",
+        "september.md",
+        "august.md",
+        "temporary-code.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 492.4823340261355,
+      "forbiddenSourceLeak": false,
+      "answer": "Alice Chen",
+      "answerCorrect": true
+    },
+    {
+      "id": "retry-initial",
+      "hits": [
+        "retry-policy.md",
+        "temporary-code.md",
+        "dependencies.md",
+        "ownership.md",
+        "august.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 482.1173750096932,
+      "forbiddenSourceLeak": false,
+      "answer": "5",
+      "answerCorrect": true
+    },
+    {
+      "id": "code-before-delete",
+      "hits": [
+        "temporary-code.md",
+        "september.md",
+        "retry-policy.md",
+        "august.md",
+        "dependencies.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 493.7110000755638,
+      "forbiddenSourceLeak": false,
+      "answer": "amber-lantern-731",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-positive-control",
+      "hits": [
+        "foreign-private.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 977.6206660317257,
+      "forbiddenSourceLeak": false,
+      "answer": "violet-secret-982",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-isolation",
+      "hits": [
+        "temporary-code.md",
+        "september.md",
+        "august.md",
+        "dependencies.md",
+        "ownership.md"
+      ],
+      "recallAt5": null,
+      "ms": 484.10358291585,
+      "forbiddenSourceLeak": false,
+      "answer": "UNKNOWN",
+      "answerCorrect": true
+    },
+    {
+      "id": "retry-corrected",
+      "hits": [
+        "retry-policy.md",
+        "september.md",
+        "dependencies.md",
+        "august.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 356.6595840966329,
+      "forbiddenSourceLeak": false,
+      "answer": "3",
+      "answerCorrect": true
+    },
+    {
+      "id": "code-after-delete",
+      "hits": [
+        "september.md",
+        "retry-policy.md",
+        "dependencies.md",
+        "august.md",
+        "ownership.md"
+      ],
+      "recallAt5": null,
+      "ms": 431.2786249211058,
+      "forbiddenSourceLeak": false,
+      "answer": "UNKNOWN",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-survives",
+      "hits": [
+        "foreign-private.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 232.4525830335915,
+      "forbiddenSourceLeak": false,
+      "answer": "violet-secret-982",
+      "answerCorrect": true
+    }
+  ],
+  "errors": [],
+  "strictSchemaOverride": false,
+  "runnerSha256": "1e0357a9d4857165b45caafd4cb673bb72beced3b5e509bd60cb7aa7b8262787",
+  "timingConditions": "One trial bridge model request at a time; shared host and filesystem cache uncontrolled.",
+  "startedAt": "2026-09-07T05:10:32.878316+00:00",
+  "corpusSha256": "8c542d0d09056908333756f3d73bd13dbe7bfa003115e6b1d35fc53cba44c7c9",
+  "initializeMs": 52.97045805491507,
+  "deleted": [
+    {
+      "id": "retry-policy.md",
+      "ms": 12.362958048470318
+    },
+    {
+      "id": "temporary-code.md",
+      "ms": 7.4850000673905015
+    }
+  ],
+  "complete": true,
+  "closed": true,
+  "totalMs": 153835.73612500913,
+  "pythonPeakRssBytes": 49905664,
+  "reapedChildPeakRssBytes": 15916269568,
+  "resourceLimit": "Python peak RSS excludes native database processes, shared model bridge, baseline child and oMLX.",
+  "derivedBytes": 427109,
+  "finishedAt": "2026-09-07T05:13:06.721726+00:00"
+}

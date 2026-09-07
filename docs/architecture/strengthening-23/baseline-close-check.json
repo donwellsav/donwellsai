@@ -1,0 +1,39 @@
+{
+  "engine": "baseline",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 2560,
+  "retained": [
+    {
+      "id": "decision.md",
+      "returnedFactCount": null,
+      "ms": 1273.9206670084968
+    }
+  ],
+  "queries": [
+    {
+      "id": "smoke",
+      "hits": [
+        "decision.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 926.3400000054389,
+      "forbiddenSourceLeak": false
+    }
+  ],
+  "errors": [],
+  "strictSchemaOverride": false,
+  "runnerSha256": "1e0357a9d4857165b45caafd4cb673bb72beced3b5e509bd60cb7aa7b8262787",
+  "timingConditions": "One trial bridge model request at a time; shared host and filesystem cache uncontrolled.",
+  "startedAt": "2026-09-07T05:08:47.913720+00:00",
+  "corpusSha256": "a4c904772303d9bdb7858cdd55dfb11475381e0bf0c0198fa1c85a327799a4cd",
+  "initializeMs": 50.39983394090086,
+  "deletedSourceAbsent": true,
+  "complete": true,
+  "closed": true,
+  "totalMs": 2378.446124959737,
+  "pythonPeakRssBytes": 44924928,
+  "reapedChildPeakRssBytes": 8095367168,
+  "resourceLimit": "Python peak RSS excludes native database processes, shared model bridge, baseline child and oMLX.",
+  "derivedBytes": 18423,
+  "finishedAt": "2026-09-07T05:08:50.293259+00:00"
+}
