@@ -109,9 +109,11 @@ function waitForStoreLoad(): Promise<void> {
 
 export function focusPaneTarget(target = activeNavigationTarget()): void {
   if (!target) return
+  const { rightSidebarOpen, rightSidebarTab } = useAppStore.getState()
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const state = useAppStore.getState()
     if (state.runsOpen || state.settingsOpen || state.paletteOpen || document.querySelector('dialog[open]')) return
+    if (state.rightSidebarOpen !== rightSidebarOpen || state.rightSidebarTab !== rightSidebarTab) return
     const current = activeNavigationTarget()
     if (!current || !sameNavigationTarget(current, target)) return
     if (target.kind === 'workspace') {

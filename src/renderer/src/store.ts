@@ -540,7 +540,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePane: {},
   activeTerminal: {},
   sidebarOpen: true,
-  sidebarWidth: 280,
+  sidebarWidth: 224,
   rightSidebarWidth: 350,
   rightSidebarOpen: false,
   rightSidebarTab: 'explorer',
@@ -1861,8 +1861,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setRunsOpen(open: boolean) {
+    const wasOpen = get().runsOpen
     set({ runsOpen: open })
-    if (!open && typeof document !== 'undefined') focusPaneTarget()
+    if (wasOpen && !open && typeof document !== 'undefined') focusPaneTarget()
   },
 
   setSidebarOpen(open: boolean) {
@@ -1914,7 +1915,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (typeof document !== 'undefined') requestAnimationFrame(() => {
       const state = get()
       if (state.rightSidebarOpen && state.rightSidebarTab === tab && !document.querySelector('dialog[open]')) {
-        document.querySelector<HTMLElement>(`[data-right-sidebar-tab="${tab}"]`)?.focus()
+        document.querySelector<HTMLElement>(`[data-workspace-tool-heading="${tab}"]`)?.focus()
       }
     })
   },

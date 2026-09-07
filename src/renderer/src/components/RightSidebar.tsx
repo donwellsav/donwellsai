@@ -1,4 +1,3 @@
-import { useLayoutEffect } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
@@ -24,8 +23,6 @@ const TABS: ReadonlyArray<{ id: RightSidebarTab; label: string }> = [
 
 export function RightSidebar() {
   const tab = useAppStore((s) => s.rightSidebarTab)
-  useLayoutEffect(() => { document.querySelector<HTMLElement>(`[data-right-sidebar-tab="${tab}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}) }, [tab])
-  const setRightSidebarTab = useAppStore((s) => s.setRightSidebarTab)
   const setRightSidebarOpen = useAppStore((s) => s.setRightSidebarOpen)
   const activeWorktreePath = useAppStore((s) => s.activeWorktreePath)
   const width = useAppStore((s) => s.rightSidebarWidth)
@@ -62,23 +59,6 @@ export function RightSidebar() {
     resizeTo(nextWidth)
   }
 
-  const selectTab = (index: number): void => {
-    const next = TABS[index]
-    if (!next) return
-    setRightSidebarTab(next.id)
-  }
-
-  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number): void => {
-    let nextIndex: number | undefined
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length
-    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length
-    else if (event.key === 'Home') nextIndex = 0
-    else if (event.key === 'End') nextIndex = TABS.length - 1
-    if (nextIndex === undefined) return
-    event.preventDefault()
-    selectTab(nextIndex)
-  }
-
   const closePanel = (): void => {
     setRightSidebarOpen(false)
   }
@@ -101,29 +81,13 @@ export function RightSidebar() {
         onMouseDown={startResize}
       />
       <div className="right-sidebar-header">
-        <div className="rs-tabs" role="tablist" aria-label="Workspace panel">
-          {TABS.map((candidate, index) => (
-            <button
-              key={candidate.id}
-              className={`rs-tab${tab === candidate.id ? ' active' : ''}`}
-              role="tab"
-              data-right-sidebar-tab={candidate.id}
-              aria-selected={tab === candidate.id}
-              aria-controls="workspace-tool-panel"
-              tabIndex={tab === candidate.id ? 0 : -1}
-              onClick={() => setRightSidebarTab(candidate.id)}
-              onKeyDown={(event) => handleTabKeyDown(event, index)}
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </div>
+        <h2 className="workspace-tool-title" tabIndex={-1} data-workspace-tool-heading={tab}>{activeLabel}</h2>
         {activeWorktreePath && <button className="icon-btn" aria-label="Move panel into workspace" title="Move into workspace" onClick={() => useAppStore.getState().openWorkspaceModule(activeWorktreePath, tab === 'git' ? 'git-status' : tab)}><Icon name="columns" size={13} /></button>}
         <button className="icon-btn" aria-label="Close workspace panel" title="Close panel" onClick={closePanel}>
           <Icon name="x" size={12} />
         </button>
       </div>
-      <div className="rs-body" id="workspace-tool-panel" role="tabpanel" aria-label={activeLabel}>
+      <div className="rs-body" id="workspace-tool-panel" role="region" aria-label={activeLabel}>
         {tab === 'recovery' ? <RecoveryPanel /> : activeWorktreePath ? (
           tab === 'computer' ? <ComputerControlPanel key={activeWorktreePath} workspacePath={activeWorktreePath} /> :
           tab === 'search' ? <ProjectSearch workspacePath={activeWorktreePath} /> :

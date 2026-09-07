@@ -3,7 +3,7 @@
 .workspace-frame { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .workspace-desk { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--background); }
 .workspace-surfaces { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.workspace-projects { position: relative; display: flex; flex-direction: column; flex: 0 1 230px; min-width: 190px; max-width: 28vw; background: var(--sidebar); border-right: 1px solid var(--border); }
+.workspace-projects { position: relative; display: flex; flex-direction: column; flex: 0 0 224px; min-width: 220px; max-width: 340px; background: var(--sidebar); border-right: 1px solid var(--border); }
 .workspace-projects > header { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 8px 12px 4px 16px; }
 .workspace-wordmark { font-size: 17px; font-weight: 650; letter-spacing: -.6px; padding: 4px 0; }
 .workspace-icon-control { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; color: var(--muted-fg); border-radius: 3px; }
@@ -11,7 +11,17 @@
 .workspace-open-folder { display: flex; align-items: center; gap: 8px; margin: 0 10px 16px; min-height: 32px; padding: 6px; text-align: left; font-size: 12px; color: var(--muted-fg); }
 .workspace-open-folder:hover { color: var(--foreground); background: var(--ws-accent); }
 .workspace-open-folder span { margin-left: auto; }
-.workspace-project-scroll { flex: 1; min-height: 60px; overflow: auto; padding: 0 8px 12px; }
+.workspace-project-scroll { flex: 0 1 auto; min-height: 0; max-height: 45%; overflow: auto; padding: 0 8px 12px; }
+.workspace-project-scroll[hidden] { display: none; }
+.workspace-project-picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 10px 12px; padding: 10px 6px; text-align: left; border-bottom: 1px solid var(--border); }
+.workspace-project-picker > span { min-width: 0; }
+.workspace-project-picker strong, .workspace-project-picker small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-project-picker strong { font-size: 13px; font-weight: 600; }
+.workspace-project-picker small { margin-top: 5px; color: var(--muted-fg); font: 11px var(--font-mono); }
+.workspace-session-heading .workspace-section-label span { margin-left: 6px; }
+.workspace-session-heading { display: flex; align-items: center; justify-content: space-between; }
+.workspace-tool-title { min-width: 0; flex: 1; margin: 0; padding: 4px; font-size: 13px; font-weight: 600; }
+.workspace-tool-title:focus-visible { outline: 2px solid var(--ring); }
 .workspace-section-label { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 8px; font-size: 11px; font-weight: 500; color: var(--muted-fg); }
 .workspace-section-label > span { font-family: var(--font-mono); font-size: 10px; }
 .workspace-help { margin: 4px 8px; color: var(--muted-fg); font-size: 12px; line-height: 1.6; }
@@ -39,7 +49,7 @@
 .workspace-checkout-actions input { width: 100%; margin-top: 6px; border: 1px solid var(--input); background: var(--background); color: var(--foreground); padding: 6px; }
 .workspace-add-checkout { display: flex; align-items: center; gap: 8px; margin-left: 14px; padding: 7px 0; font-size: 11px; color: var(--muted-fg); }
 .workspace-add-checkout:hover { color: var(--foreground); }
-.workspace-session-list { flex: 0 1 auto; min-height: 44px; max-height: 42%; overflow: auto; padding: 6px 8px 12px; border-top: 1px solid var(--border); }
+.workspace-session-list { flex: 1; min-height: 44px; overflow: auto; padding: 6px 8px 12px; border-top: 1px solid var(--border); }
 .workspace-session { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 7px 8px; text-align: left; border-left: 2px solid transparent; }
 .workspace-session:hover { background: var(--card); }
 .workspace-session.is-current { background: var(--ws-accent); border-left-color: var(--ring); }
@@ -52,13 +62,12 @@
 .workspace-project-status button { display: inline-flex; align-items: center; gap: 5px; }
 .workspace-project-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 25; touch-action: none; }
 .workspace-project-resize:hover, .workspace-project-resize:focus-visible { background: var(--ring); }
-.workspace-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 44px; width: 44px; min-height: 0; padding: 8px 4px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--sidebar); }
-.workspace-rail > button { position: relative; display: flex; align-items: center; justify-content: center; width: 34px; min-height: 34px; flex-shrink: 0; border-radius: 3px; color: var(--muted-fg); }
-.workspace-rail > button > span { display: none; }
+.workspace-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 68px; width: 68px; min-height: 0; padding: 8px 4px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--sidebar); }
+.workspace-rail > button { position: relative; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px; width: 58px; min-height: 48px; flex-shrink: 0; border-radius: 3px; color: var(--muted-fg); }
+.workspace-rail > button > span { font-size: 10px; line-height: 1.2; }
 .workspace-rail > button:hover:not(:disabled) { background: var(--card); color: var(--foreground); }
 .workspace-rail > button[aria-pressed='true'] { color: var(--foreground); background: var(--ws-accent); }
 .workspace-rail > button[aria-pressed='true']::after { content: ''; position: absolute; right: -4px; height: 18px; width: 2px; background: var(--ring); }
-.workspace-rail > button:nth-of-type(4), .workspace-rail > button:nth-of-type(6) { margin-top: 12px; }
 .workspace-rail button:disabled { opacity: .45; cursor: default; }
 .workspace-rail-spacer { flex: 1; min-height: 12px; }
 .workspace-frame button:focus-visible, .workspace-frame summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
