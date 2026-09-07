@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import downloads from '@shared/project-tool-downloads.json'
-import { INTEGRATED_PROJECT_TOOLS, PROJECT_TOOL_FIELDS, projectDoctorDiagnostics, type ProjectDoctorReport, type ProjectToolConfiguration } from '@shared/project-doctor'
+import { INTEGRATED_PROJECT_TOOLS, PROJECT_TOOL_FIELDS, projectDoctorDiagnostics, projectToolSetupStatus, type ProjectDoctorReport, type ProjectToolConfiguration } from '@shared/project-doctor'
 import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { useAppStore } from '../../store'
+import { ProjectMemoryConnection } from '../ProjectMemoryConnection'
 
 export function ProjectToolsSettings() {
   const workspacePath = useAppStore(state => state.activeWorktreePath)
   const [report, setReport] = useState<ProjectDoctorReport | null>(null)
   const [draft, setDraft] = useState<ProjectToolConfiguration | null>(null)
   const [backupSelection, setBackupSelection] = useState('')
+  const [showConnection, setShowConnection] = useState(false)
   const preview = useRef<HTMLDetailsElement>(null)
   useEffect(() => { if (backupSelection) preview.current?.scrollIntoView({ block: 'nearest' }) }, [backupSelection])
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
@@ -17,7 +19,7 @@ export function ProjectToolsSettings() {
   const accept = (value: ProjectDoctorReport) => { setReport(value); setDraft(value.configuration); setBackupSelection('') }
   useEffect(() => {
     let cancelled = false
-    setReport(null); setDraft(null); setError(''); setStatusError(''); setBackupSelection('')
+    setReport(null); setDraft(null); setError(''); setStatusError(''); setBackupSelection(''); setShowConnection(false)
     if (workspacePath) void window.donwells.projectDoctorInspect(workspacePath).then(value => { if (!cancelled) accept(value) }).catch(error => { if (!cancelled) setError(redactDesignCaptureSecrets(String(error))) })
     return () => { cancelled = true }
   }, [workspacePath])
@@ -52,7 +54,14 @@ export function ProjectToolsSettings() {
   if (!workspacePath) return <p>Select a project to configure its tools.</p>
   return <section className="project-tool-settings" aria-busy={busy} aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
     <h3>Project tools</h3>
-    <p>Use installed, admitted tools. Changing configuration stops this project’s tool services and preserves a backup. Native agent authentication stays with each CLI.</p>
+    <p>Saved settings apply across this project’s worktrees. Source indexes remain checkout-specific. Applying changes stops the project’s tool services and preserves a configuration backup.</p>
+    <p><strong>Shared facts and decisions</strong> use the existing project memory store. Document search retrieves source text; the code graph finds structural relationships. Native session history remains separate from confirmed facts.</p>
+    <details><summary>Use these tools from a terminal agent</summary>
+      <p>In the agent launcher, use <strong>Set up shared project memory</strong> for a supported harness, then start its session. For another harness, adapt the configuration below. The same project-bound connection exposes the configured document and code tools.</p>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowConnection(true)}>Show MCP connection</button>
+      <p>Ask the connected agent to call <code>project_engines</code> to inspect saved availability without starting optional services. A connection must be working before those tools can be called; configuring packages alone does not connect an agent.</p>
+    </details>
+    {showConnection && <ProjectMemoryConnection workspacePath={workspacePath} onClose={() => setShowConnection(false)} />}
     <p>Optional tools are installed separately. Downloads require a connection; installed tools and local models can work offline. Without them, terminals, files and shared project memory remain available.</p>
     {error && <p role="alert">{error}</p>}
     {statusError && <p role="status">{statusError}</p>}
@@ -69,10 +78,14 @@ export function ProjectToolsSettings() {
       {INTEGRATED_PROJECT_TOOLS.map(tool => {
         const service = report.services.find(value => value.id === tool.id)
         return <details key={tool.id}>
-          <summary>{tool.name} · {draft.disabled.includes(tool.id) ? 'disabled' : service?.status ?? (tool.id === 'backlog' && report.configuration.backlogBinary ? 'configured' : 'not configured')}</summary>
+          <summary>{tool.name} · {projectToolSetupStatus(report, tool.id)}</summary>
+          {draft.disabled.includes(tool.id) !== report.configuration.disabled.includes(tool.id) && <p role="status">{draft.disabled.includes(tool.id) ? 'Will be disabled' : 'Will be enabled'} when you apply configuration. The status above is the saved state.</p>}
+          {!service && !report.configuration.disabled.includes(tool.id) && tool.id !== 'backlog' && <p>Complete the paths below and apply configuration before checking this service.</p>}
           {service?.owner && <p>Owner: {service.scope === 'project' ? 'project' : 'checkout'} <code>{service.scope === 'project' ? service.owner.projectPath : service.owner.checkoutPath}</code><br />{service.activeCalls ?? 0} active calls{service.pid ? ` · Process ${service.pid}` : ''}</p>}
           <p>Admitted version: {tool.version}. {tool.scope}.</p>
           <p>{tool.models}</p>
+          {tool.id === 'documents' && <p>After checking the service, call <code>documents_index</code>, then <code>documents_status</code> to inspect progress. Use <code>documents_search</code> and <code>documents_get</code> to retrieve cited sources. A ready service does not mean its index is current.</p>}
+          {tool.id === 'code-graph' && <p>Call <code>code_graph_index</code> for this checkout, then <code>code_graph_callers</code> to inspect a symbol’s callers. <code>code_graph_status</code> reports the service; it does not establish index freshness.</p>}
           {tool.id === 'documents' && <label>Retrieval mode<select className="settings-input" disabled={busy} value={draft.documentRetrievalMode ?? 'auto'} onChange={event => setDraft({ ...draft, documentRetrievalMode: event.target.value as 'auto' | 'lexical' | 'hybrid' })}>
             <option value="auto">Automatic — hybrid when models are ready</option>
             <option value="lexical">Lexical — no model loading</option>
@@ -93,8 +106,8 @@ export function ProjectToolsSettings() {
           {tool.id === 'documents' && <label>Shared reference folders, one per line<textarea className="settings-input" style={{ width: '100%' }} disabled={busy} value={draft.referenceRoots.join('\n')} onChange={event => setDraft({ ...draft, referenceRoots: event.target.value.split('\n') })} /></label>}
           {tool.id === 'history' && (['historyOmpRoots', 'historyDshRoots'] as const).map(key => <label key={key} style={{ display: 'block' }}>{key === 'historyOmpRoots' ? 'OMP session roots' : 'DeepSeek session roots'}, one per line<textarea className="settings-input" disabled={busy} value={(draft[key] ?? []).join('\n')} onChange={event => setDraft({ ...draft, [key]: event.target.value.split('\n') })} /></label>)}
           {service?.detail && <p role="status">{service.detail}</p>}
-          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty || !service || Boolean(report.problem)} onClick={() => void run(() => window.donwells.projectDoctorRetry(workspacePath, tool.id))}>{tool.id === 'history' ? 'Reindex sessions' : 'Retry readiness'}</button>}
-          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={dirty || !service} onClick={() => void window.donwells.projectToolStop(workspacePath, tool.id).then(async () => { const value = await window.donwells.projectDoctorInspect(workspacePath); if (useAppStore.getState().activeWorktreePath === workspacePath) accept(value) }).catch(error => setError(redactDesignCaptureSecrets(String(error))))}>Stop service</button>}
+          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty || !service || Boolean(report.problem)} onClick={() => void run(() => window.donwells.projectDoctorRetry(workspacePath, tool.id))}>{tool.id === 'history' ? 'Reindex sessions' : service?.status === 'ready' ? 'Restart and check service' : service?.status === 'failed' ? 'Retry service' : 'Start and check service'}</button>}
+          {tool.id !== 'backlog' && <button type="button" className="btn btn-secondary btn-sm" disabled={!service || (service.status === 'stopped' && !busy) || service.status === 'stopping'} onClick={() => void window.donwells.projectToolStop(workspacePath, tool.id).then(async () => { const value = await window.donwells.projectDoctorInspect(workspacePath); if (useAppStore.getState().activeWorktreePath === workspacePath) setReport(current => current && ({ ...current, services: value.services })) }).catch(error => setError(redactDesignCaptureSecrets(String(error))))}>Stop service</button>}
         </details>
       })}
       {(dirty || (report.problem && report.revision)) && <>

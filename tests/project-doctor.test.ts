@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } f
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProjectDoctor, measureProjectToolPath } from '../src/main/project-doctor'
-import { parseProjectToolConfiguration, projectDoctorDiagnostics } from '../src/shared/project-doctor'
+import { parseProjectToolConfiguration, projectDoctorDiagnostics, projectToolSetupStatus } from '../src/shared/project-doctor'
 
 const roots: string[] = [], doctors: ProjectDoctor[] = []
 afterEach(async () => { await Promise.all(doctors.splice(0).map(doctor => doctor.close())); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -207,4 +207,18 @@ it('does not treat a dangling configuration link as an absent configuration', as
   expect((await f.doctor.inspect(f.project)).configurationValid).toBe(false)
   await expect(f.doctor.start(f.project, 'documents')).rejects.toThrow()
   await expect(readFile(f.counter)).rejects.toThrow()
+})
+
+
+it('reports saved engine state without treating partial setup or an unverified board as ready', async () => {
+  const f = await fixture(), report = await f.doctor.inspect(f.project)
+  expect(projectToolSetupStatus(report, 'documents')).toBe('stopped')
+  const partial = { ...report, services: [], configuration: { ...report.configuration, qmdPackage: '/selected/qmd', backlogBinary: '/selected/backlog' } }
+  expect(projectToolSetupStatus(partial, 'documents')).toBe('setup incomplete')
+  expect(projectToolSetupStatus(partial, 'backlog')).toBe('configured · launch unverified')
+  expect(projectToolSetupStatus(partial, 'code-graph')).toBe('not configured')
+  const disabled = { ...report, configuration: { ...report.configuration, disabled: ['documents'] } }
+  expect(projectToolSetupStatus(disabled, 'documents')).toBe('disabled')
+  expect(JSON.parse(projectDoctorDiagnostics(disabled)).tools.find((tool: { id: string }) => tool.id === 'documents').status).toBe('disabled')
+  expect(projectToolSetupStatus({ ...report, configurationValid: false }, 'documents')).toBe('configuration unreadable')
 })

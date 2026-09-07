@@ -62,6 +62,17 @@ export type ProjectDoctorReport = {
   availableDiskBytes: number | null
 }
 
+/** Saved configuration and live owner state only; unsaved UI drafts are not runtime state. */
+export function projectToolSetupStatus(report: ProjectDoctorReport, id: string): string {
+  if (!report.configurationValid) return 'configuration unreadable'
+  if (report.configuration.disabled.includes(id)) return 'disabled'
+  const service = report.services.find(value => value.id === id)
+  if (service) return service.status
+  const tool = INTEGRATED_PROJECT_TOOLS.find(value => value.id === id)
+  if (!tool?.fields.some(field => report.configuration[field])) return 'not configured'
+  return id === 'backlog' ? 'configured · launch unverified' : 'setup incomplete'
+}
+
 /** An allowlisted support export: no paths, native output, configuration contents, or credentials. */
 export function projectDoctorDiagnostics(report: ProjectDoctorReport): string {
   return JSON.stringify({
@@ -69,7 +80,7 @@ export function projectDoctorDiagnostics(report: ProjectDoctorReport): string {
     configurationValid: report.configurationValid,
     configurationNeedsAttention: Boolean(report.problem),
     availableDiskBytes: report.availableDiskBytes,
-    tools: INTEGRATED_PROJECT_TOOLS.map(tool => ({ id: tool.id, admittedVersion: tool.version, disabled: report.configuration.disabled.includes(tool.id), status: report.services.find(service => service.id === tool.id)?.status ?? 'not configured' })),
+    tools: INTEGRATED_PROJECT_TOOLS.map(tool => ({ id: tool.id, admittedVersion: tool.version, disabled: report.configuration.disabled.includes(tool.id), status: projectToolSetupStatus(report, tool.id) })),
     resources: report.resources.map(resource => ({ field: resource.field, bytes: resource.bytes, needsAttention: Boolean(resource.problem) }))
   }, null, 2)
 }
