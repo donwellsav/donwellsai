@@ -55,6 +55,16 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     const names = (result: any) => result.callers.groups.flatMap((group: any) => group.rows.map((row: any[]) => row[0]))
     expect(names(await call(paths[0]!, 'callers', { function_name: 'target' }))).toEqual(['firstCaller'])
     expect(names(await call(paths[1]!, 'callers', { function_name: 'target' }))).toEqual(['secondCaller'])
+    for (const path of paths) {
+      const callers = await call(path, 'callers', { function_name: 'target' })
+      const group = callers.callers.groups[0], name = group.rows[0][callers.callers.cols.indexOf('name')]
+      const qualified_name = group.qn_prefix ? `${group.qn_prefix}.${name}` : name
+      const source = await call(path, 'source', { qualified_name })
+      expect(source.file_path).toBe('code.ts')
+      expect(source.start_line).toBe(2)
+      expect(source.source).toContain(name)
+      expect(source.freshness.state).toBe('current')
+    }
     writeFileSync(join(paths[0]!, 'code.ts'), 'export function target() { return 42 }\nexport function renamedCaller() { return target() }\n')
     expect((await call(paths[0]!, 'callers', { function_name: 'target' })).freshness.state).toBe('stale')
     expect((await call(paths[1]!, 'callers', { function_name: 'target' })).freshness.state).toBe('current')

@@ -125,11 +125,11 @@ const CODE_MCP_TOOLS: readonly McpTool[] = [
     inputSchema: { type: 'object', additionalProperties: false, properties: { query: { type: 'string', minLength: 1, maxLength: 1000 }, language: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$', description: 'Optional ast-grep language; makes query a syntax pattern rather than literal text.' }, maxResults: { type: 'integer', minimum: 1, maximum: 1000, default: 200 }, showHidden: { type: 'boolean', default: false }, includeIgnored: { type: 'boolean', default: false } }, required: ['query'] },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   },
-  ...(['status', 'index', 'callers'] as const).map(action => ({
+  ...(['status', 'index', 'callers', 'definitions', 'imports', 'source'] as const).map(action => ({
     name: `code_graph_${action}`,
-    title: action === 'status' ? 'Code graph availability' : action === 'index' ? 'Rebuild checkout code index' : 'Find direct callers',
-    description: action === 'status' ? 'Check whether the optional code graph is enabled and its service state, without starting it.' : action === 'index' ? 'Explicitly rebuild the derived code index for this pinned checkout. Does not edit source files or project memory. Check freshness and partial-parse coverage in the result. An uncertain failure must be inspected before retrying.' : 'Find direct callers of a function in this pinned checkout. Requires an existing index; does not automatically rebuild. Preserve native confidence and freshness in your answer. Stale or unknown results are not verified-current evidence; dynamic resolution may be incomplete.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'callers' ? { function_name: { type: 'string', minLength: 1, maxLength: 128 } } : {}, ...(action === 'callers' ? { required: ['function_name'] } : {}) },
+    title: action === 'status' ? 'Code graph availability' : action === 'index' ? 'Rebuild checkout code index' : action === 'source' ? 'Read exact graph symbol source' : action === 'definitions' ? 'Find symbol definitions' : action === 'imports' ? 'Find symbol file imports' : 'Find direct callers',
+    description: action === 'status' ? 'Check whether the optional code graph is enabled and its service state, without starting it.' : action === 'index' ? 'Explicitly rebuild the derived code index for this pinned checkout. Does not edit source files or project memory. Check freshness and partial-parse coverage in the result. An uncertain failure must be inspected before retrying.' : action === 'source' ? 'Read the exact source location returned for a qualified graph symbol in this pinned checkout. Requires current graph freshness; partial-parser coverage notes remain limitations.' : action === 'definitions' ? 'Find indexed definitions with this exact symbol name. Results retain qualified names and source paths; partial parses can omit definitions.' : action === 'imports' ? 'Find static IMPORTS relationships from the file defining this exact qualified symbol. Dynamic loading and unsupported parser constructs remain uncertain.' : 'Find direct callers of a function in this pinned checkout. Requires an existing index; does not automatically rebuild. Preserve native confidence and freshness in your answer. Stale or unknown results are not verified-current evidence; dynamic resolution may be incomplete.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'callers' ? { function_name: { type: 'string', minLength: 1, maxLength: 128 } } : action === 'definitions' ? { symbol: { type: 'string', minLength: 1, maxLength: 128 } } : ['imports', 'source'].includes(action) ? { qualified_name: { type: 'string', minLength: 1, maxLength: 2048 } } : {}, ...(['callers', 'definitions', 'imports', 'source'].includes(action) ? { required: [action === 'callers' ? 'function_name' : action === 'definitions' ? 'symbol' : 'qualified_name'] } : {}) },
     annotations: { readOnlyHint: action !== 'index', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
   }))
 ]
@@ -556,7 +556,7 @@ export class ProjectMemoryMcpSession {
     }
     try {
       const result = await this.executeTool(name, argumentsValue)
-      if (name.startsWith('computer_') && name!=='computer_stop' || name.startsWith('browser_test_') && !['browser_test_status','browser_test_stop'].includes(name) || ['code_graph_index', 'code_graph_callers', 'documents_index', 'documents_search', 'documents_get', 'documents_multi_get'].includes(name)) {
+      if (name.startsWith('computer_') && name!=='computer_stop' || name.startsWith('browser_test_') && !['browser_test_status','browser_test_stop'].includes(name) || name.startsWith('code_graph_') && name !== 'code_graph_status' || ['documents_index', 'documents_search', 'documents_get', 'documents_multi_get'].includes(name)) {
         const native = record(result, 'tool result')
         if (!Array.isArray(native.content)) throw new Error('Malformed tool result')
         if (Buffer.byteLength(JSON.stringify(native)) > PROJECT_MEMORY_MCP_MAX_RESPONSE_BYTES) throw new Error('Tool response exceeds the MCP limit; narrow the query')
@@ -599,7 +599,7 @@ export class ProjectMemoryMcpSession {
           { role: 'Durable facts and decisions', engine: 'SQLite / FTS5', tools: ['memory_search', 'memory_record', 'memory_replace', 'memory_read'], authority: 'Canonical project memory; revision-checked changes.' },
           ...[
             { id: 'documents', role: 'Source document retrieval', engine: 'QMD / LanceDB', tools: ['documents_status', 'documents_index', 'documents_search', 'documents_get'], setup: 'Enable Document retrieval and select QMD/LanceDB packages in Project tools. Choose lexical, automatic or required hybrid; hybrid needs the admitted local models.' },
-            { id: 'code-graph', role: 'Checkout code relationships', engine: 'codebase-memory-mcp', tools: ['code_graph_status', 'code_graph_index', 'code_graph_callers'], setup: 'Enable Code graph and select its admitted executable in Project tools.' }
+            { id: 'code-graph', role: 'Checkout code relationships', engine: 'codebase-memory-mcp', tools: ['code_graph_status', 'code_graph_index', 'code_graph_callers', 'code_graph_definitions', 'code_graph_imports', 'code_graph_source'], setup: 'Enable Code graph and select its admitted executable in Project tools.' }
           ].map(engine => ({ ...engine, available: services.some(service => service?.id === engine.id), service: services.find(service => service?.id === engine.id) ?? null }))
         ] }
       }
@@ -637,11 +637,17 @@ export class ProjectMemoryMcpSession {
         return { available: service !== null, service }
       }
       case 'code_graph_index':
-      case 'code_graph_callers': {
+      case 'code_graph_callers':
+      case 'code_graph_definitions':
+      case 'code_graph_imports':
+      case 'code_graph_source': {
         const callers = name === 'code_graph_callers'
-        allowedKeys(input, callers ? ['function_name'] : [], 'code graph arguments')
-        const args = callers ? { function_name: parseCodeGraphFunctionName(input.function_name) } : {}
-        return this.invoke('tool.call', { workspacePath: this.workspacePath, id: 'code-graph', operation: callers ? 'callers' : 'index', arguments: args })
+        const definitions = name === 'code_graph_definitions'
+        const imports = name === 'code_graph_imports'
+        const source = name === 'code_graph_source'
+        allowedKeys(input, callers ? ['function_name'] : definitions ? ['symbol'] : imports || source ? ['qualified_name'] : [], 'code graph arguments')
+        const args = callers ? { function_name: parseCodeGraphFunctionName(input.function_name) } : definitions ? { symbol: parseCodeGraphFunctionName(input.symbol) } : imports || source ? { qualified_name: input.qualified_name } : {}
+        return this.invoke('tool.call', { workspacePath: this.workspacePath, id: 'code-graph', operation: callers ? 'callers' : definitions ? 'definitions' : imports ? 'imports' : source ? 'source' : 'index', arguments: args })
       }
       case 'handoff_receive':
       case 'handoff_acknowledge': {

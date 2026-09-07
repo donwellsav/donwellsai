@@ -19,6 +19,7 @@ import {
 import { VersionedEditorSave, type EditorSaveSnapshot } from '../editor-save'
 import { monaco, registerLanguageWorkspace, restartLanguageTools } from '../monaco-setup'
 import { isMarkdownFile, useAppStore } from '../store'
+import { selectedGraphSymbol } from '../project-graph'
 import { MarkdownPreview } from './MarkdownPreview'
 import { ModalDialog } from './ModalDialog'
 
@@ -207,6 +208,20 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         contextMenuGroupId: 'navigation',
         run: () => restartLanguageTools()
       })
+      const inspectSymbol = editor.addAction({
+        id: 'donwells.inspectSymbolCallers',
+        label: 'Find selected symbol callers',
+        contextMenuGroupId: 'navigation',
+        run: () => {
+          try {
+            const selection = editor.getSelection()
+            const position = editor.getPosition()
+            const symbol = selectedGraphSymbol(selection ? editor.getModel()?.getValueInRange(selection) ?? '' : '', position ? editor.getModel()?.getWordAtPosition(position)?.word ?? '' : '')
+            useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphQuery: symbol, graphOpen: true } }))
+            useAppStore.getState().setRightSidebarTab('search')
+          } catch (error) { useAppStore.getState().setError(String(error)) }
+        }
+      })
       const languageNavigation = monaco.editor.registerEditorOpener({
         openCodeEditor: async (source, resource, position) => {
           if (source !== editor) return false
@@ -283,6 +298,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       disposeEditor = () => {
         languageNavigation.dispose()
         restartLanguages.dispose()
+        inspectSymbol.dispose()
         saveAction.dispose()
         changes.dispose()
         cursorChanges.dispose()

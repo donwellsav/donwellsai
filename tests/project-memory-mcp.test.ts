@@ -204,6 +204,9 @@ describe('project memory MCP protocol', () => {
           { name: 'code_graph_status' },
           { name: 'code_graph_index' },
           { name: 'code_graph_callers' },
+          { name: 'code_graph_definitions' },
+          { name: 'code_graph_imports' },
+          { name: 'code_graph_source' },
           ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` })),
           ...['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({name:`browser_test_${action}`})),
           ...['status','permissions','windows','attach','observe','screenshot','click','type','pixel_click','pixel_type','hotkey','stop'].map(action=>({name:`computer_${action}`}))
@@ -493,6 +496,12 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   expect(toolValue(await call('code_graph_status'))).toEqual({ available: false, service: null })
   expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: native })
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'callers', arguments: { function_name: 'target' } } })
+  await call('code_graph_definitions', { symbol: 'target' })
+  expect(calls.at(-1)?.params.operation).toBe('definitions')
+  await call('code_graph_imports', { qualified_name: 'checkout.code.target' })
+  expect(calls.at(-1)?.params.operation).toBe('imports')
+  expect(await call('code_graph_source', { qualified_name: 'checkout.code.target' })).toMatchObject({ result: native })
+  expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'code-graph', operation: 'source', arguments: { qualified_name: 'checkout.code.target' } } })
   await call('code_graph_index')
   expect(calls.at(-1)?.params.operation).toBe('index')
   expect(toolValue(await call('documents_status'))).toEqual({ available: false, service: null })

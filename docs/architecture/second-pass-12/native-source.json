@@ -1,0 +1,502 @@
+{
+  "binary": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/codebase-memory-0.10.8/codebase-memory-mcp",
+  "binarySha256": "2412e017268bef8f847f38d1b0f79f63185b38c27fe6fba637067bfc87c0eedf",
+  "runnerSha256": "5744bb654ab1cc3500f8de96de71efef38db71805134ce1e8f8dc6fb7f897c0c",
+  "sourceCommit": "29636dc1d8aeba13d913623fb29cd5ba4fe3a801",
+  "operations": [
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "index",
+      "elapsedMs": 1624.6669590000001,
+      "result": {
+        "project": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913",
+        "excluded": {
+          "dirs": [
+            ".git"
+          ],
+          "count": 1,
+          "truncated": false
+        },
+        "not_indexed_files_count": 0,
+        "skipped_count": 0,
+        "parse_partial_count": 0,
+        "nodes": 6,
+        "edges": 6,
+        "expected_nodes": 6,
+        "expected_edges": 6,
+        "adr_present": false,
+        "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+        "artifact_present": false,
+        "status": "indexed",
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.665Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "index",
+      "elapsedMs": 1631.4489580000009,
+      "result": {
+        "project": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2",
+        "excluded": {
+          "dirs": [
+            ".git"
+          ],
+          "count": 1,
+          "truncated": false
+        },
+        "not_indexed_files_count": 0,
+        "skipped_count": 0,
+        "parse_partial_count": 0,
+        "nodes": 6,
+        "edges": 6,
+        "expected_nodes": 6,
+        "expected_edges": 6,
+        "adr_present": false,
+        "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+        "artifact_present": false,
+        "status": "indexed",
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "callers",
+      "elapsedMs": 66.29908400000022,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913.code",
+              "rows": [
+                [
+                  "firstCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.665Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "callers",
+      "elapsedMs": 80.44745800000055,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code",
+              "rows": [
+                [
+                  "secondCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "callers",
+      "elapsedMs": 61.397541000000274,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913.code",
+              "rows": [
+                [
+                  "firstCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.665Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "source",
+      "elapsedMs": 53.282750000000306,
+      "result": {
+        "name": "firstCaller",
+        "qualified_name": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913.code.firstCaller",
+        "label": "Function",
+        "file_path": "code.ts",
+        "start_line": 2,
+        "end_line": 52,
+        "source": "export function firstCaller() { return target() }\n",
+        "callers": 0,
+        "callees": 1,
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.665Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "callers",
+      "elapsedMs": 74.87041700000009,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code",
+              "rows": [
+                [
+                  "secondCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "source",
+      "elapsedMs": 77.39295899999888,
+      "result": {
+        "name": "secondCaller",
+        "qualified_name": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code.secondCaller",
+        "label": "Function",
+        "file_path": "code.ts",
+        "start_line": 2,
+        "end_line": 52,
+        "source": "export function secondCaller() { return target() }\n",
+        "callers": 0,
+        "callees": 1,
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "callers",
+      "elapsedMs": 64.90079100000003,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913.code",
+              "rows": [
+                [
+                  "firstCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "stale",
+          "indexedAt": "2026-09-07T12:42:38.665Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "callers",
+      "elapsedMs": 80.40937499999927,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code",
+              "rows": [
+                [
+                  "secondCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "index",
+      "elapsedMs": 1603.4522080000006,
+      "result": {
+        "project": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913",
+        "excluded": {
+          "dirs": [
+            ".git"
+          ],
+          "count": 1,
+          "truncated": false
+        },
+        "not_indexed_files_count": 0,
+        "skipped_count": 0,
+        "parse_partial_count": 0,
+        "nodes": 6,
+        "edges": 6,
+        "expected_nodes": 6,
+        "expected_edges": 6,
+        "adr_present": false,
+        "adr_hint": "Project indexed. Consider creating an Architecture Decision Record: explore the codebase with get_architecture(aspects=['all']), then use manage_adr(mode='update') to persist architectural insights across sessions.",
+        "artifact_present": false,
+        "status": "indexed",
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:40.835Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a-b",
+      "operation": "callers",
+      "elapsedMs": 60.42550000000119,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "37c51f3f3cb2d8beb810353eb01d4c604fb80483f01402090a19b28ed6e9f913.code",
+              "rows": [
+                [
+                  "renamedCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:40.835Z",
+          "sourceRevision": "cca9b5d86c2c53e5cc8d1210c05aca04bf300932",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "callers",
+      "elapsedMs": 77.61883400000079,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code",
+              "rows": [
+                [
+                  "secondCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-graph-service-HxjZKN/a/b",
+      "operation": "callers",
+      "elapsedMs": 75.78629199999705,
+      "result": {
+        "function": "target",
+        "direction": "inbound",
+        "callers_total": 1,
+        "callers": {
+          "cols": [
+            "name",
+            "hop",
+            "strategy",
+            "confidence"
+          ],
+          "groups": [
+            {
+              "qn_prefix": "f7c0f8f5f22ba77227ac27898eae40179f9f8dfe609432047aae9f1b1fa105a2.code",
+              "rows": [
+                [
+                  "secondCaller",
+                  1,
+                  "lsp",
+                  0.95
+                ]
+              ]
+            }
+          ]
+        },
+        "freshness": {
+          "state": "current",
+          "indexedAt": "2026-09-07T12:42:38.672Z",
+          "sourceRevision": "0823eadc23df34a45a5edf9ad9402d637d00ab08",
+          "basis": "Git-visible source; ignored files and external dependencies are not verified"
+        }
+      }
+    }
+  ],
+  "start": [
+    {
+      "id": "code-graph",
+      "status": "ready",
+      "version": "0.10.8",
+      "detail": null
+    },
+    {
+      "id": "code-graph",
+      "status": "ready",
+      "version": "0.10.8",
+      "detail": null
+    }
+  ],
+  "foreignCacheConflictReportedWithoutStoppingOwners": true,
+  "unbuiltIndexRejected": true,
+  "siblingSurvived": true,
+  "siblingSurvivedRestart": true,
+  "remainingProcesses": [],
+  "daemonLog": "level=info msg=mem.allocator.bound_populations_only owned_classes=0/6 populations=sqlite,tree_sitter detail=ordinary_malloc_is_served_by_the_system_allocator_in_this_build_by_design;_allocator_tuning_applies_to_the_bound_populations\nlevel=info msg=mem.init budget_mb=512 total_ram_mb=131072 source=CBM_MEM_BUDGET_MB\nlevel=info msg=watcher.start interval_ms=multi-sec\nlevel=info msg=daemon.start version=0.10.8 pid=62439 cache_fingerprint=b865c01799f87e48dd45858cbd198dfd8ecfea9c79d727296153ac6476a7135e memory_budget_bytes=536870912 physical_job_limit=4 worker_memory_budget_bytes=134217728\nlevel=info msg=mcp.request protocol=jsonrpc method=initialize status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/list status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=initialize status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/list status=ok duration_ms=0\nlevel=warn msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=error duration_ms=0\nlevel=info msg=index.supervisor.reap outcome=clean exit_code=0 signal=0\nlevel=info msg=index.supervisor.reap outcome=clean exit_code=0 signal=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=index_repository status=ok duration_ms=1541\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=index_repository status=ok duration_ms=1550\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=2\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=get_code_snippet status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=get_code_snippet status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=index.supervisor.reap outcome=clean exit_code=0 signal=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=index_repository status=ok duration_ms=1541\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=initialize status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/list status=ok duration_ms=0\nlevel=info msg=mcp.request protocol=jsonrpc method=tools/call tool=trace_path status=ok duration_ms=0\nlevel=info msg=daemon.runtime_stopping reason=last_committed_client_disconnected\nlevel=info msg=daemon.lifetime_end reason=runtime_exited\nlevel=info msg=watcher.stop\nlevel=info msg=daemon.stop\n",
+  "fixtureRemoved": true
+}

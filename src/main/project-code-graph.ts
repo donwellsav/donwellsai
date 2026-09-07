@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { isObject } from '@shared/command-catalog'
@@ -30,6 +30,10 @@ export function createCodeGraphDefinition(binary: string, cachePath: string, cap
       const parsed: unknown = text && JSON.parse(text.text)
       return isObject(parsed) ? parsed : null
     } catch { return null }
+  }
+  const qualifiedName = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.trim() || value.length > 2048 || /[\0\r\n'\\]/.test(value)) throw new Error('Expected a bounded qualified symbol name')
+    return value
   }
   const run = (indexing: boolean) => async (scope: ProjectToolScope, request: () => Promise<unknown>): Promise<unknown> => {
     let receipt = receipts.get(scope.indexKey)
@@ -101,6 +105,46 @@ export function createCodeGraphDefinition(binary: string, cachePath: string, cap
         tool: 'trace_path', readOnly: true, run: run(false),
         parameters: { function_name: parseCodeGraphFunctionName },
         targets: scope => ({ project: scope.indexKey, direction: 'inbound', depth: 1, format: 'json', include_evidence: true })
+      },
+      definitions: {
+        tool: 'search_graph', readOnly: true,
+        parameters: { symbol: parseCodeGraphFunctionName },
+        targets: scope => ({ project: scope.indexKey }),
+        run: (scope, request, args) => run(false)(scope, () => request(undefined, { project: scope.indexKey, name_pattern: `^${String(args.symbol).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, format: 'json', limit: 50 }))
+      },
+      imports: {
+        tool: 'query_graph', readOnly: true,
+        parameters: { qualified_name: qualifiedName },
+        targets: scope => ({ project: scope.indexKey }),
+        run: (scope, request, args) => run(false)(scope, async () => {
+          const result = await request(undefined, { project: scope.indexKey, query: `MATCH (f)-[:DEFINES]->(s) WHERE s.qualified_name = '${args.qualified_name}' MATCH (f)-[:IMPORTS]->(b) RETURN DISTINCT b.qualified_name LIMIT 200` })
+          if (!isObject(result) || result.isError === true) return result
+          const text = Array.isArray(result.content) ? result.content.find(item => isObject(item) && item.type === 'text' && typeof item.text === 'string')?.text : undefined
+          if (typeof text !== 'string') throw new Error('Unsupported import response')
+          const lines = text.trimEnd().split('\n'), header = /^rows: (\d+)  \(cols: b\.qualified_name\)$/.exec(lines[0] ?? '')
+          const total = /^total: (\d+)$/.exec(lines.at(-1) ?? '')
+          if (!header || !total || Number(header[1]) !== Number(total[1])) throw new Error('Unsupported import response')
+          const imports = lines.slice(1, -1).map(line => /^  ([^\s]+)$/.exec(line)?.[1])
+          if (imports.length !== Number(header[1]) || imports.some(name => !name)) throw new Error('Unsupported import response')
+          const value = { imports }
+          return { ...result, structuredContent: value, content: [{ type: 'text', text: JSON.stringify(value) }] }
+        })
+      },
+      source: {
+        tool: 'get_code_snippet', readOnly: true,
+        parameters: { qualified_name: qualifiedName },
+        targets: scope => ({ project: scope.indexKey, include_neighbors: false }),
+        run: async (scope, request, args) => {
+          const result = await run(false)(scope, request)
+          const value = data(result)
+          if (!value) return result
+          if (!isObject(value.freshness) || value.freshness.state !== 'current') throw new Error('Graph source changed or freshness is unverified. Rebuild the code index before opening this symbol.')
+          if (value.qualified_name !== args.qualified_name || typeof value.file_path !== 'string') throw new Error('Graph symbol could not be resolved exactly')
+          const path = relative(scope.checkoutPath, resolve(scope.checkoutPath, value.file_path))
+          if (!path || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) throw new Error('Graph source is outside this checkout')
+          const source = { ...value, file_path: path }
+          return { ...(result as Record<string, unknown>), structuredContent: source, content: [{ type: 'text', text: JSON.stringify(source) }] }
+        }
       }
     }
   }
