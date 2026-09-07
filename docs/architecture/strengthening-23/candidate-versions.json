@@ -1,0 +1,14 @@
+{
+  "hindsight": {
+    "commit": "ebad478240d3171bb88201ececda5e8d9883d22d",
+    "tag": "v0.9.2"
+  },
+  "graphiti": {
+    "commit": "11538f6d45561bcce9a4400b374fb2dc533dccb6",
+    "tag": "mcp-v1.1.0"
+  },
+  "lightrag": {
+    "commit": "28ff1b05f2ac3f3e6fa14dd2cd33656579bd0c9c",
+    "tag": "v1.5.7"
+  }
+}
