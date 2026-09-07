@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AcpAgent } from '../src/main/agents/acp'
@@ -258,4 +258,32 @@ it('shows matching current-turn tool input before and after permission without c
   await until(() => owner.get().permissions.length === 1)
   expect(owner.get().permissions[0]!.request.toolCall.rawInput).toBeUndefined()
   owner.answerPermission(owner.get().permissions[0]!.id, 'deny'); await next
+})
+
+it('loads a lost owner history in the same daemon only after verified cleanup without replaying its uncertain prompt', async () => {
+  const { root } = fixture(), launch = { executable: process.execPath, args: [join(root, 'agent.mjs')] }
+  const sessions = new AcpSessions(join(root, 'loss-profile'), () => {})
+  sessions.start(root, 'lost-owner', launch, [])
+  try {
+    await until(() => sessions.list(root)[0]?.state === 'ready')
+    sessions.prompt(root, 'lost-owner', 'one-prompt', 'wait')
+    await until(() => existsSync(join(root, 'prompts.txt')) && readFileSync(join(root, 'prompts.txt'), 'utf8') === 'turn\n')
+    expect(() => sessions.start(root, 'live-load', launch, [], 'lost-owner')).toThrow('verified stopped')
+    expect(sessions.list(root)).toHaveLength(1)
+    const pid = sessions.list(root)[0]!.pid!
+    process.kill(pid, 'SIGKILL')
+    await until(() => sessions.observe(root, 'lost-owner').requests[0]?.state === 'uncertain')
+    await until(() => { try { process.kill(pid, 0); return false } catch { return true } })
+    const before = sessions.observe(root, 'lost-owner').requests
+    sessions.start(root, 'recovered-owner', launch, [], 'lost-owner')
+    await until(() => sessions.list(root).find(value => value.id === 'recovered-owner')?.state === 'ready')
+    expect(sessions.observe(root, 'lost-owner').requests).toEqual(before)
+    expect(sessions.observe(root, 'lost-owner').snapshot.state).toBe('uncertain')
+    expect(sessions.observe(root, 'recovered-owner').requests).toEqual([])
+    expect(sessions.observe(root, 'recovered-owner').snapshot.protocolSessionId).toBe('protocol-session')
+    expect(sessions.observe(root, 'recovered-owner').updates[0]?.notification.update).toMatchObject({ content: { text: 'saved history' } })
+    expect(readFileSync(join(root, 'prompts.txt'), 'utf8')).toBe('turn\n')
+  } finally {
+    for (const owner of sessions.list(root)) await sessions.control(root, owner.id, 'stop').catch(() => {})
+  }
 })

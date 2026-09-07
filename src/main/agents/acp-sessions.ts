@@ -131,7 +131,7 @@ export class AcpSessions {
     let loadSessionId: string | undefined
     if (loadRunId) {
       const prior = this.saved(workspacePath, loadRunId)
-      if (this.starting.has(loadRunId) || this.owners.has(loadRunId) && this.owners.get(loadRunId)!.get().state !== 'exited' || prior.pid && probeLocalProcessLiveness(prior.pid) !== 'exited') throw new Error('Previous ACP process must be verified stopped before loading its session')
+      if (this.starting.has(loadRunId) || prior.pid && probeLocalProcessLiveness(prior.pid) !== 'exited') throw new Error('Previous ACP process must be verified stopped before loading its session')
       if (!prior.protocolSessionId) throw new Error('Previous ACP session has no protocol history to load')
       loadSessionId = prior.protocolSessionId
     }
@@ -143,7 +143,16 @@ export class AcpSessions {
     const scopedServers = mcpServers.map(server => server.name === 'donwells-project-memory' && 'command' in server ? { ...server, env: [...server.env.filter(item => !Object.hasOwn(credentialEnv, item.name)), ...Object.entries(credentialEnv).map(([name, value]) => ({ name, value }))] } : server)
     const controller = new AbortController()
     this.starting.set(id, controller)
-    void AcpAgent.start({ id, signal: controller.signal, workspacePath, launch, mcpServers: scopedServers, loadSessionId, onChange: snapshot => this.save(snapshot) }).then(async owner => {
+    const start = async () => {
+      if (loadRunId) {
+        // A lost prompt stays uncertain; finish its process cleanup without deleting its journal.
+        await this.owners.get(loadRunId)?.stop()
+        const prior = this.saved(workspacePath, loadRunId)
+        if (prior.pid && probeLocalProcessLiveness(prior.pid) !== 'exited') throw new Error('Previous ACP process termination could not be verified')
+      }
+      return AcpAgent.start({ id, signal: controller.signal, workspacePath, launch, mcpServers: scopedServers, loadSessionId, onChange: snapshot => this.save(snapshot) })
+    }
+    void start().then(async owner => {
       this.owners.set(id, owner)
       if (this.stopping.has(id)) await owner.stop()
       else if (initialContext?.trim()) this.prompt(workspacePath, id, 'reviewed-context', initialContext)
