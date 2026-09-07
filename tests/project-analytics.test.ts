@@ -34,7 +34,7 @@ it('aggregates only current project records, retains missing cost coverage and n
   try {
     const result = await service.analytics(project)
     expect(result).toMatchObject({ sessions: 2, excluded: 2, truncated: false })
-    expect(result.days).toEqual([{ day: '2026-09-07', agent: 'omp', sessions: 2, outputTokens: 400, tokenSessions: 1, peakContext: 900 }])
+    expect(result.days).toEqual([{ day: '2026-09-07', agent: 'omp', sessions: 2, outputTokens: 400, tokenSessions: 1, peakContext: 900, contextSessions: 1 }])
     expect(result.costs).toEqual([
       { day: '2026-09-07', status: 'reported', source: 'native', events: 1, measuredEvents: 1, microdollars: 0 },
       { day: '2026-09-07', status: 'unknown', source: 'native', events: 1, measuredEvents: 0, microdollars: null }

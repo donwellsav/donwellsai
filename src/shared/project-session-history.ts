@@ -3,7 +3,7 @@ import type { ProjectSearchHit } from './project-tools'
 export type SessionHistorySearch = { hits: ProjectSearchHit[]; truncated: boolean; capabilities: Record<string, string> }
 export type SessionHistoryAnalytics = {
   indexedAt: string; sessions: number; excluded: number; truncated: boolean
-  days: Array<{ day: string; agent: string; sessions: number; outputTokens: number | null; tokenSessions: number; peakContext: number | null }>
+  days: Array<{ day: string; agent: string; sessions: number; outputTokens: number | null; tokenSessions: number; peakContext: number | null; contextSessions: number }>
   costs: Array<{ day: string; status: string; source: string; events: number; measuredEvents: number; microdollars: number | null }>
 }
 export type SessionHistorySource = {

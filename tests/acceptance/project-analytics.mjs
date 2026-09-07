@@ -40,6 +40,14 @@ try {
   })
   await search.getByRole('table', { name: 'Native session usage' }).waitFor()
   await page.screenshot({ path: join(evidence, 'analytics.png') })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1100, 720))
+  await page.waitForFunction(() => {
+    const panel = document.querySelector('.project-analytics')?.getBoundingClientRect()
+    const search = document.querySelector('.project-search')?.getBoundingClientRect()
+    return panel && search && panel.height >= 28 && panel.bottom <= search.bottom + 1
+  })
+  await page.screenshot({ path: join(evidence, 'analytics-small-window.png') })
+  report.smallWindowPanelContained = true
   report.keyboardDisclosureAndRefresh = true
   report.complete = true
 } catch (error) { report.error = String(error); process.exitCode = 1 }

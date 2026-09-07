@@ -1,10 +1,10 @@
 {
   "source": {
-    "commit": "c2867162cc9a5399f235206cce99da93a5ad5a48",
+    "commit": "ea4913067a3a35b3a8357dca67c31a3832716792",
     "dirty": true,
-    "contentHash": "8105ab468f68a78428c1cf680f2cf8918531520c811c36f489a4989fa0718e74"
+    "contentHash": "76821472421a1d42b5585690aa9afaf7a912e644d7f786b54846bb4097f750fd"
   },
-  "builtMainSha256": "914845aa724327124efb5337c1e9e47a565193669b7560cf42a875f9f48c0e6f",
+  "builtMainSha256": "36ece73a84c822dec3c885bb45487c4ef1fd1ed62b04c375198add509abe4a4b",
   "qualification": "Built Electron checkout; not a packaged-release claim",
   "analytics": {
     "days": [
@@ -14,15 +14,17 @@
         "sessions": 2,
         "outputTokens": 37001,
         "tokenSessions": 2,
-        "peakContext": 86020
+        "peakContext": 86020,
+        "contextSessions": 2
       }
     ],
     "costs": [],
-    "indexedAt": "2026-09-07T04:48:09.514Z",
+    "indexedAt": "2026-09-07T05:05:15.160Z",
     "sessions": 2,
     "excluded": 0,
     "truncated": false
   },
+  "smallWindowPanelContained": true,
   "keyboardDisclosureAndRefresh": true,
   "complete": true,
   "appShutdown": {

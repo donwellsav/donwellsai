@@ -30,6 +30,8 @@ The same scoped read is available through `history-analytics` / `history.analyti
 
 The built Electron app indexed two real project sessions, displayed their 37,001 output tokens and 86,020 peak context, and exposed missing billing events as unavailable. Keyboard disclosure and refresh passed, followed by graceful app/daemon shutdown. [Runtime receipt](strengthening-23/analytics-ui.json) and [rendered sidepanel](strengthening-23/analytics-ui.png) identify this build; these are not qualification of a newly packaged release. Full tests: 474 passed, 12 intentionally skipped; typecheck and build passed. The focused analytics test covers foreign/stale sources, quoted native IDs, real zero versus absent costs, and unchanged archive bytes.
 
+The follow-up build also displays measured-session coverage for peak context and keeps analytics inside the scrolling sidepanel at a smaller window size. [Small-window evidence](strengthening-23/analytics-small-window.png) and the updated runtime receipt cover that check; the focused test, typecheck and build passed again.
+
 ## Candidate trials
 
 Pinned source commits are recorded in [candidate-versions.json](strengthening-23/candidate-versions.json): Hindsight v0.9.2, Graphiti core 0.30.1 from mcp-v1.1.0, and LightRAG v1.5.7. They run in a separate research virtual environment, with private storage and local oMLX Ornith-1.5-35B-A3B-MLX-8bit. The trial bridge reuses the admitted QMD embedding and reranking models. It records actual LLM usage without storing prompts or answers in the receipt.
