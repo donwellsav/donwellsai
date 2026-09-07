@@ -7,7 +7,7 @@ Root:01a0741e-cbae-7b92-9b05-b2299f723c9a. The root integrates and commits work,
 
 ## Turing — /root/pass2_baseline_research
 
-Thread: `01a07ae6-0254-7433-91e8-ba107a6594d8`. At inventory: 15 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-0254-7433-91e8-ba107a6594d8/` in external package.
+Thread: `01a07ae6-0254-7433-91e8-ba107a6594d8`. At inventory: 15 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-0254-7433-91e8-ba107a6594d8/` in the repo-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -48,7 +48,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Arendt — /root/pass2_baseline_audit
 
-Thread: `01a07ae6-2985-7853-a3eb-40a8e12f8572`. At inventory: 13 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-2985-7853-a3eb-40a8e12f8572/` in external package.
+Thread: `01a07ae6-2985-7853-a3eb-40a8e12f8572`. At inventory: 13 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-2985-7853-a3eb-40a8e12f8572/` in the repo-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -68,7 +68,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Zeno — /root/pass2_evidence_fix
 
-Thread: `01a07aea-a4f6-7e81-a5b9-09620a5f171f`. At inventory: 557 command events and 157 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07aea-a4f6-7e81-a5b9-09620a5f171f/` in external package.
+Thread: `01a07aea-a4f6-7e81-a5b9-09620a5f171f`. At inventory: 557 command events and 157 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07aea-a4f6-7e81-a5b9-09620a5f171f/` in the repo-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -89,7 +89,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Newton — /root/plan_knowledge
 
-Thread: `01a07bba-124f-74b2-9992-b5e6cfb86e06`. At inventory: 442 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-124f-74b2-9992-b5e6cfb86e06/` in external package.
+Thread: `01a07bba-124f-74b2-9992-b5e6cfb86e06`. At inventory: 442 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-124f-74b2-9992-b5e6cfb86e06/` in the repo-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -100,7 +100,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Gibbs — /root/plan_execution
 
-Thread: `01a07bba-4010-7681-a41e-c5924380132d`. At inventory: 445 command events and 34 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-4010-7681-a41e-c5924380132d/` in external package.
+Thread: `01a07bba-4010-7681-a41e-c5924380132d`. At inventory: 445 command events and 34 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-4010-7681-a41e-c5924380132d/` in the repo-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 

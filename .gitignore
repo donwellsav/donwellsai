@@ -5,3 +5,6 @@ dist-cli
 *.log
 .DS_Store
 resources/native/
+
+# Local cross-app handoff: transcripts, evidence and recovery binaries.
+/handoff-2026-09-07/

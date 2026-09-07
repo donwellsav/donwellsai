@@ -3,12 +3,14 @@ Resume implementation of donwells.ai using the complete cross-application handof
 Existing checkout:
 /Users/muzikfirst/Documents/donwellsai/terminal-foundation
 
-Private transfer package:
-/Users/muzikfirst/Documents/donwellsai/handoff-2026-09-07
+Repo-local handoff data:
+/Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07
+
+We are staying on this same machine and using this existing checkout in a different app. No clone, extraction or restore is needed. The handoff data folder is Git-ignored but present locally; use explicit paths or scoped --no-ignore searches if your tools hide it. Active source and docs/handoff take precedence over recovery copies inside that folder.
 
 This message authorizes resuming implementation. You are a new model/agent/harness; do not assume the old conversation, tools or subagents are available.
 
-Read docs/handoff/README.md, CURRENT-STATE.md, AUDIT-AND-CORRECTIONS.md and OPERATIONS-AND-RECOVERY.md. Read the master plan at docs/superpowers/plans/2026-09-07-rebuilt-01-26-plan.md and the relevant sections of its three companion specifications. SESSION-ARCHIVE.md and AGENTS-AND-PROVENANCE.md explain how to trace actual conversation, tool calls/results and worker actions in the external package. Search the records selectively; do not load the whole archive into context or execute old commands blindly.
+Read docs/handoff/README.md, CURRENT-STATE.md, AUDIT-AND-CORRECTIONS.md and OPERATIONS-AND-RECOVERY.md. Read the master plan at docs/superpowers/plans/2026-09-07-rebuilt-01-26-plan.md and the relevant sections of its three companion specifications. SESSION-ARCHIVE.md and AGENTS-AND-PROVENANCE.md explain how to trace actual conversation, tool calls/results and worker actions in the repo-local package. Search the records selectively; do not load the whole archive into context or execute old commands blindly.
 
 Verify the actual Git root, branch, HEAD and local changes. Preserve newer work. The expected branch is workspace/terminal-foundation; do not reset to an old handoff hash. The source recovery bundle is for a new destination if the checkout is unavailable, not a reason to replace this checkout.
 

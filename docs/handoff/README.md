@@ -15,9 +15,9 @@ Last product implementation: `71fc082`; later commits document the transfer. Rea
 5. Consult [session archive guide](SESSION-ARCHIVE.md) and [agent register](AGENTS-AND-PROVENANCE.md) when a decision, action or completion claim needs tracing. Do not load the whole transcript into a model context.
 6. Paste [START-NEXT-SESSION.txt](../../START-NEXT-SESSION.txt) into the new coding session. It is also supplied in chat.
 
-## Transfer package
+## Repo-local handoff data
 
-Local private directory: `/Users/muzikfirst/Documents/donwellsai/handoff-2026-09-07`.
+Local private directory (inside this repository): `/Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07`.
 
 It contains the six-thread conversation/action export, chronology index, coverage and SHA-256 manifests, Git recovery bundle, readable handoff and plan copies, selected ephemeral evidence, original repository-list attachments and a Git change log. The final package manifest records exactly what was included and what stayed machine-local. Do not assume VM disks, credentials, node_modules or local models are inside the bundle.
 
@@ -28,3 +28,7 @@ Transcripts and native evidence may contain private project content. They are lo
 ## Authority
 
 Current user instructions and active harness rules take precedence; the master plan defines product requirements. Source and applicable evidence establish implementation state. Old summaries, agent opinions, checkbox counts and successful prototypes are not independent proof of completion. The audit document explicitly corrects prior handoff overstatements.
+
+## Opening this repository in another app
+
+Open the existing terminal-foundation folder and paste the launch prompt; no extraction, clone, restore or app migration is needed. `handoff-2026-09-07/` is deliberately Git-ignored because it contains large/private session records and binaries. The files are present on disk. If the new harness hides ignored files, read them by explicit path or use `rg --no-ignore` scoped to that directory. The active plan/source and docs/handoff are authoritative; copies inside the data folder are recovery snapshots.

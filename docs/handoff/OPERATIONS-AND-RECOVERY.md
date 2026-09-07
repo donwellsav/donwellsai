@@ -92,11 +92,11 @@ It is not final. Recorded signing is ad hoc Electron executable only, no Develop
 
 ## Recover the source if the original checkout is unavailable
 
-The external handoff package contains repository.bundle with the reachable history of workspace/terminal-foundation. Verify the package hash manifest and Git bundle before use. Clone into a NEW empty destination, never over this checkout:
+The repo-local handoff package contains repository.bundle with the reachable history of workspace/terminal-foundation. Verify the package hash manifest and Git bundle before use. Clone into a NEW empty destination, never over this checkout:
 
 ```sh
-git bundle verify /Users/muzikfirst/Documents/donwellsai/handoff-2026-09-07/repository.bundle
-git clone -b workspace/terminal-foundation /Users/muzikfirst/Documents/donwellsai/handoff-2026-09-07/repository.bundle /path/to/NEW-donwells-checkout
+git bundle verify /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/repository.bundle
+git clone -b workspace/terminal-foundation /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/repository.bundle /path/to/NEW-donwells-checkout
 ```
 
 Bundle recovery restores tracked source, plans and committed evidence, not node_modules, VM disks, models, private credentials, OS permissions or arbitrary /tmp files. Selected ephemeral evidence is separately inventoried; missing dependencies need existing pinned setup procedures. Consult package-manifest.json rather than assuming everything machine-local was copied.
