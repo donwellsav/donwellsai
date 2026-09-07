@@ -1,0 +1,88 @@
+{
+  "profile": "/private/tmp/donwells-native-integrated-profile-4",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-oTLB2J",
+  "id": "45a1fbc8-2b97-4940-9a01-f8e50c7a2d13",
+  "prompts": 3,
+  "observed": {
+    "revision": 4,
+    "harness": "deepseek-harness"
+  },
+  "restarted": true,
+  "restartFromPid": 9488,
+  "foreignScopeRejected": true,
+  "complete": true,
+  "shutdown": {
+    "forcedTermination": true,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonStopped": true,
+  "steps": {
+    "omp-correct": {
+      "sessionId": "66e6933b-7c74-4018-b732-039f4371b82b",
+      "complete": true,
+      "stopped": true,
+      "proof": {
+        "file": "/Users/muzikfirst/.omp/agent/sessions/-tmp-donwells-native-agents-oTLB2J/2026-09-07T15-25-38-834Z_01a07c79-9892-738b-a71e-435460ab9c23.jsonl",
+        "sha256": "f8f784ce20478211979024757c00f7254d4a9d4b0e20642adc27140e246c190c",
+        "tools": [
+          "read",
+          "read",
+          "memory_read",
+          "memory_replace"
+        ]
+      }
+    },
+    "dsh-recover": {
+      "sessionId": "9d04a5f9-6a0a-41a5-b882-4ab5faa1265a",
+      "complete": true,
+      "stopped": true,
+      "proof": {
+        "file": "/private/tmp/donwells-native-integrated-dsh-home-4/sessions/--private-var-folders-ly-4j6lsfds4n3g0_xcjrwjf4b40000gn-T-donwells-native-agents-oTLB2J--/session-190d1c01-08bf-4a4f-b1f4-afa7a27b229e/session.jsonl.zstd",
+        "sha256": "403bc34564738da90cc248b477b9d5656e08977e46335a2908676b465223736e",
+        "nativeSessionId": "session-190d1c01-08bf-4a4f-b1f4-afa7a27b229e",
+        "tools": [
+          "mcp__donwells-project-memory__memory_replace",
+          "mcp__donwells-project-memory__memory_read",
+          "mcp__donwells-project-memory__memory_history",
+          "mcp__donwells-project-memory__memory_replace"
+        ],
+        "staleRejected": true
+      }
+    },
+    "omp-recall": {
+      "sessionId": "9d8cd514-a4d5-44a1-bfa3-affe389795b2",
+      "complete": true,
+      "stopped": true,
+      "proof": {
+        "file": "/Users/muzikfirst/.omp/agent/sessions/-tmp-donwells-native-agents-oTLB2J/2026-09-07T15-25-38-834Z_01a07c79-9892-738b-a71e-435460ab9c23.jsonl",
+        "sha256": "348a5759c2d34bf3870c80919111ecb0a8960bc8af9fd35405ab5d76f7cde785",
+        "tools": [
+          "read",
+          "memory_read",
+          "memory_history"
+        ]
+      }
+    }
+  },
+  "setupRecovery": {
+    "reason": "electronApplication.evaluate: Error: Error invoking remote method 'agentConfigureMemory': Error: .omp/mcp.json already has a different donwells-project-memory entry; it was left unchanged\n    at bridge (/private/tmp/donwells-task09-cas-continuation.mjs:33:33)\n    at perform (/private/tmp/donwells-task09-cas-continuation.mjs:86:21)\n    at async file:///private/tmp/donwells-task09-cas-continuation.mjs:112:2",
+    "action": "Reuse the original packaged executable matching existing native MCP configuration; no configuration overwritten and no prompt repeated.",
+    "optionalArgsCorrection": "TypeError: setup.launchArgs is not iterable\n    at perform (file:///private/tmp/donwells-task09-cas-continuation.mjs:87:155)\n    at async file:///private/tmp/donwells-task09-cas-continuation.mjs:112:2"
+  },
+  "nativeTransportRecovery": {
+    "reason": "AssertionError [ERR_ASSERTION]: OMP missing memory_read\n    at turnEvidence (file:///private/tmp/donwells-task09-cas-continuation.mjs:50:36)\n    at perform (file:///private/tmp/donwells-task09-cas-continuation.mjs:98:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///private/tmp/donwells-task09-cas-continuation.mjs:112:2",
+    "transport": "OMP native xd MCP write",
+    "committedRevision": 3,
+    "agentStopped": true,
+    "appPid": 2079,
+    "appTermination": "SIGTERM after all owned sessions stopped",
+    "appExitConfirmed": true
+  },
+  "shutdownLimitation": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert(cleanSmokeAppShutdown(closed))\n\n    at file:///private/tmp/donwells-task09-cas-continuation.mjs:114:72",
+  "limitations": [
+    "Used the retained packaged executable matching existing native MCP setup; source setup replacement is a separate repair.",
+    "The intermediate app exit did not satisfy graceful shutdown; revision4 survived the confirmed exit and native OMP recalled it after restart. Task08 graceful lifecycle remains open.",
+    "Three native prompts total. Completed writes were observed and recovered, never resent."
+  ]
+}
