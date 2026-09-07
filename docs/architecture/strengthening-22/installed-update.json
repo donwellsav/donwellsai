@@ -1,0 +1,50 @@
+{
+  "source": {
+    "commit": "da760ccb368c2c8d92af517c57bc7a1f7201e534",
+    "dirty": true,
+    "contentHash": "16cf7cc9c9a26ce043eb04758a5a727881635e8ff6a7a39297d3b168edbb842b"
+  },
+  "artifactSha256": "7765d83e2c5590309454a4c72963d0934c61ae0d952fca4a26a5559f9d283e10",
+  "previousSha256": "8bf52f0bb5caad4aacde20a6dbbbf1a2813f3ff67540c5e22d1f3b6c7a00dec4",
+  "profile": "/private/tmp/donwells-strengthen-22-update-profile",
+  "project": "/private/tmp/donwells-strengthen-22-update-profile/fixture",
+  "versions": [
+    "0.3.0",
+    "0.4.0",
+    "0.3.0",
+    "0.4.0"
+  ],
+  "shutdowns": [
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "continuity": {
+    "sqliteRevision": 3,
+    "terminalIds": [
+      "1b692095-6277-4c6e-a37d-dbf8bac54130"
+    ],
+    "sourceUnchanged": true,
+    "migrationBackupUnchanged": true,
+    "exportsBeforeUpdateAndRollback": true
+  },
+  "verified": true,
+  "idleDaemonStopped": true
+}
