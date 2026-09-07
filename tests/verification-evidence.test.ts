@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, symlinkSyn
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { randomUUID } from 'node:crypto'
-import { OperationalRunService } from '../src/main/operational-run-service'
+import { createHash, randomUUID } from 'node:crypto'
+import { OperationalRunService, openVerificationArtifact } from '../src/main/operational-run-service'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
 import { runProcess } from '../src/shared/child-process/run-process'
@@ -35,7 +35,7 @@ async function fixture() {
   jobResult:async(id:string)=>{const job=jobs.get(id)!;return {exited:job.exited,exitCode:job.exitCode,output:job.output}},
   close:async(id:string)=>{const job=jobs.get(id);if(!job||job.exited)return;job.controller.abort();await job.done}
  }
- service=new OperationalRunService(profile,terminals as unknown as DaemonClient,async path=>{if(!registered||path!==repo||realpathSync(path)!==repo)throw new Error('Workspace unavailable');return repo},{source:path=>git.handoffSource(path),artifactRoots:async()=>[repo,cache],openArtifact:async path=>{opened.push(path)}})
+ service=new OperationalRunService(profile,terminals as unknown as DaemonClient,async path=>{if(!registered||path!==repo||realpathSync(path)!==repo)throw new Error('Workspace unavailable');return repo},{source:path=>git.handoffSource(path),artifactRoots:async()=>[repo,cache],openArtifact:async(path,workspacePath,sha256)=>{expect(workspacePath).toBe(repo);expect(sha256).toMatch(/^[a-f0-9]{64}$/);opened.push(path)}})
  cleanup.push(async()=>{service.stop();for(const job of jobs.values())if(!job.exited)job.controller.abort();await Promise.all([...jobs.values()].map(job=>job.done));rmSync(root,{recursive:true,force:true})})
  const finish=async()=>{for(const job of jobs.values())await job.done}
  const start=(code:string)=>service.parallelRunStart({name:'Fixture verification',command:shellCommand([process.execPath,'-e',code],process.platform),targets:[{kind:'local',root:repo,label:'fixture'}],concurrency:1})
@@ -122,4 +122,22 @@ it('captures only declared new or changed output bytes and authenticates both na
  await expect(f.service.parallelRunStart({name:'Wrong agent',command:'true',targets:[{kind:'local',root:f.repo,label:'fixture'}],concurrency:1},{credential:{runId:'agent-run',sessionId:'agent-session',token:'forged'}})).rejects.toThrow('Invalid credential')
  await expect(f.service.parallelRunStart({name:'Bad output',command:'true',targets:[{kind:'local',root:f.repo,label:'fixture'}],concurrency:1},{outputs:['../foreign']})).rejects.toThrow('checkout-relative')
  expect((await f.service.parallelRunsList()).length).toBe(before)
+})
+
+
+it('opens verified checkout text in the editor, keeps external and binary openers, and rejects a changed-text race', async () => {
+ const f=await fixture(),text=join(f.repo,'result.txt'),binary=join(f.repo,'result.bin'),external=join(f.cache,'browser.txt')
+ const content='VERIFIED_TEXT\n',sha=createHash('sha256').update(content).digest('hex')
+ writeFileSync(text,content);writeFileSync(binary,Buffer.from([0,1,2]));writeFileSync(external,content)
+ const editors:string[]=[],externalPaths:string[]=[]
+ const editor=async(root:string,path:string)=>{expect(root).toBe(f.repo);editors.push(path)}
+ const native=async(path:string)=>{externalPaths.push(path);return ''}
+ await openVerificationArtifact(text,f.repo,sha,editor,native)
+ expect(editors).toEqual(['result.txt']);expect(externalPaths).toEqual([])
+ await openVerificationArtifact(binary,f.repo,sha,editor,native)
+ await openVerificationArtifact(external,f.repo,sha,editor,native)
+ expect(externalPaths).toEqual([binary,external])
+ writeFileSync(text,'Changed after the owner hashed its recorded attachment\n')
+ await expect(openVerificationArtifact(text,f.repo,sha,editor,native)).rejects.toThrow('Artifact changed')
+ expect(editors).toEqual(['result.txt']);expect(externalPaths).toEqual([binary,external])
 })

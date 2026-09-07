@@ -29,7 +29,7 @@ import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
-import { OperationalRunService } from './operational-run-service'
+import { OperationalRunService, openVerificationArtifact } from './operational-run-service'
 import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
 import { deliverAgentAttachment } from './agent-delivery'
 import { DiffReviewService } from './diff-review'
@@ -507,7 +507,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectTasksInspect', (_e, path: string) => projectTasks.inspect(path))
   ipcMain.handle('projectTaskAuthority', (_e, path: string, enabled: boolean) => projectTasks.setAuthority(path, enabled))
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
-  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: async path => { const error = await shell.openPath(path); if (error) throw new Error(error) },artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
+  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
   void terminalBus.connect().catch((e) => {
     console.error('terminal daemon connect failed:', e)
   })

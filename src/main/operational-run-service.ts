@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises'
 import type { DiffReviewRunState } from '@shared/diff-review'
 import { stripVTControlCharacters } from 'node:util'
 import { WorktreeFiles } from './worktree-files'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import { isObject } from '@shared/command-catalog'
 import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
@@ -15,13 +15,28 @@ import { ScheduledRunScheduler, ScheduledRunStore } from './automations'
 import { ParallelRunOrchestrator, ParallelRunStore } from './orchestration'
 import type { DaemonClient } from './daemon-client'
 
+/** Open verified checkout text in the existing editor; other artifacts keep their platform opener. */
+export async function openVerificationArtifact(path: string, workspacePath: string, sha256: string, openEditor: (workspacePath: string, relPath: string) => Promise<unknown>, openExternal: (path: string) => Promise<string>): Promise<void> {
+  const relPath = relative(workspacePath, path)
+  if (relPath && relPath !== '..' && !relPath.startsWith(`..${sep}`) && !isAbsolute(relPath)) {
+    const file = await new WorktreeFiles().readFile(workspacePath, relPath.split(sep).join('/'))
+    if (!file.binary && !file.truncated) {
+      if (file.revision !== `sha256:${sha256}`) throw new Error('Artifact changed before opening in the editor')
+      await openEditor(workspacePath, file.path)
+      return
+    }
+  }
+  const error = await openExternal(path)
+  if (error) throw new Error(error)
+}
+
 export class OperationalRunService implements OperationalRunsApi {
   private readonly scheduler: ScheduledRunScheduler
   private readonly parallel: ParallelRunOrchestrator
   private readonly parallelStore: ParallelRunStore
   private readonly completing = new Map<string,Promise<void>>()
 
-  constructor(userDataDir: string, private readonly terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>; openArtifact?:(path:string)=>Promise<void>}) {
+  constructor(userDataDir: string, private readonly terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>; openArtifact?:(path:string,workspacePath:string,sha256:string)=>Promise<void>}) {
     const launch = async ({ target, command }: { target: OperationalTarget; command: string }): Promise<string> => {
       const workspacePath = await this.localWorkspace(target)
       return (await terminals.openJob(workspacePath, command)).id
@@ -236,7 +251,7 @@ export class OperationalRunService implements OperationalRunsApi {
     if (actual.sha256 !== recorded.sha256 || actual.bytes !== recorded.bytes) throw new Error('Artifact changed since attachment; review and attach its new bytes before opening')
     if (await this.resolveWorkspace(workspacePath) !== root || !this.parallelStore.get(runId)?.tasks.find(item => item.id === taskId)?.verification?.artifacts.some(item => item.path === path && item.sha256 === actual.sha256)) throw new Error('Artifact reference changed during opening')
     if (!this.verification?.openArtifact) throw new Error('Artifact opener is unavailable')
-    await this.verification.openArtifact(actual.path)
+    await this.verification.openArtifact(actual.path, root, actual.sha256)
   }
   async verificationAttach(workspacePath:string,runId:string,taskId:string,path:string):Promise<VerificationArtifact> {
     const root=await this.resolveWorkspace(workspacePath),run=this.parallelStore.get(runId),task=run?.tasks.find(task=>task.id===taskId)
