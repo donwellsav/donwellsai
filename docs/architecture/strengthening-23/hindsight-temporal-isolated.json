@@ -1,0 +1,247 @@
+{
+  "engine": "hindsight",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 1536,
+  "retained": [
+    {
+      "id": "august.md",
+      "returnedFactCount": 1,
+      "ms": 2887.996834004298
+    },
+    {
+      "id": "september.md",
+      "returnedFactCount": 2,
+      "ms": 4912.792542017996
+    },
+    {
+      "id": "ownership.md",
+      "returnedFactCount": 2,
+      "ms": 3991.913916892372
+    },
+    {
+      "id": "dependencies.md",
+      "returnedFactCount": 2,
+      "ms": 3985.443832934834
+    },
+    {
+      "id": "retry-policy.md",
+      "returnedFactCount": 1,
+      "ms": 2290.7112499233335
+    },
+    {
+      "id": "temporary-code.md",
+      "returnedFactCount": 1,
+      "ms": 2390.44245891273
+    },
+    {
+      "id": "foreign-private.md",
+      "returnedFactCount": 2,
+      "ms": 3891.670332988724
+    },
+    {
+      "id": "retry-policy.md",
+      "returnedFactCount": 2,
+      "ms": 3825.144207919948
+    },
+    {
+      "id": "retry-policy.md",
+      "returnedFactCount": 1,
+      "ms": 2899.1236250149086
+    }
+  ],
+  "queries": [
+    {
+      "id": "august-as-of",
+      "hits": [
+        "september.md",
+        "august.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 257.8491660533473,
+      "forbiddenSourceLeak": false,
+      "answer": "PostgreSQL",
+      "answerCorrect": true
+    },
+    {
+      "id": "september-current",
+      "hits": [
+        "september.md",
+        "august.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 252.66495801042765,
+      "forbiddenSourceLeak": false,
+      "answer": "SQLite",
+      "answerCorrect": true
+    },
+    {
+      "id": "relationship-owner",
+      "hits": [
+        "ownership.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "retry-policy.md",
+        "august.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 273.6225000116974,
+      "forbiddenSourceLeak": false,
+      "answer": "Alice Chen",
+      "answerCorrect": true
+    },
+    {
+      "id": "retry-initial",
+      "hits": [
+        "retry-policy.md",
+        "dependencies.md",
+        "temporary-code.md",
+        "september.md",
+        "august.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 238.84958296548575,
+      "forbiddenSourceLeak": false,
+      "answer": "5",
+      "answerCorrect": true
+    },
+    {
+      "id": "code-before-delete",
+      "hits": [
+        "temporary-code.md",
+        "dependencies.md",
+        "retry-policy.md",
+        "september.md",
+        "august.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 171.13529099151492,
+      "forbiddenSourceLeak": false,
+      "answer": "amber-lantern-731",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-positive-control",
+      "hits": [
+        "foreign-private.md",
+        "retry-policy.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 140.20412508398294,
+      "forbiddenSourceLeak": false,
+      "answer": "violet-secret-982",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-isolation",
+      "hits": [
+        "temporary-code.md",
+        "september.md",
+        "august.md",
+        "dependencies.md",
+        "ownership.md"
+      ],
+      "recallAt5": null,
+      "ms": 188.45575000159442,
+      "forbiddenSourceLeak": false,
+      "answer": "UNKNOWN",
+      "answerCorrect": true
+    },
+    {
+      "id": "same-path-foreign-0",
+      "hits": [
+        "retry-policy.md",
+        "foreign-private.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 171.58754193224013,
+      "forbiddenSourceLeak": false,
+      "answer": "9",
+      "answerCorrect": true
+    },
+    {
+      "id": "retry-corrected",
+      "hits": [
+        "retry-policy.md",
+        "dependencies.md",
+        "september.md",
+        "august.md",
+        "ownership.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 203.49354099016637,
+      "forbiddenSourceLeak": false,
+      "answer": "3",
+      "answerCorrect": true
+    },
+    {
+      "id": "code-after-delete",
+      "hits": [
+        "dependencies.md",
+        "september.md",
+        "august.md",
+        "retry-policy.md",
+        "ownership.md"
+      ],
+      "recallAt5": null,
+      "ms": 238.6341670062393,
+      "forbiddenSourceLeak": false,
+      "answer": "UNKNOWN",
+      "answerCorrect": true
+    },
+    {
+      "id": "foreign-survives",
+      "hits": [
+        "foreign-private.md",
+        "retry-policy.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 176.4742910163477,
+      "forbiddenSourceLeak": false,
+      "answer": "violet-secret-982",
+      "answerCorrect": true
+    },
+    {
+      "id": "same-path-foreign-1",
+      "hits": [
+        "retry-policy.md",
+        "foreign-private.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 108.22162497788668,
+      "forbiddenSourceLeak": false,
+      "answer": "9",
+      "answerCorrect": true
+    }
+  ],
+  "errors": [],
+  "strictSchemaOverride": true,
+  "runnerSha256": "53926d671f71d920330e0be012aa5ab9dd70680f2d7993aa411d32e721e7a42c",
+  "timingConditions": "One whole trial per bridge, one model request at a time; shared host and filesystem cache uncontrolled.",
+  "startedAt": "2026-09-07T05:32:49.626942+00:00",
+  "corpusSha256": "24551f551040bbf4a61df91826c6221113c6e82e9f9fc41cc6c3f72d8d28fbd9",
+  "initializeMs": 6215.737582999282,
+  "deleted": [
+    {
+      "id": "retry-policy.md",
+      "ms": 11.915041948668659
+    },
+    {
+      "id": "temporary-code.md",
+      "ms": 3.848250024020672
+    }
+  ],
+  "complete": true,
+  "closed": true,
+  "totalMs": 53198.68966599461,
+  "pythonPeakRssBytes": 515145728,
+  "reapedChildPeakRssBytes": 43188224,
+  "resourceLimit": "Python peak RSS excludes native database processes, shared model bridge, baseline child and oMLX.",
+  "derivedBytes": 77653276,
+  "finishedAt": "2026-09-07T05:33:42.852120+00:00"
+}
