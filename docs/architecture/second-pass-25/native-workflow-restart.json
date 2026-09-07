@@ -1,0 +1,123 @@
+{
+  "recovery": "Read persisted native run after restart; no agent or model started",
+  "sessionId": "ff0bcaed-2bb1-4fa4-a1a4-976c7c2f4ca2",
+  "memoryAfterRestart": {
+    "revision": 2,
+    "harness": "acceptance-controller"
+  },
+  "run": {
+    "runId": "ffb4debd-3ea2-45c4-9e9a-0f909a7a8971",
+    "task": {
+      "id": "c97bd3d2-dd45-4422-a7e1-d444a5309392",
+      "verificationSetup": {
+        "outputs": [
+          "dist/native-agent.txt"
+        ],
+        "origin": {
+          "kind": "agent",
+          "runId": "d5780fe3-1bfb-4561-b5b0-06d0b8cbb788",
+          "sessionId": "ff0bcaed-2bb1-4fa4-a1a4-976c7c2f4ca2",
+          "mode": "native"
+        }
+      },
+      "target": {
+        "kind": "local",
+        "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-oTLB2J",
+        "label": "donwells-native-agents-oTLB2J"
+      },
+      "command": "'/Users/muzikfirst/.npm-global/bin/npm' 'run' 'verify'",
+      "status": "succeeded",
+      "sessionId": "dda9063e-6d19-454a-b22a-11cef77d22dc",
+      "startedAt": "2026-09-07T15:49:34.645Z",
+      "finishedAt": "2026-09-07T15:49:35.320Z",
+      "exitCode": 0,
+      "output": "\r\n> verify\r\n> node verify.cjs\r\n\r\nVERIFIED_NATIVE_AGENT\r\n\u2819",
+      "verification": {
+        "origin": {
+          "kind": "agent",
+          "runId": "d5780fe3-1bfb-4561-b5b0-06d0b8cbb788",
+          "sessionId": "ff0bcaed-2bb1-4fa4-a1a4-976c7c2f4ca2",
+          "mode": "native"
+        },
+        "outputs": [
+          {
+            "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-oTLB2J/dist/native-agent.txt",
+            "before": null,
+            "state": "created"
+          }
+        ],
+        "before": {
+          "sourceRevision": null,
+          "contentFingerprint": "sha256:95403f36a376a5b26038d278e8385f9153b8d753facc7f0c355f4ea3acbe9346",
+          "changedFiles": [
+            ".agents/skills/app-workflow/SKILL.md",
+            ".dsh/donwells-memory.patch.json",
+            ".gitignore",
+            ".omp/mcp.json",
+            "README.md",
+            "SPEC.md",
+            "TASKS.md",
+            "package.json",
+            "verify.cjs"
+          ]
+        },
+        "after": {
+          "sourceRevision": null,
+          "contentFingerprint": "sha256:95403f36a376a5b26038d278e8385f9153b8d753facc7f0c355f4ea3acbe9346",
+          "changedFiles": [
+            ".agents/skills/app-workflow/SKILL.md",
+            ".dsh/donwells-memory.patch.json",
+            ".gitignore",
+            ".omp/mcp.json",
+            "README.md",
+            "SPEC.md",
+            "TASKS.md",
+            "package.json",
+            "verify.cjs"
+          ]
+        },
+        "startedAt": "2026-09-07T15:49:34.646Z",
+        "finishedAt": "2026-09-07T15:49:35.320Z",
+        "environment": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "hostNode": "24.19.0",
+          "hostElectron": "44.1.1"
+        },
+        "toolVersions": {
+          "node": "v24.16.0",
+          "npm": "11.16.0"
+        },
+        "artifacts": [
+          {
+            "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-oTLB2J/dist/native-agent.txt",
+            "sha256": "546e1f91dc661c88b8a17200657e5ee29d1188c8b39f497f7459372cbc5db6ea",
+            "bytes": 43,
+            "attachedAt": "2026-09-07T15:49:35.320Z",
+            "sourceFingerprint": "sha256:95403f36a376a5b26038d278e8385f9153b8d753facc7f0c355f4ea3acbe9346",
+            "relationship": "observed-during-run"
+          }
+        ]
+      }
+    },
+    "sourceState": "current",
+    "artifacts": [
+      {
+        "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-oTLB2J/dist/native-agent.txt",
+        "sha256": "546e1f91dc661c88b8a17200657e5ee29d1188c8b39f497f7459372cbc5db6ea",
+        "bytes": 43,
+        "attachedAt": "2026-09-07T15:49:35.320Z",
+        "sourceFingerprint": "sha256:95403f36a376a5b26038d278e8385f9153b8d753facc7f0c355f4ea3acbe9346",
+        "relationship": "observed-during-run",
+        "state": "unchanged"
+      }
+    ]
+  },
+  "verified": true,
+  "shutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonStopped": true
+}
