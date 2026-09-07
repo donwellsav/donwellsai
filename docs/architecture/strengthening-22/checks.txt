@@ -1,0 +1,50 @@
+donwells22-full-typecheck.log
+$ tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json
+
+donwells22-full-tests.log
+done.
+To /var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-git-ref-MfgOyh/remote.git
+   a0ffb0d..3ccda67  main -> main
+
+ Test Files  71 passed | 5 skipped (76)
+      Tests  472 passed | 12 skipped (484)
+   Start at  23:53:04
+   Duration  7.81s (transform 3.51s, setup 0ms, import 6.74s, tests 78.11s, environment 4ms)
+
+donwells22-native-browser-tests.log
+
+ RUN  v4.1.11 /Users/muzikfirst/Documents/donwellsai/terminal-foundation
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:53:01
+   Duration  2.12s (transform 51ms, setup 0ms, import 90ms, tests 1.94s, environment 0ms)
+
+donwells22-signature-check.log
+--validated:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/donwells.ai Helper (GPU).app
+--prepared:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Mantle.framework/Versions/Current/.
+--validated:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Mantle.framework/Versions/Current/.
+--prepared:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.
+--prepared:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler
+--validated:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler
+--validated:/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.
+/tmp/donwells-strengthen-22-install/current/donwells.app: valid on disk
+/tmp/donwells-strengthen-22-install/current/donwells.app: satisfies its Designated Requirement
+
+donwells22-installed-bytes.log
+$ node scripts/check-package.mjs --resources /tmp/donwells-strengthen-22-install/current/donwells.app/Contents/Resources
+187 installed production dependency notices verified.
+Package identity, native unpacking, CLI, icons, and notices are ready.
+718 application files and 34 external resources match the current build.
+
+donwells22-dmg-verify.log
+          disk image (Apple_HFS : 4): verified   CRC32 $491212AD
+Checksumming  (Apple_Free : 5)…
+                    (Apple_Free : 5): verified   CRC32 $00000000
+Checksumming GPT Partition Data (Backup GPT Table : 6)…
+GPT Partition Data (Backup GPT Table: verified   CRC32 $98678E90
+Checksumming GPT Header (Backup GPT Header : 7)…
+  GPT Header (Backup GPT Header : 7): verified   CRC32 $A89AF00D
+verified   CRC32 $9145144A
+hdiutil: verify: checksum of "dist/donwells-0.4.0-mac-arm64.dmg" is VALID

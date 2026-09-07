@@ -1,0 +1,25 @@
+{
+  "source": {
+    "commit": "bcbb43de30e03b545b47c12d06c44d9db1e2a89d",
+    "dirty": true,
+    "contentHash": "4baf6d5e617c036fca3dea61f9f255c08b79c94e8adce937cd81a0daba78d8cf"
+  },
+  "artifactSha256": "40f73a82683f8ff1f416fc5bda1db85f0df525eee6420ccf472f5c1eb16e4403",
+  "fixture": "/private/tmp/donwells-strengthen-22-browser-crash-fixed-profile/fixture",
+  "url": "http://127.0.0.1:63179/",
+  "sourceBefore": "e504a01b1698464ec51af45a6a9cb5cf871f5c6c6b932a801dcbb454c2f4a272",
+  "ownedBrowser": {
+    "pid": 63570,
+    "parent": 63525,
+    "args": "/tmp/donwells-strengthen-22-install/tools/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --disable-blink-features=AutomationControlled --user-data-dir=/private/tmp/donwells-strengthen-22-browser-crash-fixed-profile/project-tools/browser/002515e532c4b77a354945e5e7e5004010995fc58ab9680f646d5f381c941015/e436da41-5ea5-48bb-a008-d139f274e934/profile --remote-debugging-pipe about:blank"
+  },
+  "crashedService": {
+    "pid": 63525,
+    "parent": 63414,
+    "args": "/private/tmp/donwells-strengthen-22-crash-package/mac-arm64/donwells.app/Contents/MacOS/donwells /tmp/donwells-strengthen-22-install/tools/browser/node_modules/@playwright/mcp/cli.js --config /private/tmp/donwells-strengthen-22-browser-crash-fixed-profile/project-tools/browser/002515e532c4b77a354945e5e7e5004010995fc58ab9680f646d5f381c941015/e436da41-5ea5-48bb-a008-d139f274e934/config.json"
+  },
+  "browserSurvivedStop": false,
+  "recoveredFreshContext": true,
+  "verified": true,
+  "idleDaemonStopped": true
+}

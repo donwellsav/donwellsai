@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { access, readFile, stat, readdir } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+execFileSync(process.execPath, [resolve(root, "scripts/build-notices.mjs"), "--check"], { stdio: "inherit" });
 const pkg = await readJson("package.json");
 const config = await readJson("build/electron-builder.json");
 assert(pkg.name === "donwells.ai", "package name must be donwells.ai");
@@ -33,6 +35,7 @@ const resources = new Map(config.extraResources.map(({ from, to }) => [from, to]
 assert(resources.get("cli") === "cli", "packaged CLI loader directory is missing");
 assert(resources.get("dist-cli") === "dist-cli", "packaged compiled CLI directory is missing");
 assert(resources.get("resources/bin") === "bin", "packaged CLI launchers are missing");
+assert(resources.get("resources/THIRD_PARTY_DEPENDENCIES.txt") === "THIRD_PARTY_DEPENDENCIES.txt", "dependency notices are not packaged");
 assert(resources.get("resources/THIRD_PARTY_NOTICES.txt") === "THIRD_PARTY_NOTICES.txt", "third-party notices are not packaged");
 for (const compiledCliPath of ["dist-cli/cli/index.js", "dist-cli/shared/command-catalog.js"]) {
   await access(resolve(root, compiledCliPath), constants.R_OK);
@@ -77,6 +80,7 @@ if (values.resources) {
   const files = async directory => (await readdir(resolve(root, directory), { recursive: true, withFileTypes: true }))
     .filter(entry => entry.isFile() && entry.name !== '.DS_Store')
     .map(entry => resolve(entry.parentPath, entry.name).slice(resolve(root, directory).length + 1));
+  assert(!asar.listPackage(archive).some(name => name.startsWith('/node_modules/@napi-rs/canvas')), 'Unused Node canvas binaries must not ship');
   const built = await files('out');
   const shipped = asar.listPackage(archive).filter(name => name.startsWith('/out/') && !asar.statFile(archive, name.slice(1)).files).map(name => name.slice(5));
   assert(JSON.stringify(built.sort()) === JSON.stringify(shipped.sort()), 'Packaged application file list differs from the current build');

@@ -271,3 +271,21 @@ it('observes an existing service without starting or restarting it', async () =>
   await expect(f.tools.call(f.project, 'fixture', 'progress', { query: 'status' })).rejects.toThrow('not running')
   expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
 })
+
+it('waits for detached-child cleanup before preparing a replacement service', async () => {
+  const f = fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  let preparations = 0
+  f.definition.prepare = async () => { preparations++ }
+  f.definition.stopped = async () => { entered.resolve(); await release.promise }
+  await f.tools.start(f.project, 'fixture')
+  const stopping = f.tools.stop(f.project, 'fixture')
+  await entered.promise
+  const restarting = f.tools.start(f.project, 'fixture')
+  try {
+    await new Promise(resolve => setTimeout(resolve, 25))
+    expect(preparations).toBe(1)
+    expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+  } finally { release.resolve(); await stopping; await restarting }
+  expect(preparations).toBe(2)
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(2)
+})

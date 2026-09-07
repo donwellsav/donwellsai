@@ -1,0 +1,72 @@
+{
+  "qmdPackage": {
+    "file": "qmd-2.8.3.tgz",
+    "bytes": 255569,
+    "sha256": "2e60829913a0c646234a905cefd61043167a1392fdcfd19bc54f890af89ca0f0",
+    "url": "https://registry.npmjs.org/@tobilu/qmd/-/qmd-2.8.3.tgz",
+    "instructions": "Install the exact package with its dependencies in a separate tools directory; do not configure an uninstalled archive."
+  },
+  "browserPackage": {
+    "file": "mcp-0.0.80.tgz",
+    "bytes": 22863,
+    "sha256": "b81eda3f0a7cc70a9caf7db520cdad58c48a1dd334b4e3fcf096c0512c98af0d",
+    "url": "https://registry.npmjs.org/@playwright/mcp/-/mcp-0.0.80.tgz",
+    "instructions": "Install the exact package with its dependencies in a separate tools directory; do not configure an uninstalled archive."
+  },
+  "codeGraphBinary": {
+    "file": "codebase-memory-mcp-darwin-arm64.tar.gz",
+    "bytes": 40416962,
+    "sha256": "9bd840dfb3ec7eaef4f310382057adaa5b0e904df883104d03ffcf39836afd07",
+    "url": "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-darwin-arm64.tar.gz",
+    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+  },
+  "historyBinary": {
+    "file": "agentsview_0.42.0_darwin_arm64.tar.gz",
+    "bytes": 39486758,
+    "sha256": "57f437a089f2f9d41c7335d7ce2a96f2ba95a11d4517678c6a6866a65390a3f3",
+    "url": "https://github.com/kenn-io/agentsview/releases/download/v0.42.0/agentsview_0.42.0_darwin_arm64.tar.gz",
+    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+  },
+  "computerBinary": {
+    "file": "cua-driver-rs-0.23.2-darwin-universal-binary.tar.gz",
+    "bytes": 41513177,
+    "sha256": "0127c82ff17922df4290931a8ebf9b4a8b21656aad24cba6f21ee50e41ed4493",
+    "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.23.2/cua-driver-rs-0.23.2-darwin-universal-binary.tar.gz",
+    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+  },
+  "embeddingModel": {
+    "file": "Qwen3-Embedding-4B-Q8_0.gguf",
+    "bytes": 4279660224,
+    "sha256": "b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d",
+    "url": "https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/f4602530db1d980e16da9d7d3a70294cf5c190be/Qwen3-Embedding-4B-Q8_0.gguf",
+    "instructions": "Optional local model. Download once, verify SHA-256, then select the file. Lexical retrieval remains available without models."
+  },
+  "rerankingModel": {
+    "file": "qwen3-reranker-0.6b-q8_0.gguf",
+    "bytes": 639153184,
+    "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+    "url": "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/a02f48bb4f057028298c21fa033da2b30d7742d5/qwen3-reranker-0.6b-q8_0.gguf",
+    "instructions": "Optional local model. Download once, verify SHA-256, then select the file. Lexical retrieval remains available without models."
+  },
+  "lancePackage": {
+    "file": "lancedb-0.38.0.tgz",
+    "bytes": 172726,
+    "sha256": "a08b0dd9e876f17fc1c11faa433c77c59158a304332ac7d81a269ff9e5b63a07",
+    "url": "https://registry.npmjs.org/@lancedb/lancedb/-/lancedb-0.38.0.tgz",
+    "instructions": "Install the exact release with its dependencies in a separate tools directory; preserve upstream notices. Select the installed package directory."
+  },
+  "backlogBinary": {
+    "file": "backlog.md-darwin-arm64-1.51.0.tgz",
+    "bytes": 26850835,
+    "sha256": "8572a04e57a44e5488caba4c54d4d4acfa6c6ed6edd77b747a7dd7ddc5a3e4d6",
+    "url": "https://registry.npmjs.org/backlog.md-darwin-arm64/-/backlog.md-darwin-arm64-1.51.0.tgz",
+    "instructions": "Extract the native archive and select its backlog executable. Keep the upstream notices."
+  },
+  "browserExecutable": {
+    "file": "chrome-mac-arm64.zip (Chrome 151.0.7922.34)",
+    "bytes": 187406357,
+    "sha256": "01a23ef9501b2745e0c2944c2e583207e6f6132d8d91c3a87ff65b5079e438ef",
+    "url": "https://cdn.playwright.dev/builds/cft/151.0.7922.34/mac-arm64/chrome-mac-arm64.zip",
+    "instructions": "Extract this qualified browser bundle into a separate tools directory. Select its Contents/MacOS/Google Chrome for Testing executable. Newer Playwright default browsers have not passed this artifact gate."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "source": {
+    "commit": "bcbb43de30e03b545b47c12d06c44d9db1e2a89d",
+    "dirty": true,
+    "contentHash": "75a0ce60c9f595c1561579a282dd18f4723bc5d3a6fa3df4afef83dcf6ddecfd"
+  },
+  "artifactSha256": "3eb83c81dc5ac6819241660d234a8c69a41585b824a8aeb69555e73d6e3a0e19",
+  "fixture": "/private/tmp/donwells-strengthen-22-browser-crash-before-profile/fixture",
+  "url": "http://127.0.0.1:63046/",
+  "sourceBefore": "e504a01b1698464ec51af45a6a9cb5cf871f5c6c6b932a801dcbb454c2f4a272",
+  "ownedBrowser": {
+    "pid": 61673,
+    "parent": 61637,
+    "args": "/tmp/donwells-strengthen-22-install/tools/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --disable-blink-features=AutomationControlled --user-data-dir=/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/playwright_chromiumdev_profile-iO9BKC --remote-debugging-pipe --no-startup-window"
+  },
+  "crashedService": {
+    "pid": 61637,
+    "parent": 61593,
+    "args": "/private/tmp/donwells-strengthen-22-install/current/donwells.app/Contents/MacOS/donwells /tmp/donwells-strengthen-22-install/tools/browser/node_modules/@playwright/mcp/cli.js --config /private/tmp/donwells-strengthen-22-browser-crash-before-profile/project-tools/browser/7148007403cc8b6a3b051aa99197b6ee02453ca102141e37d6acabb9210d9913/2df5fad4-b61c-49cd-ad75-11d5ff3fb8f7/config.json"
+  },
+  "browserSurvivedStop": true,
+  "error": "AssertionError [ERR_ASSERTION]: Managed browser survived tool stop\n\n1 !== 0\n\n    at file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/browser-process-cleanup.mjs:35:9",
+  "idleDaemonStopped": true
+}

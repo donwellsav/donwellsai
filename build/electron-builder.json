@@ -16,7 +16,8 @@
   },
   "files": [
     "out/**/*",
-    "package.json"
+    "package.json",
+    "!node_modules/@napi-rs/canvas*/**/*"
   ],
   "extraResources": [
     {
@@ -34,6 +35,10 @@
     {
       "from": "resources/THIRD_PARTY_NOTICES.txt",
       "to": "THIRD_PARTY_NOTICES.txt"
+    },
+    {
+      "from": "resources/THIRD_PARTY_DEPENDENCIES.txt",
+      "to": "THIRD_PARTY_DEPENDENCIES.txt"
     }
   ],
   "mac": {

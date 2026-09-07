@@ -17,4 +17,3 @@ To /var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-git-ref-0WThZb/remo
 $ node scripts/check-package.mjs --resources /tmp/donwells-strengthen-21-package-keyboard2/mac-arm64/donwells.app/Contents/Resources
 Package identity, native unpacking, CLI, icons, and notices are ready.
 718 application files and 33 external resources match the current build.
-

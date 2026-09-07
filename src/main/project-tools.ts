@@ -1,3 +1,4 @@
+import { version as appVersion } from '../../package.json'
 import { createHash, randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { StringDecoder } from 'node:string_decoder'
@@ -15,7 +16,7 @@ export type ProjectToolDefinition = {
   protocolVersion?: '2025-06-18' | '2025-11-25'
   scope: 'project' | 'checkout'
   prepare?: (scope: ProjectToolScope, signal: AbortSignal) => Promise<void>
-  stopped?: (scope: ProjectToolScope) => void
+  stopped?: (scope: ProjectToolScope) => void | Promise<void>
   launch: (scope: ProjectToolScope) => Pick<ProcessSpec, 'program' | 'args' | 'env'>
   operations: Record<string, {
     tool: string
@@ -37,7 +38,7 @@ type Service = {
   ready: Promise<void>
   stopping?: Promise<boolean>
   stopRequested?: boolean
-  stopped?: () => void
+  stopped?: () => void | Promise<void>
 }
 
 export async function resolveProjectToolScope(path: string, resolveWorkspace: ResolveWorkspace): Promise<ProjectToolScope> {
@@ -145,7 +146,7 @@ export class ProjectTools {
       owned.state = { id, status: 'failed', version: owned.state.version, detail }
       for (const pending of owned.pending.values()) pending.reject(new ToolTransportError(detail))
       owned.pending.clear()
-      owned.stopping ??= forceTerminateProcessTree(child).then(stopped => { if (stopped) owned.stopped?.(); return stopped })
+      owned.stopping ??= forceTerminateProcessTree(child).then(async stopped => { if (stopped) await owned.stopped?.(); return stopped }).catch(() => false)
     }
     child.once('error', () => fail('Tool process could not start'))
     child.once('close', () => fail('Tool process exited'))
@@ -182,7 +183,7 @@ export class ProjectTools {
     })
     owned.ready = (async () => {
       try {
-        const initialized = await this.request(owned, 'initialize', { protocolVersion: definition.protocolVersion ?? '2025-11-25', capabilities: {}, clientInfo: { name: 'donwells', version: '0.3.0' } })
+        const initialized = await this.request(owned, 'initialize', { protocolVersion: definition.protocolVersion ?? '2025-11-25', capabilities: {}, clientInfo: { name: 'donwells', version: appVersion } })
         if (!isObject(initialized) || initialized.protocolVersion !== (definition.protocolVersion ?? '2025-11-25') || !isObject(initialized.serverInfo) || initialized.serverInfo.version !== definition.version || !isObject(initialized.capabilities) || !isObject(initialized.capabilities.tools)) throw new Error('Tool version or capability mismatch')
         child.stdin?.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
         const catalog = await this.request(owned, 'tools/list', {})
@@ -281,9 +282,9 @@ export class ProjectTools {
         })
       }
       const stopped = await forceTerminateProcessTree(child)
-      if (stopped) service.stopped?.()
+      if (stopped) await service.stopped?.()
       return stopped
-    })()
+    })().catch(() => false)
     if (!await service.stopping) {
       service.state = { ...service.state, status: 'failed', detail: 'Tool termination could not be verified' }
       throw new Error(service.state.detail!)

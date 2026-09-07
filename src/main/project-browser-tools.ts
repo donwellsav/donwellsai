@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, mkdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { readFile, mkdir, realpath, stat, writeFile, rm } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { runProcess } from '@shared/child-process/run-process'
+import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
 import { isObject } from '@shared/command-catalog'
 import type { ProjectToolDefinition } from './project-tools'
 import type { ProjectToolScope } from '@shared/project-tools'
@@ -72,11 +74,28 @@ export function createBrowserToolDefinition(options: Options): ProjectToolDefini
       if(pkg.version!=='0.0.80'||await digest(join(options.packagePath,'cli.js'))!=='70dab09ab9a5bc1943fb78e2655f00af7349f9931073833919f19c5d7d786ad6'||await digest(core)!=='7aa0bf8b6b69d32065912e3d8f7e3c18c62de4d668f770a8e039811d3cf9c6a0'||await digest(options.browser)!=='a596b1cfc6353e987fcec8d71a23a28cd6a9e7a6b4e20b908e4c4fcffe51158e') throw new Error('Browser testing artifact does not match the admitted distribution')
       signal.throwIfAborted()
       let directory=join(options.cache,scope.indexKey,randomUUID());await mkdir(directory,{recursive:true,mode:0o700});directory=await realpath(directory)
-      await writeFile(join(directory,'config.json'),JSON.stringify({browser:{browserName:'chromium',isolated:true,launchOptions:{headless:true,executablePath:options.browser},contextOptions:{viewport:{width:1280,height:800}}},capabilities:['core','devtools'],outputDir:directory,imageResponses:'omit',snapshot:{mode:'full',boxes:true},network:{allowedOrigins:[new URL(selected.url).origin]},timeouts:{action:5000,navigation:15000}}),{mode:0o600})
+      await writeFile(join(directory,'config.json'),JSON.stringify({browser:{browserName:'chromium',userDataDir:join(directory,'profile'),launchOptions:{headless:true,executablePath:options.browser},contextOptions:{viewport:{width:1280,height:800}}},capabilities:['core','devtools'],outputDir:directory,imageResponses:'omit',snapshot:{mode:'full',boxes:true},network:{allowedOrigins:[new URL(selected.url).origin]},timeouts:{action:5000,navigation:15000}}),{mode:0o600})
       if(current(scope).id!==selected.id||current(scope).url!==selected.url) throw new Error('Preview changed during browser setup')
       bindings.set(scope.indexKey,{id:randomUUID(),previewId:selected.id,url:selected.url,revision:0,busy:false,refs:new Set(),directory})
     },
     launch:scope=>({program:options.program,args:[join(options.packagePath,'cli.js'),'--config',join(binding(scope).directory,'config.json')],env:{ELECTRON_RUN_AS_NODE:'1'}}),
+    stopped:async scope=>{
+      const item=bindings.get(scope.indexKey);if(!item)return
+      if(process.platform!=='win32'){
+        // A private profile identifies Chromium even if its MCP parent died first.
+        const profile=join(item.directory,'profile'), executable=await realpath(options.browser)
+        const result=await runProcess({program:'/bin/ps',args:['-axo','pid=,pgid=,args='],timeoutMs:2000,maxOutputBytes:8*1024*1024})
+        const owned=result.stdout.split('\n').flatMap(line=>{
+          const match=line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);if(!match)return []
+          const args=match[3]!
+          return [options.browser,executable].some(path=>args.startsWith(path+' '))&&args.includes('--user-data-dir='+profile+' ')&&args.includes('--remote-debugging-pipe')&&!args.includes('--type=')?[{pid:Number(match[1]),group:Number(match[2])}]:[]
+        })
+        if(owned.length>1||owned.some(process=>process.pid!==process.group))throw new Error('Managed browser process ownership is ambiguous')
+        for(const process of owned)if(!await forceTerminatePosixProcessGroup(process.group))throw new Error('Managed browser termination could not be verified')
+      }
+      await rm(join(item.directory,'profile'),{recursive:true,force:true})
+      if(bindings.get(scope.indexKey)===item)bindings.delete(scope.indexKey)
+    },
     operations:{
       navigate:{tool:'browser_navigate',readOnly:false,parameters:{},targets:scope=>({url:current(scope).url}),run:run('navigate')},
       snapshot:{tool:'browser_snapshot',readOnly:true,parameters:{},targets:()=>({}),run:run('snapshot')},

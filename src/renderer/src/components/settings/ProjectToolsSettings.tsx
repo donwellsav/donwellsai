@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import downloads from '@shared/project-tool-downloads.json'
 import { INTEGRATED_PROJECT_TOOLS, PROJECT_TOOL_FIELDS, projectDoctorDiagnostics, type ProjectDoctorReport, type ProjectToolConfiguration } from '@shared/project-doctor'
 import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { useAppStore } from '../../store'
@@ -33,6 +34,7 @@ export function ProjectToolsSettings() {
   return <section className="project-tool-settings" aria-busy={busy} aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
     <h3>Project tools</h3>
     <p>Use installed, admitted tools. Changing configuration stops this project’s tool services and preserves a backup. Native agent authentication stays with each CLI.</p>
+    <p>Optional tools are installed separately. Downloads require a connection; installed tools and local models can work offline. Without them, terminals, files and shared project memory remain available.</p>
     {error && <p role="alert">{error}</p>}
     <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty} onClick={() => void run(async () => {})}>Recheck setup</button>
     {report?.problem && <p role="alert">{report.problem} {report.configurationPath}</p>}
@@ -54,10 +56,13 @@ export function ProjectToolsSettings() {
           <label><input type="checkbox" disabled={busy} checked={!draft.disabled.includes(tool.id)} onChange={event => setDraft({ ...draft, disabled: event.target.checked ? draft.disabled.filter(id => id !== tool.id) : [...draft.disabled, tool.id] })} />Enabled for this project</label>
           {tool.fields.map(field => {
             const resource = report.resources.find(value => value.field === field)
-            return <label key={field} style={{ display: 'block', marginBlock: 8 }}>{PROJECT_TOOL_FIELDS[field]}
+            const download = downloads[field as keyof typeof downloads]
+            return <div key={field}><label style={{ display: 'block', marginBlock: 8 }}>{PROJECT_TOOL_FIELDS[field]}
               <input className="settings-input" style={{ width: '100%' }} disabled={busy} value={draft[field] ?? ''} placeholder="Absolute local path" onChange={event => setDraft({ ...draft, [field]: event.target.value })} />
               {resource && draft[field] === report.configuration[field] && <small>{resource.problem ?? (resource.bytes === null ? 'Size unavailable' : `${resource.bytes.toLocaleString()} bytes in selected ${resource.sizeKind ?? 'file'}${resource.sizeKind === 'directory' ? '; linked/shared dependencies excluded' : ''}`)}</small>}
             </label>
+              {download && <details><summary>Download and checksum</summary><p>{download.instructions}</p><p>{download.file} · {download.bytes.toLocaleString()} bytes</p><p style={{overflowWrap:'anywhere'}}>SHA-256: {download.sha256}</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => void window.donwells.openExternal(download.url)}>Open pinned download</button><p>Package archives exclude dependencies; installed size is shown after configuration. Check with shasum -a 256 before installing. To remove: stop the service, clear its paths, then remove only that separate installation.</p></details>}
+            </div>
           })}
           {tool.id === 'documents' && <label>Shared reference folders, one per line<textarea className="settings-input" style={{ width: '100%' }} disabled={busy} value={draft.referenceRoots.join('\n')} onChange={event => setDraft({ ...draft, referenceRoots: event.target.value.split('\n') })} /></label>}
           {tool.id === 'history' && (['historyOmpRoots', 'historyDshRoots'] as const).map(key => <label key={key} style={{ display: 'block' }}>{key === 'historyOmpRoots' ? 'OMP session roots' : 'DeepSeek session roots'}, one per line<textarea className="settings-input" disabled={busy} value={(draft[key] ?? []).join('\n')} onChange={event => setDraft({ ...draft, [key]: event.target.value.split('\n') })} /></label>)}
