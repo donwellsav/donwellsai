@@ -1,10 +1,12 @@
+import { parseGraphitiConfiguration, type GraphitiConfiguration } from './project-temporal-knowledge'
+import { parseHindsightConfiguration, type HindsightConfiguration } from './project-knowledge'
 import { isObject } from './command-catalog'
 import type { ToolServiceState } from './project-tools'
 
 export const PROJECT_TOOL_FIELDS = {
   codeGraphBinary: 'Code graph executable',
-  duckdbPython: 'Python executable with DuckDB 1.5.5 (optional analytics)',
   historyBinary: 'AgentsView executable',
+  duckdbPython: 'Python executable with DuckDB 1.5.5 (optional analytics)',
   backlogBinary: 'Backlog.md executable',
   qmdPackage: 'QMD package directory',
   lancePackage: 'LanceDB package directory',
@@ -15,7 +17,7 @@ export const PROJECT_TOOL_FIELDS = {
   computerBinary: 'Cua Driver executable'
 } as const
 export type DocumentRetrievalMode = 'auto' | 'lexical' | 'hybrid'
-export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; historyHermesRoots?: string[]; historyKimiRoots?: string[]; disabled: string[]; documentRetrievalMode?: DocumentRetrievalMode }
+export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; historyHermesRoots?: string[]; historyKimiRoots?: string[]; disabled: string[]; hindsight?: HindsightConfiguration; graphiti?: GraphitiConfiguration; documentRetrievalMode?: DocumentRetrievalMode }
 export const INTEGRATED_PROJECT_TOOLS = [
   { id: 'history', name: 'Native session history', version: 'AgentsView 0.42.0', source: 'https://github.com/kenn-io/agentsview/releases/tag/v0.42.0', scope: 'Selected native session roots; archive and optional DuckDB analytics filtered to this project checkout', models: 'None. Native transcripts remain separate from shared project memory.', fields: ['historyBinary', 'duckdbPython'] },
   { id: 'backlog', name: 'Native task board', version: 'Backlog.md 1.51.0', source: 'https://github.com/MrLesk/Backlog.md', scope: 'Native task files in the selected checkout; select task authority in Agent sessions', models: 'None. The existing terminal owns each opened board.', fields: ['backlogBinary'] },
@@ -25,9 +27,22 @@ export const INTEGRATED_PROJECT_TOOLS = [
   { id: 'computer-control', name: 'Computer control', version: 'Cua Driver 0.23.2', source: 'https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.23.2', scope: 'Explicitly attached native window; foreground actions share a desktop lease', models: 'None', fields: ['computerBinary'] }
 ] as const
 
+/** Discovery routes reuse their existing owners; they are not MCP service IDs. */
+export const PROJECT_INTEGRATION_ROLES = [
+  ...INTEGRATED_PROJECT_TOOLS.map(tool => ({ id: tool.id, name: tool.name, route: 'package' as const })),
+  { id: 'facts', name: 'Shared facts', route: 'memory' },
+  { id: 'learned', name: 'Learned memory · Hindsight', route: 'memory' },
+  { id: 'temporal', name: 'Temporal graph · Graphiti', route: 'memory' },
+  { id: 'analytics', name: 'Session analytics · DuckDB', route: 'search' },
+  { id: 'language', name: 'Project language tools · TypeScript', route: 'language' },
+  { id: 'environments', name: 'Remote environments · SSH', route: 'environment' }
+] as const
+
 export function parseProjectToolConfiguration(value: unknown): ProjectToolConfiguration {
-  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'historyHermesRoots', 'historyKimiRoots', 'disabled', 'documentRetrievalMode'].includes(key))) throw new Error('Invalid project tool configuration fields')
+  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'historyHermesRoots', 'historyKimiRoots', 'disabled', 'documentRetrievalMode', 'hindsight', 'graphiti'].includes(key))) throw new Error('Invalid project tool configuration fields')
   const result: ProjectToolConfiguration = { referenceRoots: [], disabled: [] }
+  if (value.graphiti !== undefined) result.graphiti = parseGraphitiConfiguration(value.graphiti)
+  if (value.hindsight !== undefined) result.hindsight = parseHindsightConfiguration(value.hindsight)
   if (value.documentRetrievalMode !== undefined) {
     if (typeof value.documentRetrievalMode !== 'string' || !['auto', 'lexical', 'hybrid'].includes(value.documentRetrievalMode)) throw new Error('Choose automatic, lexical or hybrid document retrieval')
     result.documentRetrievalMode = value.documentRetrievalMode as DocumentRetrievalMode

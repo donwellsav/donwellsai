@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/trycua/cua",
+  "commit": "a3228aebbed4c8d9c828c1ddea87cd12e99de238",
+  "sourceSha256": {
+    "libs/lume/src/Commands/Run.swift": "f7946c96b086115f92ea3dde118249417624ccb1e94c211fe7c9a4c5e38c229e",
+    "libs/lume/src/LumeController.swift": "bf974db0f8d89ceba3ab6eae62143093cbd237fe9f90f576d865fc3a99765d2a",
+    "libs/lume/src/VM/VM.swift": "88a1053b41ab00bf327392e74a618cb4c683193fe6d51843d9df20366e3838fc",
+    "LICENSE.md": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
+  },
+  "patchSha256": "7c81dcf8ff0042115cc47b79177eae5bd18b968530441af9435580a83a19357a",
+  "qualification": "Patch application only. Build, signing, guest clipboard and no-listener proof pending."
+}

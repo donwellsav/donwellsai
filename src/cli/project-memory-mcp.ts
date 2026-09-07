@@ -73,11 +73,12 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod | 'agent.authenticate' | 'history.analytics' | 'history.analytics.cancel' | 'history.analytics.progress' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
+  method: 'verification.scripts' | 'verification.run' | 'verification.list' | 'parallel.start' | 'memory.operation' | 'temporal.status' | 'temporal.query' | 'temporal.reconcile' | 'temporal.stop' | 'knowledge.status' | 'knowledge.reconcile' | 'knowledge.recall' | 'knowledge.reflect' | 'knowledge.stop' | ProjectMemoryRpcMethod | 'agent.authenticate' | 'history.analytics' | 'history.analytics.cancel' | 'history.analytics.progress' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
 export type ProjectMemoryMcpSessionOptions = {
+  memoryOnly?: boolean
   workspacePath: string
   harness: string
   invoke: ProjectMemoryMcpInvoke
@@ -118,7 +119,26 @@ const HANDOFF_MCP_TOOLS: readonly McpTool[] = ['receive', 'acknowledge'].map(act
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: action === 'acknowledge', openWorldHint: false }
 }))
 
+const VERIFICATION_MCP_TOOLS: readonly McpTool[] = [
+  {name:'project_verification_scripts',title:'Project scripts',description:'List package scripts in the pinned checkout.',inputSchema:{type:'object',additionalProperties:false,properties:{}},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
+  ...(['run','command'] as const).map(action=>({name:'project_verification_'+action,title:action==='run'?'Run project script':'Run project command',description:'Run through the shared operational owner. Optionally declare checkout-relative output files before launch; native/ACP origin is authenticated when the session supplies its credential.',inputSchema:{type:'object',additionalProperties:false,properties:{[action==='run'?'script':'command']:{type:'string'},outputs:{type:'array',maxItems:16,items:{type:'string'}}},required:[action==='run'?'script':'command']},annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true}})),
+  {name:'project_verification_results',title:'Project run results',description:'Read actual exit status, source freshness and observed output references from the same run owner.',inputSchema:{type:'object',additionalProperties:false,properties:{verifyArtifacts:{type:'boolean'}}},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}
+]
+
 const CODE_MCP_TOOLS: readonly McpTool[] = [
+  ...(['status', 'query', 'reconcile', 'stop'] as const).map(action => ({
+    name: `temporal_${action}`, title: `Project temporal relationships: ${action}`,
+    description: 'Use the explicitly configured local Graphiti projection for this pinned project. Relationships are learned, not confirmed facts. Query accepts an optional ISO timestamp with timezone; unavailable historical contributors are omitted. Reconcile replaces the selected memory revisions. Stop cancels owned work without stopping the external database. Password configuration is human-only.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'query' ? { query: { type: 'string', minLength: 1, maxLength: 2000 }, asOf: { type: 'string', maxLength: 64 } } : action === 'reconcile' ? { sources: { type: 'array', maxItems: 50, items: { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['memory'] }, id: { type: 'string' }, revision: { type: 'integer', minimum: 1 } }, required: ['kind', 'id', 'revision'] } } } : {}, required: action === 'query' ? ['query'] : action === 'reconcile' ? ['sources'] : [] },
+    annotations: { readOnlyHint: action === 'status' || action === 'query', destructiveHint: false, idempotentHint: action === 'status' || action === 'stop', openWorldHint: false }
+  })),
+  ...(['status', 'recall', 'reflect', 'reconcile', 'stop'] as const).map(action => ({
+    name: `knowledge_${action}`, title: `Project learned knowledge: ${action}`,
+    description: action === 'reconcile' ? 'Explicitly retain at most 50 selected canonical memory or reviewed handoff revisions in this project Hindsight generation. Replaces its previous selection. No automatic ingestion.' : action === 'reflect' ? 'Ask the configured local learned-memory engine for an inferred answer with current source references. Inferences are not confirmed project facts.' : action === 'recall' ? 'Recall learned context from this project only. Withdrawn source generations fail closed; reconcile reviewed current sources first.' : action === 'stop' ? 'Cancel this project app-owned knowledge requests; the external Hindsight server remains running.' : 'Inspect this project learned-memory configuration, source validity and pending cleanup without launching work.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'recall' || action === 'reflect' ? { query: { type: 'string', minLength: 1, maxLength: 2000 } } : action === 'reconcile' ? { sources: { type: 'array', maxItems: 50, items: { type: 'object', additionalProperties: false, properties: { kind: { type: 'string', enum: ['memory', 'handoff'] }, id: { type: 'string' }, revision: { type: 'integer', minimum: 1 } }, required: ['kind', 'id', 'revision'] } } } : {}, required: action === 'recall' || action === 'reflect' ? ['query'] : action === 'reconcile' ? ['sources'] : [] },
+    annotations: { readOnlyHint: action === 'status' || action === 'recall', destructiveHint: false, idempotentHint: action === 'status' || action === 'stop', openWorldHint: false }
+  })),
+
   ...(['query', 'progress', 'cancel'] as const).map(action => ({
     name: action === 'query' ? 'project_analytics' : `project_analytics_${action}`,
     title: action === 'query' ? 'Project activity analytics' : `${action} project analytics`,
@@ -424,12 +444,14 @@ export class ProjectMemoryMcpSession {
   private readonly invoke: ProjectMemoryMcpInvoke
   private readonly serverVersion: string
   private readonly credential?: AgentSessionCredential
+  private readonly memoryOnly: boolean
   private readonly computerOwner = randomUUID()
   private state: SessionState = 'new'
 
   constructor(options: ProjectMemoryMcpSessionOptions) {
     this.workspacePath = parseProjectMemoryWorkspacePath(options.workspacePath, 'pinned workspace')
     this.harness = parseProjectMemoryHarness(options.harness, 'pinned harness')
+    this.memoryOnly = options.memoryOnly === true
     this.credential = options.credential ? { ...options.credential } : undefined
     this.invoke = async (method, params) => {
       if (this.credential && !method.startsWith('handoff.')) await options.invoke('agent.authenticate', { workspacePath: this.workspacePath, credential: this.credential })
@@ -544,7 +566,7 @@ export class ProjectMemoryMcpSession {
     }
   }
 
-  private tools(): readonly McpTool[] { return [...PROJECT_MEMORY_MCP_TOOLS, ...CODE_MCP_TOOLS, ...DOCUMENT_MCP_TOOLS, ...BROWSER_MCP_TOOLS, ...COMPUTER_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
+  private tools(): readonly McpTool[] { if (this.memoryOnly) return [...PROJECT_MEMORY_MCP_TOOLS.filter(tool => tool.name.startsWith('memory_')), { name: 'memory_request_status', title: 'Inspect a memory mutation receipt', description: 'Read the operation ID reported by a failed remote memory call. Never resend an uncertain mutation as a new request.', inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: { type: 'string' } }, required: ['requestId'] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }]; return [...PROJECT_MEMORY_MCP_TOOLS, ...VERIFICATION_MCP_TOOLS, ...CODE_MCP_TOOLS, ...DOCUMENT_MCP_TOOLS, ...BROWSER_MCP_TOOLS, ...COMPUTER_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
 
   private async callTool(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
     let name: string
@@ -579,6 +601,27 @@ export class ProjectMemoryMcpSession {
   }
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
+    if (name.startsWith('project_verification_')) {
+      const action = name.slice('project_verification_'.length)
+      allowedKeys(input,action==='run'?['script','outputs']:action==='command'?['command','outputs']:action==='results'?['verifyArtifacts']:[],'verification arguments')
+      if (action==='scripts') return this.invoke('verification.scripts',{workspacePath:this.workspacePath})
+      if (action==='results') return this.invoke('verification.list',{workspacePath:this.workspacePath,verifyArtifacts:input.verifyArtifacts===true})
+      const options={outputs:input.outputs??[],...(this.credential?{credential:this.credential}:{})}
+      if(action==='run')return this.invoke('verification.run',{workspacePath:this.workspacePath,script:input.script,options})
+      if(action==='command')return this.invoke('parallel.start',{input:{name:'Agent verification',command:input.command,targets:[{kind:'local',root:this.workspacePath,label:this.workspacePath}],concurrency:1},options})
+    }
+    if (name === 'memory_request_status' && this.memoryOnly) { allowedKeys(input, ['requestId'], 'memory operation arguments'); return this.invoke('memory.operation', { requestId: input.requestId }) }
+    if (['temporal_status', 'temporal_query', 'temporal_reconcile', 'temporal_stop'].includes(name)) {
+      const action = name.slice('temporal_'.length)
+      allowedKeys(input, action === 'query' ? ['query', 'asOf'] : action === 'reconcile' ? ['sources'] : [], 'temporal arguments')
+      return this.invoke(`temporal.${action}` as `temporal.${'status' | 'query' | 'reconcile' | 'stop'}`, { workspacePath: this.workspacePath, ...(action === 'reconcile' ? { selection: { sources: input.sources } } : input) })
+    }
+    if (['knowledge_status', 'knowledge_recall', 'knowledge_reflect', 'knowledge_reconcile', 'knowledge_stop'].includes(name)) {
+      const action = name.slice('knowledge_'.length)
+      allowedKeys(input, action === 'recall' || action === 'reflect' ? ['query'] : action === 'reconcile' ? ['sources'] : [], 'knowledge arguments')
+      return this.invoke(`knowledge.${action}` as `knowledge.${'status' | 'recall' | 'reflect' | 'reconcile' | 'stop'}`,  { workspacePath: this.workspacePath, ...(action === 'reconcile' ? { selection: { sources: input.sources } } : input) })
+    }
+
     if (name === 'project_analytics' || name === 'project_analytics_progress' || name === 'project_analytics_cancel') {
       const query = name === 'project_analytics'
       allowedKeys(input, query ? ['engine', 'requestId', 'decisionAt'] : ['requestId'], 'project analytics arguments')

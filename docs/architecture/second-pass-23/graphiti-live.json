@@ -1,0 +1,60 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-live-VsW0IS",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-live-VsW0IS/project",
+  "endpoint": "bolt://127.0.0.1:53211",
+  "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "checks": [
+    "Actual Graphiti/Neo4j retains canonical source through local Ornith and returns source-checked relationships",
+    "Canonical correction immediately withdraws old learned answers"
+  ],
+  "source": {
+    "id": "4c567186-c4d6-498b-8398-3a04a7f14338",
+    "revision": 1
+  },
+  "retained": {
+    "enabled": true,
+    "generation": "donwells-5739d7d78103de93ad14dcedc756bdfb365ecd8680e77895dcc76539a879c673-63fbf7f4-2878-4bb8-ad57-61e771cd8345",
+    "sources": [
+      {
+        "kind": "memory",
+        "id": "4c567186-c4d6-498b-8398-3a04a7f14338",
+        "revision": 1
+      }
+    ],
+    "stale": false,
+    "pendingCleanup": 0,
+    "busy": false,
+    "error": null
+  },
+  "recalled": {
+    "classification": "learned",
+    "generation": "donwells-5739d7d78103de93ad14dcedc756bdfb365ecd8680e77895dcc76539a879c673-63fbf7f4-2878-4bb8-ad57-61e771cd8345",
+    "asOf": "2026-09-07T14:41:35.238Z",
+    "mode": "current",
+    "omitted": 0,
+    "relationships": [
+      {
+        "id": "6f83d24c-f83b-47c6-a552-99462fdc6edd",
+        "text": "Mira Chen is the maintainer of the Aurora application.",
+        "validAt": null,
+        "invalidAt": null,
+        "sources": [
+          {
+            "kind": "memory",
+            "id": "4c567186-c4d6-498b-8398-3a04a7f14338",
+            "revision": 1,
+            "projectKey": "5739d7d78103de93ad14dcedc756bdfb365ecd8680e77895dcc76539a879c673",
+            "sourceTime": "2026-09-07T14:41:29.085Z"
+          }
+        ]
+      }
+    ]
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

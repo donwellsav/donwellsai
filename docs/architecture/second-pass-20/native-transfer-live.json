@@ -1,0 +1,198 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/project",
+  "endpoint": "http://127.0.0.1:52139",
+  "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "checks": [
+    "Actual native Hindsight document export preserves learned facts",
+    "Restored project explicitly imports extracted facts, re-embeds and recalls only remapped target references"
+  ],
+  "exported": {
+    "schemaVersion": 3,
+    "learnedFacts": 1,
+    "temporalSources": 0,
+    "portableSettings": {
+      "hindsightModel": "Ornith-1.5-35B-A3B-MLX-8bit"
+    },
+    "erasedMemories": 0,
+    "archiveId": "8862abf5-a17b-41ba-a89e-9279b80e7f2c",
+    "sourceProjectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+    "sourceName": "project",
+    "sha256": "e7b58f0eb4e8a08489c9279f065032b6f243653427fab57eb9fc0d5caa225632",
+    "memories": 1,
+    "revisions": 1,
+    "handoffs": 0,
+    "artifacts": [],
+    "tools": [
+      {
+        "id": "history",
+        "version": "AgentsView 0.42.0",
+        "configured": true,
+        "enabled": true
+      },
+      {
+        "id": "backlog",
+        "version": "Backlog.md 1.51.0",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "code-graph",
+        "version": "0.10.8",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "documents",
+        "version": "QMD 2.8.3 / LanceDB 0.38.0",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "browser-testing",
+        "version": "MCP 0.0.80 / core 1.63.0-alpha-2026-08-31",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "computer-control",
+        "version": "Cua Driver 0.23.2",
+        "configured": false,
+        "enabled": true
+      }
+    ],
+    "warnings": [
+      "Learned snapshots restore as historical readable documents. After configuring Hindsight, use Reconnect learned facts to import them with fresh embeddings. Select native task/workflow files as text artifacts. SSH/VM pairing is omitted and must be recreated on the destination.",
+      "Machine-absolute source references are omitted; safe source IDs and relative references survive. Arbitrary learned metadata and retention options are omitted; canonical source mappings are preserved separately.",
+      "Imported evidence and handoffs are historical; verify against this checkout before reuse.",
+      "Code, document and native session indexes must be rebuilt. No derived caches are included.",
+      "Tool executables, models, reference roots, agent sessions and credentials require local setup. All project tools start disabled."
+    ],
+    "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/learned-kit.json"
+  },
+  "restored": {
+    "repo": {
+      "id": "private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+      "kind": "folder",
+      "addedAt": "2026-09-07T14:46:14.181Z"
+    },
+    "report": {
+      "schemaVersion": 3,
+      "learnedFacts": 1,
+      "temporalSources": 0,
+      "portableSettings": {
+        "hindsightModel": "Ornith-1.5-35B-A3B-MLX-8bit"
+      },
+      "erasedMemories": 0,
+      "archiveId": "8862abf5-a17b-41ba-a89e-9279b80e7f2c",
+      "sourceProjectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+      "sourceName": "project",
+      "sha256": "e7b58f0eb4e8a08489c9279f065032b6f243653427fab57eb9fc0d5caa225632",
+      "memories": 1,
+      "revisions": 1,
+      "handoffs": 0,
+      "artifacts": [],
+      "tools": [
+        {
+          "id": "history",
+          "version": "AgentsView 0.42.0",
+          "configured": true,
+          "enabled": true
+        },
+        {
+          "id": "backlog",
+          "version": "Backlog.md 1.51.0",
+          "configured": false,
+          "enabled": true
+        },
+        {
+          "id": "code-graph",
+          "version": "0.10.8",
+          "configured": false,
+          "enabled": true
+        },
+        {
+          "id": "documents",
+          "version": "QMD 2.8.3 / LanceDB 0.38.0",
+          "configured": false,
+          "enabled": true
+        },
+        {
+          "id": "browser-testing",
+          "version": "MCP 0.0.80 / core 1.63.0-alpha-2026-08-31",
+          "configured": false,
+          "enabled": true
+        },
+        {
+          "id": "computer-control",
+          "version": "Cua Driver 0.23.2",
+          "configured": false,
+          "enabled": true
+        }
+      ],
+      "warnings": [
+        "Learned snapshots restore as historical readable documents. After configuring Hindsight, use Reconnect learned facts to import them with fresh embeddings. Select native task/workflow files as text artifacts. SSH/VM pairing is omitted and must be recreated on the destination.",
+        "Machine-absolute source references are omitted; safe source IDs and relative references survive. Arbitrary learned metadata and retention options are omitted; canonical source mappings are preserved separately.",
+        "Imported evidence and handoffs are historical; verify against this checkout before reuse.",
+        "Code, document and native session indexes must be rebuilt. No derived caches are included.",
+        "Tool executables, models, reference roots, agent sessions and credentials require local setup. All project tools start disabled."
+      ],
+      "identityMapping": [
+        {
+          "kind": "memory",
+          "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+          "originalProjectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+          "originalId": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+          "targetId": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5"
+        }
+      ],
+      "projectPath": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+      "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+      "restoredAt": "2026-09-07T14:46:14.181Z"
+    }
+  },
+  "reconnected": {
+    "enabled": true,
+    "phase": "idle",
+    "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+    "sources": [
+      {
+        "kind": "memory",
+        "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+        "revision": 2
+      }
+    ],
+    "stale": false,
+    "pendingCleanup": 0,
+    "error": null,
+    "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+  },
+  "recalled": {
+    "classification": "learned",
+    "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+    "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+    "items": [
+      {
+        "text": "Aurora now permits two retries before displaying a connection error | Involving: Donwells reviewed project knowledge",
+        "sources": [
+          {
+            "kind": "memory",
+            "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+            "revision": 2,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T14:30:15.871Z"
+          }
+        ]
+      }
+    ],
+    "omitted": 0
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

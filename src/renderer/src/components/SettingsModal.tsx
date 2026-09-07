@@ -1,3 +1,4 @@
+import { ProjectEnvironmentPanel } from './ProjectEnvironmentPanel'
 import { ProjectKitSettings } from './settings/ProjectKitSettings'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
@@ -435,7 +436,13 @@ export function SettingsModal({ open }: { open: boolean }) {
     return (
       <>
         {metadata.length > 0 ? <SettingsList metadata={metadata} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={(key) => void resetOne(key)} /> : <SettingsState kind="empty" title="No preferences in this section" />}
-        {target === 'agents' && <><ProjectToolsSettings /><SkillsManager /></>}
+        {target === 'agents' && <><ProjectToolsSettings onNavigate={route => {
+          if (focusDirtyControl()) return
+          const state = useAppStore.getState(), path = state.activeWorktreePath
+          if (!path) return
+          if (route === 'search') useAppStore.setState({ contentSearch: { ...state.contentSearch, source: 'session' } })
+          state.openWorkspaceModule(path, route); setOpen(false)
+        }} /><ProjectEnvironmentPanel /><SkillsManager /></>}
         {target === 'advanced' && <><ProjectKitSettings /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
       </>
     )

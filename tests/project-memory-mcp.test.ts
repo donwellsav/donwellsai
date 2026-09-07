@@ -220,6 +220,9 @@ describe('project memory MCP protocol', () => {
           { name: 'memory_replace' },
           { name: 'memory_archive' },
           { name: 'memory_history' },
+          ...['scripts','run','command','results'].map(action=>({name:`project_verification_${action}`})),
+          ...['status', 'query', 'reconcile', 'stop'].map(action => ({ name: `temporal_${action}` })),
+          ...['status', 'recall', 'reflect', 'reconcile', 'stop'].map(action => ({ name: `knowledge_${action}` })),
           { name: 'project_analytics' },
           { name: 'project_analytics_progress' },
           { name: 'project_analytics_cancel' },
@@ -498,6 +501,16 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   } })
   await initialize(session, 1)
   const call = (name: string, args: Record<string, unknown> = {}) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
+  for (const family of ['knowledge', 'temporal']) {
+    const sources = [{ kind: 'memory', id: 'fact-1', revision: 1 }]
+    await call(`${family}_reconcile`, { sources })
+    expect(calls.at(-1)).toEqual({ method: `${family}.reconcile`, params: { workspacePath: primaryWorkspace, selection: { sources } } })
+    const count = calls.length
+    expect(await call(`${family}_reconcile`, { sources, workspacePath: '/other' })).toMatchObject({ result: { isError: true } })
+    expect(calls).toHaveLength(count)
+  }
+  await call('temporal_query', { query: 'Earlier decision', asOf: '2026-09-01T00:00:00Z' })
+  expect(calls.at(-1)).toEqual({ method: 'temporal.query', params: { workspacePath: primaryWorkspace, query: 'Earlier decision', asOf: '2026-09-01T00:00:00Z' } })
   await call('project_analytics', { engine: 'duckdb', requestId: 'one' })
   expect(calls.at(-1)).toEqual({ method: 'history.analytics', params: { engine: 'duckdb', requestId: 'one', workspacePath: primaryWorkspace } })
   const beforeAnalytics = calls.length
@@ -559,4 +572,31 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   graphError = true
   expect(await call('documents_get', { id: 'reference' })).toMatchObject({ result: { isError: true, content: [{ text: 'Missing index' }] } })
   expect(await call('code_graph_callers', { function_name: 'target' })).toMatchObject({ result: { isError: true, content: [{ text: 'Missing index' }] } })
+})
+
+it('advertises and dispatches only canonical memory tools through the remote memory surface', async () => {
+  const calls: string[] = []
+  const session = new ProjectMemoryMcpSession({ workspacePath: temporaryRoot(), harness: 'opencode', memoryOnly: true, invoke: async method => { calls.push(method); return { state: 'uncertain' } } })
+  await initialize(session, 1)
+  const listed = await exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/list' })
+  expect((listed.result as { tools: { name: string }[] }).tools.map(tool => tool.name).sort()).toEqual(['memory_archive', 'memory_history', 'memory_read', 'memory_record', 'memory_replace', 'memory_request_status', 'memory_search'])
+  const call = (name: string, args = {}) => exchange(session, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } })
+  for (const name of ['project_engines', 'knowledge_recall', 'temporal_query', 'history_analytics', 'browser_open']) expect(await call(name)).toMatchObject({ error: { code: -32602 } })
+  expect(calls).toEqual([])
+  await call('memory_request_status', { requestId: 'uncertain-operation' })
+  expect(calls).toEqual(['memory.operation'])
+})
+
+it('pins verification runs to the MCP checkout and passes only its private session credential', async()=>{
+ const calls:Array<{method:string;params:Record<string,unknown>}>=[]
+ const credential={runId:'agent-run',sessionId:'agent-session',token:'private-test-token'}
+ const session=new ProjectMemoryMcpSession({workspacePath:primaryWorkspace,harness:'kimi',credential,invoke:async(method,params)=>{calls.push({method,params});return {id:'operational-run'}}})
+ await initialize(session,1)
+ const call=(args:Record<string,unknown>)=>exchange(session,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'project_verification_command',arguments:args}})
+ await call({command:'npm test',outputs:['dist/result.txt']})
+ expect(calls.at(-1)).toMatchObject({method:'parallel.start',params:{input:{targets:[{kind:'local',root:primaryWorkspace}],command:'npm test'},options:{outputs:['dist/result.txt'],credential}}})
+ const count=calls.length
+ expect(await call({command:'npm test',workspacePath:'/foreign'})).toMatchObject({result:{isError:true}})
+ expect(await call({command:'npm test',credential:{token:'replacement'}})).toMatchObject({result:{isError:true}})
+ expect(calls).toHaveLength(count)
 })

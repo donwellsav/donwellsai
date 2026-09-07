@@ -8,6 +8,8 @@ import { OperationalRunService } from '../src/main/operational-run-service'
 import { GitWorktrees } from '../src/main/git'
 import { Store } from '../src/main/store'
 import { runProcess } from '../src/shared/child-process/run-process'
+import { DiffReviewService } from '../src/main/diff-review'
+import { createDiffReviewSnapshot, createDiffReviewAnchor } from '../src/shared/diff-review'
 import { shellCommand } from '../src/main/agents/provider-hooks'
 import type { DaemonClient } from '../src/main/daemon-client'
 
@@ -21,8 +23,10 @@ async function fixture() {
  const git=new GitWorktrees(new Store(join(root,'store')));await git.addRepo(repo)
  let registered=true,unknown=false
  const jobs=new Map<string,{controller:AbortController;done:Promise<void>;exited:boolean;exitCode?:number;output:string}>()
+ const opened:string[]=[]
  let service:OperationalRunService
  const terminals={
+  authenticateAgent:async(credential:{token:string})=>{if(!['native-test','acp-test'].includes(credential.token))throw new Error('Invalid credential');return {id:'agent-run',sessionId:'agent-session',workspacePath:repo,liveness:'live',mode:credential.token==='acp-test'?'acp':'native'}},
   openJob:async(cwd:string,command:string)=>{
    const id=randomUUID(),controller=new AbortController(),job={controller,done:Promise.resolve(),exited:false,exitCode:undefined as number|undefined,output:''};jobs.set(id,job)
    job.done=runProcess({program:'/bin/sh',args:['-c',command],cwd,detached:true,timeoutMs:15000,signal:controller.signal,maxOutputBytes:2048}).then(result=>{job.output=result.stdout;job.exitCode=unknown?undefined:result.code??undefined},error=>{job.output=String(error);job.exitCode=undefined}).then(async()=>{job.exited=true;await service.onDaemonEvent('exit',id,job.output,job.exitCode)})
@@ -31,11 +35,11 @@ async function fixture() {
   jobResult:async(id:string)=>{const job=jobs.get(id)!;return {exited:job.exited,exitCode:job.exitCode,output:job.output}},
   close:async(id:string)=>{const job=jobs.get(id);if(!job||job.exited)return;job.controller.abort();await job.done}
  }
- service=new OperationalRunService(profile,terminals as unknown as DaemonClient,async path=>{if(!registered||path!==repo||realpathSync(path)!==repo)throw new Error('Workspace unavailable');return repo},{source:path=>git.handoffSource(path),artifactRoots:async()=>[repo,cache]})
+ service=new OperationalRunService(profile,terminals as unknown as DaemonClient,async path=>{if(!registered||path!==repo||realpathSync(path)!==repo)throw new Error('Workspace unavailable');return repo},{source:path=>git.handoffSource(path),artifactRoots:async()=>[repo,cache],openArtifact:async path=>{opened.push(path)}})
  cleanup.push(async()=>{service.stop();for(const job of jobs.values())if(!job.exited)job.controller.abort();await Promise.all([...jobs.values()].map(job=>job.done));rmSync(root,{recursive:true,force:true})})
  const finish=async()=>{for(const job of jobs.values())await job.done}
  const start=(code:string)=>service.parallelRunStart({name:'Fixture verification',command:shellCommand([process.execPath,'-e',code],process.platform),targets:[{kind:'local',root:repo,label:'fixture'}],concurrency:1})
- return {repo,root,cache,service,finish,start,unregister:()=>{registered=false},unknown:()=>{unknown=true}}
+ return {repo,root,cache,service,finish,start,opened,unregister:()=>{registered=false},unknown:()=>{unknown=true}}
 }
 it('binds passing commands to dirty/untracked inputs and independently rechecks scoped artifact bytes',async()=>{
  const f=await fixture();writeFileSync(join(f.repo,'source.txt'),'dirty');writeFileSync(join(f.repo,'new.ts'),'new');writeFileSync(join(f.repo,'pnpm-lock.yaml'),'lock')
@@ -83,4 +87,39 @@ it('bounds concurrent attachments while allowing a reference to be refreshed',as
  expect(results.filter(result=>result.status==='rejected')).toHaveLength(1)
  const entry=(await f.service.verificationList(f.repo))[0]!
  await expect(f.service.verificationAttach(f.repo,run.id,run.tasks[0]!.id,entry.artifacts[0]!.path)).resolves.toBeDefined()
+})
+
+it('opens only the recorded bytes at the action boundary and retains exact run source references', async()=>{
+ const f=await fixture(),run=await f.start('console.log("artifact producer test")');await f.finish()
+ const taskId=run.tasks[0]!.id,artifact=join(f.repo,'artifact.txt');writeFileSync(artifact,'reviewed bytes')
+ await f.service.verificationAttach(f.repo,run.id,taskId,artifact)
+ await f.service.verificationOpen(f.repo,run.id,taskId,artifact);expect(f.opened).toEqual([artifact])
+ writeFileSync(artifact,'changed bytes')
+ await expect(f.service.verificationOpen(f.repo,run.id,taskId,artifact)).rejects.toThrow('changed')
+ expect(f.opened).toHaveLength(1)
+ const references=await f.service.verificationReviewRuns(f.repo)
+ expect(references[run.id+':'+taskId]).toMatchObject({status:'succeeded',exitCode:0,sourceState:'stale'})
+ await expect(f.service.verificationOpen(f.repo,run.id,'foreign-task',artifact)).rejects.toThrow('does not belong')
+})
+
+it('captures only declared new or changed output bytes and authenticates both native and ACP origins', async()=>{
+ const f=await fixture();mkdirSync(join(f.repo,'dist'));writeFileSync(join(f.repo,'dist','unchanged.txt'),'unchanged')
+ for(const mode of ['native','acp']) {
+  const command=shellCommand([process.execPath,'-e',`require('fs').writeFileSync('dist/result.txt', '${mode}')`],process.platform)
+  const run=await f.service.parallelRunStart({name:'Observed output',command,targets:[{kind:'local',root:f.repo,label:'fixture'}],concurrency:1},{outputs:['dist/result.txt','dist/unchanged.txt','dist/missing.txt'],credential:{runId:'agent-run',sessionId:'agent-session',token:mode+'-test'}})
+  await f.finish();const entry=(await f.service.verificationList(f.repo)).find(value=>value.runId===run.id)!
+  expect(entry.task.verification?.origin).toEqual({kind:'agent',runId:'agent-run',sessionId:'agent-session',mode})
+  expect(entry.task.verification?.outputs?.map(output=>output.state)).toEqual([mode==='native'?'created':'changed','unchanged','missing'])
+  expect(entry.artifacts).toHaveLength(1);expect(entry.artifacts[0].relationship).toBe('observed-during-run')
+  expect(JSON.stringify(entry)).not.toContain(mode+'-test')
+  await f.service.verificationOpen(f.repo,run.id,entry.task.id,join(f.repo,'dist/result.txt'))
+  const review=new DiffReviewService(join(f.root,'review'),{resolveWorkspace:async path=>path,runs:path=>f.service.verificationReviewRuns(path)})
+  const snapshot=await createDiffReviewSnapshot({path:'source.txt',contents:'before'},{path:'source.txt',contents:'before'})
+  const note=await review.create({workspacePath:f.repo,filePath:'source.txt',comparison:'working',snapshot,anchor:createDiffReviewAnchor('after',1,1,'before'),body:'Observed output reviewed',runLink:{runId:run.id,taskId:entry.task.id}})
+  expect(note.runLink?.sourceFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/)
+ }
+ const before=(await f.service.parallelRunsList()).length
+ await expect(f.service.parallelRunStart({name:'Wrong agent',command:'true',targets:[{kind:'local',root:f.repo,label:'fixture'}],concurrency:1},{credential:{runId:'agent-run',sessionId:'agent-session',token:'forged'}})).rejects.toThrow('Invalid credential')
+ await expect(f.service.parallelRunStart({name:'Bad output',command:'true',targets:[{kind:'local',root:f.repo,label:'fixture'}],concurrency:1},{outputs:['../foreign']})).rejects.toThrow('checkout-relative')
+ expect((await f.service.parallelRunsList()).length).toBe(before)
 })

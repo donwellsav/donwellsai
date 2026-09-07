@@ -55,6 +55,7 @@ export type WorkspaceMoveRequest = {
 export type WorkspaceDuplicateRequest = WorkspaceMoveRequest
 
 export type WorkspaceDeleteRequest = {
+  expectedRevision?: string
   path: string
 }
 

@@ -1,5 +1,6 @@
 import type * as Monaco from 'monaco-editor/editor'
 import { getTypeScriptWorker, getJavaScriptWorker, typescriptDefaults, javascriptDefaults, type Diagnostic } from 'monaco-editor/languages/features/typescript/register.js'
+import { isProjectLanguageAttached } from './project-language-tools'
 
 function messageText(message: Diagnostic['messageText']): string {
   return typeof message === 'string' ? message : [message.messageText, ...(message.next ?? []).map(messageText)].join('\n')
@@ -14,9 +15,10 @@ export function installLanguageDiagnostics(monaco: typeof Monaco, reportError: (
     let generation = 0
     let timer: ReturnType<typeof setTimeout>
     const validate = async (): Promise<void> => {
+      if (isProjectLanguageAttached(model.uri.toString())) return
       const request = ++generation
       const version = model.getVersionId()
-      const current = (): boolean => !model.isDisposed() && request === generation && version === model.getVersionId()
+      const current = (): boolean => !model.isDisposed() && !isProjectLanguageAttached(model.uri.toString()) && request === generation && version === model.getVersionId()
       try {
         const getWorker = await (language === 'typescript' ? getTypeScriptWorker() : getJavaScriptWorker())
         const worker = await getWorker(model.uri)
@@ -44,6 +46,7 @@ export function installLanguageDiagnostics(monaco: typeof Monaco, reportError: (
       generation++
       clearTimeout(timer)
       monaco.editor.setModelMarkers(model, 'donwells-language', [])
+      if (isProjectLanguageAttached(model.uri.toString())) return
       timer = setTimeout(() => { void validate() }, 300)
     }
     const changes = model.onDidChangeContent(schedule)

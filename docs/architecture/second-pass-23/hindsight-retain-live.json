@@ -1,0 +1,57 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/project",
+  "endpoint": "http://127.0.0.1:52139",
+  "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "checks": [
+    "Actual Hindsight HTTP retains selected canonical source through local Ornith and returns source-checked recall",
+    "Canonical correction immediately withdraws old learned answers"
+  ],
+  "source": {
+    "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+    "revision": 1
+  },
+  "retained": {
+    "enabled": true,
+    "phase": "idle",
+    "generation": "donwells-9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9-73184889-4a0d-40b7-8427-a1bee74f51d6",
+    "sources": [
+      {
+        "kind": "memory",
+        "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+        "revision": 1
+      }
+    ],
+    "stale": false,
+    "pendingCleanup": 0,
+    "error": null,
+    "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+  },
+  "recalled": {
+    "classification": "learned",
+    "generation": "donwells-9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9-73184889-4a0d-40b7-8427-a1bee74f51d6",
+    "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+    "items": [
+      {
+        "text": "The Aurora project permits three retries before displaying a connection error | Involving: Donwells reviewed project knowledge (the AI agent whose memory this is)",
+        "sources": [
+          {
+            "kind": "memory",
+            "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+            "revision": 1,
+            "projectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+            "sourceTime": "2026-09-07T14:30:10.926Z"
+          }
+        ]
+      }
+    ],
+    "omitted": 0
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

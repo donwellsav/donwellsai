@@ -407,7 +407,7 @@ export type UiCommand =
 
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
-export type IpcApi = import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-environment').ProjectEnvironmentApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
   projectDoctorConfigure(workspacePath: string, config: import('./project-doctor').ProjectToolConfiguration, revision: string | null): Promise<import('./project-doctor').ProjectDoctorReport>

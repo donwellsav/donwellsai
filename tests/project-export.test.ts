@@ -170,3 +170,86 @@ it('rejects oversized or linked archive inputs and oversized selected artifacts'
   await writeFile(join(f.source, 'large.txt'), 'x'.repeat(512 * 1024 + 1))
   await expect(f.kit.projectKitExport(f.source, join(f.root, 'large-kit.json'), ['large.txt'])).rejects.toThrow('bounded UTF-8')
 })
+
+it.each(['json', 'sqlite'])('maps %s fact, tombstone and handoff identities consistently and preserves original origin through re-export', async backend => {
+  const f = await fixture()
+  const erased = await f.memory.projectMemoryCreate({ workspacePath: f.source, kind: 'fact', title: 'Erase me', content: 'ERASED_KIT_CONTENT', attribution: { harness: 'human' } })
+  if (backend === 'sqlite') migrateProjectMemory(f.profile)
+  const memory = new ProjectMemoryService(f.profile, async () => ({ projectKey: f.scope.projectKey, projectPath: f.scope.projectPath }))
+  await memory.projectMemoryErase({ workspacePath: f.source, id: erased.id, expectedRevision: 1 })
+  const handoffs = new ProjectHandoffStore(f.profile)
+  handoffs.create({ ...handoffs.list(f.scope.projectKey)[0], id: 'linked-handoff', memorySources: [{ id: f.first.id, revision: 2 }, { id: erased.id, revision: 1 }, { id: 'absent-fact', revision: 1 }] })
+  const exported = await f.kit.projectKitExport(f.source, f.output, [])
+  expect(exported.schemaVersion).toBe(3)
+  expect(exported.erasedMemories).toBe(1)
+  expect(exported.warnings.some(text => text.includes(erased.id) && text.includes('will not be restored'))).toBe(true)
+  expect(exported.warnings.some(text => text.includes('absent-fact'))).toBe(true)
+  expect(await readFile(f.output, 'utf8')).not.toContain('ERASED_KIT_CONTENT')
+  const restored = await f.kit.projectKitImport(f.output, join(f.root, 'mapped'), exported.sha256, exported.sourceProjectKey)
+  const map = restored.report.identityMapping!
+  const factId = map.find(ref => ref.kind === 'memory' && ref.id === f.first.id)!.targetId
+  const erasedId = map.find(ref => ref.kind === 'memory' && ref.id === erased.id)!.targetId
+  expect(erasedId).not.toBe(erased.id)
+  const scoped = { projectKey: restored.report.projectKey, projectPath: restored.repo.path }
+  const saved = new ProjectMemoryStore(f.profile).exportProject(scoped)
+  expect(saved.entries[0].current.id).toBe(factId)
+  expect(saved.erased).toEqual([{ id: erasedId, revision: 1, erasedAt: expect.any(String) }])
+  const handoffId = map.find(ref => ref.kind === 'handoff' && ref.id === 'linked-handoff')!.targetId
+  expect(new ProjectHandoffStore(f.profile).get(scoped.projectKey, handoffId)).toMatchObject({ state: 'superseded', memorySources: [{ id: factId, revision: 2 }] })
+  const nextPath = join(f.root, 'reexport.json')
+  await f.kit.projectKitExport(restored.repo.path, nextPath, [])
+  const next = JSON.parse(await readFile(nextPath, 'utf8'))
+  expect(next.payload.references.find((ref: any) => ref.id === factId)).toEqual({ kind: 'memory', id: factId, originalProjectKey: f.scope.projectKey, originalId: f.first.id })
+  expect(next.payload.references.find((ref: any) => ref.id === erasedId)).toEqual({ kind: 'memory', id: erasedId, originalProjectKey: f.scope.projectKey, originalId: erased.id })
+  expect(new ProjectMemoryStore(f.profile).exportProject(f.scope).entries[0].current.id).toBe(f.first.id)
+})
+
+it('converts v1 explicitly and rejects incomplete v2 reference maps before restore', async () => {
+  const f = await fixture()
+  await f.kit.projectKitExport(f.source, f.output, [])
+  const original = await readFile(f.output)
+  await editArchive(f.output, kit => { kit.payload.references.pop() })
+  await expect(f.kit.projectKitPreview(f.output)).rejects.toThrow('reference map is incomplete')
+  await writeFile(f.output, original)
+  await editArchive(f.output, kit => { kit.schemaVersion = 1; delete kit.payload.references; delete kit.checksums.references; delete kit.payload.knowledge; delete kit.checksums.knowledge })
+  const preview = await f.kit.projectKitPreview(f.output)
+  expect(preview.schemaVersion).toBe(1)
+  expect(preview.warnings.some(text => text.includes('Version 1 kit will be converted'))).toBe(true)
+  const restored = await f.kit.projectKitImport(f.output, join(f.root, 'legacy'), preview.sha256, preview.sourceProjectKey)
+  expect(restored.report.identityMapping).toHaveLength(2)
+  expect(restored.report.identityMapping?.find(ref => ref.kind === 'memory')).toMatchObject({ id: f.first.id, originalId: f.first.id, originalProjectKey: f.scope.projectKey })
+})
+
+it('round-trips learned facts, canonical source mappings and explicit workflow files without enabling services', async () => {
+  const f=await fixture(), documentId='d'.repeat(64)
+  const knowledge={hindsight:{transferSchemaRevision:'e'.repeat(40),exportedAt:new Date().toISOString(),model:'local-model',sources:[{kind:'memory',id:f.first.id,revision:2,projectKey:f.scope.projectKey,sourceTime:null,documentId}],documents:[{id:documentId,original_text:'Source text',retain_params:{credential:'secret-value'},tags:[],chunks:[{chunk_index:0,chunk_text:'Source text'}],facts:[{text:'Learned relationship',fact_type:'world',metadata:{credential:'secret-value'},chunk_index:0,entities:['Project'],causal_relations:[]}]}]},temporal:[{kind:'memory',id:f.first.id,revision:2}],settings:{documentRetrievalMode:'hybrid',hindsightModel:'local-model'}}
+  await mkdir(join(f.source,'donwells-import')); await writeFile(join(f.source,'donwells-import/knowledge.json'),JSON.stringify(knowledge))
+  await mkdir(join(f.source,'.github/workflows'),{recursive:true});await writeFile(join(f.source,'.github/workflows/check.yml'),'name: check\non: workflow_dispatch\n')
+  const exported=await f.kit.projectKitExport(f.source,f.output,['.github/workflows/check.yml'])
+  expect(exported).toMatchObject({schemaVersion:3,learnedFacts:1,temporalSources:1})
+  expect(await readFile(f.output,'utf8')).not.toContain('secret-value')
+  const destination=join(f.root,'learned-restored'), imported=await f.kit.projectKitImport(f.output,destination,exported.sha256,exported.sourceProjectKey)
+  const restored=JSON.parse(await readFile(join(destination,'donwells-import/knowledge.json'),'utf8'))
+  const ref=restored.hindsight.sources[0]
+  expect(ref.id).not.toBe(f.first.id);expect(ref.projectKey).toBe(imported.report.projectKey)
+  expect(restored.temporal[0].id).toBe(ref.id);expect(restored.hindsight.documents[0].id).toBe(ref.documentId)
+  expect(restored.hindsight.documents[0].facts[0].text).toBe('Learned relationship')
+  expect(restored.hindsight.documents[0].facts[0].metadata).toEqual({})
+  expect(await readFile(join(destination,'.github/workflows/check.yml'),'utf8')).toContain('workflow_dispatch')
+  const again=join(f.root,'again.json');await f.kit.projectKitExport(destination,again,[])
+  const roundTrip=JSON.parse(await readFile(again,'utf8'))
+  expect(roundTrip.payload.knowledge.hindsight.documents).toEqual(restored.hindsight.documents)
+  expect(roundTrip.payload.references.find((v:any)=>v.id===ref.id)).toMatchObject({originalId:f.first.id,originalProjectKey:f.scope.projectKey})
+  await f.memory.projectMemoryErase({workspacePath:f.source,id:f.first.id,expectedRevision:2})
+  await expect(f.kit.projectKitExport(f.source,join(f.root,'erased.json'),[])).rejects.toThrow(/absent or erased/)
+})
+
+it('rejects a learned causal edge or chunk reference that cannot survive restore', async () => {
+  const f=await fixture();await f.kit.projectKitExport(f.source,f.output,[])
+  const base=JSON.parse(await readFile(f.output,'utf8')),documentId='d'.repeat(64)
+  for(const bad of [{chunk_index:42},{causal_relations:[{relation_type:'causes',target_fact_index:42}]}]){
+    await writeFile(f.output,JSON.stringify(base))
+    await editArchive(f.output,kit=>{kit.payload.knowledge.hindsight={transferSchemaRevision:'e'.repeat(40),exportedAt:new Date().toISOString(),model:'local',sources:[{kind:'memory',id:f.first.id,revision:2,projectKey:f.scope.projectKey,sourceTime:null,documentId}],documents:[{id:documentId,chunks:[],facts:[{text:'fact',fact_type:'world',...bad}]}]}})
+    await expect(f.kit.projectKitPreview(f.output)).rejects.toThrow(/absent/)
+  }
+})

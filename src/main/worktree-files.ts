@@ -701,6 +701,7 @@ export class WorktreeFiles {
     const relPath = validateRelativePath(request.path)
     return this.runExclusive(root, async () => {
       const entry = await resolveExistingEntry(root, relPath)
+      if (request.expectedRevision !== undefined && (entry.kind !== 'file' || !REVISION_PATTERN.test(request.expectedRevision) || await readCurrentRevision(root, entry.abs, relPath) !== request.expectedRevision)) throw new WorktreeFileError('Delete conflict: ' + relPath + ' changed on disk')
       await removeEntryTree(root, entry)
       return { path: relPath, kind: entry.kind }
     })

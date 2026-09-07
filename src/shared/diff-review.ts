@@ -1,3 +1,4 @@
+import type { ParallelTaskStatus, VerificationEntry } from './operational-runs'
 import type { AgentAttachmentDraft } from './agent-delivery'
 import type { DiffComparison } from './types'
 
@@ -46,7 +47,11 @@ export type DiffReviewTarget = {
   comparison: DiffComparison
 }
 
+export type DiffReviewRunLink = { runId: string; taskId: string; sourceFingerprint: string }
+export type DiffReviewRunState = { status: ParallelTaskStatus; sourceState: VerificationEntry['sourceState']; exitCode?: number; sourceFingerprint: string | null }
+
 export type DiffReviewNote = {
+  runLink?: DiffReviewRunLink
   id: string
   target: DiffReviewTarget
   snapshot: DiffReviewSnapshotIdentity
@@ -63,8 +68,9 @@ export type DiffReviewDocument = {
 }
 
 export type DiffReviewListRequest = DiffReviewTarget
-export type DiffReviewListResult = { target: DiffReviewTarget; notes: DiffReviewNote[] }
+export type DiffReviewListResult = { target: DiffReviewTarget; notes: DiffReviewNote[]; runStates?: Record<string, DiffReviewRunState | null> }
 export type DiffReviewCreateRequest = DiffReviewTarget & {
+  runLink?: Pick<DiffReviewRunLink, 'runId' | 'taskId'>
   snapshot: DiffReviewSnapshotIdentity
   anchor: DiffReviewAnchor
   body: string
@@ -273,9 +279,16 @@ export function parseDiffReviewListRequest(value: unknown): DiffReviewListReques
   return parseDiffReviewTarget(value, 'diff review list request')
 }
 
+function parseReviewRunLink(value: unknown, persisted: boolean): DiffReviewRunLink | Pick<DiffReviewRunLink, 'runId' | 'taskId'> {
+  const input = record(value, 'review run link')
+  exactKeys(input, ['runId', 'taskId', ...(persisted ? ['sourceFingerprint'] : [])], 'review run link')
+  if (persisted && (typeof input.sourceFingerprint !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(input.sourceFingerprint))) throw new Error('Invalid review run source fingerprint')
+  return { runId: parseIdentifier(input.runId, 'runId'), taskId: parseIdentifier(input.taskId, 'taskId'), ...(persisted ? { sourceFingerprint: input.sourceFingerprint as string } : {}) }
+}
+
 export function parseDiffReviewCreateRequest(value: unknown): DiffReviewCreateRequest {
   const input = record(value, 'diff review create request')
-  exactKeys(input, ['workspacePath', 'filePath', 'comparison', 'snapshot', 'anchor', 'body'], 'diff review create request')
+  exactKeys(input, ['workspacePath', 'filePath', 'comparison', 'snapshot', 'anchor', 'body', ...(Object.hasOwn(input, 'runLink') ? ['runLink'] : [])], 'diff review create request')
   const target = parseDiffReviewTarget({
     workspacePath: input.workspacePath,
     filePath: input.filePath,
@@ -285,7 +298,7 @@ export function parseDiffReviewCreateRequest(value: unknown): DiffReviewCreateRe
   const anchor = parseDiffReviewAnchor(input.anchor)
   validateSnapshotAgainstTarget(target, snapshot, 'snapshot')
   validateAnchorAgainstSnapshot(anchor, snapshot, 'anchor')
-  return { ...target, snapshot, anchor, body: normalizeDiffReviewBody(input.body) }
+  return { ...target, snapshot, anchor, body: normalizeDiffReviewBody(input.body), ...(input.runLink === undefined ? {} : { runLink: parseReviewRunLink(input.runLink, false) }) }
 }
 
 export function parseDiffReviewUpdateRequest(value: unknown): DiffReviewUpdateRequest {
@@ -311,7 +324,7 @@ export function parseDiffReviewDeleteRequest(value: unknown): DiffReviewDeleteRe
 
 export function parseDiffReviewNote(value: unknown, label = 'note'): DiffReviewNote {
   const input = record(value, label)
-  exactKeys(input, ['id', 'target', 'snapshot', 'anchor', 'body', 'createdAt', 'updatedAt', 'revision'], label)
+  exactKeys(input, ['id', 'target', 'snapshot', 'anchor', 'body', 'createdAt', 'updatedAt', 'revision', ...(Object.hasOwn(input, 'runLink') ? ['runLink'] : [])], label)
   const target = parseDiffReviewTarget(input.target, `${label}.target`)
   const snapshot = parseDiffReviewSnapshot(input.snapshot, `${label}.snapshot`)
   const anchor = parseDiffReviewAnchor(input.anchor, `${label}.anchor`)
@@ -321,6 +334,7 @@ export function parseDiffReviewNote(value: unknown, label = 'note'): DiffReviewN
   const updatedAt = parseTimestamp(input.updatedAt, `${label}.updatedAt`)
   if (updatedAt < createdAt) throw new Error(`${label}.updatedAt must not precede createdAt`)
   return {
+    ...(input.runLink === undefined ? {} : { runLink: parseReviewRunLink(input.runLink, true) as DiffReviewRunLink }),
     id: parseIdentifier(input.id, `${label}.id`),
     target,
     snapshot,
@@ -501,6 +515,7 @@ export function formatDiffReviewAttachment(
       `Side: ${note.anchor.side}`,
       `Line: ${note.anchor.startLine}`,
       `Range: ${range}`,
+      ...(note.runLink ? [`Linked run: ${JSON.stringify(note.runLink.runId)} / task ${JSON.stringify(note.runLink.taskId)}`, `Original run source: ${note.runLink.sourceFingerprint}`, 'Run outcome and freshness must be read from the operational run owner; snapshot freshness does not establish command success.'] : []),
       `Note snapshot before: ${snapshotLabel(note.snapshot.before)}`,
       `Note snapshot after: ${snapshotLabel(note.snapshot.after)}`,
       'Context:',

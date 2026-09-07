@@ -11,6 +11,7 @@ import {
   parseDiffReviewTarget,
   parseDiffReviewUpdateRequest,
   parseDiffReviewWorkspacePath,
+  type DiffReviewRunState,
   type DiffReviewCreateRequest,
   type DiffReviewDeleteRequest,
   type DiffReviewListRequest,
@@ -25,6 +26,7 @@ export type DiffReviewWorkspaceResolver = (workspacePath: string) => string | Pr
 
 export type DiffReviewServiceOptions = {
   resolveWorkspace: DiffReviewWorkspaceResolver
+  runs?: (workspacePath: string) => Promise<Record<string, DiffReviewRunState>>
   now?: () => Date
   createId?: () => string
 }
@@ -36,7 +38,7 @@ export class DiffReviewService {
   private readonly now: () => Date
   private readonly createId: () => string
 
-  constructor(userDataDir: string, options: DiffReviewServiceOptions) {
+  constructor(userDataDir: string, private options: DiffReviewServiceOptions) {
     if (!options?.resolveWorkspace) throw new Error('DiffReviewService requires a registered-workspace resolver')
     this.store = new DiffReviewStore(userDataDir)
     this.resolveWorkspace = options.resolveWorkspace
@@ -47,14 +49,30 @@ export class DiffReviewService {
   async list(value: DiffReviewListRequest): Promise<DiffReviewListResult> {
     const request = parseDiffReviewListRequest(value)
     const target = await this.authorizedTarget(request)
-    return { target, notes: this.store.list(target) }
+    const notes = this.store.list(target)
+    if (!notes.some(note => note.runLink)) return { target, notes }
+    const runs = await this.options.runs?.(target.workspacePath) ?? {}
+    const runStates = Object.fromEntries(notes.filter(note => note.runLink).map(note => {
+      const linked = runs[note.runLink!.runId + ':' + note.runLink!.taskId]
+      return [note.id, linked?.sourceFingerprint === note.runLink!.sourceFingerprint ? linked : null]
+    }))
+    if (await this.authorizedWorkspace(request.workspacePath) !== target.workspacePath) throw new Error('Review workspace changed while resolving runs')
+    return { target, notes, runStates }
   }
 
   async create(value: DiffReviewCreateRequest): Promise<DiffReviewNote> {
     const request = parseDiffReviewCreateRequest(value)
     const target = await this.authorizedTarget(request)
+    let runLink
+    if (request.runLink) {
+      const run = (await this.options.runs?.(target.workspacePath))?.[request.runLink.runId + ':' + request.runLink.taskId]
+      if (!run?.sourceFingerprint) throw new Error('Selected run has no captured source identity in this checkout')
+      runLink = { ...request.runLink, sourceFingerprint: run.sourceFingerprint }
+      if (await this.authorizedWorkspace(request.workspacePath) !== target.workspacePath) throw new Error('Review workspace changed while linking run')
+    }
     const now = this.timestamp()
     const note = parseDiffReviewNote({
+      ...(runLink ? { runLink } : {}),
       id: this.createId(),
       target,
       snapshot: request.snapshot,

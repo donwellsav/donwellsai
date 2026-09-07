@@ -1,14 +1,16 @@
+import { lstat } from 'node:fs/promises'
+import type { DiffReviewRunState } from '@shared/diff-review'
 import { stripVTControlCharacters } from 'node:util'
 import { WorktreeFiles } from './worktree-files'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { isObject } from '@shared/command-catalog'
 import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { AgentRegistry } from './agents/registry'
 import { shellCommand } from './agents/provider-hooks'
 import { hashVerificationArtifact } from './diff-review'
-import type { VerificationSource, VerificationEvidence, VerificationEntry, VerificationArtifact } from '@shared/operational-runs'
-import { parseParallelRunInput, parseScheduledRunInput, type OperationalRunsApi, type OperationalTarget, type ParallelRunInput, type ScheduledRunInput } from '@shared/operational-runs'
+import type { VerificationSetup, VerificationRunOptions, VerificationOutput, VerificationSource, VerificationEvidence, VerificationEntry, VerificationArtifact } from '@shared/operational-runs'
+import { parseVerificationOutputPaths, parseParallelRunInput, parseScheduledRunInput, type OperationalRunsApi, type OperationalTarget, type ParallelRunInput, type ScheduledRunInput } from '@shared/operational-runs'
 import { ScheduledRunScheduler, ScheduledRunStore } from './automations'
 import { ParallelRunOrchestrator, ParallelRunStore } from './orchestration'
 import type { DaemonClient } from './daemon-client'
@@ -19,7 +21,7 @@ export class OperationalRunService implements OperationalRunsApi {
   private readonly parallelStore: ParallelRunStore
   private readonly completing = new Map<string,Promise<void>>()
 
-  constructor(userDataDir: string, terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>}) {
+  constructor(userDataDir: string, private readonly terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>; openArtifact?:(path:string)=>Promise<void>}) {
     const launch = async ({ target, command }: { target: OperationalTarget; command: string }): Promise<string> => {
       const workspacePath = await this.localWorkspace(target)
       return (await terminals.openJob(workspacePath, command)).id
@@ -31,7 +33,14 @@ export class OperationalRunService implements OperationalRunsApi {
     this.parallelStore = new ParallelRunStore(userDataDir)
     this.parallel = new ParallelRunOrchestrator(this.parallelStore, async request => {
       const root=await this.localWorkspace(request.target)
-      const evidence:VerificationEvidence={before:null,after:null,startedAt:new Date().toISOString(),environment:{platform:process.platform,arch:process.arch,hostNode:process.versions.node,hostElectron:process.versions.electron},toolVersions:{},artifacts:[]}
+      const setup = this.parallelStore.get(request.runId)?.tasks.find(task => task.id === request.taskId)?.verificationSetup
+      const outputs: VerificationOutput[] = []
+      for (const relative of setup?.outputs ?? []) {
+        const path = join(root, relative)
+        const before = await this.observeOutput(path,root)
+        outputs.push({path,before:before?{sha256:before.sha256,bytes:before.bytes}:null,state:'pending'})
+      }
+      const evidence:VerificationEvidence={origin:setup?.origin ?? {kind:'unattributed'},outputs,before:null,after:null,startedAt:new Date().toISOString(),environment:{platform:process.platform,arch:process.arch,hostNode:process.versions.node,hostElectron:process.versions.electron},toolVersions:{},artifacts:[]}
       try {evidence.before=await this.capture(root)} catch(error) {evidence.problem=String(error).slice(0,2048)}
       for (const name of ['node',await this.packageManager(root).catch(()=>null)]) {
         if(!name)continue
@@ -97,10 +106,18 @@ export class OperationalRunService implements OperationalRunsApi {
   async scheduledRunCancel(executionId: string) { return this.scheduler.cancel(executionId) }
   async parallelRunsList() { return this.parallel.list() }
 
-  async parallelRunStart(value: ParallelRunInput) {
+  async parallelRunStart(value: ParallelRunInput, options?: VerificationRunOptions) {
     const input = parseParallelRunInput(value)
     const targets = await Promise.all(input.targets.map(async (target) => ({ ...target, root: await this.localWorkspace(target) })))
-    return this.parallel.start({ ...input, targets })
+    if (options && (typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key=>!['outputs','credential'].includes(key)))) throw new Error('Invalid run options')
+    const setup: VerificationSetup = { outputs: parseVerificationOutputPaths(options?.outputs ?? []), origin: {kind:'unattributed'} }
+    if (options?.credential) {
+      const identity = await this.terminals.authenticateAgent(options.credential)
+      const root = await this.resolveWorkspace(identity.workspacePath)
+      if (targets.some(target => target.kind !== 'local' || target.root !== root)) throw new Error('Agent credential belongs to another checkout')
+      setup.origin = {kind:'agent',runId:identity.id,sessionId:identity.sessionId,mode:identity.mode ?? 'native'}
+    }
+    return this.parallel.start({ ...input, targets }, setup)
   }
 
   async parallelRunRetry(id: string, taskIds: string[]) {
@@ -129,6 +146,11 @@ export class OperationalRunService implements OperationalRunsApi {
     return source
   }
 
+  private async observeOutput(path:string,root:string) {
+    try {await lstat(path)} catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error}
+    return hashVerificationArtifact(path,[root])
+  }
+
   private captureCompletion(sessionId:string):Promise<void> {
     const active=this.completing.get(sessionId);if(active)return active
     const pending=(async()=>{
@@ -137,9 +159,19 @@ export class OperationalRunService implements OperationalRunsApi {
       if(!run||!task?.verification||task.verification.finishedAt)return
       let after:VerificationSource|null=null,problem:string|undefined
       try {after=await this.capture(task.target.root)} catch(error) {problem=String(error).slice(0,2048)}
+      const outputs:VerificationOutput[]=[],observed:VerificationArtifact[]=[]
+      for (const declared of task.verification.outputs ?? []) {
+        try {
+          const actual=await this.observeOutput(declared.path,task.target.root)
+          if(!actual){outputs.push({...declared,state:'missing'});continue}
+          const state=!declared.before?'created':declared.before.sha256===actual.sha256?'unchanged':'changed'
+          outputs.push({...declared,state})
+          if(state!=='unchanged')observed.push({...actual,attachedAt:new Date().toISOString(),sourceFingerprint:task.verification.before?.contentFingerprint??null,relationship:'observed-during-run'})
+        } catch(error) {outputs.push({...declared,state:(error as NodeJS.ErrnoException).code==='ENOENT'?'missing':'unavailable',problem:String(error).slice(0,2048)})}
+      }
       const current=this.parallelStore.get(run.id),fresh=current?.tasks.find(item=>item.id===task.id)
       if(!current||!fresh?.verification)return
-      fresh.verification={...fresh.verification,after,finishedAt:new Date().toISOString(),problem:problem??fresh.verification.problem}
+      fresh.verification={...fresh.verification,after,outputs,artifacts:[...fresh.verification.artifacts.filter(item=>!observed.some(value=>value.path===item.path)),...observed],finishedAt:new Date().toISOString(),problem:problem??fresh.verification.problem}
       this.parallelStore.upsert(current)
     })().finally(()=>this.completing.delete(sessionId))
     this.completing.set(sessionId,pending);return pending
@@ -163,12 +195,12 @@ export class OperationalRunService implements OperationalRunsApi {
     if(await this.resolveWorkspace(workspacePath)!==root)throw new Error('Workspace changed while reading scripts')
     return isObject(pkg.scripts)?Object.keys(pkg.scripts).filter(name=>name.length>0&&name.length<=128&&!/[\u0000-\u001f]/.test(name)&&typeof (pkg.scripts as Record<string,unknown>)[name]==='string'):[]
   }
-  async verificationRun(workspacePath:string,script:string) {
+  async verificationRun(workspacePath:string,script:string,options?:VerificationRunOptions) {
     const root=await this.resolveWorkspace(workspacePath)
     if(!(await this.verificationScripts(root)).includes(script))throw new Error('Choose an existing package script')
     const manager=await this.packageManager(root),program=new AgentRegistry().findExecutable(manager)
     if(!program)throw new Error('Package manager is unavailable: '+manager)
-    return this.parallelRunStart({name:'Verify '+script,command:shellCommand([program,'run',script],process.platform),targets:[{kind:'local',root,label:basename(root)}],concurrency:1})
+    return this.parallelRunStart({name:'Verify '+script,command:shellCommand([program,'run',script],process.platform),targets:[{kind:'local',root,label:basename(root)}],concurrency:1},options)
   }
   async verificationList(workspacePath:string,verifyArtifacts=false):Promise<VerificationEntry[]> {
     const root=await this.resolveWorkspace(workspacePath),current=await this.capture(root).catch(()=>null)
@@ -183,6 +215,29 @@ export class OperationalRunService implements OperationalRunsApi {
     if(await this.resolveWorkspace(workspacePath)!==root)throw new Error('Workspace changed while reading verification')
     return result
   }
+  async verificationReviewRuns(workspacePath: string): Promise<Record<string, DiffReviewRunState>> {
+    const root = await this.resolveWorkspace(workspacePath), current = await this.capture(root).catch(() => null)
+    const states: Record<string, DiffReviewRunState> = {}
+    for (const run of this.parallelStore.list()) for (const task of run.tasks) {
+      if (task.target.kind !== 'local' || task.target.root !== root) continue
+      const evidence = task.verification
+      const sourceState: VerificationEntry['sourceState'] = ['queued','launching','running','cancelling'].includes(task.status) ? 'running' : !evidence?.before || !evidence.after || !current ? 'unverified' : evidence.before.contentFingerprint !== evidence.after.contentFingerprint ? 'changed-during-run' : current.contentFingerprint !== evidence.after.contentFingerprint ? 'stale' : 'current'
+      states[run.id + ':' + task.id] = { status: task.status, sourceState, exitCode: task.exitCode, sourceFingerprint: evidence?.before?.contentFingerprint ?? null }
+    }
+    if (await this.resolveWorkspace(workspacePath) !== root) throw new Error('Workspace changed while reading run references')
+    return states
+  }
+  async verificationOpen(workspacePath: string, runId: string, taskId: string, path: string): Promise<void> {
+    const root = await this.resolveWorkspace(workspacePath), run = this.parallelStore.get(runId), task = run?.tasks.find(task => task.id === taskId)
+    if (!task?.verification || task.target.kind !== 'local' || task.target.root !== root) throw new Error('Artifact run does not belong to this workspace')
+    const recorded = task.verification.artifacts.find(artifact => artifact.path === path)
+    if (!recorded) throw new Error('Artifact is not attached to this run')
+    const actual = await hashVerificationArtifact(path, await this.verification?.artifactRoots(root) ?? [root])
+    if (actual.sha256 !== recorded.sha256 || actual.bytes !== recorded.bytes) throw new Error('Artifact changed since attachment; review and attach its new bytes before opening')
+    if (await this.resolveWorkspace(workspacePath) !== root || !this.parallelStore.get(runId)?.tasks.find(item => item.id === taskId)?.verification?.artifacts.some(item => item.path === path && item.sha256 === actual.sha256)) throw new Error('Artifact reference changed during opening')
+    if (!this.verification?.openArtifact) throw new Error('Artifact opener is unavailable')
+    await this.verification.openArtifact(actual.path)
+  }
   async verificationAttach(workspacePath:string,runId:string,taskId:string,path:string):Promise<VerificationArtifact> {
     const root=await this.resolveWorkspace(workspacePath),run=this.parallelStore.get(runId),task=run?.tasks.find(task=>task.id===taskId)
     if(!task?.verification||task.target.kind!=='local'||task.target.root!==root)throw new Error('Verification run does not belong to this workspace')
@@ -191,7 +246,7 @@ export class OperationalRunService implements OperationalRunsApi {
     const current=this.parallelStore.get(runId),fresh=current?.tasks.find(task=>task.id===taskId)
     if(!current||!fresh?.verification)throw new Error('Verification run was removed')
     const retained=fresh.verification.artifacts.filter(item=>item.path!==actual.path)
-    if(retained.length>=16)throw new Error('Artifact limit reached')
+    if(retained.filter(item=>item.relationship==='attached-reference').length>=16)throw new Error('Artifact limit reached')
     const artifact:VerificationArtifact={...actual,attachedAt:new Date().toISOString(),sourceFingerprint:source?.contentFingerprint??null,relationship:'attached-reference'}
     fresh.verification.artifacts=[...retained,artifact]
     this.parallelStore.upsert(current);return artifact

@@ -243,3 +243,23 @@ describe('agent review attachment', () => {
     expect(first.text.indexOf('Original concern.')).toBeLessThan(first.text.indexOf('Current concern.'))
   })
 })
+
+
+it('binds review notes to an owned run source receipt and recomputes freshness without rewriting the link', async () => {
+  const profile = temporaryRoot(), fingerprint = 'sha256:' + 'a'.repeat(64)
+  let state: import('../src/shared/diff-review').DiffReviewRunState = { status: 'failed', sourceState: 'current', exitCode: 1, sourceFingerprint: fingerprint }
+  const service = new DiffReviewService(profile, { resolveWorkspace: path => path, runs: async path => path === target.workspacePath ? { 'run:task': state } : {} })
+  const snapshot = await createDiffReviewSnapshot({ path: target.filePath, contents: 'before\n' }, { path: target.filePath, contents: 'after\n' })
+  const request = { ...target, snapshot, anchor: createDiffReviewAnchor('after', 1, 1, 'after\n'), body: 'Failure reviewed', runLink: { runId: 'run', taskId: 'task' } }
+  const created = await service.create(request)
+  expect(created.runLink).toEqual({ runId: 'run', taskId: 'task', sourceFingerprint: fingerprint })
+  expect(formatDiffReviewAttachment(target, snapshot, [created]).text).toContain('Original run source: ' + fingerprint)
+  expect((await service.list(target)).runStates?.[created.id]).toMatchObject({ status: 'failed', exitCode: 1, sourceState: 'current' })
+  state = { ...state, sourceState: 'stale' }
+  const reopened = await service.list(target)
+  expect(reopened.runStates?.[created.id]?.sourceState).toBe('stale')
+  expect(reopened.notes[0].runLink).toEqual(created.runLink)
+  expect((await service.update({ workspacePath: target.workspacePath, id: created.id, expectedRevision: created.revision, body: 'Follow-up' })).runLink).toEqual(created.runLink)
+  await expect(service.create({ ...request, workspacePath: '/foreign' })).rejects.toThrow('no captured source')
+  expect(() => parseDiffReviewCreateRequest({ ...request, runLink: { ...request.runLink, sourceFingerprint: 'b'.repeat(64) } })).toThrow('unknown field')
+})

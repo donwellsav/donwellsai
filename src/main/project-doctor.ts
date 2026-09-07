@@ -1,3 +1,7 @@
+import { ProjectTemporalKnowledge } from './project-temporal-knowledge'
+import { ProjectKnowledge } from './project-knowledge'
+import type { KnowledgeSelection } from '@shared/project-knowledge'
+import type { ProjectHandoffStatus } from '@shared/project-handoff'
 import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from './project-session-history'
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, opendir, readdir, realpath, stat, statfs } from 'node:fs/promises'
@@ -33,6 +37,8 @@ export class ProjectDoctor {
   private readonly files = new WorktreeFiles()
   private readonly owners = new Map<string, Promise<ProjectTools>>()
   private readonly histories = new Map<string, ProjectSessionHistory>()
+  private readonly temporalOwners = new Map<string, ProjectTemporalKnowledge>()
+  private readonly knowledgeOwners = new Map<string, ProjectKnowledge>()
   private readonly revisions = new Map<string, string | null>()
   private readonly changing = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>()
   private closed = false
@@ -41,7 +47,8 @@ export class ProjectDoctor {
     private readonly resolveWorkspace: (path: string) => Promise<{ path: string; projectPath: string }>,
     private readonly defaults: (projectPath: string) => ProjectToolConfiguration,
     private readonly definitions: (config: ProjectToolConfiguration, projectPath: string) => ProjectToolDefinition[],
-    private readonly historyCache = join(directory, 'history')
+    private readonly historyCache = join(directory, 'history'),
+    private readonly knowledgeSources?: { profile: string; graphitiPassword?(projectKey: string): string | null; handoff(path: string, id: string): Promise<ProjectHandoffStatus> }
   ) {}
 
   private async location(path: string) {
@@ -123,11 +130,13 @@ export class ProjectDoctor {
     try {
       const current = await this.snapshot(scope.directory)
       if (current.revision !== expectedRevision) throw new Error('Tool configuration changed; reload before applying')
-      await Promise.all([(async () => (await this.owners.get(scope.projectKey))?.close())(), this.histories.get(scope.projectKey)?.close()])
+      await Promise.all([(async () => (await this.owners.get(scope.projectKey))?.close())(), this.histories.get(scope.projectKey)?.close(), this.knowledgeOwners.get(scope.projectKey)?.close(), this.temporalOwners.get(scope.projectKey)?.close()])
       // Keep failed termination owners retained: their close must succeed before any replacement can launch.
       this.owners.delete(scope.projectKey)
       this.revisions.delete(scope.projectKey)
       this.histories.delete(scope.projectKey)
+      this.knowledgeOwners.delete(scope.projectKey)
+      this.temporalOwners.delete(scope.projectKey)
       if ((await this.location(path)).projectKey !== scope.projectKey) throw new Error('Project changed while configuring tools')
       if (current.content !== null) await this.files.createWorkspaceEntry(scope.directory, { kind: 'file', path: `tools-backup-${randomUUID()}.json`, content: current.content })
       const content = JSON.stringify(configuration, null, 2) + '\n'
@@ -175,11 +184,56 @@ export class ProjectDoctor {
   async historyAnalyticsCancel(path: string, requestId: string) { return (await this.history(path)).cancelAnalytics(path, requestId) }
   async historyAnalyticsProgress(path: string, requestId: string) { return (await this.history(path)).analyticsProgress(path, requestId) }
 
+  private async knowledge(path: string, restart = false): Promise<ProjectKnowledge> {
+    const scope = await this.location(path), config = await this.configuration(path)
+    if (this.closed || this.changing.has(scope.projectKey)) throw new Error('Knowledge is stopped for configuration changes')
+    if (!config.hindsight || !this.knowledgeSources) throw new Error('Configure the local Hindsight endpoint and selected model first')
+    let owner = this.knowledgeOwners.get(scope.projectKey)
+    if (owner && !owner.matches(config.hindsight)) { await owner.close(); this.knowledgeOwners.delete(scope.projectKey); owner = undefined }
+    if (!owner || (restart && owner.stopped)) {
+      owner = new ProjectKnowledge(this.knowledgeSources.profile, config.hindsight, async requested => {
+        const current = await resolveProjectToolScope(requested, this.resolveWorkspace)
+        if (current.projectKey !== scope.projectKey) throw new Error('Knowledge belongs to another project')
+        return current
+      }, this.knowledgeSources.handoff)
+      this.knowledgeOwners.set(scope.projectKey, owner)
+    }
+    return owner
+  }
+  async knowledgeImport(path: string, selection: import('@shared/project-knowledge').KnowledgeSelection[], archiveBase64: string, facts: number) { return (await this.knowledge(path)).importTransfer(path, selection, archiveBase64, facts) }
+  async knowledgeExport(path: string) { return (await this.knowledge(path)).exportTransfer(path) }
+  async knowledgeStatus(path: string) { return (await this.knowledge(path)).status(path) }
+  async knowledgeReconcile(path: string, sources: KnowledgeSelection[]) { return (await this.knowledge(path, true)).reconcile(path, sources) }
+  async knowledgeRecall(path: string, query: string) { return (await this.knowledge(path)).recall(path, query) }
+  async knowledgeReflect(path: string, query: string) { return (await this.knowledge(path)).reflect(path, query) }
+  async knowledgeStop(path: string) { const scope = await this.location(path); await this.knowledgeOwners.get(scope.projectKey)?.close() }
+
+  private async temporal(path: string, restart = false): Promise<ProjectTemporalKnowledge> {
+    const scope = await this.location(path), config = await this.configuration(path)
+    if (this.closed || this.changing.has(scope.projectKey)) throw new Error('Temporal knowledge is stopped for configuration changes')
+    if (!config.graphiti || !this.knowledgeSources) throw new Error('Configure Graphiti Python, Neo4j and local models first')
+    let owner = this.temporalOwners.get(scope.projectKey)
+    if (owner && !owner.matches(config.graphiti)) { await owner.close(); this.temporalOwners.delete(scope.projectKey); owner = undefined }
+    if (!owner || (restart && owner.stopped)) {
+      owner = new ProjectTemporalKnowledge(this.knowledgeSources.profile, config.graphiti, async requested => {
+        const current = await resolveProjectToolScope(requested, this.resolveWorkspace)
+        if (current.projectKey !== scope.projectKey) throw new Error('Temporal knowledge belongs to another project')
+        return current
+      }, () => this.knowledgeSources?.graphitiPassword?.(scope.projectKey) ?? null)
+      this.temporalOwners.set(scope.projectKey, owner)
+    }
+    return owner
+  }
+  async temporalKnowledgeStatus(path: string) { return (await this.temporal(path)).status(path) }
+  async temporalKnowledgeReconcile(path: string, sources: KnowledgeSelection[]) { return (await this.temporal(path, true)).reconcile(path, sources) }
+  async temporalKnowledgeQuery(path: string, query: string, asOf?: string) { return (await this.temporal(path)).query(path, query, asOf) }
+  async temporalKnowledgeStop(path: string) { const scope = await this.location(path); await this.temporalOwners.get(scope.projectKey)?.close() }
+
   async retry(path: string, id: string) { if (id === 'history') { await this.stop(path, id); await this.historyIndex(path); return { id, status: 'stopped' as const, version: SESSION_HISTORY_VERSION, detail: 'Native history index updated' } } const owner = await this.owner(path); await owner.stop(path, id); return owner.start(path, id) }
   async close() {
     this.closed = true
     await Promise.all([...this.changing.values()].map(change => change.promise))
-    const results = await Promise.allSettled([...this.owners.values()].map(async owner => (await owner).close()).concat([...this.histories.values()].map(history => history.close())))
+    const results = await Promise.allSettled([...this.owners.values()].map(async owner => (await owner).close()).concat([...this.histories.values()].map(history => history.close()), [...this.knowledgeOwners.values()].map(owner => owner.close()), [...this.temporalOwners.values()].map(owner => owner.close())))
     if (results.some(result => result.status === 'rejected')) throw new Error('Some project tools could not be stopped')
   }
 }

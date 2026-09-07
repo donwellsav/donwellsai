@@ -104,6 +104,16 @@ export function AgentsSection() {
     })
   }
 
+  const reviewSessionWork = (run: RunningAgent, tab: 'git' | 'memory'): void => {
+    const state = useAppStore.getState()
+    if (!state.repos.some(repo => repo.worktrees.some(worktree => worktree.path === run.workspacePath))) {
+      setSessionError(run.sessionId, 'This checkout is no longer registered. Keep the retained output or dismiss the session after review.')
+      return
+    }
+    state.setActiveWorktree(run.workspacePath)
+    state.setRightSidebarTab(tab)
+  }
+
   const launch = async (): Promise<void> => {
     const trimmed = command.trim()
     if (!targetPath || !trimmed || launching || configuringMemory) return
@@ -215,7 +225,7 @@ export function AgentsSection() {
 
         <p>File intent is advisory. Native agents can edit other files; this does not lock the checkout.</p>
         </details>
-        {overlaps.length > 0 && <div role="status"><strong>{overlaps.length} session(s) may overlap.</strong>{overlaps.map(run => <p key={run.sessionId}>{agentProviderName(run)}: {run.task?.intent || 'Intent unspecified'} · {run.task?.files.join(', ') || 'File scope unspecified'}</p>)}</div>}
+        {overlaps.length > 0 && <section aria-label="Overlapping session ownership"><p role="status"><strong>{overlaps.length} session(s) may overlap.</strong></p>{overlaps.map(run => <div key={run.sessionId}><p>{agentProviderName(run)}: {run.task?.intent || 'Intent unspecified'} · {run.task?.files.join(', ') || 'File scope unspecified'}</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => void openTerminal(run)}>Open owner terminal</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'git')}>Review checkout changes</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'memory')}>Review or save handoff</button></div>)}</section>}
 
         {availablePresets.length > 0 ? (
           <div className="agent-harness-grid" role="radiogroup" aria-label="Available agent harnesses">
@@ -344,6 +354,8 @@ export function AgentsSection() {
                 </div>
                 <span className={`agent-status agent-status-${presentation.tone}`}>{presentation.label}</span>
                 <div className="agent-card-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'git')}>Review Git</button>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'memory')}>Handoffs</button>
                   <button type="button" className="btn btn-secondary btn-sm" title="Stop this owner and start a new OpenCode ACP conversation; use a reviewed handoff to transfer context" disabled={operation !== null || !(run.liveness === 'exited' || ['waiting', 'completed'].includes(run.activity))} onClick={() => void switchToAcp(run)}>Switch to new ACP</button>
                   <button type="button" className="btn btn-secondary btn-sm" disabled={openingThis || operation !== null} onClick={() => void openTerminal(run)}>
                     <Icon name="terminal" size={13} />

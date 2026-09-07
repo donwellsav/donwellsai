@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import downloads from '@shared/project-tool-downloads.json'
-import { INTEGRATED_PROJECT_TOOLS, PROJECT_TOOL_FIELDS, projectDoctorDiagnostics, projectToolSetupStatus, type ProjectDoctorReport, type ProjectToolConfiguration } from '@shared/project-doctor'
+import { INTEGRATED_PROJECT_TOOLS, PROJECT_INTEGRATION_ROLES, PROJECT_TOOL_FIELDS, projectDoctorDiagnostics, projectToolSetupStatus, type ProjectDoctorReport, type ProjectToolConfiguration } from '@shared/project-doctor'
 import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { useAppStore } from '../../store'
 import { ProjectMemoryConnection } from '../ProjectMemoryConnection'
 
-export function ProjectToolsSettings() {
+export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'memory' | 'search') => void } = {}) {
   const workspacePath = useAppStore(state => state.activeWorktreePath)
+  const [role, setRole] = useState('')
+  const [ownerStatus, setOwnerStatus] = useState('Not checked')
+  const roleOperation = useRef(0)
   const [report, setReport] = useState<ProjectDoctorReport | null>(null)
   const [draft, setDraft] = useState<ProjectToolConfiguration | null>(null)
   const [backupSelection, setBackupSelection] = useState('')
@@ -41,6 +44,25 @@ export function ProjectToolsSettings() {
     const timer = setInterval(() => void refresh(), 2000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [workspacePath, Boolean(report)])
+  const checkOwner = async (id: string) => {
+    const generation = ++roleOperation.current
+    setOwnerStatus('Checking…')
+    try {
+      let detail = 'Open its existing controls to inspect the current owner.'
+      if (id === 'language') { const value = await window.donwells.projectLanguageStatus(workspacePath!); detail = `${value.state} · ${value.detail}${value.pid ? ` · PID ${value.pid}` : ''}` }
+      if (id === 'learned') { const value = await window.donwells.projectKnowledgeStatus(workspacePath!); detail = `${value.enabled ? value.phase : 'disabled'} · ${value.error ?? (value.stale ? 'Sources changed; reconcile selected sources' : 'Source manifest inspected; external connection not checked')}` }
+      if (id === 'temporal') { const value = await window.donwells.projectTemporalKnowledgeStatus(workspacePath!); detail = `${value.enabled ? (value.busy ? 'working' : 'idle') : 'disabled'} · ${value.error ?? 'Source manifest inspected; external connection not checked'}` }
+      if (id === 'environments') { const values = await window.donwells.environmentList(workspacePath!); detail = values.length ? values.map(value => `${value.id}: ${value.state}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') : 'No paired environment. Configure its verified host identity below.' }
+      if (id === 'facts') { const value = await window.donwells.projectMemoryList({ workspacePath: workspacePath! }); detail = `${value.total} canonical facts · local store readable · no background process to stop` }
+      if (id === 'analytics') detail = report?.configuration.duckdbPython ? 'Python path configured; execute a report in Search → Sessions to verify DuckDB. Cancel remains beside that report.' : 'Set DuckDB Python under Native session history. Runtime has not been checked.'
+      if (generation === roleOperation.current) setOwnerStatus(detail)
+    } catch (failure) { if (generation === roleOperation.current) setOwnerStatus(redactDesignCaptureSecrets(String(failure))) }
+  }
+  useEffect(() => { roleOperation.current++; setRole(''); setOwnerStatus('Not checked') }, [workspacePath])
+  const openRole = (route: string) => {
+    if (route === 'environment') { document.querySelector('[aria-label="Project environments"]')?.scrollIntoView({ block: 'start' }); return }
+    if (route === 'memory' || route === 'search') onNavigate?.(route)
+  }
   const run = async (action: () => Promise<unknown>) => {
     if (busy || !workspacePath) return
     setBusy(true); setError('')
@@ -54,6 +76,18 @@ export function ProjectToolsSettings() {
   if (!workspacePath) return <p>Select a project to configure its tools.</p>
   return <section className="project-tool-settings" aria-busy={busy} aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
     <h3>Project tools</h3>
+    <label>Integration <select value={role} onChange={event => { const id = event.target.value; setRole(id); if (id) void checkOwner(id) }}><option value="">Choose an integration</option>{PROJECT_INTEGRATION_ROLES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    {role && (() => {
+      const selected = PROJECT_INTEGRATION_ROLES.find(item => item.id === role)!
+      if (selected.route === 'package') return <button className="btn btn-secondary btn-sm" onClick={() => { const item = document.getElementById('project-tool-' + role) as HTMLDetailsElement | null; if (item) { item.open = true; item.scrollIntoView({ block: 'nearest' }) } }}>Configure {selected.name}</button>
+      return <div aria-label={selected.name + ' controls'}><p role="status">{ownerStatus}</p>
+        <button className="btn btn-secondary btn-sm" onClick={() => void checkOwner(role)}>Refresh owner status</button>
+        {selected.route !== 'language' && <button className="btn btn-secondary btn-sm" disabled={dirty} onClick={() => openRole(selected.route)}>{role === 'analytics' ? 'Open Search → Sessions' : 'Open configuration and controls'}</button>}
+        {role === 'language' && <><p>Uses this checkout’s TypeScript installation. Install or repair its TypeScript dependency through your terminal, then start. Pausing prevents editor changes from restarting this owner; bundled open-file tools remain available.</p><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(async () => { await window.donwells.projectLanguageRestart(workspacePath); await checkOwner(role) })}>Start / resume language tools</button><button className="btn btn-secondary btn-sm" onClick={() => void window.donwells.projectLanguageStop(workspacePath).then(() => checkOwner(role)).catch(failure => setOwnerStatus(String(failure)))}>Pause language tools</button></>}
+        {(role === 'learned' || role === 'temporal') && <button className="btn btn-secondary btn-sm" onClick={() => void (role === 'learned' ? window.donwells.projectKnowledgeStop(workspacePath) : window.donwells.projectTemporalKnowledgeStop(workspacePath)).then(() => checkOwner(role)).catch(failure => setOwnerStatus(String(failure)))}>Stop project requests</button>}
+      </div>
+    })()}
+
     <p>Saved settings apply across this project’s worktrees. Source indexes remain checkout-specific. Applying changes stops the project’s tool services and preserves a configuration backup.</p>
     <p><strong>Shared facts and decisions</strong> use the existing project memory store. Document search retrieves source text; the code graph finds structural relationships. Native session history remains separate from confirmed facts.</p>
     <details><summary>Use these tools from a terminal agent</summary>
@@ -77,7 +111,7 @@ export function ProjectToolsSettings() {
       }}><option value="">Choose a backup to review</option>{report.backups.map(backup => <option key={backup.name} value={backup.name}>{new Date(backup.createdAt).toLocaleString()}</option>)}</select></label>}
       {INTEGRATED_PROJECT_TOOLS.map(tool => {
         const service = report.services.find(value => value.id === tool.id)
-        return <details key={tool.id}>
+        return <details key={tool.id} id={'project-tool-' + tool.id}>
           <summary>{tool.name} · {projectToolSetupStatus(report, tool.id)}</summary>
           {draft.disabled.includes(tool.id) !== report.configuration.disabled.includes(tool.id) && <p role="status">{draft.disabled.includes(tool.id) ? 'Will be disabled' : 'Will be enabled'} when you apply configuration. The status above is the saved state.</p>}
           {!service && !report.configuration.disabled.includes(tool.id) && tool.id !== 'backlog' && <p>Complete the paths below and apply configuration before checking this service.</p>}

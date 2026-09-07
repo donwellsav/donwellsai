@@ -10,6 +10,7 @@ import {
   parseParallelRunsDocument
 } from '@shared/operational-runs'
 import type {
+  VerificationSetup,
   FiniteJobInspection,
   ParallelRun,
   ParallelRunInput,
@@ -153,9 +154,9 @@ export class ParallelRunOrchestrator {
     return this.store.list()
   }
 
-  async start(value: ParallelRunInput): Promise<ParallelRun> {
+  async start(value: ParallelRunInput, verificationSetup?: VerificationSetup): Promise<ParallelRun> {
     const input = parseParallelRunInput(value)
-    return this.createAndStart(input)
+    return this.createAndStart(input, undefined, [], verificationSetup)
   }
 
   async retry(runId: string, taskIds: string[]): Promise<ParallelRun> {
@@ -186,7 +187,8 @@ export class ParallelRunOrchestrator {
   private async createAndStart(
     input: ParallelRunInput,
     source?: ParallelRun,
-    sourceTasks: ParallelRunTask[] = []
+    sourceTasks: ParallelRunTask[] = [],
+    verificationSetup?: VerificationSetup
   ): Promise<ParallelRun> {
     const createdAt = this.now().toISOString()
     const run: ParallelRun = {
@@ -199,6 +201,7 @@ export class ParallelRunOrchestrator {
       retryOfRunId: source?.id,
       tasks: input.targets.map((target, index) => ({
         id: randomUUID(),
+        verificationSetup: verificationSetup ?? (sourceTasks[index]?.verificationSetup ? {outputs:sourceTasks[index].verificationSetup!.outputs,origin:{kind:'unattributed' as const}} : undefined),
         target,
         command: input.command,
         status: 'queued',

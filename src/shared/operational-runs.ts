@@ -80,8 +80,14 @@ export type ParallelRunStatus =
   | 'cancelled'
 
 export type VerificationSource = { sourceRevision: string | null; contentFingerprint: string; changedFiles: string[] }
-export type VerificationArtifact = { path: string; sha256: string; bytes: number; attachedAt: string; sourceFingerprint: string | null; relationship: 'attached-reference' }
+export type VerificationOrigin = { kind: 'unattributed' } | { kind: 'agent'; runId: string; sessionId: string; mode: 'native' | 'acp' }
+export type VerificationSetup = { outputs: string[]; origin: VerificationOrigin }
+export type VerificationRunOptions = { outputs?: string[]; credential?: import('./agent-runtime').AgentSessionCredential }
+export type VerificationOutput = { path: string; before: { sha256: string; bytes: number } | null; state: 'pending' | 'created' | 'changed' | 'unchanged' | 'missing' | 'unavailable'; problem?: string }
+export type VerificationArtifact = { path: string; sha256: string; bytes: number; attachedAt: string; sourceFingerprint: string | null; relationship: 'attached-reference' | 'observed-during-run' }
 export type VerificationEvidence = {
+  origin?: VerificationOrigin
+  outputs?: VerificationOutput[]
   before: VerificationSource | null
   after: VerificationSource | null
   startedAt: string
@@ -94,6 +100,7 @@ export type VerificationEvidence = {
 export type VerificationEntry = { runId: string; task: ParallelRunTask; sourceState: 'current' | 'stale' | 'changed-during-run' | 'unverified' | 'running'; artifacts: Array<VerificationArtifact & {state:'unchecked'|'unchanged'|'changed'|'missing'}> }
 
 export type ParallelRunTask = {
+  verificationSetup?: VerificationSetup
   verification?: VerificationEvidence
   id: string
   target: OperationalTarget
@@ -137,8 +144,9 @@ export type FiniteJobInspection = {
 /** Canonical renderer/preload/main contract for operational runs. */
 export type OperationalRunsApi = {
   verificationScripts(workspacePath: string): Promise<string[]>
-  verificationRun(workspacePath: string, script: string): Promise<ParallelRun>
+  verificationRun(workspacePath: string, script: string, options?: VerificationRunOptions): Promise<ParallelRun>
   verificationList(workspacePath: string, verifyArtifacts?: boolean): Promise<VerificationEntry[]>
+  verificationOpen(workspacePath: string, runId: string, taskId: string, path: string): Promise<void>
   verificationAttach(workspacePath: string, runId: string, taskId: string, path: string): Promise<VerificationArtifact>
 
   scheduledRunsList(): Promise<ScheduledRunDefinition[]>
@@ -150,7 +158,7 @@ export type OperationalRunsApi = {
   scheduledRunCancel(executionId: string): Promise<ScheduledExecution>
   scheduledRunHistory(id: string): Promise<ScheduledExecution[]>
   parallelRunsList(): Promise<ParallelRun[]>
-  parallelRunStart(input: ParallelRunInput): Promise<ParallelRun>
+  parallelRunStart(input: ParallelRunInput, options?: VerificationRunOptions): Promise<ParallelRun>
   parallelRunRetry(id: string, taskIds: string[]): Promise<ParallelRun>
   parallelRunCancel(id: string): Promise<ParallelRun>
   parallelRunDelete(id: string): Promise<void>
@@ -443,6 +451,7 @@ export function parseParallelRunTask(value: unknown, field = 'task'): ParallelRu
     error: optionalString(source.error, `${field}.error`, OPERATIONAL_ERROR_LIMIT),
     output: optionalText(source.output, `${field}.output`, OPERATIONAL_OUTPUT_LIMIT),
     retryOfTaskId: optionalString(source.retryOfTaskId, `${field}.retryOfTaskId`, 256),
+    verificationSetup: source.verificationSetup === undefined ? undefined : parseVerificationSetup(source.verificationSetup),
     verification: source.verification===undefined?undefined:parseVerificationEvidence(source.verification)
   }
 }
@@ -527,6 +536,26 @@ export function parseVerificationEvidence(value: unknown): VerificationEvidence 
   }
   const environment=record(input.environment,'environment'),versions=record(input.toolVersions,'versions'),toolVersions:Record<string,string>={}
   for(const [name,version] of Object.entries(versions)){if(!['node','npm','pnpm','yarn','bun'].includes(name))throw new Error('Unknown tool version');toolVersions[name]=stringValue(version,'version',128)}
-  if(!Array.isArray(input.artifacts)||input.artifacts.length>16)throw new Error('Too many verification artifacts')
-  return {before:source(input.before),after:source(input.after),startedAt:isoDate(input.startedAt,'startedAt'),finishedAt:optionalIsoDate(input.finishedAt,'finishedAt'),environment:{platform:stringValue(environment.platform,'platform',32),arch:stringValue(environment.arch,'arch',32),hostNode:stringValue(environment.hostNode,'hostNode',128),hostElectron:optionalString(environment.hostElectron,'hostElectron',128)},toolVersions,problem:optionalString(input.problem,'problem',2048),artifacts:input.artifacts.map(value=>{const artifact=record(value,'artifact');if(artifact.relationship!=='attached-reference')throw new Error('Invalid artifact relationship');return {path:stringValue(artifact.path,'path',4096),sha256:hash(artifact.sha256),bytes:integer(artifact.bytes,'bytes',0,512*1024*1024),attachedAt:isoDate(artifact.attachedAt,'attachedAt'),sourceFingerprint:artifact.sourceFingerprint===null?null:hash(artifact.sourceFingerprint,'sha256:'),relationship:'attached-reference'}})}
+  if(!Array.isArray(input.artifacts)||input.artifacts.length>32)throw new Error('Too many verification artifacts')
+  return {origin: input.origin === undefined ? undefined : parseVerificationOrigin(input.origin), outputs: input.outputs === undefined ? undefined : parseVerificationOutputs(input.outputs), before:source(input.before),after:source(input.after),startedAt:isoDate(input.startedAt,'startedAt'),finishedAt:optionalIsoDate(input.finishedAt,'finishedAt'),environment:{platform:stringValue(environment.platform,'platform',32),arch:stringValue(environment.arch,'arch',32),hostNode:stringValue(environment.hostNode,'hostNode',128),hostElectron:optionalString(environment.hostElectron,'hostElectron',128)},toolVersions,problem:optionalString(input.problem,'problem',2048),artifacts:input.artifacts.map(value=>{const artifact=record(value,'artifact');if(!['attached-reference','observed-during-run'].includes(String(artifact.relationship)))throw new Error('Invalid artifact relationship');return {path:stringValue(artifact.path,'path',4096),sha256:hash(artifact.sha256),bytes:integer(artifact.bytes,'bytes',0,512*1024*1024),attachedAt:isoDate(artifact.attachedAt,'attachedAt'),sourceFingerprint:artifact.sourceFingerprint===null?null:hash(artifact.sourceFingerprint,'sha256:'),relationship:artifact.relationship as VerificationArtifact['relationship']}})}
+}
+
+export function parseVerificationOutputPaths(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 16 || value.some(path => typeof path !== 'string' || !path || path.length > 4096 || /[\\\x00-\x1f\x7f]/.test(path) || path.startsWith('/') || /^[A-Za-z]:/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..'))) throw new Error('Declare up to16 unique checkout-relative output files without traversal')
+  if (new Set(value).size !== value.length) throw new Error('Duplicate declared output path')
+  return [...value]
+}
+function parseVerificationOrigin(value: unknown): VerificationOrigin {
+  const input = record(value, 'verification origin')
+  if (input.kind === 'unattributed') return {kind:'unattributed'}
+  if (input.kind !== 'agent' || !['native','acp'].includes(String(input.mode))) throw new Error('Invalid verification origin')
+  return {kind:'agent',runId:stringValue(input.runId,'runId',256),sessionId:stringValue(input.sessionId,'sessionId',256),mode:input.mode as 'native'|'acp'}
+}
+export function parseVerificationSetup(value: unknown): VerificationSetup {
+  const input = record(value, 'verification setup')
+  return {outputs:parseVerificationOutputPaths(input.outputs),origin:parseVerificationOrigin(input.origin)}
+}
+function parseVerificationOutputs(value: unknown): VerificationOutput[] {
+  if (!Array.isArray(value) || value.length > 16) throw new Error('Too many observed outputs')
+  return value.map(value => { const input=record(value,'output'),before=input.before===null?null:record(input.before,'before output'); if(before && (typeof before.sha256!=='string'||!/^[a-f0-9]{64}$/.test(before.sha256)))throw new Error('Invalid output hash');return {path:stringValue(input.path,'path',4096),before:before?{sha256:before.sha256 as string,bytes:integer(before.bytes,'bytes',0,512*1024*1024)}:null,state:oneOf(input.state,'output state',['pending','created','changed','unchanged','missing','unavailable'] as const),problem:optionalString(input.problem,'output problem',2048)} })
 }

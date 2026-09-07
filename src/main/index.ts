@@ -1,3 +1,6 @@
+import { ProjectEnvironments } from './project-environments'
+import { ProjectEnvironmentMemory } from './project-environment-memory'
+import { ProjectEnvironmentResults } from './project-environment-results'
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
@@ -35,6 +38,7 @@ import type { BrowserHistoryRecord } from '@shared/browser-history'
 import { BrowserViews } from './browser-views'
 import { createComputerToolDefinition } from './project-computer-tools'
 import { createBrowserToolDefinition } from './project-browser-tools'
+import { ProjectLanguageTools } from './project-language-tools'
 import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
@@ -78,7 +82,9 @@ let nativeTerminals: NativeTerminals | undefined
 let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
+let environmentMemory: ProjectEnvironmentMemory | undefined
 let projectTools: ProjectDoctor | undefined
+let projectLanguage: ProjectLanguageTools | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
@@ -500,7 +506,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectTasksInspect', (_e, path: string) => projectTasks.inspect(path))
   ipcMain.handle('projectTaskAuthority', (_e, path: string, enabled: boolean) => projectTasks.setAuthority(path, enabled))
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
-  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
+  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: async path => { const error = await shell.openPath(path); if (error) throw new Error(error) },artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
   void terminalBus.connect().catch((e) => {
     console.error('terminal daemon connect failed:', e)
   })
@@ -544,6 +550,7 @@ app.whenReady().then(() => {
   ipcMain.handle('verificationScripts', (_e, ...args: Parameters<IpcApi['verificationScripts']>) => operationalRuns.verificationScripts(...args))
   ipcMain.handle('verificationRun', (_e, ...args: Parameters<IpcApi['verificationRun']>) => operationalRuns.verificationRun(...args))
   ipcMain.handle('verificationList', (_e, ...args: Parameters<IpcApi['verificationList']>) => operationalRuns.verificationList(...args))
+  ipcMain.handle('verificationOpen', (_e, ...args: Parameters<IpcApi['verificationOpen']>) => operationalRuns.verificationOpen(...args))
   ipcMain.handle('verificationAttach', (_e, ...args: Parameters<IpcApi['verificationAttach']>) => operationalRuns.verificationAttach(...args))
   ipcMain.handle('parallelRunsList', () => operationalRuns.parallelRunsList())
   ipcMain.handle('parallelRunStart', (_e, ...args: Parameters<IpcApi['parallelRunStart']>) => operationalRuns.parallelRunStart(...args))
@@ -560,12 +567,22 @@ app.whenReady().then(() => {
   ipcMain.handle('skillPackagesPrepareUpdate', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareUpdate']>) => skills.prepareUpdate(...args))
   ipcMain.handle('skillPackagesPrepareRemove', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareRemove']>) => skills.prepareRemove(...args))
   ipcMain.handle('skillPackagesRemove', (_e, ...args: Parameters<IpcApi['skillPackagesRemove']>) => skills.remove(...args))
-  const diffReview = new DiffReviewService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace })
+  const diffReview = new DiffReviewService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace, runs: path => operationalRuns.verificationReviewRuns(path) })
   ipcMain.handle('diffReviewList', (_e, ...args: Parameters<IpcApi['diffReviewList']>) => diffReview.list(...args))
   ipcMain.handle('diffReviewCreate', (_e, ...args: Parameters<IpcApi['diffReviewCreate']>) => diffReview.create(...args))
   ipcMain.handle('diffReviewUpdate', (_e, ...args: Parameters<IpcApi['diffReviewUpdate']>) => diffReview.update(...args))
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
+  projectLanguage = new ProjectLanguageTools(async path => { const scope=await resolveProjectToolScope(path,resolveToolWorkspace);return {checkoutPath:scope.checkoutPath,indexKey:scope.indexKey} })
+  ipcMain.handle('projectLanguageStatus', (_e, ...args: Parameters<IpcApi['projectLanguageStatus']>) => projectLanguage!.inspect(...args))
+  ipcMain.handle('projectLanguageStop', (_e, ...args: Parameters<IpcApi['projectLanguageStop']>) => projectLanguage!.stopProject(...args))
+  ipcMain.handle('projectLanguageOpen', (_e, ...args: Parameters<IpcApi['projectLanguageOpen']>) => projectLanguage!.open(...args))
+  ipcMain.handle('projectLanguageChange', (_e, ...args: Parameters<IpcApi['projectLanguageChange']>) => projectLanguage!.change(...args))
+  ipcMain.handle('projectLanguageClose', (_e, ...args: Parameters<IpcApi['projectLanguageClose']>) => projectLanguage!.closeDocument(...args))
+  ipcMain.handle('projectLanguageDiagnostics', (_e, ...args: Parameters<IpcApi['projectLanguageDiagnostics']>) => projectLanguage!.diagnostics(...args))
+  ipcMain.handle('projectLanguageDefinition', (_e, ...args: Parameters<IpcApi['projectLanguageDefinition']>) => projectLanguage!.definition(...args))
+  ipcMain.handle('projectLanguageReferences', (_e, ...args: Parameters<IpcApi['projectLanguageReferences']>) => projectLanguage!.references(...args))
+  ipcMain.handle('projectLanguageRestart', (_e, ...args: Parameters<IpcApi['projectLanguageRestart']>) => projectLanguage!.restart(...args))
   const sessionHistory = {
     analytics: (path: string, options?: import('@shared/project-session-history').SessionAnalyticsOptions) => projectTools!.historyAnalytics(path, options),
     cancelAnalytics: (path: string, requestId: string) => projectTools!.historyAnalyticsCancel(path, requestId),
@@ -605,7 +622,23 @@ app.whenReady().then(() => {
     ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
     ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, retrievalMode: config.documentRetrievalMode, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
-  ], join(app.getPath('userData'), 'project-tools', 'history'))
+  ], join(app.getPath('userData'), 'project-tools', 'history'), { profile: app.getPath('userData'), graphitiPassword: key => secrets?.get(`graphiti:${key}:neo4j`) ?? null, handoff: (path, id) => handoffs.projectHandoffGet(path, id) })
+  ipcMain.handle('projectTemporalKnowledgePasswordSet', async (_e, path: string, password: string) => {
+    if (typeof password !== 'string' || !password.length || password.length > 4096 || /[\x00-\x1f\x7f]/.test(password)) throw new Error('Enter a valid database password')
+    const scope = await resolveProjectToolScope(path, resolveToolWorkspace)
+    if (!secrets) throw new Error('Credential storage is unavailable')
+    await projectTools!.temporalKnowledgeStop(path)
+    secrets.set(`graphiti:${scope.projectKey}:neo4j`, password)
+  })
+  ipcMain.handle('projectTemporalKnowledgeStatus', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeStatus']>) => projectTools!.temporalKnowledgeStatus(...args))
+  ipcMain.handle('projectTemporalKnowledgeReconcile', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeReconcile']>) => projectTools!.temporalKnowledgeReconcile(...args))
+  ipcMain.handle('projectTemporalKnowledgeQuery', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeQuery']>) => projectTools!.temporalKnowledgeQuery(...args))
+  ipcMain.handle('projectTemporalKnowledgeStop', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeStop']>) => projectTools!.temporalKnowledgeStop(...args))
+  ipcMain.handle('projectKnowledgeStatus', (_e, ...args: Parameters<IpcApi['projectKnowledgeStatus']>) => projectTools!.knowledgeStatus(...args))
+  ipcMain.handle('projectKnowledgeReconcile', (_e, ...args: Parameters<IpcApi['projectKnowledgeReconcile']>) => projectTools!.knowledgeReconcile(...args))
+  ipcMain.handle('projectKnowledgeRecall', (_e, ...args: Parameters<IpcApi['projectKnowledgeRecall']>) => projectTools!.knowledgeRecall(...args))
+  ipcMain.handle('projectKnowledgeReflect', (_e, ...args: Parameters<IpcApi['projectKnowledgeReflect']>) => projectTools!.knowledgeReflect(...args))
+  ipcMain.handle('projectKnowledgeStop', (_e, ...args: Parameters<IpcApi['projectKnowledgeStop']>) => projectTools!.knowledgeStop(...args))
   ipcMain.handle('projectDoctorPreviewBackup', (_e, path: string, name: string) => projectTools!.previewBackup(path, name))
   ipcMain.handle('projectDoctorInspect', (_e, path: string) => projectTools!.inspect(path))
   ipcMain.handle('projectDoctorConfigure', (_e, path: string, config: unknown, revision: string | null) => projectTools!.configure(path, config, revision))
@@ -637,8 +670,29 @@ app.whenReady().then(() => {
   ipcMain.handle('projectMemoryHistory', (_e, request: Parameters<IpcApi['projectMemoryHistory']>[0]) => projectMemory.projectMemoryHistory(request))
   ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
   ipcMain.handle('projectMemoryErase', (_e, request: Parameters<IpcApi['projectMemoryErase']>[0]) => projectMemory.projectMemoryErase(request))
+  const environments = new ProjectEnvironments(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), undefined, projectMemory)
+  environmentMemory = new ProjectEnvironmentMemory(environments)
+  const environmentResults = new ProjectEnvironmentResults(app.getPath('userData'), environments, git)
+  ipcMain.handle('environmentList', (_e, ...args: Parameters<IpcApi['environmentList']>) => environments.list(...args))
+  ipcMain.handle('environmentConfigure', (_e, ...args: Parameters<IpcApi['environmentConfigure']>) => environments.configure(...args))
+  ipcMain.handle('environmentConnect', (_e, ...args: Parameters<IpcApi['environmentConnect']>) => environments.connect(...args))
+  ipcMain.handle('environmentPause', (_e, ...args: Parameters<IpcApi['environmentPause']>) => environments.pause(...args))
+  ipcMain.handle('environmentRequest', (_e, ...args: Parameters<IpcApi['environmentRequest']>) => environments.request(...args))
+  ipcMain.handle('environmentMemory', async (_e, path: string, id: string, generation: number, action: string) => {
+    await environments.get(path, id, generation)
+    if (action === 'status') return environmentMemory!.status(id)
+    if (action === 'start') return environmentMemory!.start(path, id, generation)
+    if (action === 'stop') return environmentMemory!.stop(path, id, generation)
+    throw new Error('Invalid environment memory action')
+  })
+  ipcMain.handle('environmentResultsList', (_e, ...args: Parameters<IpcApi['environmentResultsList']>) => environmentResults.list(...args))
+  ipcMain.handle('environmentResultsCapture', (_e, ...args: Parameters<IpcApi['environmentResultsCapture']>) => environmentResults.capture(...args))
+  ipcMain.handle('environmentResultsSend', (_e, ...args: Parameters<IpcApi['environmentResultsSend']>) => environmentResults.send(...args))
+  ipcMain.handle('environmentResultsStage', (_e, ...args: Parameters<IpcApi['environmentResultsStage']>) => environmentResults.stage(...args))
+  ipcMain.handle('environmentResultsApply', (_e, ...args: Parameters<IpcApi['environmentResultsApply']>) => environmentResults.apply(...args))
   const projectKit = new ProjectExport(app.getPath('userData'), store, resolveToolWorkspace, projectTools, () => projectMemory.reloadStorage())
   ipcMain.handle('projectKitExport', (_e, ...args: Parameters<IpcApi['projectKitExport']>) => projectKit.projectKitExport(...args))
+  ipcMain.handle('projectKitReconnectLearned', (_e, ...args: Parameters<IpcApi['projectKitReconnectLearned']>) => projectKit.projectKitReconnectLearned(...args))
   ipcMain.handle('projectKitPreview', (_e, ...args: Parameters<IpcApi['projectKitPreview']>) => projectKit.projectKitPreview(...args))
   ipcMain.handle('projectKitImport', (_e, ...args: Parameters<IpcApi['projectKitImport']>) => projectKit.projectKitImport(...args))
   ipcMain.handle('projectKitReport', (_e, ...args: Parameters<IpcApi['projectKitReport']>) => projectKit.projectKitReport(...args))
@@ -692,7 +746,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', (event) => {
   if (projectTools && !toolsClosed) {
     event.preventDefault()
-    closingTools ??= projectTools.close().catch(() => {
+    closingTools ??= Promise.all([projectTools.close(),projectLanguage?.close(),environmentMemory?.close()]).then(()=>undefined).catch(() => {
       dialog.showErrorBox('Tool shutdown incomplete', 'An owned tool process could not be confirmed stopped. Check it before starting another instance.')
     }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
     return

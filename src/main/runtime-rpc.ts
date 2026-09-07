@@ -86,7 +86,7 @@ export type RpcDeps = {
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
   sessionHistory?: Pick<ProjectSessionHistory, 'index' | 'search' | 'get' | 'analytics' | 'cancelAnalytics' | 'analyticsProgress'>
-  projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'>
+  projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'> & Partial<Pick<import('./project-doctor').ProjectDoctor, 'temporalKnowledgeStatus' | 'temporalKnowledgeReconcile' | 'temporalKnowledgeQuery' | 'temporalKnowledgeStop' | 'knowledgeStatus' | 'knowledgeReconcile' | 'knowledgeRecall' | 'knowledgeReflect' | 'knowledgeStop'>>
   handoffs: Pick<ProjectHandoffService, 'receive' | 'acknowledge'>
   projectMemory: ProjectMemoryApi
   diffReview: {
@@ -618,14 +618,14 @@ export class RuntimeRpcServer {
       case 'scheduled.history':
         return { executions: await this.deps.runs.scheduledRunHistory(str('id')) }
       case 'verification.scripts': return this.deps.runs.verificationScripts(str('workspacePath'))
-      case 'verification.run': return this.deps.runs.verificationRun(str('workspacePath'),str('script'))
+      case 'verification.run': return this.deps.runs.verificationRun(str('workspacePath'),str('script'),params['options'] as import('@shared/operational-runs').VerificationRunOptions | undefined)
       case 'verification.list': return this.deps.runs.verificationList(str('workspacePath'),params['verifyArtifacts']===true)
       case 'verification.attach': return this.deps.runs.verificationAttach(str('workspacePath'),str('runId'),str('taskId'),str('path'))
       case 'parallel.list':
         return { parallelRuns: await this.deps.runs.parallelRunsList() }
       case 'parallel.start': {
         const input = parseRpcInput(parseParallelRunInput, params['input'])
-        return this.deps.runs.parallelRunStart(input)
+        return this.deps.runs.parallelRunStart(input, params['options'] as import('@shared/operational-runs').VerificationRunOptions | undefined)
       }
       case 'parallel.retry':
         return this.deps.runs.parallelRunRetry(str('id'), params['taskIds'] as string[])
@@ -649,7 +649,8 @@ export class RuntimeRpcServer {
           comparison: str('comparison'),
           snapshot: params['snapshot'],
           anchor: params['anchor'],
-          body: str('body')
+          body: str('body'),
+          ...(params.runLink === undefined ? {} : { runLink: params.runLink })
         })
         return this.deps.diffReview.create(request)
       }
@@ -670,6 +671,23 @@ export class RuntimeRpcServer {
         })
         await this.deps.diffReview.remove(request)
         return {}
+      }
+      case 'temporal.status': case 'temporal.reconcile': case 'temporal.query': case 'temporal.stop': {
+        const tools = this.deps.projectTools, path = str('workspacePath')
+        if (!tools.temporalKnowledgeStatus || !tools.temporalKnowledgeReconcile || !tools.temporalKnowledgeQuery || !tools.temporalKnowledgeStop) throw new Error('Temporal knowledge is unavailable')
+        if (method === 'temporal.status') return tools.temporalKnowledgeStatus(path)
+        if (method === 'temporal.reconcile') return tools.temporalKnowledgeReconcile(path, (params.selection as { sources: import('@shared/project-knowledge').KnowledgeSelection[] })?.sources)
+        if (method === 'temporal.query') return tools.temporalKnowledgeQuery(path, str('query'), params.asOf as string | undefined)
+        await tools.temporalKnowledgeStop(path); return {}
+      }
+      case 'knowledge.status': case 'knowledge.reconcile': case 'knowledge.recall': case 'knowledge.reflect': case 'knowledge.stop': {
+        const tools = this.deps.projectTools, path = str('workspacePath')
+        if (!tools.knowledgeStatus || !tools.knowledgeReconcile || !tools.knowledgeRecall || !tools.knowledgeReflect || !tools.knowledgeStop) throw new Error('Learned knowledge is unavailable')
+        if (method === 'knowledge.status') return tools.knowledgeStatus(path)
+        if (method === 'knowledge.reconcile') return tools.knowledgeReconcile(path, (params.selection as { sources: import('@shared/project-knowledge').KnowledgeSelection[] })?.sources)
+        if (method === 'knowledge.recall') return tools.knowledgeRecall(path, str('query'))
+        if (method === 'knowledge.reflect') return tools.knowledgeReflect(path, str('query'))
+        await tools.knowledgeStop(path); return {}
       }
       case 'history.index':
       case 'history.analytics':

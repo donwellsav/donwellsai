@@ -1,3 +1,5 @@
+import { ProjectTemporalKnowledgePanel } from './ProjectTemporalKnowledgePanel'
+import { ProjectKnowledgePanel } from './ProjectKnowledgePanel'
 import { ProjectHandoffPanel } from './ProjectHandoffPanel'
 import { useEffect, useState } from 'react'
 import { PROJECT_MEMORY_KINDS, PROJECT_MEMORY_MAX_QUERY_LENGTH } from '@shared/project-memory'
@@ -70,6 +72,8 @@ export function ProjectMemoryPanel({ workspacePath }: { workspacePath: string })
       </div>
       {connecting && <ProjectMemoryConnection workspacePath={workspacePath} onClose={() => setConnecting(false)} />}
       <ProjectHandoffPanel key={workspacePath} workspacePath={workspacePath} />
+      <ProjectKnowledgePanel key={workspacePath + ":knowledge"} workspacePath={workspacePath} />
+      <ProjectTemporalKnowledgePanel key={workspacePath + ":temporal"} workspacePath={workspacePath} />
       <ProjectMemoryStorage onChanged={refresh} />
     </section>
   )

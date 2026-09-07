@@ -20,6 +20,7 @@ import { VersionedEditorSave, type EditorSaveSnapshot } from '../editor-save'
 import { monaco, registerLanguageWorkspace, restartLanguageTools } from '../monaco-setup'
 import { isMarkdownFile, useAppStore } from '../store'
 import { selectedGraphSymbol } from '../project-graph'
+import { attachProjectLanguageTools } from '../project-language-tools'
 import { MarkdownPreview } from './MarkdownPreview'
 import { ModalDialog } from './ModalDialog'
 
@@ -202,11 +203,33 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         fixedOverflowWidgets: true
       })
       editorRef.current = editor
+      const projectLanguage = attachProjectLanguageTools(monaco, editorDocument.model, worktreePath, relPath, message => useAppStore.getState().setError(message))
       const restartLanguages = editor.addAction({
         id: 'donwells.restartLanguageTools',
         label: 'Restart TypeScript / JavaScript tools',
         contextMenuGroupId: 'navigation',
-        run: () => restartLanguageTools()
+        run: async () => { restartLanguageTools();try{await projectLanguage.restart()}catch(error){useAppStore.getState().setError(`Project language tools unavailable: ${String(error)}. Open-file TypeScript tools remain active.`)} }
+      })
+      const projectDefinition = editor.addAction({
+        id: 'donwells.projectDefinition',
+        label: 'Go to project definition',
+        contextMenuGroupId: 'navigation',
+        run: async () => {
+          const position=editor.getPosition();if(!position)return
+          try{const target=await projectLanguage.definition(position.lineNumber,position.column);if(target)await openPreview(worktreePath,target.path,{mode:'edit',line:target.start.line,column:target.start.column})}
+          catch(error){useAppStore.getState().setError(`Project definition failed: ${String(error)}`)}
+        }
+      })
+      let referenceIndex=0
+      const projectReferences = editor.addAction({
+        id: 'donwells.projectReferences',
+        label: 'Go to next project reference',
+        contextMenuGroupId: 'navigation',
+        run: async () => {
+          const position=editor.getPosition();if(!position)return
+          try{const targets=await projectLanguage.references(position.lineNumber,position.column);if(!targets.length){useAppStore.getState().setError('No project references found.');return}const target=targets[referenceIndex++%targets.length]!;await openPreview(worktreePath,target.path,{mode:'edit',line:target.start.line,column:target.start.column})}
+          catch(error){useAppStore.getState().setError(`Project references failed: ${String(error)}`)}
+        }
       })
       const inspectSymbol = editor.addAction({
         id: 'donwells.inspectSymbolCallers',
@@ -296,6 +319,9 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       })
 
       disposeEditor = () => {
+        projectLanguage.dispose()
+        projectDefinition.dispose()
+        projectReferences.dispose()
         languageNavigation.dispose()
         restartLanguages.dispose()
         inspectSymbol.dispose()

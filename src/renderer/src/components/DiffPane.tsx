@@ -1,3 +1,4 @@
+import type { DiffReviewRunLink, DiffReviewRunState } from '@shared/diff-review'
 import {
   parseDiffFromFile,
   type DiffLineAnnotation,
@@ -109,6 +110,7 @@ export function DiffPane({
   const [sideBySide, setSideBySide] = useState(settings.diffViewStyle === 'split')
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [selection, setSelection] = useState<DiffReviewSelection | null>(null)
+  const [runStates, setRunStates] = useState<Record<string, DiffReviewRunState | null>>({})
   const [notes, setNotes] = useState<DiffReviewNote[]>([])
   const [reviewTarget, setReviewTarget] = useState<DiffReviewTarget | null>(null)
   const [reviewLoading, setReviewLoading] = useState(true)
@@ -136,6 +138,7 @@ export function DiffPane({
     setErrorMessage('')
     setSelection(null)
     setNotes([])
+    setRunStates({})
     setReviewTarget(null)
     setReviewError('')
     setReviewLoading(true)
@@ -146,6 +149,7 @@ export function DiffPane({
         if (!current) return
         setReviewTarget(result.target)
         setNotes(sortNotes(result.notes.slice()))
+        setRunStates(result.runStates ?? {})
       })
       .catch((error: unknown) => {
         if (current) setReviewError(`Review notes are unavailable: ${error instanceof Error ? error.message : String(error)}`)
@@ -252,7 +256,7 @@ export function DiffPane({
     }
   }, [loaded, selectRange])
 
-  const createNote = useCallback(async (body: string): Promise<boolean> => {
+  const createNote = useCallback(async (body: string, runLink?: Pick<DiffReviewRunLink, 'runId' | 'taskId'>): Promise<boolean> => {
     if (!loaded || !selection) return false
     if (!reviewTarget) {
       setReviewError('The registered review workspace is unavailable. Refresh this comparison and try again.')
@@ -268,11 +272,13 @@ export function DiffPane({
     try {
       const note = await window.donwells.diffReviewCreate({
         ...reviewTarget,
+        ...(runLink ? { runLink } : {}),
         snapshot: loaded.snapshot,
         anchor: createDiffReviewAnchor(selection.side, selection.startLine, selection.endLine, contents),
         body
       })
       setNotes((current) => sortNotes([...current, note]))
+      if (runLink) { const linked = await window.donwells.diffReviewList(reviewTarget).catch(() => null); if (linked) setRunStates(linked.runStates ?? {}) }
       setSelection(null)
       return true
     } catch (error) {
@@ -505,6 +511,7 @@ export function DiffPane({
             snapshot={loaded.snapshot}
             selection={selection}
             notes={notes}
+            runStates={runStates}
             loading={reviewLoading}
             saving={reviewSaving}
             error={reviewError}
