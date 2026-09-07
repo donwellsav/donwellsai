@@ -17,6 +17,29 @@ export function delay(ms) {
   return result.promise
 }
 
+// A disconnected Chromium context can make ElectronApplication.close() a no-op.
+// Call only after closing this disposable profile's sessions and owned tools.
+export async function closeOwnedSmokeApp(app) {
+  const child = app.process()
+  const exited = () => child.exitCode !== null || child.signalCode !== null
+  let timer, closeError, forcedTermination = false
+  try {
+    await Promise.race([app.close(), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('App shutdown timed out')), 10000)
+    })])
+  } catch (error) { closeError = String(error) }
+  finally { clearTimeout(timer) }
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    if (exited()) break
+    forcedTermination = true
+    child.kill(signal)
+    const deadline = Date.now() + 5000
+    while (!exited() && Date.now() < deadline) await delay(50)
+  }
+  if (!exited()) throw new Error('Owned app process termination could not be verified')
+  return { forcedTermination, exitCode: child.exitCode, signal: child.signalCode, ...(closeError ? { closeError } : {}) }
+}
+
 function localPidLiveness(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return 'unverifiable'
   try {
@@ -124,4 +147,3 @@ export async function cleanupOwnedSmokeDaemon(profile) {
     client.socket.destroy()
   }
 }
-

@@ -411,10 +411,12 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 - [ ] **Step 2:** Check every spec target, 100 pane moves, 20 restarts, stale retrieval, write conflicts, service crashes and index cancellation. Verify no long-lived orphan processes.
 - [ ] **Step 3:** Run keyboard/VoiceOver/font-scale/reduced-motion checks with real terminal content. Fix critical failures before polishing secondary animations.
 - [ ] **Step 4:** Profile failed targets and fix shared causes. Record retained limitations with a concrete user-visible fallback; do not mark blocked capabilities available.
-- [ ] **Verification:** Run `pnpm typecheck` and `pnpm test` once after fixes, then the affected live acceptance runners. Re-run broader suites only when changes justify them.
+- [x] **Verification:** Run `pnpm typecheck` and `pnpm test` once after fixes, then the affected live acceptance runners. Re-run broader suites only when changes justify them.
 - [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Revert individual regressions without reverting migrated data. Preserve evidence of the failure and fix.
+
+**Current evidence:** [Task 21 qualification receipts](../../architecture/strengthening-21/README.md). Full checks and native continuation/build loops pass; keyboard-only six-journey qualification remains open. VoiceOver and additional-language qualification remain user-deferred.
 
 ### Task 22: Installed release, update and recovery proof
 

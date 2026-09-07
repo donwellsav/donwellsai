@@ -1,18 +1,17 @@
 {
   "source": {
-    "commit": "b95f871f2f184a5589cbfdc49614a74872d2c087",
+    "commit": "23e6009007750bf8d4aca1b5810cbda47c771b3f",
     "dirty": true,
-    "contentHash": "9dae9c45c6b43c147b8a6df3082ba0327511ac28933180b5cb2aecfd5f493a51"
+    "contentHash": "d70d5eaf743fdfb16c087b74f2fd708900bf542eb50c77fd495682ef60cfc043"
   },
   "artifactSha256": "7fa541721f4b0572332d29ca87807f8fcd4b9af1256bbe664c4e87bae589d1fc",
-  "fixture": "/private/tmp/donwells-strengthen-21-browser-owner-fixed-profile/fixture",
-  "model": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
-  "url": "http://127.0.0.1:51970/",
-  "sourceBefore": "16b1decac3fc9cbd0cd8790593d05f09ec8cf513f6f427c96f405fbfdb433c39",
+  "fixture": "/private/tmp/donwells-strengthen-21-browser-cleanup-final-profile/fixture",
+  "url": "http://127.0.0.1:60598/",
+  "sourceBefore": "e504a01b1698464ec51af45a6a9cb5cf871f5c6c6b932a801dcbb454c2f4a272",
   "ownedBrowser": {
-    "pid": 51596,
-    "parent": 51589,
-    "args": "/Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --disable-blink-features=AutomationControlled --user-data-dir=/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/playwright_chromiumdev_profile-zm5Ib6 --remote-debugging-pipe --no-startup-window"
+    "pid": 4256,
+    "parent": 4221,
+    "args": "/Users/muzikfirst/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-edgeupdater --disable-extensions --disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,BlockOriginHeaderModificationOnRedirect,Translate,AutoDeElevate,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-updater-scheduler --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --headless --hide-scrollbars --mute-audio --blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4 --disable-blink-features=AutomationControlled --user-data-dir=/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/playwright_chromiumdev_profile-KLzAAV --remote-debugging-pipe --no-startup-window"
   },
   "browserSurvivedStop": false,
   "verified": true,

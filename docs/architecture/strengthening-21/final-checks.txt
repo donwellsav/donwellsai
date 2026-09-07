@@ -1,0 +1,6 @@
+After managed-tool shutdown fix:
+pnpm run typecheck: passed
+pnpm test: 471 passed, 12 skipped; 71 files passed, 5 skipped
+Native OMP to DSH handoff: confirmed, completed recipient turn, 0 failed tool calls
+Native OMP browser build and review: passed
+Managed browser shutdown: passed, exact browser process absent

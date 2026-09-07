@@ -144,3 +144,42 @@ Replay with `tests/acceptance/browser-process-cleanup.mjs` and the existing
 `--app`, `--profile`, `--evidence`, `--playwright`, `--package` (Playwright MCP),
 and `--browser` arguments. The 22 lifecycle tests and typecheck passed. The browser
 build runner now sets its verification flag only after its final GUI checks.
+
+
+## Native continuation and browser build loop
+
+`native-handoff-cli.json` passes on the shutdown-fixed package: OMP completed its
+source-file turn with exit 0, native DSH received and acknowledged the exact handoff,
+produced matching output, and completed its turn with zero failed tool calls. The
+native executables were unchanged. This uses real PTYs/RPC and the existing preload
+setup/review API; it does not claim a keyboard-only GUI handoff. `handoff-ui.json`
+separately covers GUI review, binding and revision fences.
+
+`browser-build-loop.json` passes the native OMP repair/replay loop: source changed,
+all nine required browser operations were exercised in one managed context, the
+fixed form saved its input, overflow cleared, and screenshot/trace artifacts were
+produced. Final review used focused native webContents keyboard input and captured
+the rendered inspection panel (`browser-build-review.png`). Chromium's debugging
+connection still disconnected; the Electron main inspector and application remained
+usable. The underlying debug-socket cause is unresolved, not hidden by these receipts.
+
+After that disconnect, Playwright's app close can return without stopping Electron.
+The shared disposable-test cleanup now verifies the exact child process and applies
+bounded termination if necessary, after clearing native sessions and tools. Both
+receipts disclose that fallback and confirm daemon cleanup. This is not proof of
+normal user-initiated app shutdown; graceful restart/save was separately exercised
+in `workspace-shell.json`, and installed update/recovery remains Task 22.
+
+
+Full post-fix checks passed: 471 tests, 12 explicit skips; typecheck passed.
+`owned-orphan-cleanup.json` records four older failed-test browsers, each tied to
+an exact disposable Task 21 checkout by its current working directory and command.
+Their private process groups were terminated and verified stopped. The original
+browser-build app also survived its lost Playwright context; its agent and terminal
+lists were empty before terminating that exact recorded app process. Unknown and
+user-owned browsers were left alone. The final managed-browser acceptance passes
+with the committed runner and current package.
+
+Remaining Task 21 closure work: complete the keyboard-only six-journey check and
+review the aggregate qualification matrix. Existing keyboard shell/source-copy and
+native browser-review checks do not alone prove all six journeys keyboard-only.
