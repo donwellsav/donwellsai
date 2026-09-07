@@ -1,0 +1,73 @@
+{
+  "source": {
+    "commit": "c7192b31e37fcd81cf8b327bd94310bfa372fbc5",
+    "dirty": true,
+    "contentHash": "52ba1251d40a9c8d396543b97b8d399b98b516ebc0158f59bdeceef81dc729c2"
+  },
+  "artifactSha256": "8bf52f0bb5caad4aacde20a6dbbbf1a2813f3ff67540c5e22d1f3b6c7a00dec4",
+  "profile": "/private/tmp/donwells-strengthen-21-keyboard-final-profile",
+  "project": "/private/tmp/donwells-strengthen-21-keyboard-final-profile/fixture",
+  "journeys": {
+    "start": {
+      "sessionId": "4f14bb71-0c22-4b17-934d-eaa502fd27e3",
+      "workspacePath": "/private/tmp/donwells-strengthen-21-keyboard-final-profile/fixture"
+    },
+    "collaborate": {
+      "sessionId": "ca6b9ba7-b9c6-4090-b03f-35be05ba0e01",
+      "workspacePath": "/private/tmp/donwells-strengthen-21-keyboard-final-profile/fixture",
+      "task": {
+        "intent": "Review shared README",
+        "files": [
+          "README.md"
+        ]
+      },
+      "overlapVisible": true
+    },
+    "handoff": {
+      "source": "4f14bb71-0c22-4b17-934d-eaa502fd27e3",
+      "receiver": "ca6b9ba7-b9c6-4090-b03f-35be05ba0e01",
+      "reviewed": true,
+      "accepted": true,
+      "instructionsCopied": true,
+      "nativeDelivery": "Qualified separately by native-handoff-cli.json"
+    },
+    "understand": {
+      "memoryCreatedAndFound": true,
+      "sourceOpenedAtLine": 2,
+      "sourceEditedAndSaved": true
+    },
+    "buildVerify": {
+      "runId": "a3f677b2-4ebf-445a-b497-cd48ab1243e7",
+      "status": "succeeded",
+      "sourceState": "current",
+      "artifactAttached": true
+    },
+    "returnShip": {
+      "restart": "Owned app graceful close and relaunch",
+      "terminalIdentitiesRetained": true,
+      "memoryOpenedByKeyboard": true,
+      "verificationRetained": true,
+      "artifactUnchanged": true,
+      "installedRelease": "Task 22"
+    }
+  },
+  "limitations": [
+    "Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately."
+  ],
+  "memoryCommandTransfersFocus": true,
+  "memoryCreatedAndFound": true,
+  "mouseEventsBeforeRestart": 0,
+  "restartShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "verified": true,
+  "mouseEvents": 0,
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "idleDaemonStopped": true
+}

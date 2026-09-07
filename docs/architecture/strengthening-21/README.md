@@ -1,6 +1,6 @@
-# Task 21 strengthening — in progress
+# Task 21 strengthening — qualified
 
-Current artifact: Task 20 final package, ASAR
+Initial baseline artifact: Task 20 final package, ASAR
 `6cba18b2f03385350e2b034273985d37f562927c54a3357878b0a0d0d6a6a4df`.
 No product change was needed for the restart check: graceful close intentionally
 flushes dirty editor buffers through the existing workspace close gate. The
@@ -25,8 +25,8 @@ Other user processes were left running.
 406.76 ms, p95 420.41 ms. OS filesystem caches were not evicted; these are not
 machine-reboot cold starts. Each owned process was cleaned up.
 
-Still open: large-project search, frozen retrieval corpus, current-package native
-agent journeys and remaining fault checks, then full checks and task closure.
+The following sections record the subsequent search, retrieval, native-agent and
+fault qualification work.
 VoiceOver and additional-language qualification remain deferred by the user.
 
 The first large-search run failed its sparse-match latency target: p95 738.47 ms
@@ -111,7 +111,7 @@ can leave its target foreground when interrupted; the control receipt retains th
 limit rather than claiming background control for unsupported Electron targets.
 
 
-## Native handoff remains open
+## Initial native handoff failures
 
 The source OMP wrote the requested fixture file. Initial Kimi trials stopped at
 native approval; later Kimi and DSH trials lost the Playwright page before recipient
@@ -180,6 +180,45 @@ lists were empty before terminating that exact recorded app process. Unknown and
 user-owned browsers were left alone. The final managed-browser acceptance passes
 with the committed runner and current package.
 
-Remaining Task 21 closure work: complete the keyboard-only six-journey check and
-review the aggregate qualification matrix. Existing keyboard shell/source-copy and
-native browser-review checks do not alone prove all six journeys keyboard-only.
+## Keyboard closure and aggregate qualification
+
+The final package ASAR is
+`8bf52f0bb5caad4aacde20a6dbbbf1a2813f3ff67540c5e22d1f3b6c7a00dec4`.
+`keyboard-journeys.json` passes all six UI journeys using keyboard input, with zero
+pointer events before and after graceful restart. A controllable `/bin/cat` CLI
+isolates GUI operation; the native model execution and receipt/acknowledgement
+proof remains in the separate native-agent and handoff receipts above. Test setup
+creates a disposable Git project; restart uses the owned app lifecycle helper.
+Neither is described as a keyboard-operated folder picker or installer.
+
+Two production defects were reproduced and fixed at their shared entry points:
+opening a sidebar from the command palette did not transfer focus, and Monaco
+consumed the palette shortcut before the app's bubbling listener. Sidebar-opening
+actions now focus the selected tab after the modal closes; registered app shortcuts
+are handled in capture before embedded editor/terminal handlers. Unregistered keys
+continue through. The failed receipts are `keyboard-focus-before.json` and
+`keyboard-editor-before.json`. No terminal renderer or dependency was replaced.
+
+| Journey | Current evidence |
+| --- | --- |
+| Start | Keyboard launch at the correct checkout; four actual native harnesses in native-agents.json |
+| Collaborate | Keyboard intent/scope and overlap warning; real task/worktree tooling in project-task-coordination.json |
+| Handoff | Keyboard review/accept/copy; native OMP to DSH receive/acknowledge and completed continuation in native-handoff-cli.json |
+| Understand | Keyboard memory create/search and source line edit; native graph/reindex/isolation and frozen retrieval corpus |
+| Build and verify | Keyboard script execution, current-source evidence and artifact attachment; native browser repair/replay and native computer-control receipts |
+| Return and ship | Keyboard reopening saved memory after graceful restart, identical terminal IDs and retained current artifacts; 20 crash cycles in workspace-shell.json; installed release belongs to Task 22 |
+
+The affected shell replay (`keyboard-shell.json`) passes 24 recorded checks,
+including 100 arrangements, editor continuity, real keyboard input, scaling,
+reduced motion, crash recovery and graceful save. The final full check is 471
+passed tests with 12 explicit skips, plus typecheck. The package checker matched
+718 application files and 33 external resources against the current build.
+`final-checks.txt` records those commands and results.
+
+Retained limits: VoiceOver/additional-language tests are user-deferred; physical
+workstation sleep was not induced (visibility/reconnect is exercised); two-frame
+latency is a presentation proxy; the first fresh semantic query is slower while
+models warm, with lexical retrieval available; the Chromium debugging-socket loss
+uses the disclosed native webContents verification route. Browser parent-crash
+recovery and offline installed dependency provisioning remain Task 22 gates.
+These limits are not silently credited as measured or available capabilities.

@@ -1869,6 +1869,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setRightSidebarOpen(open: boolean) {
     const wasOpen = get().rightSidebarOpen
+    if (open && !wasOpen) { get().setRightSidebarTab(get().rightSidebarTab); return }
     set({ rightSidebarOpen: open })
     if (wasOpen && !open && typeof document !== 'undefined') requestAnimationFrame(() => {
       const state = get(), path = state.activeWorktreePath
@@ -1912,6 +1913,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer') {
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
+    if (typeof document !== 'undefined') requestAnimationFrame(() => {
+      const state = get()
+      if (state.rightSidebarOpen && state.rightSidebarTab === tab && !document.querySelector('dialog[open]')) {
+        document.querySelector<HTMLElement>(`[data-right-sidebar-tab="${tab}"]`)?.focus()
+      }
+    })
   },
 
   setCreateOpen(open: boolean) {

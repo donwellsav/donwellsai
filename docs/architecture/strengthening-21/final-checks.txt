@@ -1,6 +1,20 @@
-After managed-tool shutdown fix:
-pnpm run typecheck: passed
-pnpm test: 471 passed, 12 skipped; 71 files passed, 5 skipped
-Native OMP to DSH handoff: confirmed, completed recipient turn, 0 failed tool calls
-Native OMP browser build and review: passed
-Managed browser shutdown: passed, exact browser process absent
+/tmp/donwells21-keyboard-final-typecheck.log
+$ tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json
+
+/tmp/donwells21-keyboard-final-tests.log
+Cloning into '/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-git-ref-0WThZb/peer'...
+done.
+To /var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-git-ref-0WThZb/remote.git
+   9621f04..34d042b  main -> main
+
+ Test Files  71 passed | 5 skipped (76)
+      Tests  471 passed | 12 skipped (483)
+   Start at  23:30:44
+   Duration  7.58s (transform 4.56s, setup 0ms, import 7.51s, tests 76.86s, environment 4ms)
+
+
+/tmp/donwells21-keyboard-package-check.log
+$ node scripts/check-package.mjs --resources /tmp/donwells-strengthen-21-package-keyboard2/mac-arm64/donwells.app/Contents/Resources
+Package identity, native unpacking, CLI, icons, and notices are ready.
+718 application files and 33 external resources match the current build.
+

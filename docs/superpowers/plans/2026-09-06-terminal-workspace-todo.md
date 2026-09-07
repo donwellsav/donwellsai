@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 21 active — daily-driver performance and accessibility qualification.** Tasks 01, 03–20 and 27 are strengthened. Task 02 remains skipped. Tasks 21–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 22 active — installed release, update and recovery proof.** Tasks 01, 03–21 and 27 are strengthened. Task 02 remains skipped. Tasks 22–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -407,16 +407,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes complete M1–M3 build. Produces comparable performance, recall, accessibility and recovery evidence.
 
-- [ ] **Step 1:** Run all six journeys on the actual Mac with four native agents and the fixed corpus. Separate provider/model wait from host latency.
-- [ ] **Step 2:** Check every spec target, 100 pane moves, 20 restarts, stale retrieval, write conflicts, service crashes and index cancellation. Verify no long-lived orphan processes.
-- [ ] **Step 3:** Run keyboard/VoiceOver/font-scale/reduced-motion checks with real terminal content. Fix critical failures before polishing secondary animations.
-- [ ] **Step 4:** Profile failed targets and fix shared causes. Record retained limitations with a concrete user-visible fallback; do not mark blocked capabilities available.
+- [x] **Step 1:** Run all six journeys on the actual Mac with four native agents and the fixed corpus. Separate provider/model wait from host latency.
+- [x] **Step 2:** Check every spec target, 100 pane moves, 20 restarts, stale retrieval, write conflicts, service crashes and index cancellation. Verify no long-lived orphan processes.
+- [x] **Step 3:** Run keyboard/VoiceOver/font-scale/reduced-motion checks with real terminal content. Fix critical failures before polishing secondary animations.
+- [x] **Step 4:** Profile failed targets and fix shared causes. Record retained limitations with a concrete user-visible fallback; do not mark blocked capabilities available.
 - [x] **Verification:** Run `pnpm typecheck` and `pnpm test` once after fixes, then the affected live acceptance runners. Re-run broader suites only when changes justify them.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Revert individual regressions without reverting migrated data. Preserve evidence of the failure and fix.
 
-**Current evidence:** [Task 21 qualification receipts](../../architecture/strengthening-21/README.md). Full checks and native continuation/build loops pass; keyboard-only six-journey qualification remains open. VoiceOver and additional-language qualification remain user-deferred.
+**Current evidence:** [Task 21 qualification receipts](../../architecture/strengthening-21/README.md). Full checks, keyboard-only six-journey UI qualification and native continuation/build loops pass. VoiceOver and additional-language qualification remain user-deferred.
 
 ### Task 22: Installed release, update and recovery proof
 

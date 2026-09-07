@@ -66,7 +66,6 @@ export function RightSidebar() {
     const next = TABS[index]
     if (!next) return
     setRightSidebarTab(next.id)
-    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-right-sidebar-tab="${next.id}"]`)?.focus())
   }
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number): void => {

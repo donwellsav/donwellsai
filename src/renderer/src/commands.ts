@@ -301,11 +301,12 @@ export function installAppShortcuts(): () => void {
     const command = matcher(event)
     if (!command || !commandAllowedWhileModalOpen(command) || !commandAppliesInContext(command)) return
     event.preventDefault()
+    event.stopPropagation()
     dispatchAppCommand(command.id)
   }
-  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keydown', onKeyDown, true)
   return () => {
     unsubscribe()
-    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('keydown', onKeyDown, true)
   }
 }
