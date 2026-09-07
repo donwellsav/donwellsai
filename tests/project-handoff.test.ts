@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
+import { deliverAgentAttachment } from '../src/main/agent-delivery'
 import { ProjectHandoffService, ProjectHandoffStore } from '../src/main/project-handoff'
 import { parseProjectHandoff, type ProjectHandoff } from '../src/shared/project-handoff'
 
@@ -190,4 +191,41 @@ it('binds reviewed facts to project revisions and refuses changed, archived, era
   const foreign = await memory.projectMemoryCreate({ workspacePath: '/other', kind: 'fact', title: 'Foreign', content: 'Other project', attribution: { harness: 'human' } })
   await expect(service.projectHandoffCreate('/project', { ...draft, memorySources: [{ id: foreign.id, revision: 1 }] })).rejects.toThrow('unavailable')
   expect(() => parseProjectHandoff({ ...record, memorySources: [{ id: 'a', revision: 1 }, { id: 'a', revision: 1 }] })).toThrow('duplicate')
+})
+
+it.each(['native', 'acp'] as const)('dispatches reviewed %s instructions once while keeping receiver acknowledgment separate', async mode => {
+  const { root, store } = setup()
+  let stale = false, writes = 0, prompts = 0, fail = false
+  const scope = async (path: string) => ({ projectKey: path === '/foreign' ? 'f'.repeat(64) : record.projectKey, projectPath: path, checkoutPath: path, indexKey: path })
+  const receiver = { sessionId: 'receiver', workspacePath: '/project', liveness: 'live', activity: 'waiting' } as RunningAgent
+  const runtime = {
+    list: async () => mode === 'native' ? [receiver] : [],
+    findAcpSession: async () => mode === 'acp' ? { sessionId: 'receiver', workspacePath: '/project', liveness: 'live' as const } : undefined,
+    promptAcp: async (_path: string, _id: string, requestId: string, text: string) => { prompts++; expect(text).toContain('"expectedRevision":2'); if (fail) throw new Error('transport disconnected'); return { requestId, state: 'accepted' as const } }
+  }
+  const terminals = { writeAgent: async (_id: string, text: string) => { writes++; expect(text).toContain('handoff_receive'); if (fail) throw new Error('transport disconnected') } }
+  const deliver = (request: Parameters<typeof deliverAgentAttachment>[3]) => deliverAgentAttachment(runtime, terminals, async path => path, request)
+  const createService = () => new ProjectHandoffService(root, scope, { handoffSource: async () => ({ sourceRevision: record.sourceRevision, changedFiles: record.changedFiles, contentFingerprint: stale ? 'sha256:' + 'd'.repeat(64) : record.contentFingerprint }) }, runtime, deliver)
+  const service = createService()
+  store.create(record); store.accept(record.projectKey, record.id, 1, 'receiver', 'claim')
+  stale = true
+  await expect(service.projectHandoffDispatch('/project', record.id, 2)).rejects.toThrow('source changed')
+  expect(writes + prompts).toBe(0)
+  stale = false
+  await expect(service.projectHandoffDispatch('/foreign', record.id, 2)).rejects.toThrow('not found')
+  const results = await Promise.all([service.projectHandoffDispatch('/project', record.id, 2), service.projectHandoffDispatch('/project', record.id, 2)])
+  expect(writes + prompts).toBe(1)
+  expect(results.some(value => value.dispatch?.state === 'submitted')).toBe(true)
+  expect(store.get(record.projectKey, record.id)).toMatchObject({ revision: 2, delivery: 'not-sent', dispatch: { state: 'submitted' } })
+  const auth = async () => receiver, credential = { runId: 'run', sessionId: 'receiver', token: 'fixture' }
+  const received = await service.receive(auth, credential, '/project', record.id, 2)
+  expect(received).toMatchObject({ revision: 3, delivery: 'uncertain' })
+  await service.acknowledge(auth, credential, '/project', record.id, received.revision)
+  expect(await createService().projectHandoffDispatch('/project', record.id, 2)).toMatchObject({ revision: 4, delivery: 'confirmed' })
+  expect(writes + prompts).toBe(1)
+  const interrupted = { ...record, id: 'interrupted' }; store.create(interrupted); store.accept(record.projectKey, interrupted.id, 1, 'receiver', 'claim2'); fail = true
+  await expect(service.projectHandoffDispatch('/project', interrupted.id, 2)).rejects.toThrow('disconnected')
+  expect(await createService().projectHandoffDispatch('/project', interrupted.id, 2)).toMatchObject({ revision: 2, delivery: 'not-sent', dispatch: { state: 'uncertain' } })
+  expect(writes + prompts).toBe(2)
+  expect(mode === 'native' ? prompts : writes).toBe(0)
 })

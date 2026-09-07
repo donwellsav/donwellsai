@@ -148,6 +148,7 @@ const api: IpcApi = {
   projectHandoffList: (...args) => ipcRenderer.invoke('projectHandoffList', ...args),
   projectHandoffGet: (...args) => ipcRenderer.invoke('projectHandoffGet', ...args),
   projectHandoffCreate: (...args) => ipcRenderer.invoke('projectHandoffCreate', ...args),
+  projectHandoffDispatch: (...args) => ipcRenderer.invoke('projectHandoffDispatch', ...args),
   projectHandoffAccept: (...args) => ipcRenderer.invoke('projectHandoffAccept', ...args),
   projectHandoffSupersede: (...args) => ipcRenderer.invoke('projectHandoffSupersede', ...args),
   agentConfigureMemory: (workspacePath, provider, launchArgs, replacement) => ipcRenderer.invoke('agentConfigureMemory', workspacePath, provider, launchArgs, replacement),

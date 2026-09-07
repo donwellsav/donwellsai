@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectHandoff, ProjectHandoffStatus } from '@shared/project-handoff'
+import type { AcpAgentSnapshot } from '@shared/agent-runtime'
 import type { ProjectMemoryEntry } from '@shared/project-memory'
 import { agentProviderName } from '@shared/agent-presentation'
 import { useAppStore } from '../store'
@@ -8,7 +9,12 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const agents = useAppStore(state => state.runningAgents)
   const repos = useAppStore(state => state.repos)
   const project = repos.find(repo => repo.worktrees.some(worktree => worktree.path === workspacePath))
-  const sessions = Object.values(agents).filter(agent => project?.worktrees.some(worktree => worktree.path === agent.workspacePath))
+  const [acpSessions, setAcpSessions] = useState<AcpAgentSnapshot[]>([])
+  const nativeSessions = Object.values(agents).filter(agent => project?.worktrees.some(worktree => worktree.path === agent.workspacePath))
+  const sessions = [
+    ...nativeSessions.map(agent => ({ sessionId: agent.sessionId, workspacePath: agent.workspacePath, live: agent.liveness === 'live', label: `${agentProviderName(agent)} · Native` })),
+    ...acpSessions.map(agent => ({ sessionId: agent.id, workspacePath: agent.workspacePath, live: ['ready', 'working', 'permission'].includes(agent.state), label: `OpenCode · ACP · ${agent.state}` }))
+  ]
   const sources = sessions.filter(agent => agent.workspacePath === workspacePath)
   const [items, setItems] = useState<ProjectHandoff[]>([])
   const [selected, setSelected] = useState<ProjectHandoffStatus | null>(null)
@@ -27,6 +33,13 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const [exportPath, setExportPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
+  const checkoutPaths = project?.worktrees.map(worktree => worktree.path).join('\0') ?? ''
+  useEffect(() => {
+    let cancelled = false
+    setAcpSessions([])
+    if (checkoutPaths) void Promise.all(checkoutPaths.split('\0').map(path => window.donwells.agentAcpList(path))).then(groups => { if (!cancelled) setAcpSessions(groups.flat()) }, cause => { if (!cancelled) setError(`ACP session status unavailable: ${String(cause)}`) })
+    return () => { cancelled = true }
+  }, [checkoutPaths, generation])
   const claimKeys = useRef(new Map<string, string>())
   useEffect(() => setCopied(false), [selected?.handoff.id, selected?.handoff.revision])
   useEffect(() => {
@@ -82,11 +95,11 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         setMemoryTotal(selected.memorySources?.length ?? 0)
       }}>Copy to fresh draft for review</button>
       <p className="memory-caption">Refresh a handoff in its source checkout with an empty draft. Review and attach current facts again before saving.</p>
-      <p>Delivery: {selected.handoff.delivery}. Acceptance reserves the work; it does not send terminal input.</p>
+      <p>Instructions: {selected.handoff.dispatch?.state ?? 'not submitted'}. Receiver receipt: {selected.handoff.delivery}. Acceptance reserves the work.</p>
       {selected.handoff.state === 'open' && <>
         <label>Receiving session<select aria-label="Receiving session" className="input" value={receiver} disabled={busy} onChange={event => setReceiver(event.target.value)}>
           <option value="">Choose an active session</option>
-          {sessions.filter(agent => agent.liveness === 'live').map(agent => <option value={agent.sessionId} key={agent.sessionId}>{agentProviderName(agent)} · {agent.sessionId.slice(0, 8)}</option>)}
+          {sessions.filter(agent => agent.live).map(agent => <option value={agent.sessionId} key={agent.sessionId}>{agent.label} · {agent.sessionId.slice(0, 8)}</option>)}
         </select></label>
         <button className="btn btn-primary btn-sm" disabled={busy || selected.stale || !receiver} onClick={() => void operate(async () => {
           const target = `${selected.handoff.id}:${receiver}`
@@ -97,7 +110,12 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         })}>Accept handoff</button>
       </>}
       {selected.handoff.acceptedBySessionId && <p>Accepted by {selected.handoff.acceptedBySessionId}</p>}
-      {selected.handoff.state === 'accepted' && selected.handoff.delivery === 'not-sent' && <button className="btn btn-secondary btn-sm" disabled={busy || selected.stale} onClick={() => void operate(async () => {
+      {selected.handoff.state === 'accepted' && selected.handoff.delivery === 'not-sent' && !selected.handoff.dispatch && <button className="btn btn-primary btn-sm" disabled={busy || selected.stale} onClick={() => void operate(async () => {
+        try { await window.donwells.projectHandoffDispatch(workspacePath, selected.handoff.id, selected.handoff.revision) }
+        finally { setSelected(await window.donwells.projectHandoffGet(workspacePath, selected.handoff.id)) }
+      })}>Send instructions to receiving session</button>}
+      {selected.handoff.dispatch && <p role="status">{selected.handoff.dispatch.state === 'uncertain' ? 'Instruction submission is uncertain. Inspect the receiving session before making a fresh handoff.' : 'Instructions submitted. The receiving agent must separately read and acknowledge the handoff.'} Refresh observes the saved attempt; it does not resend.</p>}
+      {selected.handoff.state === 'accepted' && selected.handoff.delivery === 'not-sent' && !selected.handoff.dispatch && <button className="btn btn-secondary btn-sm" disabled={busy || selected.stale} onClick={() => void operate(async () => {
         await navigator.clipboard.writeText(`Receive the handoff accepted for this session using handoff_receive with ${JSON.stringify({ id: selected.handoff.id, expectedRevision: selected.handoff.revision })}. Read the returned context, then call handoff_acknowledge with its id and returned revision before continuing. If either tool is unavailable, reconnect this session to the project's Donwells memory MCP server. Do not repeat an uncertain receive; inspect its state first.`)
         setCopied(true)
       })}>{copied ? 'Instructions copied' : 'Copy receiving instructions'}</button>}
@@ -117,7 +135,7 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       <fieldset disabled={busy}>
         <label>Source session<select aria-label="Source session" className="input" required value={source} onChange={event => setSource(event.target.value)}>
           <option value="">Choose a session in this checkout</option>
-          {sources.map(agent => <option value={agent.sessionId} key={agent.sessionId}>{agentProviderName(agent)} · {agent.sessionId.slice(0, 8)}</option>)}
+          {sources.map(agent => <option value={agent.sessionId} key={agent.sessionId}>{agent.label} · {agent.sessionId.slice(0, 8)}</option>)}
         </select></label>
         {!sources.length && <p>Start an agent in this checkout before saving a handoff.</p>}
         <label>Goal<input className="input" required maxLength={8000} value={goal} onChange={event => setGoal(event.target.value)} /></label>

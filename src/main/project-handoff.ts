@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { HandoffMemoryStatus, ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
 import type { ProjectToolScope } from '@shared/project-tools'
 import type { GitWorktrees } from './git'
+import type { AgentDeliveryApi } from '@shared/agent-delivery'
 import type { AgentRuntime } from './agent-runtime'
 import type { AgentSessionCredential } from '@shared/agent-runtime'
 import type { DaemonClient } from './daemon-client'
@@ -51,7 +52,7 @@ export class ProjectHandoffStore {
 
   create(value: ProjectHandoff): ProjectHandoff {
     const handoff = parseProjectHandoff(value)
-    if (handoff.state !== 'open' || handoff.revision !== 1 || handoff.delivery !== 'not-sent' || handoff.acceptedBySessionId !== null) throw new Error('New handoffs must be open and undelivered')
+    if (handoff.state !== 'open' || handoff.revision !== 1 || handoff.delivery !== 'not-sent' || handoff.acceptedBySessionId !== null || handoff.dispatch) throw new Error('New handoffs must be open and undelivered')
     return this.transaction(db => {
       const count = db.prepare('SELECT count(*) AS total, sum(project=?) AS scoped FROM handoffs').get(handoff.projectKey)!
       if (Number(count.total) >= 10000 || Number(count.scoped) >= 2500) throw new Error('Handoff storage limit reached')
@@ -98,6 +99,28 @@ export class ProjectHandoffStore {
     })
   }
 
+  beginDispatch(projectKey: string, id: string, expectedRevision: number): { handoff: ProjectHandoff; send: boolean } {
+    return this.transaction(db => {
+      const { handoff } = this.read(db, projectKey, id)
+      if (handoff.dispatch) return { handoff, send: false }
+      if (handoff.state !== 'accepted' || handoff.revision !== expectedRevision || handoff.delivery !== 'not-sent') throw new Error('Handoff changed or is not ready for dispatch')
+      // Dispatch metadata does not advance the reviewed revision consumed by handoff_receive.
+      const next = parseProjectHandoff({ ...handoff, dispatch: { requestId: randomUUID(), state: 'uncertain' } })
+      db.prepare('UPDATE handoffs SET document=? WHERE project=? AND id=?').run(JSON.stringify(next), projectKey, id)
+      return { handoff: next, send: true }
+    })
+  }
+
+  submitted(projectKey: string, id: string, requestId: string): ProjectHandoff {
+    return this.transaction(db => {
+      const { handoff } = this.read(db, projectKey, id)
+      if (handoff.dispatch?.requestId !== requestId) throw new Error('Handoff dispatch identity changed')
+      const next = parseProjectHandoff({ ...handoff, dispatch: { requestId, state: 'submitted' } })
+      db.prepare('UPDATE handoffs SET document=? WHERE project=? AND id=?').run(JSON.stringify(next), projectKey, id)
+      return next
+    })
+  }
+
   supersede(projectKey: string, id: string, expectedRevision: number): ProjectHandoff {
     return this.change(projectKey, id, expectedRevision, handoff => ({ ...handoff, state: 'superseded' }))
   }
@@ -137,7 +160,7 @@ export class ProjectHandoffStore {
 /** Desktop authority boundary. Native delivery and external MCP claims require separate binding. */
 export class ProjectHandoffService implements ProjectHandoffApi {
   private readonly store: ProjectHandoffStore
-  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession'>>) {
+  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession'>>, private readonly deliver?: AgentDeliveryApi['agentDeliver']) {
     this.store = new ProjectHandoffStore(userDataDir)
   }
 
@@ -227,6 +250,28 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     await this.assertScope(scope)
     if (this.memorySources(scope.projectKey, status.handoff.memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed before acceptance; review a fresh handoff')
     return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
+  }
+
+  async projectHandoffDispatch(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff> {
+    parseProjectMemoryIdentifier(id)
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error('Invalid handoff revision')
+    const scope = await this.resolveScope(workspacePath), current = this.store.get(scope.projectKey, id)
+    if (current.dispatch) return current // Observe an uncertain/submitted attempt; never repeat native input.
+    if (!this.deliver || current.state !== 'accepted' || !current.acceptedBySessionId) throw new Error('Accept a handoff before dispatching')
+    const target = await this.session(scope, current.acceptedBySessionId, true)
+    const status = await this.projectHandoffGet(workspacePath, id)
+    if (status.stale) throw new Error('Handoff source changed; review and save a fresh handoff')
+    await this.assertScope(scope)
+    if (this.memorySources(scope.projectKey, current.memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed before dispatch')
+    const attempt = this.store.beginDispatch(scope.projectKey, id, expectedRevision)
+    if (!attempt.send) return attempt.handoff
+    const handoff = attempt.handoff
+    const receipt = await this.deliver({ sessionId: handoff.acceptedBySessionId!, requestId: handoff.dispatch!.requestId, submit: true, attachment: {
+      kind: 'handoff', workspacePath: target.checkoutPath, title: handoff.goal.slice(0, 512),
+      text: `Call the donwells-project-memory handoff_receive tool with ${JSON.stringify({ id, expectedRevision: handoff.revision })}. Read its reviewed goal, progress, source files, facts and next steps. Then call handoff_acknowledge with its id and returned revision before continuing. If either tool fails, stop and report the failure; do not repeat an uncertain receive. Do not treat submitting these instructions as acknowledgment.`
+    } })
+    if (!receipt.submitted || receipt.sessionId !== handoff.acceptedBySessionId) throw new Error('Handoff instruction submission is uncertain')
+    return this.store.submitted(scope.projectKey, id, handoff.dispatch!.requestId)
   }
 
   /** Tool delivery returns the saved context only to its authenticated receiving session.

@@ -1,5 +1,5 @@
 export type AgentAttachmentDraft = {
-  kind: 'diff-review' | 'design-capture'
+  kind: 'diff-review' | 'design-capture' | 'handoff'
   workspacePath: string
   title: string
   text: string

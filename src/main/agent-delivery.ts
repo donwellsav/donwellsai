@@ -14,7 +14,7 @@ export async function deliverAgentAttachment(
   if (!request || typeof request !== 'object' || typeof request.submit !== 'boolean') throw new Error('Invalid attachment delivery request')
   const { sessionId, attachment, submit } = request
   if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 256) throw new Error('Invalid agent session')
-  if (!attachment || !['diff-review', 'design-capture'].includes(attachment.kind)) throw new Error('Invalid attachment kind')
+  if (!attachment || !['diff-review', 'design-capture', 'handoff'].includes(attachment.kind)) throw new Error('Invalid attachment kind')
   if (typeof attachment.title !== 'string' || !attachment.title.trim() || attachment.title.length > 512) throw new Error('Invalid attachment title')
   if (typeof attachment.workspacePath !== 'string') throw new Error('Invalid attachment workspace')
   const text = attachment.text

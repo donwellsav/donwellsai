@@ -48,6 +48,9 @@ async function editArchive(path: string, change: (kit: any) => void) {
 }
 it.each(['json', 'sqlite'])('restores %s memory with history, stale handoffs, disabled tools and a portable layout into another clean profile', async backend => {
   const f = await fixture(); if (backend === 'sqlite') migrateProjectMemory(f.profile)
+  const originalHandoffs = new ProjectHandoffStore(f.profile)
+  originalHandoffs.accept(f.scope.projectKey, 'handoff-one', 1, 'old-receiver', 'claim')
+  originalHandoffs.beginDispatch(f.scope.projectKey, 'handoff-one', 2)
   const exported = await f.kit.projectKitExport(f.source, f.output, ['task.md'])
   expect(exported).toMatchObject({ memories: 1, revisions: 1, handoffs: 1 })
   const bytes = await readFile(f.output, 'utf8'); expect(bytes).not.toContain('secret-value'); expect(bytes).not.toContain(f.root); expect(bytes).not.toContain('old-session')
@@ -63,6 +66,7 @@ it.each(['json', 'sqlite'])('restores %s memory with history, stale handoffs, di
   expect(found.entries).toHaveLength(1); expect(found.entries[0].id).not.toBe(f.first.id)
   expect((await restored.projectMemoryHistory({ workspacePath: destination, id: found.entries[0].id })).revisions.map(value => value.content)).toEqual(['KIT_CANARY_TWO password=[redacted]', 'KIT_CANARY_ONE'])
   const handoffs = new ProjectHandoffStore(targetProfile).list(imported.report.projectKey)
+  expect(handoffs[0].dispatch).toBeUndefined()
   expect(handoffs[0]).toMatchObject({ state: 'superseded', delivery: 'not-sent', checkoutPath: destination, contentFingerprint: 'sha256:' + '0'.repeat(64) })
   expect(await readFile(join(destination, 'task.md'), 'utf8')).toContain('KIT_ARTIFACT password=[redacted]')
   const config = JSON.parse(await readFile(join(targetProfile, 'project-tools/configuration', imported.report.projectKey, 'tools.json'), 'utf8'))
