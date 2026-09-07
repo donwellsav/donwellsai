@@ -1,0 +1,12 @@
+{
+  "electrobun": "2.0.1",
+  "source": "8d09d15db791f346e419efd452d6759750addb62",
+  "dmgBytes": 26155069,
+  "dmgSha256": "a5da54fe58146a5ef632f313a1c818d21462a7658a195f5c3a428de0cf1a47f0",
+  "installedPath": "/tmp/donwells26-installed02/Donwells Framework Trial-canary.app",
+  "buildExit": 0,
+  "installedWorkflow": "failed before report: uncaught worker _read() not implemented",
+  "cottontailMigrationDirectoryMode": "0o755",
+  "fullAcceptance": "not run: native runtime hard gate failed",
+  "productionMigration": false
+}

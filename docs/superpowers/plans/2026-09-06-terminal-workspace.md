@@ -619,12 +619,14 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes installed Electron baseline and exact six journeys. Produces an evidence-based keep/migrate decision with a separate migration plan if justified.
 
-- [ ] **Step 1:** Build the same thin workflow in Electrobun/Tauri or a native Ghostty host, choosing candidates from the current admitted snapshots. Account for main-process runtime/API differences.
-- [ ] **Step 2:** Compare installed startup, idle/four-session RAM, input latency, browser fidelity, accessibility, update size and native dependencies. Include retrieval/control services in both sides equally.
-- [ ] **Step 3:** Reject a smaller empty shell as an invalid comparison. Require recovery, safe saves, memory access and packaging parity.
-- [ ] **Step 4:** If a challenger wins materially, write a concrete service/browser/packaging migration plan before replacing Electron. Otherwise delete the experiment and keep its measurements.
-- [ ] **Verification:** Run the same Task 21 acceptance workload on each installed candidate. No production migration is credited from README size claims.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Build the same thin workflow in Electrobun/Tauri or a native Ghostty host, choosing candidates from the current admitted snapshots. Account for main-process runtime/API differences.
+- [x] **Step 2 disposition: comparison rejected at hard gate; metrics unqualified.** Original requirement: Compare installed startup, idle/four-session RAM, input latency, browser fidelity, accessibility, update size and native dependencies. Include retrieval/control services in both sides equally.
+- [x] **Step 3:** Reject a smaller empty shell as an invalid comparison. Require recovery, safe saves, memory access and packaging parity.
+- [x] **Step 4:** If a challenger wins materially, write a concrete service/browser/packaging migration plan before replacing Electron. Otherwise delete the experiment and keep its measurements.
+- [x] **Verification disposition: installed runtime failed; full workload not run.** Original requirement: Run the same Task 21 acceptance workload on each installed candidate. No production migration is credited from README size claims.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+
+**Evaluation disposition:** Candidate rejected at native runtime hard gate. Full parity/resource measurements and Task 21 journeys were not run; they are not credited as passing. See [exact comparison and retained evidence](../../architecture/desktop-framework-comparison.md).
 
 **Rollback:** Delete the trial shell; current installed artifact and user data remain unchanged.
 
@@ -710,7 +712,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 26 active — desktop framework and native-terminal challenger.** Tasks 01, 03–25 and 27 are strengthened. Task 02 remains skipped. Tasks 26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 28 active — optional ACP capabilities and additional agent adapters.** Tasks 01, 03–27 are strengthened. Task 02 remains skipped. Task 28 remains reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 
