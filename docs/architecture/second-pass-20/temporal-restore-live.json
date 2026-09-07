@@ -1,0 +1,56 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-kit-RoBlLc",
+  "source": {
+    "id": "46eb5abb-22c5-4d33-bcb0-13d477db3cd8",
+    "revision": 1,
+    "projectKey": "48c715dde45b1022d7ffee3b5c48b1211c5424d83c39eaa4ec54dead8296f984",
+    "generation": "donwells-48c715dde45b1022d7ffee3b5c48b1211c5424d83c39eaa4ec54dead8296f984-653f9403-97bc-46a7-96d3-e860fe8f1311",
+    "contentSha256": "4a9e90a7116971b91b0c5b24a296944d5a28360ddeef198b76bdac856478acd1"
+  },
+  "target": {
+    "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-915dc079-2e4d-43b4-b9fb-1df49fd61f69",
+    "relationshipCount": 1,
+    "sources": [
+      {
+        "kind": "memory",
+        "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+        "revision": 1,
+        "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+        "sourceTime": "2026-09-07T16:08:25.958Z"
+      }
+    ]
+  },
+  "archive": {
+    "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-kit-RoBlLc/temporal-kit.json",
+    "sha256": "d4e3bf126d417fdc24260f133a548a552bf2f179369b306beabb35d06866782d",
+    "archiveId": "85db39eb-305e-49b3-b8ff-baa69f3ed22b",
+    "sourceProjectKey": "48c715dde45b1022d7ffee3b5c48b1211c5424d83c39eaa4ec54dead8296f984",
+    "temporalSource": {
+      "kind": "memory",
+      "id": "46eb5abb-22c5-4d33-bcb0-13d477db3cd8",
+      "revision": 1
+    }
+  },
+  "targetSelection": {
+    "kind": "memory",
+    "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+    "revision": 1
+  },
+  "checks": [
+    "Retained kit and restore report bind the original temporal selection to the remapped target identity",
+    "Restored target has Graphiti disabled until explicit configuration",
+    "Target-only reconcile creates a distinct generation whose relationships cite the remapped target fact",
+    "Original source fact and published generation remain unchanged"
+  ],
+  "restore": {
+    "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+    "targetId": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292"
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

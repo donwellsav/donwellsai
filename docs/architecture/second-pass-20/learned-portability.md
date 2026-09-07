@@ -37,3 +37,9 @@ After this increment:21focusedchecks passed across knowledge/export; fulltypeche
 ## Actual native transfer
 
 `native-transfer-live.json` records local Hindsight0.9.2 document export, app kit import into a new registered project, explicit native import/re-embedding, and learned recall resolving only remapped target source identities. Original bank data survived service restart. No extraction during transfer. Temporal rebuild/environment pairing and full visible journey remain open.
+
+## Temporal restoration
+
+`temporal-restore-live.json` binds the real kit archive hash and persisted import mapping to one restored canonical fact. After explicit destination configuration, Graphiti0.30.1 rebuilt a separate generation; its actual relationship cites only the remapped destination fact/revision/project key. The original canonical source and published generation remained unchanged. No erased source was revived.
+
+The initial runner completed source projection, export and import, then incorrectly expected a disabled Graphiti status response; that API requires configuration. The continuation inspected the disabled destination through Project Doctor and rebuilt only the target. It did not repeat source extraction, export or import. Both owned app/daemon shutdowns were clean. Environment re-pairing remains open.
