@@ -546,11 +546,13 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   const sessionHistory = {
+    analytics: (path: string) => projectTools!.historyAnalytics(path),
     index: (path: string) => projectTools!.historyIndex(path),
     search: (path: string, query: string) => projectTools!.historySearch(path, query),
     get: (path: string, id: string) => projectTools!.historyGet(path, id)
   }
   ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => sessionHistory.index(path))
+  ipcMain.handle('projectSessionHistoryAnalytics', (_e, path: string) => sessionHistory.analytics(path))
   ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => sessionHistory.search(path, query))
   ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => sessionHistory.get(path, id))
   projectTools = new ProjectDoctor(join(app.getPath('userData'), 'project-tools', 'configuration'), resolveToolWorkspace, projectPath => parseProjectToolConfiguration({

@@ -33,3 +33,9 @@
 .project-search-notes p { margin: 3px 0; }
 .project-search-kind { display: block; font-size: 10px; color: var(--muted-fg); margin-bottom: 5px; }
 .project-search-document { overflow: auto; max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-analytics-table { overflow-x: auto; margin-block: 8px; }
+.project-analytics-table table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.project-analytics-table th, .project-analytics-table td { padding: 6px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.project-analytics { flex-shrink: 0; max-height: 65%; overflow: auto; font-size: 12px; }
+.project-analytics summary { cursor: pointer; padding-block: 4px; }
+.project-analytics p, .project-analytics li { overflow-wrap: anywhere; }

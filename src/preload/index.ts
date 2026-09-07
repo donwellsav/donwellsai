@@ -55,6 +55,7 @@ const api: IpcApi = {
   listWorkspaceDirectory: (workspacePath, request) => ipcRenderer.invoke('listWorkspaceDirectory', workspacePath, request),
   searchWorkspaceFiles: (workspacePath, request) => ipcRenderer.invoke('searchWorkspaceFiles', workspacePath, request),
   projectSessionHistoryIndex: path => ipcRenderer.invoke('projectSessionHistoryIndex', path),
+  projectSessionHistoryAnalytics: path => ipcRenderer.invoke('projectSessionHistoryAnalytics', path),
   projectSessionHistorySearch: (path, query) => ipcRenderer.invoke('projectSessionHistorySearch', path, query),
   projectSessionHistoryGet: (path, id) => ipcRenderer.invoke('projectSessionHistoryGet', path, id),
   projectDoctorPreviewBackup: (...args) => ipcRenderer.invoke('projectDoctorPreviewBackup', ...args),

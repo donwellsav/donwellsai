@@ -170,6 +170,7 @@ export class ProjectDoctor {
   async historyIndex(path: string) { return (await this.history(path)).index(path) }
   async historySearch(path: string, query: string) { return (await this.history(path)).search(path, query) }
   async historyGet(path: string, id: string) { return (await this.history(path)).get(path, id) }
+  async historyAnalytics(path: string) { return (await this.history(path)).analytics(path) }
 
   async retry(path: string, id: string) { if (id === 'history') { await this.stop(path, id); await this.historyIndex(path); return { id, status: 'stopped' as const, version: SESSION_HISTORY_VERSION, detail: 'Native history index updated' } } const owner = await this.owner(path); await owner.stop(path, id); return owner.start(path, id) }
   async close() {

@@ -20,6 +20,7 @@ export type CommandSpec = {
 
 export const RPC_COMMANDS: readonly CommandSpec[] = [
   { name: 'history-index', method: 'history.index', summary: 'Index selected native sessions for this project', fields: [{ name: 'workspacePath', kind: 'path', required: true }], effect: 'execute' },
+  { name: 'history-analytics', method: 'history.analytics', summary: 'Read usage coverage and trends from current project sessions', fields: [{ name: 'workspacePath', kind: 'path', required: true }], effect: 'read' },
   { name: 'history-search', method: 'history.search', summary: 'Search the derived project session archive', fields: [{ name: 'workspacePath', kind: 'path', required: true }, { name: 'query', kind: 'text', required: true }], effect: 'read' },
   { name: 'history-get', method: 'history.get', summary: 'Read a scoped native session excerpt', fields: [{ name: 'workspacePath', kind: 'path', required: true }, { name: 'id', kind: 'string', required: true }], effect: 'read' },
   {"name":"file-search-content","method":"file.searchContent","summary":"Search workspace text; use --language for an ast-grep syntax pattern","fields":[{"name":"workspacePath","kind":"path","required":true},{"name":"query","kind":"text","required":true},{"name":"language","kind":"string","required":false},{"name":"maxResults","kind":"integer","required":false,"flag":"limit","min":1,"max":1000},{"name":"showHidden","kind":"boolean","required":false,"flag":"hidden"},{"name":"includeIgnored","kind":"boolean","required":false,"flag":"ignored"}],"effect":"read"},

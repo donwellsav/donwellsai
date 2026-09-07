@@ -8,6 +8,7 @@ import { openProjectMemoryEditor } from '../project-memory-editor'
 import { focusRetainedAgentSession } from '../navigation-controller'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import { ModalDialog } from './ModalDialog'
+import { ProjectAnalytics } from './ProjectAnalytics'
 
 const sources = { all: 'All', file: 'Files', code: 'Code', document: 'Documents', memory: 'Memory', session: 'Sessions' } as const
 type SearchSource = keyof typeof sources
@@ -241,6 +242,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         if (generation === openGeneration.current) setRefresh(value => value + 1)
       }).catch(error => { if (generation === openGeneration.current) setError(String(error)) }).finally(() => setHistoryIndexing(false))
     }}>{historyIndexing ? 'Indexing selected sessions…' : 'Index sessions'}</button>}
+    {active && source === 'session' && historyAvailable && <ProjectAnalytics key={workspacePath} workspacePath={workspacePath} />}
     {error && <p className="project-search-error" role="alert">{error}</p>}
     <ol ref={resultsRef} className="project-search-results" aria-label="Content matches" onKeyDown={event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return

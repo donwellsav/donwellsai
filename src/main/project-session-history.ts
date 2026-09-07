@@ -3,7 +3,8 @@ import { createReadStream } from 'node:fs'
 import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { SessionHistorySource } from '@shared/project-session-history'
+import type { SessionHistorySource, SessionHistoryAnalytics } from '@shared/project-session-history'
+import { aggregateSessionHistory } from './project-analytics'
 import type { ChildProcess } from 'node:child_process'
 import { isObject } from '@shared/command-catalog'
 import { spawnProcess } from '@shared/child-process/run-process'
@@ -171,6 +172,22 @@ export class ProjectSessionHistory {
     await this.assertScope(path, scope)
     const dshId = /^deepseek-harness:session-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(nativeId)?.[1]
     return { id, agent: String(row.agent), nativeId, source: String(row.file_path), cwd: String(row.cwd), indexedAt, resume: row.agent === 'omp' ? { executable: 'omp', args: ['--resume', String(row.file_path)] } : row.agent === 'deepseek-harness' && dshId ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId] } : null, messages: messages.map(message => ({ ordinal: Number(message.ordinal), role: String(message.role), content: String(message.content) })), untrusted: true }
+  }
+
+  async analytics(path: string): Promise<SessionHistoryAnalytics> {
+    const { scope, directory, indexedAt } = await this.archive(path)
+    const db = new DatabaseSync(join(directory, 'sessions.db'), { readOnly: true })
+    try {
+      db.exec('BEGIN')
+      // ponytail: validate up to 1,000 recent sources; paginate if larger project histories need full coverage.
+      const rows = db.prepare('SELECT id,agent,cwd,file_path,file_size,CAST(file_mtime AS TEXT) source_mtime FROM sessions WHERE deleted_at IS NULL AND source_missing_at IS NULL ORDER BY started_at DESC,id LIMIT 1001').all()
+      const selected: Row[] = []
+      for (const row of rows.slice(0, 1000)) if (await this.current(row, scope)) selected.push(row)
+      const result = aggregateSessionHistory(db, selected.map(row => String(row.id)))
+      for (const row of selected) if (!await this.current(row, scope)) throw new Error('Native session changed during analytics. Refresh session history.')
+      await this.assertScope(path, scope)
+      return { ...result, indexedAt, sessions: selected.length, excluded: Math.min(rows.length, 1000) - selected.length, truncated: rows.length > 1000 }
+    } finally { db.close() }
   }
 
   async isIndexing(path: string): Promise<boolean> { return this.queue.has((await this.bound(path)).scope.indexKey) }
