@@ -1,0 +1,9 @@
+# Selective result decisions
+
+The actual Linux return journey preserved a concurrent local edit and applied only result.txt. Removal then exposed an impossible demand: every fetched result had to be applied, even an unwanted conflict. The existing review now records an explicit declined state. Decline preserves incoming snapshots and authored local files, validates the whole selection before mutation, cannot be undone by restaging, and cannot be applied later without a new capture. Removal accepts applied or declined fetched results.
+
+Research before this correction: [VS Code conflict decisions](https://code.visualstudio.com/docs/sourcecontrol/merge-conflicts) separates accepting incoming changes from keeping current changes. This implementation reuses our existing review owner; no external code or new merge engine was imported.
+
+`decline-live.json` records the actual button resolving input.txt, preserving both incoming and local bytes. Its subsequent stopped-shell selector timeout is retained; the decision was not repeated. `removal-live-owner-block.json` then confirms narrow module widths of280.8px expanded and428px collapsed, without creating another shell. Pairing retirement still refused a live native owner.
+
+Correction to the earlier linux-agent-live cleanup claim: the native agent5c63d7cf-14a6-4f30-a1d5-6d06cbdc2527 remained live. The runner had awaited terminal.stop without checking the returned operation state; daemon shell-close intentionally rejects agent sessions. `remaining-remote-owner.json` records its actual state. Native task/memory/artifact evidence remains valid; native cleanup requires the remote stop-owner correction and actual exit. No new model turn is required.

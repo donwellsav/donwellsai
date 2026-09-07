@@ -1,0 +1,26 @@
+{
+  "project": "/private/tmp/donwells-task24-linux-app-profile/project",
+  "sibling": "/private/tmp/donwells-task24-linux-app-profile/sibling",
+  "endpoint": "127.0.0.1:24224",
+  "continuation": true,
+  "checks": [
+    "Concurrent local source edit rejects returned stale overwrite and preserves authored bytes"
+  ],
+  "environment": {
+    "id": "plan24-linux",
+    "generation": 1,
+    "state": "ready"
+  },
+  "stage": "isolation-and-host-key-rejection-completed",
+  "sessionId": "e7e3544d-99a3-414b-8a46-061f39065d58",
+  "reviewId": "7e5bbf0f-467a-44b9-af12-1d10f6ba37fb",
+  "changedHostId": "changed-host",
+  "error": "page.evaluate: Error: Error invoking remote method 'environmentRemove': Error: Review and apply fetched results before removing this binding\n    at api (/private/tmp/donwells-task24-linux-ssh-live.mjs:30:39)\n    at /private/tmp/donwells-task24-linux-ssh-live.mjs:60:9",
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true,
+  "restoredDaemonCleanup": true
+}

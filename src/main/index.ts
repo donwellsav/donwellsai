@@ -682,7 +682,7 @@ app.whenReady().then(() => {
   ipcMain.handle('environmentList', (_e, ...args: Parameters<IpcApi['environmentList']>) => environments.list(...args))
   ipcMain.handle('environmentConfigure', (_e, ...args: Parameters<IpcApi['environmentConfigure']>) => environments.configure(...args))
   ipcMain.handle('environmentConnect', (_e, ...args: Parameters<IpcApi['environmentConnect']>) => environments.connect(...args))
-  ipcMain.handle('environmentRemove', async (_e, ...args: Parameters<IpcApi['environmentRemove']>) => { const reviews = await environmentResults.list(...args); if (reviews.some(review => review.files.some(file => file.received !== undefined && file.state !== 'applied'))) throw new Error('Review and apply fetched results before removing this binding'); await environments.pause(...args); await environmentMemory!.stop(...args); await environments.remove(...args) })
+  ipcMain.handle('environmentRemove', async (_e, ...args: Parameters<IpcApi['environmentRemove']>) => { const reviews = await environmentResults.list(...args); if (reviews.some(review => review.files.some(file => file.received !== undefined && !['applied', 'declined'].includes(file.state)))) throw new Error('Review and apply or decline fetched results before removing this binding'); await environments.pause(...args); await environmentMemory!.stop(...args); await environments.remove(...args) })
   ipcMain.handle('environmentPause', (_e, ...args: Parameters<IpcApi['environmentPause']>) => environments.pause(...args))
   ipcMain.handle('environmentRequest', (_e, ...args: Parameters<IpcApi['environmentRequest']>) => environments.request(...args))
   ipcMain.handle('environmentMemory', async (_e, path: string, id: string, generation: number, action: string) => {
@@ -697,6 +697,7 @@ app.whenReady().then(() => {
   ipcMain.handle('environmentResultsSend', (_e, ...args: Parameters<IpcApi['environmentResultsSend']>) => environmentResults.send(...args))
   ipcMain.handle('environmentResultsStage', (_e, ...args: Parameters<IpcApi['environmentResultsStage']>) => environmentResults.stage(...args))
   ipcMain.handle('environmentResultsApply', (_e, ...args: Parameters<IpcApi['environmentResultsApply']>) => environmentResults.apply(...args))
+  ipcMain.handle('environmentResultsDecline', (_e, ...args: Parameters<IpcApi['environmentResultsDecline']>) => environmentResults.decline(...args))
   const projectKit = new ProjectExport(app.getPath('userData'), store, resolveToolWorkspace, projectTools, () => projectMemory.reloadStorage())
   ipcMain.handle('projectKitExport', (_e, ...args: Parameters<IpcApi['projectKitExport']>) => projectKit.projectKitExport(...args))
   ipcMain.handle('projectKitReconnectLearned', (_e, ...args: Parameters<IpcApi['projectKitReconnectLearned']>) => projectKit.projectKitReconnectLearned(...args))

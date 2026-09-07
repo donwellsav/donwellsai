@@ -14,6 +14,7 @@ const api: IpcApi = {
   environmentResultsSend: (...args) => ipcRenderer.invoke('environmentResultsSend', ...args),
   environmentResultsStage: (...args) => ipcRenderer.invoke('environmentResultsStage', ...args),
   environmentResultsApply: (...args) => ipcRenderer.invoke('environmentResultsApply', ...args),
+  environmentResultsDecline: (...args) => ipcRenderer.invoke('environmentResultsDecline', ...args),
 
   projectLanguageStatus: (...args) => ipcRenderer.invoke('projectLanguageStatus', ...args),
   projectLanguageStop: (...args) => ipcRenderer.invoke('projectLanguageStop', ...args),

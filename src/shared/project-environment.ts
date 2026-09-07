@@ -21,7 +21,7 @@ export const projectEnvironmentId = (value: unknown): string => {
 }
 export const remoteMutation = (method: ProjectRemoteMethod) => ['source.put', 'agent.start', 'terminal.open', 'terminal.write', 'terminal.resize', 'terminal.stop'].includes(method)
 
-export type EnvironmentResultFile = { path: string; baseRevision: string | null; baseContent: string | null; currentContent?: string | null; currentRevision?: string | null; received?: { revision: string; content: string } | null; state: 'pending' | 'staged' | 'applied' | 'conflict'; error?: string }
+export type EnvironmentResultFile = { path: string; baseRevision: string | null; baseContent: string | null; currentContent?: string | null; currentRevision?: string | null; received?: { revision: string; content: string } | null; state: 'pending' | 'staged' | 'applied' | 'declined' | 'conflict'; error?: string }
 export type EnvironmentResultReview = { id: string; environmentId: string; generation: number; workspacePath: string; baseGitRevision: string | null; files: EnvironmentResultFile[] }
 export type EnvironmentMemoryState = { state: 'disconnected' | 'connecting' | 'connected' | 'failed'; detail?: string }
 export type ProjectEnvironmentApi = {
@@ -40,6 +40,7 @@ export type ProjectEnvironmentApi = {
   environmentResultsSend(workspacePath: string, reviewId: string): Promise<EnvironmentResultReview>
   environmentResultsStage(workspacePath: string, reviewId: string): Promise<EnvironmentResultReview>
   environmentResultsApply(workspacePath: string, reviewId: string, paths: string[]): Promise<EnvironmentResultReview>
+  environmentResultsDecline(workspacePath: string, reviewId: string, paths: string[]): Promise<EnvironmentResultReview>
 }
 
 export type LumeEnvironmentConfig = { storageDirectory: string; name: string; machineIdentifierSha256: string; mounts: Array<{ path: string; mode: 'ro' | 'rw'; purpose: 'source' | 'results' }> }

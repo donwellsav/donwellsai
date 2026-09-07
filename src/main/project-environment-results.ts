@@ -66,6 +66,7 @@ export class ProjectEnvironmentResults {
   send(workspacePath: string, id: string): Promise<EnvironmentResultReview> { return this.exclusive(id, () => this.sendNow(workspacePath, id)) }
   stage(workspacePath: string, id: string): Promise<EnvironmentResultReview> { return this.exclusive(id, () => this.stageNow(workspacePath, id)) }
   apply(workspacePath: string, id: string, selected: string[]): Promise<EnvironmentResultReview> { return this.exclusive(id, () => this.applyNow(workspacePath, id, selected)) }
+  decline(workspacePath: string, id: string, selected: string[]): Promise<EnvironmentResultReview> { return this.exclusive(id, () => this.declineNow(workspacePath, id, selected)) }
   private async sendNow(workspacePath: string, id: string): Promise<EnvironmentResultReview> {
     const review = await this.get(workspacePath, id)
     for (const [index, file] of review.files.entries()) {
@@ -78,7 +79,7 @@ export class ProjectEnvironmentResults {
   private async stageNow(workspacePath: string, id: string): Promise<EnvironmentResultReview> {
     const review = await this.get(workspacePath, id)
     for (const file of review.files) {
-      if (file.state === 'applied') continue
+      if (file.state === 'applied' || file.state === 'declined') continue
       const remote = await this.environments.request(workspacePath, review.environmentId, review.generation, 'result.read', { path: file.path }, randomUUID()) as { exists: boolean; content?: string; revision?: string }
       if (remote.exists === false) file.received = null
       else {
@@ -99,9 +100,12 @@ export class ProjectEnvironmentResults {
   private async applyNow(workspacePath: string, id: string, selected: string[]): Promise<EnvironmentResultReview> {
     const review = await this.get(workspacePath, id)
     if (!Array.isArray(selected) || !selected.length || new Set(selected).size !== selected.length) throw new Error('Select reviewed results to apply')
+    const selectedFiles = selected.map(path => review.files.find(file => file.path === path))
+    if (selectedFiles.some(file => !file || file.received === undefined)) throw new Error('Result has not been staged for review')
+    if (selectedFiles.some(file => file!.state === 'declined')) throw new Error('Declined results require a new capture before applying')
     for (const path of selected) {
-      const file = review.files.find(file => file.path === path)
-      if (!file || file.received === undefined) throw new Error('Result has not been staged for review')
+      const file = review.files.find(file => file.path === path)!
+      if (file.received === undefined) throw new Error('Result has not been staged for review')
       if (file.state === 'applied') continue
       try {
         const exists = await lstat(join(review.workspacePath, path)).catch(error => { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error })
@@ -118,6 +122,16 @@ export class ProjectEnvironmentResults {
       } catch (error) { file.state = 'conflict'; file.error = String(error).slice(0, 1024) }
       this.save(review)
     }
+    return review
+  }
+  private async declineNow(workspacePath: string, id: string, selected: string[]): Promise<EnvironmentResultReview> {
+    const review = await this.get(workspacePath, id)
+    if (!Array.isArray(selected) || !selected.length || new Set(selected).size !== selected.length) throw new Error('Select reviewed results to decline')
+    const files = selected.map(path => review.files.find(file => file.path === path))
+    if (files.some(file => !file || file.received === undefined)) throw new Error('Result has not been staged for review')
+    if (files.some(file => file!.state === 'applied')) throw new Error('Applied results cannot be declined')
+    for (const file of files) { file!.state = 'declined'; delete file!.error }
+    this.save(review)
     return review
   }
 }
