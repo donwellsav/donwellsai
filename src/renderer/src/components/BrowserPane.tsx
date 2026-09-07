@@ -559,6 +559,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
 
           {address.focused && suggestionsOpen ? (
             <div className="browser-suggestions">
+              <p className="empty-note">Site sign-ins and storage belong to this checkout. Older shared browser sign-ins are preserved separately; sign in again here if needed.</p>
               <div id={addressListId} role="listbox" aria-label="Address suggestions">
                 {suggestions.map((suggestion, index) => (
                   <button

@@ -1,6 +1,6 @@
-import { WebContentsView, type BrowserWindow } from 'electron'
+import { session, WebContentsView, type BrowserWindow } from 'electron'
 import { registerBrowserShortcuts } from './browser-shortcuts'
-import { BROWSER_PARTITION, allowedNavigation } from './browser-permissions'
+import { browserPartition, configureBrowserPermissions, allowedNavigation } from './browser-permissions'
 import type { BrowserViewRequest, BrowserViewState } from '@shared/browser-view'
 import { SNAPSHOT_JS } from '../renderer/src/browser-routing'
 import { DESIGN_CAPTURE_BEGIN_SCRIPT, DESIGN_CAPTURE_CANCEL_SCRIPT } from '../renderer/src/design-capture'
@@ -48,14 +48,16 @@ export class BrowserViews {
     const epoch = this.epoch
     const generation = request.op === 'create' ? (this.creates.get(key) ?? 0) + 1 : this.creates.get(key)
     if (request.op === 'create') this.creates.set(key, generation!)
-    await this.verify(key)
+    const checkoutPath = await this.verify(key)
     if (epoch !== this.epoch || generation !== this.creates.get(key)) throw new Error('Browser ownership changed')
     if (this.closed || this.window.isDestroyed()) throw new Error('Browser owner closed')
     let item = this.views.get(key)
     if (request.op === 'create') {
       if (item && item.instance === instance) return this.state(item.view)
       if (item) { this.window.contentView.removeChildView(item.view); item.view.webContents.close({ waitForBeforeUnload: false }) }
-      const view = new WebContentsView({ webPreferences: { partition: BROWSER_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false } })
+      const partition = browserPartition(checkoutPath)
+      configureBrowserPermissions(session.fromPartition(partition))
+      const view = new WebContentsView({ webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false } })
       item = { view, instance, find: new Map() }; this.views.set(key, item)
       const current = item, wc = view.webContents
       view.setVisible(false); view.setBackgroundColor('#ffffff'); this.window.contentView.addChildView(view)

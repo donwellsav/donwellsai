@@ -1,0 +1,9 @@
+# Checkout browser storage
+
+Electron WebContentsView remains the embedded renderer. Current primary session documentation confirms that persistent session identity is the partition string: https://www.electronjs.org/docs/latest/api/session#sessionfrompartitionpartition-options . Reusing WebContentsView plus isolated partitions addresses the concrete gap without replacing the browser host or adding dependencies.
+
+Each view now derives its persistent partition from the main-process registered canonical checkout path, hashed without raw paths. Every partition receives the same deny-by-default capability handlers before a view is created. Existing view/instance/generation ownership remains; moving or hiding does not recreate the page. The old shared partition remains untouched and is never copied into multiple checkout profiles. Address suggestions explain that users may need to sign in again.
+
+Focused partition/capability checks passed (2). Typecheck/build passed. `tests/acceptance/browser-partitions.mjs` exercised the real development application: two same-origin checkout previews kept separate cookies/localStorage, switching retained original guest ID and an unsaved form value, and a legacy shared cookie remained preserved and absent from the new checkouts. Native window resize also completed. App and daemon cleanup succeeded. The first runner launch could not resolve Electron through externally installed Playwright; fixed by resolving the repository's actual Electron executable, without changing product code to satisfy the runner.
+
+This isolates site storage, not the entire remote website or computer. Browsing history remains the existing user-level URL history; it is not a project-secret store. Browser renderer crash cannot restore arbitrary unsaved web form state. Existing reload/error controls remain. Final native visual/packaged qualification remains21/22.

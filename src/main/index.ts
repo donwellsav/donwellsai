@@ -2,7 +2,7 @@ import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { resolveProjectToolScope } from './project-tools'
 import { ProjectDoctor } from './project-doctor'
@@ -25,7 +25,6 @@ import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
-import { BROWSER_PARTITION, configureBrowserPermissions } from './browser-permissions'
 import { OperationalRunService } from './operational-run-service'
 import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
 import { deliverAgentAttachment } from './agent-delivery'
@@ -373,7 +372,6 @@ function registerIpc(): void {
 }
 
 function createWindow(): void {
-  configureBrowserPermissions(session.fromPartition(BROWSER_PARTITION))
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,

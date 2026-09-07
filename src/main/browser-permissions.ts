@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto'
 import type { Session } from 'electron'
 
-export const BROWSER_PARTITION = 'persist:donwells-browser'
+/** Input is the registered, canonical checkout returned by the main-process resolver. */
+export function browserPartition(checkoutPath: string): string {
+  const identity = process.platform === 'win32' ? checkoutPath.toLowerCase() : checkoutPath
+  return 'persist:donwells-checkout-' + createHash('sha256').update(identity).digest('hex')
+}
 
 export function allowedNavigation(url: string): boolean {
   try {
