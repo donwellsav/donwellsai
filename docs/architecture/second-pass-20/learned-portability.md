@@ -43,3 +43,5 @@ After this increment:21focusedchecks passed across knowledge/export; fulltypeche
 `temporal-restore-live.json` binds the real kit archive hash and persisted import mapping to one restored canonical fact. After explicit destination configuration, Graphiti0.30.1 rebuilt a separate generation; its actual relationship cites only the remapped destination fact/revision/project key. The original canonical source and published generation remained unchanged. No erased source was revived.
 
 The initial runner completed source projection, export and import, then incorrectly expected a disabled Graphiti status response; that API requires configuration. The continuation inspected the disabled destination through Project Doctor and rebuilt only the target. It did not repeat source extraction, export or import. Both owned app/daemon shutdowns were clean. Environment re-pairing remains open.
+
+Environment re-pairing is now completed in `environment-restore-live.json`; actual collision handling and alternate-destination restore are in `collision-live.json`. See `delivery.md` for the rebuilt Task20 outcome.

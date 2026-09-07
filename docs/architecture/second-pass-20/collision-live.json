@@ -1,0 +1,41 @@
+{
+  "project": "/private/tmp/donwells-task20-environment-evidence-1/restored-project",
+  "target": "/private/tmp/donwells-task20-environment-evidence-1/collision-resolved",
+  "scope": "Only actual collision, alternative destination and restored canonical facts; no model/remote work",
+  "collisionMessage": "Error: Error invoking remote method 'projectKitImport': Error: Restore destination is already registered",
+  "originalUnchanged": true,
+  "restoredFacts": [
+    {
+      "id": "ed6272afda0e225757f409c1deb626fa42a21103007be24cc59a8306768cd9dc",
+      "revision": 1
+    },
+    {
+      "id": "344e2e49fb6c4e087ffa75cedd5bf82776f8e8df770ba7297fc5e2422fee7164",
+      "revision": 1
+    }
+  ],
+  "identityMappings": [
+    {
+      "kind": "memory",
+      "id": "cf561874-fb64-4401-85bc-51d97b5cc43f",
+      "originalProjectKey": "29ddb12414edf6985dcf0f88af8c9abbbdd0ba14b1d17d012c9f4d724db9ebdf",
+      "originalId": "cf561874-fb64-4401-85bc-51d97b5cc43f",
+      "targetId": "344e2e49fb6c4e087ffa75cedd5bf82776f8e8df770ba7297fc5e2422fee7164"
+    },
+    {
+      "kind": "memory",
+      "id": "8482cd43-ef1a-4092-8aff-3da986745fc1",
+      "originalProjectKey": "29ddb12414edf6985dcf0f88af8c9abbbdd0ba14b1d17d012c9f4d724db9ebdf",
+      "originalId": "8482cd43-ef1a-4092-8aff-3da986745fc1",
+      "targetId": "ed6272afda0e225757f409c1deb626fa42a21103007be24cc59a8306768cd9dc"
+    }
+  ],
+  "resultSha256": "5ec00a3cdd1710ebcf5f512736983826dd09a3c9d00822a92d6f7f2a551dc360",
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

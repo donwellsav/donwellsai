@@ -1,0 +1,17 @@
+{
+  "project": "/private/tmp/donwells-task24-linux-app-profile/project",
+  "sibling": "/private/tmp/donwells-task24-linux-app-profile/sibling",
+  "endpoint": "127.0.0.1:24224",
+  "continuation": true,
+  "checks": [],
+  "retirementReceipt": "/tmp/donwells-task24-linux-evidence-6/linux-ssh.json",
+  "stage": "persisted-retirement-confirmed",
+  "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ '/private/tmp/donwells-task20-environment-evidence-1/project-kit.json'\n- '/tmp/donwells-task20-environment-evidence-1/project-kit.json'\n\n    at file:///private/tmp/donwells-task20-environment-restore.mjs:40:138",
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true,
+  "restoredDaemonCleanup": true
+}
