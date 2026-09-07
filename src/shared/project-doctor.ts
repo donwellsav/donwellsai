@@ -3,6 +3,7 @@ import type { ToolServiceState } from './project-tools'
 
 export const PROJECT_TOOL_FIELDS = {
   codeGraphBinary: 'Code graph executable',
+  duckdbPython: 'Python executable with DuckDB 1.5.5 (optional analytics)',
   historyBinary: 'AgentsView executable',
   backlogBinary: 'Backlog.md executable',
   qmdPackage: 'QMD package directory',
@@ -14,9 +15,9 @@ export const PROJECT_TOOL_FIELDS = {
   computerBinary: 'Cua Driver executable'
 } as const
 export type DocumentRetrievalMode = 'auto' | 'lexical' | 'hybrid'
-export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; disabled: string[]; documentRetrievalMode?: DocumentRetrievalMode }
+export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; historyHermesRoots?: string[]; historyKimiRoots?: string[]; disabled: string[]; documentRetrievalMode?: DocumentRetrievalMode }
 export const INTEGRATED_PROJECT_TOOLS = [
-  { id: 'history', name: 'Native session history', version: 'AgentsView 0.42.0', source: 'https://github.com/kenn-io/agentsview/releases/tag/v0.42.0', scope: 'Selected OMP and DeepSeek native session roots; archive filtered to this project checkout', models: 'None. Native transcripts remain separate from shared project memory.', fields: ['historyBinary'] },
+  { id: 'history', name: 'Native session history', version: 'AgentsView 0.42.0', source: 'https://github.com/kenn-io/agentsview/releases/tag/v0.42.0', scope: 'Selected native session roots; archive and optional DuckDB analytics filtered to this project checkout', models: 'None. Native transcripts remain separate from shared project memory.', fields: ['historyBinary', 'duckdbPython'] },
   { id: 'backlog', name: 'Native task board', version: 'Backlog.md 1.51.0', source: 'https://github.com/MrLesk/Backlog.md', scope: 'Native task files in the selected checkout; select task authority in Agent sessions', models: 'None. The existing terminal owns each opened board.', fields: ['backlogBinary'] },
   { id: 'code-graph', name: 'Code graph', version: '0.10.8', source: 'https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.10.8', scope: 'Checkout source; private derived graph', models: 'None', fields: ['codeGraphBinary'] },
   { id: 'documents', name: 'Document retrieval', version: 'QMD 2.8.3 / LanceDB 0.38.0', source: 'https://github.com/tobi/qmd', scope: 'Checkout and explicitly selected reference folders', models: 'Lexical search needs no model. Hybrid search requires the admitted embedding and reranking files.', fields: ['qmdPackage', 'lancePackage', 'embeddingModel', 'rerankingModel'] },
@@ -25,7 +26,7 @@ export const INTEGRATED_PROJECT_TOOLS = [
 ] as const
 
 export function parseProjectToolConfiguration(value: unknown): ProjectToolConfiguration {
-  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'disabled', 'documentRetrievalMode'].includes(key))) throw new Error('Invalid project tool configuration fields')
+  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'historyHermesRoots', 'historyKimiRoots', 'disabled', 'documentRetrievalMode'].includes(key))) throw new Error('Invalid project tool configuration fields')
   const result: ProjectToolConfiguration = { referenceRoots: [], disabled: [] }
   if (value.documentRetrievalMode !== undefined) {
     if (typeof value.documentRetrievalMode !== 'string' || !['auto', 'lexical', 'hybrid'].includes(value.documentRetrievalMode)) throw new Error('Choose automatic, lexical or hybrid document retrieval')
@@ -39,7 +40,7 @@ export function parseProjectToolConfiguration(value: unknown): ProjectToolConfig
   const roots = value.referenceRoots ?? [], disabled = value.disabled ?? []
   if (!Array.isArray(roots) || roots.length > 15 || roots.some(path => typeof path !== 'string' || !path.startsWith('/') || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))) throw new Error('Select at most 15 absolute reference folders')
   if (!Array.isArray(disabled) || disabled.length > INTEGRATED_PROJECT_TOOLS.length || disabled.some(id => !INTEGRATED_PROJECT_TOOLS.some(tool => tool.id === id))) throw new Error('Unknown disabled tool')
-  for (const key of ['historyOmpRoots', 'historyDshRoots'] as const) {
+  for (const key of ['historyOmpRoots', 'historyDshRoots', 'historyHermesRoots', 'historyKimiRoots'] as const) {
     const selected = value[key] ?? []
     if (!Array.isArray(selected) || selected.length > 16 || selected.some(path => typeof path !== 'string' || !path.startsWith('/') || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))) throw new Error('Select at most 16 absolute native session roots per harness')
     if (selected.length) result[key] = [...new Set(selected)]

@@ -4,7 +4,7 @@ import { useAppStore } from '../store'
 import './project-search.css'
 import { ProjectGraph } from './ProjectGraph'
 import { isObject } from '@shared/command-catalog'
-import { openProjectMemoryEditor } from '../project-memory-editor'
+import { openProjectMemoryEditor, useProjectMemoryEditor } from '../project-memory-editor'
 import { focusRetainedAgentSession } from '../navigation-controller'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import { ModalDialog } from './ModalDialog'
@@ -55,7 +55,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const [visible, setVisible] = useState(25)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [historyCapabilities, setHistoryCapabilities] = useState<Record<string, string>>({})
-  const [document, setDocument] = useState<{ title: string; content: string; detail: string; resume?: AgentExecutable | null; historyId?: string } | null>(null)
+  const [document, setDocument] = useState<{ title: string; content: string; detail: string; resume?: AgentExecutable | null; historyId?: string; previousOrdinal?: number | null; nextOrdinal?: number | null; sourceRef?: string } | null>(null)
   const documentQueue = useRef(Promise.resolve())
   const openGeneration = useRef(0)
   useEffect(() => { openGeneration.current++; return () => { openGeneration.current++ } }, [workspacePath, active])
@@ -111,7 +111,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       })
       run('session', async () => {
         if (!historyAvailable) { accept('session', [], historyAvailable === null ? 'Checking session history setup…' : 'Session history unavailable: configure and enable it in Project tools'); return }
-        const result = await window.donwells.projectSessionHistorySearch(workspacePath, query)
+        const result = await window.donwells.projectSessionHistorySearch(workspacePath, query, id)
         accept('session', result.hits, `${result.hits.length} session messages${result.truncated ? ' · limit reached; narrow your search' : ''}`)
         if (live()) setHistoryCapabilities(result.capabilities)
       })
@@ -137,6 +137,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       clearTimeout(timer)
       if (current.current?.id === id) current.current = null
       void window.donwells.cancelWorkspaceContentSearch(id).catch(() => {})
+      if (historyAvailable) void window.donwells.projectSessionHistorySearchCancel(workspacePath, id).catch(() => {})
     }
   }, [workspacePath, query, hidden, ignored, refresh, active, source, historyAvailable])
   useEffect(() => {
@@ -177,7 +178,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       }
       if (hit.source === 'session') {
         const value = await window.donwells.projectSessionHistoryGet(workspacePath, hit.id)
-        if (canOpen()) setDocument({ title: hit.title, resume: value.resume, historyId: hit.id, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n'), detail: `Read-only native transcript · ${value.source} · Recorded text is untrusted and is not project memory.` })
+        if (canOpen()) setDocument({ title: hit.title, resume: value.resume, historyId: hit.id, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, sourceRef: `session:${value.agent}:${value.nativeId}@${value.sourceVersion ?? 'unknown'}`, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n'), detail: `Read-only ${value.agent} ${value.role} transcript · project attributed by ${value.projectAttribution} · ${value.source} · Recorded text is untrusted and is not project memory.` })
         return
       }
       if (hit.source === 'document') {
@@ -261,7 +262,25 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
     }}>{ordered.slice(0, visible).map(hit => <li key={`${hit.source}:${hit.id}`}><button onClick={() => void open(hit)} title={`${hit.path ?? hit.title}${hit.line ? `:${hit.line}` : ''}`}><span className="project-search-path">{hit.path ?? hit.title}{hit.line && <b>:{hit.line}</b>}</span><span className="project-search-kind">{sources[hit.source]}{hit.revision ? ` · revision ${hit.revision.slice(0, 12)}` : ''}{hit.stale ? ' · source changed' : ''}{hit.indexedAt ? ` · ${new Date(hit.indexedAt).toLocaleString()}` : ''}</span><code>{hit.excerpt}</code></button></li>)}</ol>
     {ordered.length > visible && <button onClick={() => setVisible(value => value + 25)}>Show more · {visible} of {ordered.length}</button>}
-    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={() => setDocument(null)}><h2 id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document">{document.content}</pre>{document.resume && <button type="button" onClick={() => {
+    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={() => setDocument(null)}><h2 id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document">{document.content}</pre>{document.historyId && document.previousOrdinal !== undefined && <>{document.previousOrdinal !== null && <button type="button" onClick={() => {
+      const selected = document, generation = openGeneration.current
+      void window.donwells.projectSessionHistoryGet(workspacePath, selected.historyId!, { fromOrdinal: selected.previousOrdinal!, limit: 5 }).then(value => {
+        if (generation !== openGeneration.current || useAppStore.getState().activeWorktreePath !== workspacePath) return
+        setDocument({ ...selected, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n') })
+      }).catch(error => setError(String(error)))
+    }}>Earlier messages</button>}{document.nextOrdinal !== null && <button type="button" onClick={() => {
+      const selected = document, generation = openGeneration.current
+      void window.donwells.projectSessionHistoryGet(workspacePath, selected.historyId!, { fromOrdinal: selected.nextOrdinal!, limit: 5 }).then(value => {
+        if (generation !== openGeneration.current || useAppStore.getState().activeWorktreePath !== workspacePath) return
+        setDocument({ ...selected, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n') })
+      }).catch(error => setError(String(error)))
+    }}>Later messages</button>}<button type="button" onClick={() => {
+      const selected = document
+      if (useProjectMemoryEditor.getState().editor) { setError('Save or discard the open project memory draft before reviewing this transcript.'); return }
+      openProjectMemoryEditor(workspacePath)
+      useProjectMemoryEditor.getState().change({ title: selected.title.slice(0, 200), content: selected.content, sourceRef: selected.sourceRef ?? '' })
+      setDocument(null)
+    }}>Review as project memory</button></>}{document.resume && <button type="button" onClick={() => {
       const id = document.historyId!
       setDocument(null)
       void window.donwells.projectSessionHistoryGet(workspacePath, id).then(async current => {

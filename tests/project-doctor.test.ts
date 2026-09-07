@@ -26,6 +26,7 @@ async function fixture() {
 it('validates only integrated local fields and rejects commands, credentials and unbounded roots', () => {
   for (const config of [{ command: 'sh' }, { token: 'secret' }, { browserExecutable: 'https://example.com' }, { computerBinary: '/tmp/a\ncommand' }, { disabled: ['unknown'] }, { referenceRoots: Array(16).fill('/tmp') }, { documentRetrievalMode: ['auto'] }, { documentRetrievalMode: 'remote' }]) expect(() => parseProjectToolConfiguration(config)).toThrow()
   expect(parseProjectToolConfiguration({ documentRetrievalMode: 'lexical' }).documentRetrievalMode).toBe('lexical')
+  expect(parseProjectToolConfiguration({ historyHermesRoots: ['/tmp/hermes', '/tmp/hermes'], historyKimiRoots: ['/tmp/kimi'] })).toMatchObject({ historyHermesRoots: ['/tmp/hermes'], historyKimiRoots: ['/tmp/kimi'] })
   expect(parseProjectToolConfiguration({ referenceRoots: ['/tmp', '/tmp'], disabled: ['documents', 'documents'] })).toEqual({ referenceRoots: ['/tmp'], disabled: ['documents'] })
 })
 

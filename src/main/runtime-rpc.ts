@@ -85,7 +85,7 @@ export type RpcDeps = {
   projectTasks: Pick<ProjectTaskCoordination, 'inspect' | 'setAuthority' | 'openTool'>
   runs: OperationalRunsApi
   browserHistory: Pick<BrowserHistoryStore, 'list' | 'record' | 'clear'>
-  sessionHistory?: Pick<ProjectSessionHistory, 'index' | 'search' | 'get' | 'analytics'>
+  sessionHistory?: Pick<ProjectSessionHistory, 'index' | 'search' | 'get' | 'analytics' | 'cancelAnalytics' | 'analyticsProgress'>
   projectTools: Pick<ProjectTools, 'list' | 'start' | 'stop' | 'call'>
   handoffs: Pick<ProjectHandoffService, 'receive' | 'acknowledge'>
   projectMemory: ProjectMemoryApi
@@ -673,11 +673,15 @@ export class RuntimeRpcServer {
       }
       case 'history.index':
       case 'history.analytics':
+      case 'history.analytics.cancel':
+      case 'history.analytics.progress':
       case 'history.search':
       case 'history.get': {
         const history = this.deps.sessionHistory
         if (!history) throw new Error('Session history is not configured')
-        if (method === 'history.analytics') return history.analytics(str('workspacePath'))
+        if (method === 'history.analytics') return history.analytics(str('workspacePath'), { engine: params.engine as 'sqlite' | 'duckdb' | undefined, requestId: params.requestId as string | undefined, decisionAt: params.decisionAt as string | undefined })
+        if (method === 'history.analytics.cancel') { await history.cancelAnalytics(str('workspacePath'), str('requestId')); return {} }
+        if (method === 'history.analytics.progress') return history.analyticsProgress(str('workspacePath'), str('requestId'))
         if (method === 'history.index') return history.index(str('workspacePath'))
         if (method === 'history.search') return history.search(str('workspacePath'), str('query'))
         return history.get(str('workspacePath'), str('id'))

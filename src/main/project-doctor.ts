@@ -158,7 +158,7 @@ export class ProjectDoctor {
     if (!config.historyBinary || config.disabled.includes('history')) throw new Error('Configure and enable the admitted session history engine first')
     let history = this.histories.get(scope.projectKey)
     if (!history) {
-      history = new ProjectSessionHistory({ binary: config.historyBinary, cache: this.historyCache, roots: { omp: config.historyOmpRoots ?? [], 'deepseek-harness': config.historyDshRoots ?? [] } }, async requested => {
+      history = new ProjectSessionHistory({ binary: config.historyBinary, analyticsPython: config.duckdbPython, cache: this.historyCache, roots: { omp: config.historyOmpRoots ?? [], 'deepseek-harness': config.historyDshRoots ?? [], hermes: config.historyHermesRoots ?? [], kimi: config.historyKimiRoots ?? [] } }, async requested => {
         const current = await resolveProjectToolScope(requested, this.resolveWorkspace)
         if (current.projectKey !== scope.projectKey) throw new Error('History belongs to another project')
         return current
@@ -168,9 +168,12 @@ export class ProjectDoctor {
     return history
   }
   async historyIndex(path: string) { return (await this.history(path)).index(path) }
-  async historySearch(path: string, query: string) { return (await this.history(path)).search(path, query) }
-  async historyGet(path: string, id: string) { return (await this.history(path)).get(path, id) }
-  async historyAnalytics(path: string) { return (await this.history(path)).analytics(path) }
+  async historySearch(path: string, query: string, requestId?: string) { return (await this.history(path)).search(path, query, requestId) }
+  async historySearchCancel(path: string, requestId: string) { return (await this.history(path)).cancelSearch(path, requestId) }
+  async historyGet(path: string, id: string, page?: import('@shared/project-session-history').SessionHistoryPage) { return (await this.history(path)).get(path, id, page) }
+  async historyAnalytics(path: string, options?: import('@shared/project-session-history').SessionAnalyticsOptions) { return (await this.history(path)).analytics(path, options) }
+  async historyAnalyticsCancel(path: string, requestId: string) { return (await this.history(path)).cancelAnalytics(path, requestId) }
+  async historyAnalyticsProgress(path: string, requestId: string) { return (await this.history(path)).analyticsProgress(path, requestId) }
 
   async retry(path: string, id: string) { if (id === 'history') { await this.stop(path, id); await this.historyIndex(path); return { id, status: 'stopped' as const, version: SESSION_HISTORY_VERSION, detail: 'Native history index updated' } } const owner = await this.owner(path); await owner.stop(path, id); return owner.start(path, id) }
   async close() {

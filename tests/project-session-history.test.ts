@@ -22,12 +22,12 @@ async function fixture() {
   const source = join(root, 'session.jsonl'); await writeFile(source, 'native source')
   const file = await stat(source, { bigint: true })
   const db = new DatabaseSync(join(directory, 'sessions.db'))
-  db.exec(`CREATE TABLE sessions(id TEXT,agent TEXT,cwd TEXT,file_path TEXT,file_size INTEGER,file_mtime INTEGER,transcript_revision TEXT,session_name TEXT,display_name TEXT,first_message TEXT,deleted_at TEXT,source_missing_at TEXT);
+  db.exec(`CREATE TABLE sessions(id TEXT,agent TEXT,cwd TEXT,file_path TEXT,file_size INTEGER,file_mtime INTEGER,transcript_revision TEXT,session_name TEXT,display_name TEXT,first_message TEXT,source_session_id TEXT,source_version TEXT,parent_session_id TEXT,relationship_type TEXT,session_kind TEXT,deleted_at TEXT,source_missing_at TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY,session_id TEXT,ordinal INTEGER,content TEXT,is_system INTEGER,role TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(content,content='messages',content_rowid='id');`)
-  const insert = db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,NULL,NULL)')
+  const insert = db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)')
   for (const [id, agent, cwd] of [['omp:duplicate', 'omp', project], ['deepseek-harness:duplicate', 'deepseek-harness', project], ['omp:foreign', 'omp', foreign]]) {
-    insert.run(id!,agent!,cwd!,source,Number(file.size),file.mtimeNs,'1',null,null,'History canary')
+    insert.run(id!,agent!,cwd!,source,Number(file.size),file.mtimeNs,'1',null,null,'History canary',null,'fixture-v1',null,'','')
     db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run(id!, 'historycanary original', 'assistant')
   }
   db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"); db.close()
@@ -43,6 +43,23 @@ it('keeps agent IDs distinct and rejects foreign rows and direct identifiers', a
   expect(source.untrusted).toBe(true)
   await expect(f.service.get(f.project, `session:${f.scope.indexKey}:${encodeURIComponent('omp:foreign')}:0`)).rejects.toThrow('outside this project')
   await expect(f.service.get(f.project, 'session:another-project:omp:0')).rejects.toThrow('another checkout')
+})
+
+it('preserves native identity and blocks helper resume', async () => {
+  const f = await fixture(), file = await stat(f.source, { bigint: true })
+  const db = new DatabaseSync(join(f.directory, 'sessions.db'))
+  const insert = db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)')
+  insert.run('hermes:primary','hermes',f.project,f.source,Number(file.size),file.mtimeNs,'1',null,null,'Hermes primary','native-hermes','state-db-v23',null,'','')
+  insert.run('kimi:helper','kimi',f.project,f.source,Number(file.size),file.mtimeNs,'1',null,null,'Kimi helper','native-kimi','wire-v2','kimi:parent','subagent','helper')
+  for (const id of ['hermes:primary','kimi:helper']) db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run(id, 'nativeidentity canary', 'assistant')
+  db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"); db.close()
+  const hits = (await f.service.search(f.project, 'nativeidentity')).hits
+  expect(hits.map(hit => hit.title)).toEqual(expect.arrayContaining([expect.stringContaining('hermes ·'), expect.stringContaining('kimi helper ·')]))
+  const hermes = await f.service.get(f.project, hits.find(hit => hit.title.startsWith('hermes'))!.id)
+  expect(hermes).toMatchObject({ sourceFormat: 'Hermes state.db', sourceVersion: 'state-db-v23', projectAttribution: 'cwd', parentNativeId: null, role: 'primary', resume: { executable: 'hermes', args: ['--tui', '--resume', 'native-hermes'] } })
+  const helper = await f.service.get(f.project, hits.find(hit => hit.title.startsWith('kimi'))!.id)
+  expect(helper).toMatchObject({ sourceFormat: 'Kimi wire.jsonl', sourceVersion: 'wire-v2', parentNativeId: 'kimi:parent', role: 'helper', resume: null })
+  await expect(f.service.get(f.project, hermes.id, { fromOrdinal: -1 })).rejects.toThrow('Invalid session page')
 })
 
 it('rejects changed/deleted native sources and changed parser receipts', async () => {
@@ -62,6 +79,12 @@ it('does not reuse a renamed project archive or accept malformed queries', async
   await expect(f.service.search(f.project, 'x'.repeat(513))).rejects.toThrow('characters')
   await rename(f.project, join(f.root, 'renamed'))
   await expect(f.service.search(f.project, 'historycanary')).rejects.toThrow()
+})
+
+it('cancels a session search even when cancellation reaches the owner first', async () => {
+  const f = await fixture()
+  await f.service.cancelSearch(f.project, 'request-1')
+  await expect(f.service.search(f.project, 'historycanary', 'request-1')).rejects.toThrow('cancelled')
 })
 
 it.skipIf(!process.env.DONWELLS_HISTORY_BINARY)('indexes a real native OMP session with owned foreground engine and no read daemon', async () => {

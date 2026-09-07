@@ -73,7 +73,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod | 'agent.authenticate' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
+  method: ProjectMemoryRpcMethod | 'agent.authenticate' | 'history.analytics' | 'history.analytics.cancel' | 'history.analytics.progress' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -119,6 +119,13 @@ const HANDOFF_MCP_TOOLS: readonly McpTool[] = ['receive', 'acknowledge'].map(act
 }))
 
 const CODE_MCP_TOOLS: readonly McpTool[] = [
+  ...(['query', 'progress', 'cancel'] as const).map(action => ({
+    name: action === 'query' ? 'project_analytics' : `project_analytics_${action}`,
+    title: action === 'query' ? 'Project activity analytics' : `${action} project analytics`,
+    description: action === 'query' ? 'Analyze only validated native sessions from this checkout. SQLite is the default; DuckDB requires an explicitly configured local Python environment. Optional decisionAt compares activity before/after that date. Unknown tokens/costs remain unknown. Supply a requestId to query progress or cancel. No arbitrary SQL or executable arguments.' : 'Observe or cancel the exact analytics request in this pinned checkout.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: action === 'query' ? { engine: { type: 'string', enum: ['sqlite', 'duckdb'] }, requestId: { type: 'string', maxLength: 128 }, decisionAt: { type: 'string', maxLength: 64 } } : { requestId: { type: 'string', minLength: 1, maxLength: 128 } }, ...(action === 'query' ? {} : { required: ['requestId'] }) },
+    annotations: { readOnlyHint: action !== 'cancel', destructiveHint: false, idempotentHint: action !== 'query', openWorldHint: false }
+  })),
   {
     name: 'code_search', title: 'Search checkout code',
     description: 'Search literal text in the pinned checkout with ripgrep. Supply language (for example typescript) to interpret query as an ast-grep syntax pattern instead; installed ast-grep is required and project grammar/config files are not loaded. Returns bounded source paths, line numbers and excerpts. Hidden and ignored files are excluded unless explicitly requested. This is source search, not durable project memory.',
@@ -572,6 +579,11 @@ export class ProjectMemoryMcpSession {
   }
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
+    if (name === 'project_analytics' || name === 'project_analytics_progress' || name === 'project_analytics_cancel') {
+      const query = name === 'project_analytics'
+      allowedKeys(input, query ? ['engine', 'requestId', 'decisionAt'] : ['requestId'], 'project analytics arguments')
+      return this.invoke(query ? 'history.analytics' : name.endsWith('_cancel') ? 'history.analytics.cancel' : 'history.analytics.progress', { ...input, workspacePath: this.workspacePath })
+    }
     if (name.startsWith('computer_')) {
       const action=name.slice('computer_'.length), tool=COMPUTER_MCP_TOOLS.find(tool=>tool.name===name)
       if (!tool) throw new Error('Unknown computer operation')

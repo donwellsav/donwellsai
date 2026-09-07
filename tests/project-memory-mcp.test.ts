@@ -220,6 +220,9 @@ describe('project memory MCP protocol', () => {
           { name: 'memory_replace' },
           { name: 'memory_archive' },
           { name: 'memory_history' },
+          { name: 'project_analytics' },
+          { name: 'project_analytics_progress' },
+          { name: 'project_analytics_cancel' },
           { name: 'code_search' },
           { name: 'code_graph_status' },
           { name: 'code_graph_index' },
@@ -495,6 +498,11 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   } })
   await initialize(session, 1)
   const call = (name: string, args: Record<string, unknown> = {}) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
+  await call('project_analytics', { engine: 'duckdb', requestId: 'one' })
+  expect(calls.at(-1)).toEqual({ method: 'history.analytics', params: { engine: 'duckdb', requestId: 'one', workspacePath: primaryWorkspace } })
+  const beforeAnalytics = calls.length
+  expect(await call('project_analytics', { workspacePath: '/other', engine: 'duckdb' })).toMatchObject({ result: { isError: true } })
+  expect(calls).toHaveLength(beforeAnalytics)
   await call('documents_cancel')
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'documents', operation: 'cancel', arguments: {} } })
   expect(toolValue(await call('code_search', { query: 'needle', maxResults: 10 }))).toMatchObject({ hits: [] })

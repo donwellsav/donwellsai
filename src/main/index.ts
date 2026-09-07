@@ -567,21 +567,30 @@ app.whenReady().then(() => {
   ipcMain.handle('diffReviewDelete', (_e, ...args: Parameters<IpcApi['diffReviewDelete']>) => diffReview.remove(...args))
   const resolveToolWorkspace = (path: string) => resolveRegisteredProjectWorkspace(store, path)
   const sessionHistory = {
-    analytics: (path: string) => projectTools!.historyAnalytics(path),
+    analytics: (path: string, options?: import('@shared/project-session-history').SessionAnalyticsOptions) => projectTools!.historyAnalytics(path, options),
+    cancelAnalytics: (path: string, requestId: string) => projectTools!.historyAnalyticsCancel(path, requestId),
+    analyticsProgress: (path: string, requestId: string) => projectTools!.historyAnalyticsProgress(path, requestId),
     index: (path: string) => projectTools!.historyIndex(path),
-    search: (path: string, query: string) => projectTools!.historySearch(path, query),
-    get: (path: string, id: string) => projectTools!.historyGet(path, id)
+    search: (path: string, query: string, requestId?: string) => projectTools!.historySearch(path, query, requestId),
+    cancelSearch: (path: string, requestId: string) => projectTools!.historySearchCancel(path, requestId),
+    get: (path: string, id: string, page?: import('@shared/project-session-history').SessionHistoryPage) => projectTools!.historyGet(path, id, page)
   }
   ipcMain.handle('projectSessionHistoryIndex', (_e, path: string) => sessionHistory.index(path))
-  ipcMain.handle('projectSessionHistoryAnalytics', (_e, path: string) => sessionHistory.analytics(path))
-  ipcMain.handle('projectSessionHistorySearch', (_e, path: string, query: string) => sessionHistory.search(path, query))
-  ipcMain.handle('projectSessionHistoryGet', (_e, path: string, id: string) => sessionHistory.get(path, id))
+  ipcMain.handle('projectSessionHistoryAnalytics', (_e, ...args: Parameters<IpcApi['projectSessionHistoryAnalytics']>) => sessionHistory.analytics(...args))
+  ipcMain.handle('projectSessionHistoryAnalyticsCancel', (_e, ...args: Parameters<IpcApi['projectSessionHistoryAnalyticsCancel']>) => sessionHistory.cancelAnalytics(...args))
+  ipcMain.handle('projectSessionHistoryAnalyticsProgress', (_e, ...args: Parameters<IpcApi['projectSessionHistoryAnalyticsProgress']>) => sessionHistory.analyticsProgress(...args))
+  ipcMain.handle('projectSessionHistorySearch', (_e, ...args: Parameters<IpcApi['projectSessionHistorySearch']>) => sessionHistory.search(...args))
+  ipcMain.handle('projectSessionHistorySearchCancel', (_e, ...args: Parameters<IpcApi['projectSessionHistorySearchCancel']>) => sessionHistory.cancelSearch(...args))
+  ipcMain.handle('projectSessionHistoryGet', (_e, ...args: Parameters<IpcApi['projectSessionHistoryGet']>) => sessionHistory.get(...args))
   projectTools = new ProjectDoctor(join(app.getPath('userData'), 'project-tools', 'configuration'), resolveToolWorkspace, projectPath => parseProjectToolConfiguration({
     codeGraphBinary: process.env['DONWELLS_CODE_GRAPH_BINARY'],
     historyBinary: process.env['DONWELLS_HISTORY_BINARY'],
+    duckdbPython: process.env['DONWELLS_DUCKDB_PYTHON'],
     backlogBinary: process.env['DONWELLS_BACKLOG_BINARY'],
     historyOmpRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').omp ?? [],
     historyDshRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}')['deepseek-harness'] ?? [],
+    historyHermesRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').hermes ?? [],
+    historyKimiRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').kimi ?? [],
     qmdPackage: process.env['DONWELLS_DOCUMENT_QMD_PACKAGE'],
     lancePackage: process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE'],
     browserPackage: process.env['DONWELLS_BROWSER_TOOL_PACKAGE'],

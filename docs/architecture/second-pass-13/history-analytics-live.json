@@ -1,0 +1,44 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-history-SoLhFo",
+  "project": "/private/tmp/donwells-strengthen-27-native/project",
+  "checks": [
+    "Actual native histories retain exact cwd/native IDs, supported resume metadata and bounded transcript paging",
+    "DuckDB and SQLite agree on actual validated native activity in the selected actual project"
+  ],
+  "histories": [
+    {
+      "agent": "deepseek-harness",
+      "nativeId": "deepseek-harness:session-06cecd53-2501-44cf-b70d-7d522af8dfaf",
+      "cwd": "/private/tmp/donwells-strengthen-27-native/project",
+      "sourceFormat": "DeepSeek Harness native session",
+      "sourceVersion": "0",
+      "role": "primary",
+      "resume": {
+        "executable": "dsh",
+        "args": [
+          "--profile",
+          "tui",
+          "--resume",
+          "06cecd53-2501-44cf-b70d-7d522af8dfaf"
+        ]
+      },
+      "paged": true
+    }
+  ],
+  "analytics": [
+    {
+      "path": "/private/tmp/donwells-strengthen-27-native/project",
+      "sessions": 2,
+      "engine": "duckdb",
+      "sourceGeneration": "25ea93e1d2dcd728455d3fb3a8286c9300956ff04b1518a8efac6c0c5436ff52",
+      "sourceCount": 2
+    }
+  ],
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}
