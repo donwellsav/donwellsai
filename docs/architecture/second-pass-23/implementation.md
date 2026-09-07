@@ -8,4 +8,4 @@ Corrected experiments: pinned Hindsight does not accept model fields in bank con
 
 Actual second generation also returns Mira at the earlier source timestamp and Jules at the current timestamp, with corresponding canonical revisions and acknowledged old-group cleanup (`graphiti-history-live.json`).
 
-Remaining: erase cleanup and interrupted projection recovery; new knowledge/temporal UI journey and agent tools; full integrated service-management/recovery qualification. This increment does not close23. Native worker is runnable through the configured app; source/generation checks remain covered in project-temporal-knowledge.test.ts and project-knowledge.test.ts.
+Subsequent actual receipts close erase cleanup, interrupted replacement and native use: learned-ui.md, interrupted-replacement-live.json and native-agent-live.json. General service management remains Task19; whole-workspace integration remains Task21. Native worker is runnable through the configured app; source/generation checks remain covered in project-temporal-knowledge.test.ts and project-knowledge.test.ts.

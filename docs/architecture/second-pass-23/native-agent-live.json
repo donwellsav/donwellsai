@@ -1,0 +1,567 @@
+{
+  "token": "7bcf906b-c524-457e-845a-e6c297638cee",
+  "prompts": 2,
+  "steps": {
+    "hindsight": {
+      "kind": "hindsight",
+      "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB",
+      "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+      "marker": "KNOWLEDGE_NATIVE_7bcf906b-c524-457e-845a-e6c297638cee_hindsight",
+      "required": [
+        "knowledge_recall",
+        "knowledge_reflect"
+      ],
+      "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+      "sessionId": "75856313-12a9-4e2d-92ad-ca896900ad44",
+      "handoff": {
+        "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+        "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+        "taskId": null,
+        "fromSessionId": "75856313-12a9-4e2d-92ad-ca896900ad44",
+        "toAgent": null,
+        "sourceBasis": "folder-files",
+        "checkoutPath": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+        "sourceRevision": null,
+        "contentFingerprint": "sha256:342a1fb7238ee7bf7b74b1928e2b48d36570fc340725921a4aa4eaa5e4745cf2",
+        "goal": "Review Birch deployment handoff 7bcf906b-c524-457e-845a-e6c297638cee",
+        "summary": "Rhea Vale owns the Birch service. Deployment checklist review remains pending before the Birch transfer can close.",
+        "openQuestions": [],
+        "nextSteps": [
+          "Review the deployment checklist before closing the Birch transfer."
+        ],
+        "changedFiles": [],
+        "memorySources": [],
+        "evidenceIds": [],
+        "state": "open",
+        "delivery": "not-sent",
+        "revision": 1,
+        "acceptedBySessionId": null
+      },
+      "selection": [
+        {
+          "kind": "memory",
+          "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+          "revision": 2
+        },
+        {
+          "kind": "memory",
+          "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+          "revision": 1
+        },
+        {
+          "kind": "handoff",
+          "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+          "revision": 1
+        }
+      ],
+      "projectionMayBeSubmitted": true,
+      "projectionCostReason": "Existing atomic replacement re-extracts two retained facts plus one newly reviewed handoff once; required selection change, no repeated completed trial.",
+      "projectionGeneration": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1d9244ab-8dd1-4875-a3a1-c082e2d66597",
+      "limitations": [
+        "Handoff schema has no authored timestamp; sourceTime is explicitly null. Canonical memory citations retain their real dates."
+      ],
+      "promptMayBeSent": true,
+      "proof": {
+        "file": "/Users/muzikfirst/.omp/agent/sessions/-tmp-donwells-knowledge-live-LqYgBB-restored/2026-09-07T17-35-20-087Z_01a07cf0-5417-7271-b52d-a337bf7e3eb9.jsonl",
+        "sha256": "bda5e40bdcd8b3c791976e34b797f026e8b9f7296730411ff5d8a83e9e19d98e",
+        "tools": [
+          "read",
+          "read",
+          "knowledge_recall",
+          "knowledge_reflect"
+        ],
+        "sources": [
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T16:43:54.769Z"
+          },
+          {
+            "kind": "memory",
+            "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+            "revision": 2,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T14:30:15.871Z"
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T16:43:54.769Z"
+          },
+          {
+            "kind": "memory",
+            "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+            "revision": 2,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T14:30:15.871Z"
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T16:43:54.769Z"
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+            "revision": 2,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T14:30:15.871Z"
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T16:43:54.769Z"
+          },
+          {
+            "kind": "handoff",
+            "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": null
+          },
+          {
+            "kind": "memory",
+            "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+            "revision": 2,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T14:30:15.871Z"
+          }
+        ],
+        "answers": [
+          {
+            "classification": "learned",
+            "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1d9244ab-8dd1-4875-a3a1-c082e2d66597",
+            "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+            "items": [
+              {
+                "text": "Deployment checklist review for Birch remains pending before the Birch transfer can close | Involving: Donwells reviewed project knowledge (the AI agent whose memory this is)",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  }
+                ]
+              },
+              {
+                "text": "Rhea Vale owns the Birch service | Involving: Rhea Vale",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  }
+                ]
+              },
+              {
+                "text": "Rhea Vale owns the Birch service | Involving: Rhea Vale",
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T16:43:54.769Z"
+                  }
+                ]
+              },
+              {
+                "text": "Aurora now permits two retries before displaying a connection error | Involving: Donwells reviewed project knowledge",
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+                    "revision": 2,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T14:30:15.871Z"
+                  }
+                ]
+              }
+            ],
+            "omitted": 0
+          },
+          {
+            "classification": "learned",
+            "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1d9244ab-8dd1-4875-a3a1-c082e2d66597",
+            "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+            "items": [
+              {
+                "text": "Deployment checklist review for Birch remains pending before the Birch transfer can close | Involving: Donwells reviewed project knowledge (the AI agent whose memory this is)",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  }
+                ]
+              },
+              {
+                "text": "Rhea Vale owns the Birch service | Involving: Rhea Vale",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  }
+                ]
+              },
+              {
+                "text": "Rhea Vale owns the Birch service | Involving: Rhea Vale",
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T16:43:54.769Z"
+                  }
+                ]
+              },
+              {
+                "text": "Aurora now permits two retries before displaying a connection error | Involving: Donwells reviewed project knowledge",
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+                    "revision": 2,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T14:30:15.871Z"
+                  }
+                ]
+              }
+            ],
+            "omitted": 0
+          },
+          {
+            "classification": "learned",
+            "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1d9244ab-8dd1-4875-a3a1-c082e2d66597",
+            "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+            "items": [
+              {
+                "text": "## Birch Ownership and Pending Handoff Items\n\n### Who Owns Birch\n\n**Rhea Vale owns the Birch service.** This is consistently documented across multiple independent records and decision logs, confirming it as an established fact rather than a passing mention:\n\n- Cited in the deployment handoff review documentation\n- Repeated as a formal \"decision: Hindsight interruption source\" entry\n- Recorded multiple times with distinct timestamps (2026-09-07 at 16:43 and again at 17:35)\n\nThe repeated confirmation across separate entries strengthens the reliability of this ownership fact.\n\n### What Remains Pending in the Reviewed Birch Deployment Handoff\n\nThe reviewed deployment handoff (reference **7bcf906b-c524-457e-845a-e6c297638cee**) contains the following key status:\n\n- **The deployment checklist review remains pending.** The Birch transfer cannot be formally closed until this review is completed.\n\nThe handoff notes structure the remaining work as follows:\n\n| Item | Status |\n|------|--------|\n| Birch service ownership | Confirmed \u2014 Rhea Vale |\n| Deployment checklist review | **Pending** (blocks transfer close) |\n| Birch transfer closure | Blocked until checklist is reviewed |\n\n### Next Step Identified in the Handoff\n\nThe handoff explicitly lists a single next step:\n\n> Review the deployment checklist before closing the Birch transfer.\n\nThere are no additional open questions detailed in the available records, meaning the checklist review is the sole outstanding item standing between the current state and a closed Birch transfer.\n\n### Summary\n\n**Rhea Vale owns the Birch service**, and the one remaining item in the reviewed deployment handoff is the **deployment checklist review**, which must be completed before the Birch transfer can be closed.",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  },
+                  {
+                    "kind": "memory",
+                    "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T16:43:54.769Z"
+                  },
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  },
+                  {
+                    "kind": "memory",
+                    "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+                    "revision": 2,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T14:30:15.871Z"
+                  }
+                ]
+              }
+            ],
+            "omitted": 0
+          },
+          {
+            "classification": "learned",
+            "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1d9244ab-8dd1-4875-a3a1-c082e2d66597",
+            "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+            "items": [
+              {
+                "text": "## Birch Ownership and Pending Handoff Items\n\n### Who Owns Birch\n\n**Rhea Vale owns the Birch service.** This is consistently documented across multiple independent records and decision logs, confirming it as an established fact rather than a passing mention:\n\n- Cited in the deployment handoff review documentation\n- Repeated as a formal \"decision: Hindsight interruption source\" entry\n- Recorded multiple times with distinct timestamps (2026-09-07 at 16:43 and again at 17:35)\n\nThe repeated confirmation across separate entries strengthens the reliability of this ownership fact.\n\n### What Remains Pending in the Reviewed Birch Deployment Handoff\n\nThe reviewed deployment handoff (reference **7bcf906b-c524-457e-845a-e6c297638cee**) contains the following key status:\n\n- **The deployment checklist review remains pending.** The Birch transfer cannot be formally closed until this review is completed.\n\nThe handoff notes structure the remaining work as follows:\n\n| Item | Status |\n|------|--------|\n| Birch service ownership | Confirmed \u2014 Rhea Vale |\n| Deployment checklist review | **Pending** (blocks transfer close) |\n| Birch transfer closure | Blocked until checklist is reviewed |\n\n### Next Step Identified in the Handoff\n\nThe handoff explicitly lists a single next step:\n\n> Review the deployment checklist before closing the Birch transfer.\n\nThere are no additional open questions detailed in the available records, meaning the checklist review is the sole outstanding item standing between the current state and a closed Birch transfer.\n\n### Summary\n\n**Rhea Vale owns the Birch service**, and the one remaining item in the reviewed deployment handoff is the **deployment checklist review**, which must be completed before the Birch transfer can be closed.",
+                "sources": [
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  },
+                  {
+                    "kind": "memory",
+                    "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T16:43:54.769Z"
+                  },
+                  {
+                    "kind": "handoff",
+                    "id": "fa8e3d18-4cda-4805-ac99-598e918411be",
+                    "revision": 1,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": null
+                  },
+                  {
+                    "kind": "memory",
+                    "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+                    "revision": 2,
+                    "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+                    "sourceTime": "2026-09-07T14:30:15.871Z"
+                  }
+                ]
+              }
+            ],
+            "omitted": 0
+          }
+        ]
+      },
+      "complete": true
+    },
+    "graphiti": {
+      "kind": "graphiti",
+      "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-kit-RoBlLc",
+      "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-kit-RoBlLc/restored",
+      "marker": "KNOWLEDGE_NATIVE_7bcf906b-c524-457e-845a-e6c297638cee_graphiti",
+      "required": [
+        "temporal_query"
+      ],
+      "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+      "sessionId": "a76857b5-5e28-44a0-844d-69fa7d60f953",
+      "selection": [
+        {
+          "kind": "memory",
+          "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+          "revision": 1
+        },
+        {
+          "kind": "memory",
+          "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+          "revision": 1
+        }
+      ],
+      "promptMayBeSent": true,
+      "proof": {
+        "file": "/Users/muzikfirst/.omp/agent/sessions/-tmp-donwells-temporal-kit-RoBlLc-restored/2026-09-07T17-38-58-636Z_01a07cf3-a9cc-734e-a968-5fb65d1d6e1b.jsonl",
+        "sha256": "d6f3c5532cedd39faaccd8492252e3987af90eaa8d780d0d3154065205479692",
+        "tools": [
+          "read",
+          "bash",
+          "temporal_query"
+        ],
+        "incidentalErrors": [
+          {
+            "toolCallId": "call_613e6e21",
+            "content": [
+              {
+                "type": "text",
+                "text": "Blocked: Use the `read` tool instead of cat/head/tail. It provides better context and handles binary files.\n\nOriginal command: echo '{\"query\":\"Who owns Birch and where do they report?\"}' > /tmp/xd_arg.json; cat /tmp/xd_arg.json"
+              }
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "kind": "memory",
+            "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+            "revision": 1,
+            "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+            "sourceTime": "2026-09-07T16:44:03.886Z"
+          },
+          {
+            "kind": "memory",
+            "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+            "revision": 1,
+            "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+            "sourceTime": "2026-09-07T16:08:25.958Z"
+          },
+          {
+            "kind": "memory",
+            "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+            "revision": 1,
+            "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+            "sourceTime": "2026-09-07T16:44:03.886Z"
+          },
+          {
+            "kind": "memory",
+            "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+            "revision": 1,
+            "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+            "sourceTime": "2026-09-07T16:08:25.958Z"
+          }
+        ],
+        "answers": [
+          {
+            "classification": "learned",
+            "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-0c2f7420-e45e-44e0-a663-f33af68e6ac7",
+            "asOf": "2026-09-07T17:39:14.506Z",
+            "mode": "current",
+            "omitted": 0,
+            "relationships": [
+              {
+                "id": "e82541a8-0163-4835-a3dc-931dece4f104",
+                "text": "Rhea Vale owns the Birch service",
+                "validAt": null,
+                "invalidAt": null,
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+                    "revision": 1,
+                    "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+                    "sourceTime": "2026-09-07T16:44:03.886Z"
+                  }
+                ]
+              },
+              {
+                "id": "58344f0a-afce-48e8-86db-a80bffd8231d",
+                "text": "Avery Stone maintains the Cedar service.",
+                "validAt": null,
+                "invalidAt": null,
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+                    "revision": 1,
+                    "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+                    "sourceTime": "2026-09-07T16:08:25.958Z"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "classification": "learned",
+            "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-0c2f7420-e45e-44e0-a663-f33af68e6ac7",
+            "asOf": "2026-09-07T17:39:14.506Z",
+            "mode": "current",
+            "omitted": 0,
+            "relationships": [
+              {
+                "id": "e82541a8-0163-4835-a3dc-931dece4f104",
+                "text": "Rhea Vale owns the Birch service",
+                "validAt": null,
+                "invalidAt": null,
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+                    "revision": 1,
+                    "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+                    "sourceTime": "2026-09-07T16:44:03.886Z"
+                  }
+                ]
+              },
+              {
+                "id": "58344f0a-afce-48e8-86db-a80bffd8231d",
+                "text": "Avery Stone maintains the Cedar service.",
+                "validAt": null,
+                "invalidAt": null,
+                "sources": [
+                  {
+                    "kind": "memory",
+                    "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+                    "revision": 1,
+                    "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+                    "sourceTime": "2026-09-07T16:08:25.958Z"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "complete": true
+    }
+  },
+  "checks": [
+    "hindsight: actual OMP native MCP invocation returned dated reviewed-source citations and final source-attributed answer"
+  ],
+  "stoppedUnusedSessionId": "7b567526-c112-46f8-b763-5e1707d2595c",
+  "hindsightCleanup": {
+    "sessionStopped": true,
+    "retainedAppTerminated": true,
+    "daemon": true
+  },
+  "driverCorrections": [
+    "After proof completed, CDP control connection closed while Electron remained alive. Reattached for owned cleanup, no prompt or projection repeated.",
+    "Graphiti required MCP call succeeded once; unrelated shell attempt was blocked. Preserve blocked attempt separately; no repeat model or query. CDP reattached only for cleanup."
+  ],
+  "graphitiCleanup": {
+    "sessionStopped": true,
+    "retainedAppTerminated": true,
+    "daemon": true
+  },
+  "passed": true,
+  "limitations": [
+    "Graphiti returned ownership and an unrelated Cedar edge; reporting-line relationship was absent. Native answer reported that absence instead of inventing an edge.",
+    "One unrelated Graphiti-turn shell attempt was blocked by the native harness; required temporal_query succeeded once. No claim of perfect prompt compliance.",
+    "Handoff sources have no authored date in the current schema; date is explicitly null.",
+    "CDP control connections failed while app processes remained alive; reattachment was used only for observed cleanup and did not repeat model work."
+  ]
+}
