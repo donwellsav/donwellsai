@@ -98,7 +98,7 @@ function selectTab(commandId: AppCommandId): boolean {
     (pane) => pane.kind === 'terminal' || pane.kind === 'preview' || pane.kind === 'browser' || pane.kind === 'diff'
   )
   const pane = tabs[index]
-  if (pane) state.setActivePane(worktreePath, pane.key)
+  if (pane) { state.setActivePane(worktreePath, pane.key); focusPaneTarget() }
   return true
 }
 

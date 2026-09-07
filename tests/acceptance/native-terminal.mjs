@@ -81,6 +81,12 @@ try {
   await until(async () => !(await read()).visible, 'Native surface obscures command palette')
   await page.keyboard.press('Escape')
   report.checks.push('Native Cmd+K opens unobscured app command palette')
+  await page.getByRole('button', { name: 'Project memory', exact: true }).click()
+  await page.getByRole('button', { name: 'Close workspace panel', exact: true }).click()
+  await until(() => action('focused', ''), 'Closing a tool did not return native terminal focus')
+  await page.locator('.workspace-session.is-current').click()
+  await until(() => action('focused', ''), 'Selecting the current session did not restore native terminal focus')
+  report.checks.push('Closing a tool and selecting the current session both restore native terminal focus')
   const sameProcess = async () => { const result = await read(); return result.visible && result.text.includes(`NATIVE GHOSTTY ${pid}`) && result.text.includes('INPUT: x') }
   await invoke('settings.set', { terminalRenderer: 'xterm' })
   await page.locator(`[data-pane-key="term:${id}"] .xterm-screen`).waitFor()

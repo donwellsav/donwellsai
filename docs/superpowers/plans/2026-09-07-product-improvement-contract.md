@@ -10,7 +10,7 @@
 
 **Spec:** [Existing product specification](../specs/2026-09-06-terminal-workspace-design.md), as amended by the user’s current product direction and the constraints below. This draft proposes replacing the execution order and completion rules of the earlier second-pass plan, not rolling back its source history.
 
-**Current position:** Task01, Task26, Task04 and Task03 product changes complete; Task05 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
+**Current position:** Task01, Task26, Task04 and Task03 product changes complete; Task05 active: native focus repair complete; concrete shell proposal awaits the card’s required visual approval. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
 
 ## Product promise and non-negotiable requirements
 
@@ -99,7 +99,7 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 - [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
 - [x] **03 — Make engine choices usable per project** — Delivered: explicit document retrieval modes, native-agent engine inventory, live configure/query/disable workflow.
 - [x] **04 — Own tools and resources by project** — Delivered: launch cancellation, truthful stopping state, live ownership/calls, shared native graph cache with isolated checkout sessions.
-- [ ] **05 — Establish the terminal-centered workspace** — ACTIVE: terminal-first shell research and concrete layout.
+- [ ] **05 — Establish the terminal-centered workspace** — ACTIVE: focus repair delivered; [rendered proposal](../../architecture/second-pass-05/layout-proposal.html) awaits required visual approval before shell replacement.
 - [ ] **06 — Make modules movable without disrupting work** — Queued for implementation after preceding dependencies.
 - [ ] **07 — Make native agents interchangeable** — Queued for implementation after preceding dependencies.
 - [ ] **08 — Make sessions recoverable and attention useful** — Queued for implementation after preceding dependencies.

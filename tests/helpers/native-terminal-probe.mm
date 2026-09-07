@@ -14,6 +14,7 @@ static napi_value action(napi_env env,napi_callback_info info) {
  NSView *target=nil;
  for(NSWindow *window in NSApp.windows){target=find(window.contentView,strcmp(op,"search")==0?@"NSSearchField":@"TerminalView");if(target)break;}
  if(!target){napi_throw_error(env,NULL,"Native view missing");return NULL;}
+ if(strcmp(op,"focused")==0){napi_get_boolean(env,target.window.firstResponder==target,&result);return result;}
  if(strcmp(op,"search")==0){NSSearchField *field=(NSSearchField*)target;field.stringValue=[NSString stringWithUTF8String:text];[NSApp sendAction:field.action to:field.target from:field];}
  else {
   [target.window makeFirstResponder:target];

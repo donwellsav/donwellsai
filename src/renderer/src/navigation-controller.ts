@@ -110,6 +110,8 @@ function waitForStoreLoad(): Promise<void> {
 export function focusPaneTarget(target = activeNavigationTarget()): void {
   if (!target) return
   requestAnimationFrame(() => requestAnimationFrame(() => {
+    const state = useAppStore.getState()
+    if (state.runsOpen || state.settingsOpen || state.paletteOpen || document.querySelector('dialog[open]')) return
     const current = activeNavigationTarget()
     if (!current || !sameNavigationTarget(current, target)) return
     if (target.kind === 'workspace') {
@@ -119,7 +121,7 @@ export function focusPaneTarget(target = activeNavigationTarget()): void {
     const pane = document.querySelector<HTMLElement>(`[data-pane-key="${CSS.escape(target.paneKey)}"]`)
     if (!pane) return
     const selector = target.kind === 'terminal'
-      ? '.xterm-helper-textarea'
+      ? '.native-terminal-host, .xterm-helper-textarea'
       : target.kind === 'browser'
         ? '.browser-view'
         : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], textarea'

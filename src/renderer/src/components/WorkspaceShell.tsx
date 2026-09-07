@@ -4,6 +4,7 @@ import { agentPresentation, agentProviderName } from '@shared/agent-presentation
 import { orderedWorkspacePaths, pathBasename } from '../workspace-navigation'
 import { appCommandPlatform, formatAppShortcut } from '@shared/app-commands'
 import { dispatchAppCommand } from '../commands'
+import { focusPaneTarget } from '../navigation-controller'
 import { openProjectSetup } from '../project-setup'
 import { WorkspaceControls } from './Workbench'
 import { workspacePaneLabel } from '../workspace-layout'
@@ -101,7 +102,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {panes?.filter(pane => pane.kind === 'terminal').map((pane, index) => {
             const agent = pane.sessionId ? runningAgents[pane.sessionId] : undefined
             const presentation = agent ? agentPresentation(agent) : undefined
-            return <button key={pane.key} className={`workspace-session${pane.key === activePane && !runsOpen ? ' is-current' : ''}`} aria-label={`Focus ${workspacePaneLabel(pane)}`} aria-current={pane.key === activePane && !runsOpen ? 'true' : undefined} onClick={() => { state().setRunsOpen(false); state().setActivePane(activePath, pane.key) }}>
+            return <button key={pane.key} className={`workspace-session${pane.key === activePane && !runsOpen ? ' is-current' : ''}`} aria-label={`Focus ${workspacePaneLabel(pane)}`} aria-current={pane.key === activePane && !runsOpen ? 'true' : undefined} onClick={() => { state().setRunsOpen(false); state().setActivePane(activePath, pane.key); focusPaneTarget() }}>
               <span className="workspace-session-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
               <span className="workspace-session-name">{agent ? agentProviderName(agent) : workspacePaneLabel(pane)}<small>{presentation?.label ?? 'Shell'}</small></span>
               {presentation?.needsAttention && <span className="workspace-session-attention" title={presentation.description} aria-label="Needs attention">•</span>}

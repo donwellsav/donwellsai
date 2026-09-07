@@ -30,6 +30,7 @@ import type {
   WorktreeStatus
 } from '@shared/types'
 import { terminalBus } from './terminal-bus'
+import { focusPaneTarget } from './navigation-controller'
 import {
   EMPTY_WORKSPACE_NAVIGATION,
   moveWorkspaceNavigation,
@@ -1861,6 +1862,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setRunsOpen(open: boolean) {
     set({ runsOpen: open })
+    if (!open && typeof document !== 'undefined') focusPaneTarget()
   },
 
   setSidebarOpen(open: boolean) {
@@ -1872,11 +1874,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (open && !wasOpen) { get().setRightSidebarTab(get().rightSidebarTab); return }
     set({ rightSidebarOpen: open })
     if (wasOpen && !open && typeof document !== 'undefined') requestAnimationFrame(() => {
-      const state = get(), path = state.activeWorktreePath
-      const key = path ? state.activePane[path] : undefined
-      if (state.rightSidebarOpen || !key) return
-      const pane = document.querySelector<HTMLElement>(`[data-pane-key="${CSS.escape(key)}"]`)
-      ;(pane?.querySelector<HTMLElement>('.xterm-helper-textarea, .monaco-editor textarea') ?? pane)?.focus()
+      if (!get().rightSidebarOpen) focusPaneTarget()
     })
   },
 
