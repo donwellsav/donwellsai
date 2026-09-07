@@ -1,0 +1,223 @@
+{
+  "cases": {
+    "hindsight": {
+      "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/restored",
+      "original": {
+        "kind": "memory",
+        "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+        "revision": 2
+      },
+      "added": {
+        "kind": "memory",
+        "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+        "revision": 1
+      },
+      "selection": [
+        {
+          "kind": "memory",
+          "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+          "revision": 2
+        },
+        {
+          "kind": "memory",
+          "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+          "revision": 1
+        }
+      ],
+      "priorGeneration": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+      "checkpoint": "recovered",
+      "interruption": {
+        "active": {
+          "enabled": true,
+          "phase": "retaining",
+          "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+              "revision": 2
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 1,
+          "error": null,
+          "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+        },
+        "attempt": {
+          "resolved": false,
+          "error": "Error: Error invoking remote method 'projectKnowledgeReconcile': Error: Knowledge operation stopped"
+        },
+        "cleanupState": "uncertain-external-cleanup-pending"
+      },
+      "restartObserved": {
+        "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+        "pendingCleanup": 1,
+        "cleanupState": "uncertain-external-cleanup-pending"
+      },
+      "restart": {
+        "interrupted": {
+          "enabled": true,
+          "phase": "idle",
+          "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-1f48481e-ab76-4e26-ba0b-898ed529ce92",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+              "revision": 2
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 1,
+          "error": null,
+          "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+        },
+        "recovered": {
+          "enabled": true,
+          "phase": "idle",
+          "generation": "donwells-d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455-309099e7-3469-42c8-ba3a-bb04761034c5",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "e105511b851d5fd42cb66c7cfbc1db90a1c34e99c0123b9ea1834a68bdbb59f5",
+              "revision": 2
+            },
+            {
+              "kind": "memory",
+              "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+              "revision": 1
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 0,
+          "error": null,
+          "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+        },
+        "answerCount": 1,
+        "citedAdded": [
+          {
+            "kind": "memory",
+            "id": "c1f90975-e3a5-4236-b6ea-5568ffc5fdb6",
+            "revision": 1,
+            "projectKey": "d6304cfccd922afbed3f82ee0a128067e3b446e3a6597df743aa0d3bbf6a1455",
+            "sourceTime": "2026-09-07T16:43:54.769Z"
+          }
+        ]
+      },
+      "completed": true,
+      "daemonCleanup": true
+    },
+    "graphiti": {
+      "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-kit-RoBlLc/restored",
+      "original": {
+        "kind": "memory",
+        "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+        "revision": 1
+      },
+      "added": {
+        "kind": "memory",
+        "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+        "revision": 1
+      },
+      "selection": [
+        {
+          "kind": "memory",
+          "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+          "revision": 1
+        },
+        {
+          "kind": "memory",
+          "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+          "revision": 1
+        }
+      ],
+      "priorGeneration": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-915dc079-2e4d-43b4-b9fb-1df49fd61f69",
+      "checkpoint": "recovered",
+      "interruption": {
+        "active": {
+          "enabled": true,
+          "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-915dc079-2e4d-43b4-b9fb-1df49fd61f69",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+              "revision": 1
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 1,
+          "busy": true,
+          "error": null
+        },
+        "attempt": {
+          "resolved": false,
+          "error": "Error: Error invoking remote method 'projectTemporalKnowledgeReconcile': Error: Temporal work stopped"
+        },
+        "cleanupState": "uncertain-external-cleanup-pending"
+      },
+      "restartObserved": {
+        "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-915dc079-2e4d-43b4-b9fb-1df49fd61f69",
+        "pendingCleanup": 1,
+        "cleanupState": "uncertain-external-cleanup-pending"
+      },
+      "restart": {
+        "interrupted": {
+          "enabled": true,
+          "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-915dc079-2e4d-43b4-b9fb-1df49fd61f69",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+              "revision": 1
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 1,
+          "busy": false,
+          "error": null
+        },
+        "recovered": {
+          "enabled": true,
+          "generation": "donwells-c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645-0c2f7420-e45e-44e0-a663-f33af68e6ac7",
+          "sources": [
+            {
+              "kind": "memory",
+              "id": "5f56485a0a69323ca6979dd9d3c612912f922a34dcc2f603dba1c9f5b094c292",
+              "revision": 1
+            },
+            {
+              "kind": "memory",
+              "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+              "revision": 1
+            }
+          ],
+          "stale": false,
+          "pendingCleanup": 0,
+          "busy": false,
+          "error": null
+        },
+        "answerCount": 2,
+        "citedAdded": [
+          {
+            "kind": "memory",
+            "id": "b32cb437-823d-4c19-92bc-1fea4830e101",
+            "revision": 1,
+            "projectKey": "c5ebae3e22dfce46d69971896f5db20b12d03f12a19d0147dfbd04c83be65645",
+            "sourceTime": "2026-09-07T16:44:03.886Z"
+          }
+        ]
+      },
+      "completed": true,
+      "daemonCleanup": true
+    }
+  },
+  "limitations": [
+    "Reviewed handoff retention and native-agent invocation remain separate Task 23 checks."
+  ],
+  "checks": [
+    "Each real native owner was stopped only after an in-flight replacement became observable",
+    "Restart retained the prior published generation and exposed uncertain cleanup",
+    "Reconcile cleaned the uncertain external bank/group, published one replacement and returned source-attributed recall"
+  ],
+  "passed": true,
+  "runnerSha256": "3cfc73758661451d6416c4719e9833a5ce682cac46ee5c066a2a21b82c81c803"
+}

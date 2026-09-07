@@ -154,3 +154,9 @@ These are not claims of completed feasibility and must not become open-ended res
 4. **Lance interrupted publication:** reuse the existing native package and one forced-stop case. Keep current merge path if atomic publication is adequate; implement generation publication only if the case demonstrates a gap.
 
 No installs, model calls, migrations or product edits were performed while writing this plan. These implementation slices remain pending and do not inherit completion from earlier standalone trials.
+
+## Task23 interrupted native projection recovery
+
+Actual Hindsight and Graphiti replacement operations were interrupted after their owned workers reported activity. Restart preserved each prior published generation and reported uncertain external cleanup. One explicit reconcile then cleaned the unfinished bank/group and published the same selected source revisions; actual answers cited the added source. Both app/daemon cleanups completed. `second-pass-23/interrupted-replacement-live.json` records the source IDs, generations and pending cleanup/recovery states. A pending cleanup blocks queries: the old generation record is preserved, but it is not advertised as usable during uncertainty. No previous successful source extraction was replayed to repair a runner.
+
+Task23 remains partial for reviewed handoff retention and actual native-agent learned/temporal tool use. The restored projects now contain two projected facts each; subsequent work must use their new recorded generations rather than assuming the earlier single-fact manifests.
