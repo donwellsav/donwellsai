@@ -16,6 +16,8 @@ git log -7 --oneline
 
 The project folder is `/Users/muzikfirst/Documents/donwellsai`. The only app repository is its `donwellsai/` child, with its own `.git` directory. The sibling `workingfolder/` holds scratch/staging and handoff data, `research/` holds research and third-party trials, and `trash/` holds superseded files. Do not put app source at the project-folder root or create another worktree. Historical transcript paths refer to old layouts; use current source paths from this document.
 
+The old `terminal-foundation` and `plan-restart` worktrees have been moved into the project’s `trash/2026-09-07-layout-cleanup/`. Their daemons and orphaned helpers were stopped. Do not launch from those archives. Preservation checks and session snapshots are in `workingfolder/old-checkout-cleanup/`; all committed work is already in the active app repo.
+
 ## Tool and build prerequisites
 
 `package.json` specifies pnpm12.0.0. Use its existing scripts and installed dependencies; no install needed solely for onboarding. Inspect actual Node/pnpm availability in the new shell. `pnpm run typecheck` checks main/web/CLI; `pnpm run build` builds Electron main/preload/renderer and CLI. Native terminal build is separate. Prefer the owning existing regression after a real change, not full-suite baseline repetition.
