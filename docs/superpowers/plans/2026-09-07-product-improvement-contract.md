@@ -1,6 +1,6 @@
 # donwells.ai Product Improvement Implementation Plan
 
-> **For agentic workers:** DRAFT FOR USER REVIEW. Implementation is paused. Read the execution contract below before using any execution skill. No subagents, code changes, installs, builds or live application actions are authorized by this planning document. Execution requires explicit user approval of the plan and the next task card. Steps use checkbox syntax for tracking.
+> **For agentic workers:** APPROVED FOR CONTINUOUS EXECUTION by the user: “execute plan work without stopping.” Read the execution contract below. Execute the scoped tasks in the approved dependency order; no subagents without explicit permission. Steps use checkbox syntax for tracking.
 
 **Goal:** Deliver a coherent desktop workspace in which interchangeable native terminal agents build applications together, share durable project knowledge, use integrated development tools and preserve work across sessions and environments.
 
@@ -10,7 +10,7 @@
 
 **Spec:** [Existing product specification](../specs/2026-09-06-terminal-workspace-design.md), as amended by the user’s current product direction and the constraints below. This draft proposes replacing the execution order and completion rules of the earlier second-pass plan, not rolling back its source history.
 
-**Current position:** Planning only. No task in this new product pass is complete. Task02 is skipped; final GUI refinement is Task29. Last observed commit: `cc2d0aa`. The search-addon patch and associated lockfile/runner changes remain uncommitted and unverified; preexisting Kimi changes remain separate. Earlier tests, packages and research are historical input, not completed product work in this plan.
+**Current position:** Task01 product fix complete; Task26 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
 
 ## Product promise and non-negotiable requirements
 
@@ -28,7 +28,7 @@
 
 ## Execution contract — the proposed leash
 
-1. **Approval gates:** approve this roadmap first, then approve one task card’s concrete implementation proposal. Approval of one card does not authorize other tasks. At completion, show the full checklist and wait for approval of the next card unless the user explicitly grants a bounded batch.
+1. **Execution authorization:** the user approved continuous plan execution. Complete each scoped card, show the full checklist, and proceed immediately in dependency order. Ask only for a material decision outside the approved scope or information that cannot be safely inferred; do not stop merely at a commit or checkpoint.
 2. **One active implementation:** do not start unrelated work or delegate without explicit permission. Research may inspect alternatives, but cannot quietly become installs, prototypes, host migration or production edits outside the approved card.
 3. **Before a card starts:** show the user-visible gap, recommended component/design, strongest credible alternative, relevant licensing/deployment implications, exact intended changes and demo. Pin versions then, using fresh sources; this draft does not invent future winning versions.
 4. **Completion is a product outcome:** research, tests, receipts, downloads, prototypes and keep-current reports do not complete an implementation task. The user must be able to use the stated capability or improvement through the app/native-agent workflow.
@@ -95,35 +95,35 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 
 ## Full checklist
 
-- [ ] **01 — Finish a useful foundation change** — Awaiting plan/task approval.
+- [x] **01 — Finish a useful foundation change** — Delivered: same-position TUI redraws invalidate terminal search cache; focused packaged regression passes.
 - [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
-- [ ] **03 — Make engine choices usable per project** — Awaiting plan/task approval.
-- [ ] **04 — Own tools and resources by project** — Awaiting plan/task approval.
-- [ ] **05 — Establish the terminal-centered workspace** — Awaiting plan/task approval.
-- [ ] **06 — Make modules movable without disrupting work** — Awaiting plan/task approval.
-- [ ] **07 — Make native agents interchangeable** — Awaiting plan/task approval.
-- [ ] **08 — Make sessions recoverable and attention useful** — Awaiting plan/task approval.
-- [ ] **09 — Make durable project memory dependable and editable** — Awaiting plan/task approval.
-- [ ] **10 — Make agent handoffs useful** — Awaiting plan/task approval.
-- [ ] **11 — Improve project document retrieval** — Awaiting plan/task approval.
-- [ ] **12 — Add useful code structure and graph navigation** — Awaiting plan/task approval.
-- [ ] **13 — Unify finding and opening project knowledge** — Awaiting plan/task approval.
-- [ ] **14 — Make browser previews part of the project** — Awaiting plan/task approval.
-- [ ] **15 — Let agents inspect and test project applications** — Awaiting plan/task approval.
-- [ ] **16 — Provide controlled desktop interaction** — Awaiting plan/task approval.
-- [ ] **17 — Connect code changes to working results** — Awaiting plan/task approval.
-- [ ] **18 — Coordinate parallel work and Git** — Awaiting plan/task approval.
-- [ ] **19 — Make every integrated tool discoverable and manageable** — Awaiting plan/task approval.
-- [ ] **20 — Make projects portable and recoverable** — Awaiting plan/task approval.
-- [ ] **21 — Remove daily-use friction and bottlenecks** — Awaiting plan/task approval.
-- [ ] **22 — Deliver the finished installable application** — Awaiting plan/task approval.
-- [ ] **23 — Integrate analytics and richer project memory** — Awaiting plan/task approval.
-- [ ] **24 — Integrate isolated desktops and remote work** — Awaiting plan/task approval.
-- [ ] **25 — Improve building applications in the editor** — Awaiting plan/task approval.
-- [ ] **26 — Choose and establish the stronger desktop host** — Awaiting plan/task approval.
-- [ ] **27 — Make native session history useful across agents** — Awaiting plan/task approval.
-- [ ] **28 — Integrate ACP and additional agent adapters** — Awaiting plan/task approval.
-- [ ] **29 — Refine the complete GUI around the integrated product** — Awaiting plan/task approval.
+- [ ] **03 — Make engine choices usable per project** — Queued for implementation after preceding dependencies.
+- [ ] **04 — Own tools and resources by project** — Queued for implementation after preceding dependencies.
+- [ ] **05 — Establish the terminal-centered workspace** — Queued for implementation after preceding dependencies.
+- [ ] **06 — Make modules movable without disrupting work** — Queued for implementation after preceding dependencies.
+- [ ] **07 — Make native agents interchangeable** — Queued for implementation after preceding dependencies.
+- [ ] **08 — Make sessions recoverable and attention useful** — Queued for implementation after preceding dependencies.
+- [ ] **09 — Make durable project memory dependable and editable** — Queued for implementation after preceding dependencies.
+- [ ] **10 — Make agent handoffs useful** — Queued for implementation after preceding dependencies.
+- [ ] **11 — Improve project document retrieval** — Queued for implementation after preceding dependencies.
+- [ ] **12 — Add useful code structure and graph navigation** — Queued for implementation after preceding dependencies.
+- [ ] **13 — Unify finding and opening project knowledge** — Queued for implementation after preceding dependencies.
+- [ ] **14 — Make browser previews part of the project** — Queued for implementation after preceding dependencies.
+- [ ] **15 — Let agents inspect and test project applications** — Queued for implementation after preceding dependencies.
+- [ ] **16 — Provide controlled desktop interaction** — Queued for implementation after preceding dependencies.
+- [ ] **17 — Connect code changes to working results** — Queued for implementation after preceding dependencies.
+- [ ] **18 — Coordinate parallel work and Git** — Queued for implementation after preceding dependencies.
+- [ ] **19 — Make every integrated tool discoverable and manageable** — Queued for implementation after preceding dependencies.
+- [ ] **20 — Make projects portable and recoverable** — Queued for implementation after preceding dependencies.
+- [ ] **21 — Remove daily-use friction and bottlenecks** — Queued for implementation after preceding dependencies.
+- [ ] **22 — Deliver the finished installable application** — Queued for implementation after preceding dependencies.
+- [ ] **23 — Integrate analytics and richer project memory** — Queued for implementation after preceding dependencies.
+- [ ] **24 — Integrate isolated desktops and remote work** — Queued for implementation after preceding dependencies.
+- [ ] **25 — Improve building applications in the editor** — Queued for implementation after preceding dependencies.
+- [ ] **26 — Choose and establish the stronger desktop host** — ACTIVE: research and integrated host direction.
+- [ ] **27 — Make native session history useful across agents** — Queued for implementation after preceding dependencies.
+- [ ] **28 — Integrate ACP and additional agent adapters** — Queued for implementation after preceding dependencies.
+- [ ] **29 — Refine the complete GUI around the integrated product** — Queued for implementation after preceding dependencies.
 
 ## Task cards
 
@@ -666,4 +666,8 @@ A useful existing component can remain, but the card must explain what product i
 - Task02 remains skipped. Historical checked tasks do not carry completion into this pass.
 - Research-only choices are approval gates within tasks; they do not substitute for the product deliverables.
 
-**Approval requested:** approve or amend this product scope, the dependency order and the execution contract. Approval of the roadmap alone does not resume coding. The first implementation proposal would be Task01’s bounded terminal-search fix and treatment of paused changes.
+**Authorization update:** the user approved executing the plan continuously. Scoped implementation, research, necessary checks and local commits are authorized. Material scope changes, destructive actions and external publication remain separate decisions.
+
+## Task01 completion
+
+Delivered a narrow MIT search-addon patch invalidating cached lines on parsed writes. The current TUI text is searchable and overwritten text is absent; same process retained, one recovery cycle, deliberate owner-loss behavior and owned cleanup pass. [Focused result](../../research/second-pass/task-01-search-fix.json). No new runtime dependency or terminal replacement. Earlier baseline-only work does not count as this deliverable.

@@ -127,6 +127,9 @@ overrides:
   '@rolldown/binding-win32-ia32-msvc': 1.2.6
   '@rolldown/binding-win32-x64-msvc': 1.2.6
 
+patchedDependencies:
+  '@xterm/addon-search@0.16.0': 12a98535e2faa65dee72815bfc8f92ca9b121752a01830f7e4aea197157496c9
+
 importers:
 
   .:
@@ -145,7 +148,7 @@ importers:
         version: 0.11.0
       '@xterm/addon-search':
         specifier: ^0.16.0
-        version: 0.16.0
+        version: 0.16.0(patch_hash=12a98535e2faa65dee72815bfc8f92ca9b121752a01830f7e4aea197157496c9)
       '@xterm/addon-web-links':
         specifier: ^0.12.0
         version: 0.12.0
@@ -3706,7 +3709,7 @@ snapshots:
 
   '@xterm/addon-fit@0.11.0': {}
 
-  '@xterm/addon-search@0.16.0': {}
+  '@xterm/addon-search@0.16.0(patch_hash=12a98535e2faa65dee72815bfc8f92ca9b121752a01830f7e4aea197157496c9)': {}
 
   '@xterm/addon-web-links@0.12.0': {}
 

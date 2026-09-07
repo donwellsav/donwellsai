@@ -8,8 +8,10 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { cleanupOwnedSmokeDaemon, connectDaemon, delay } from '../helpers/smoke-processes.mjs'
 import { hash, sourceIdentity } from './workspace-baseline.mjs'
-const { values } = parseArgs({ options: { app: { type: 'string' }, playwright: { type: 'string' }, evidence: { type: 'string' } } })
+const { values } = parseArgs({ options: { app: { type: 'string' }, playwright: { type: 'string' }, evidence: { type: 'string' }, cycles: { type: 'string', default: '20' } } })
 assert(values.app && values.playwright && values.evidence)
+const cycles = Number(values.cycles)
+assert(Number.isSafeInteger(cycles) && cycles >= 1 && cycles <= 20, '--cycles must be an integer from 1 to 20')
 const executable = resolve(values.app), evidence = resolve(values.evidence)
 mkdirSync(evidence, { mode: 0o700 })
 const profile = mkdtempSync(join(tmpdir(), 'donwells-recovery-profile-'))
@@ -77,7 +79,7 @@ try {
   await until(async () => (await page.evaluate(id => window.donwells.attachTerminal(id), sessionId)).truncated, 'Output never overflowed')
   fixturePid = Number(readFileSync(starts, 'utf8').trim())
   report.sessionId = sessionId; report.fixturePid = fixturePid
-  for (let cycle = 1; cycle <= 20; cycle++) {
+  for (let cycle = 1; cycle <= cycles; cycle++) {
     if (cycle % 2) await app.close()
     else { const child = app.process(); child.kill('SIGKILL'); app = null; await until(async () => child.exitCode !== null || child.signalCode !== null, 'App did not exit') }
     app = null
@@ -99,9 +101,11 @@ try {
   const search = pane.locator('.terminal-search')
   await search.getByRole('textbox', { name: 'Find in terminal' }).fill(`RECOVERED ${fixturePid} INPUTS 1`)
   await until(async () => { await search.getByTitle('Next result (Enter)', { exact: true }).click(); return /\d+ of [1-9]\d*/.test(await search.locator('.terminal-search-results').innerText()) }, 'Visible TUI did not redraw after real input')
+  await search.getByRole('textbox', { name: 'Find in terminal' }).fill(`RECOVERED ${fixturePid} INPUTS 0`)
+  await until(async () => { await search.getByTitle('Next result (Enter)', { exact: true }).click(); return (await search.locator('.terminal-search-results').innerText()) === 'No results' }, 'Search retained overwritten TUI text')
   await page.keyboard.press('Escape')
   assert.deepEqual(readFileSync(starts, 'utf8').trim().split('\n'), [String(fixturePid)])
-  report.visibilityRecovery = { hidden: true, shown: true, sameProcess: true, inputProducedRedraw: true }
+  report.visibilityRecovery = { hidden: true, shown: true, sameProcess: true, inputProducedRedraw: true, overwrittenTextAbsent: true }
   await page.screenshot({ path: join(evidence, 'recovered.png') })
   const runtime = JSON.parse(readFileSync(join(profile, 'terminal-daemon/runtime.json'), 'utf8'))
   const daemon = await connectDaemon(runtime)
@@ -109,6 +113,12 @@ try {
   assert.equal(status.pid, runtime.pid)
   daemon.socket.destroy()
   process.kill(runtime.pid, 'SIGKILL')
+  report.injectedDaemonPid = runtime.pid
+  await until(async () => {
+    try { process.kill(runtime.pid, 0); return false }
+    catch (error) { if (error.code !== 'ESRCH') throw error; return true }
+  }, 'Injected daemon did not exit')
+  report.injectedDaemonExited = true
   await page.locator(`[data-pane-key="term:${sessionId}"]`).getByText('Terminal disconnected', { exact: true }).waitFor()
   await page.locator(`[data-pane-key="term:${sessionId}"]`).getByRole('button', { name: 'Reattach terminal', exact: true }).click()
   await until(async () => !(await page.getByRole('button', { name: 'Reattaching…', exact: true }).count()), 'Reconnect never completed')
@@ -120,12 +130,14 @@ try {
 finally {
   if (app) {
     try {
-      for (const run of (await invoke('agent.list')).agents) {
-        if (run.liveness !== 'exited') await invoke('agent.stop', { sessionId: run.sessionId })
-        await until(async () => (await invoke('agent.list')).agents.find(item => item.sessionId === run.sessionId)?.liveness === 'exited', 'Fixture agent did not stop')
-        await invoke('agent.dismiss', { sessionId: run.sessionId })
+      if (!report.injectedDaemonExited) {
+        for (const run of (await invoke('agent.list')).agents) {
+          if (run.liveness !== 'exited') await invoke('agent.stop', { sessionId: run.sessionId })
+          await until(async () => (await invoke('agent.list')).agents.find(item => item.sessionId === run.sessionId)?.liveness === 'exited', 'Fixture agent did not stop')
+          await invoke('agent.dismiss', { sessionId: run.sessionId })
+        }
+        for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
       }
-      for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
     }
     catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
     await app.close().catch(() => app.process().kill('SIGKILL'))

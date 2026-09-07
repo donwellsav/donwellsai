@@ -1,0 +1,42 @@
+{
+  "source": {
+    "commit": "c9e109c803b06093c1a952389bcb699802683efb",
+    "dirty": true,
+    "contentHash": "402aadd5f29e8993bd4ff1a4d129ab25c5facb5eb9d511cbeeff36fddfdce2e8"
+  },
+  "executable": "/tmp/donwells-pass2-01/search-package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-profile-21hpom",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-project-sy9t7b",
+  "artifact": {
+    "asarSha256": "f7b6dc698aed202fc4029fab87850d08aa84aaf7b30df2836e69e97e5a4a482f"
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    }
+  ],
+  "limitations": [
+    "Custom TUI fixture exercises transport and redraw, not native-agent conversation quality.",
+    "Window hide/show exercises visibility recovery; physical system sleep is not induced on the user workstation."
+  ],
+  "sessionId": "721c8861-e3fe-45f4-b028-279e608ad0dc",
+  "fixturePid": 99167,
+  "visibilityRecovery": {
+    "hidden": true,
+    "shown": true,
+    "sameProcess": true,
+    "inputProducedRedraw": true,
+    "overwrittenTextAbsent": true
+  },
+  "injectedDaemonPid": 99089,
+  "injectedDaemonExited": true,
+  "daemonLoss": {
+    "visible": true,
+    "didNotRelaunch": true
+  },
+  "idleDaemonStopped": true
+}

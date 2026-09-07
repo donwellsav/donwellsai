@@ -1,6 +1,6 @@
 # Second strengthening pass — research before implementation
 
-Current position: **IMPLEMENTATION PAUSED by user.** The [controlled product improvement plan](2026-09-07-product-improvement-contract.md) is the new draft for review. No task in this second pass is complete. Task02 remains skipped and final GUI refinement is Task29. Earlier execution instructions below are suspended pending explicit approval.
+Current position: Superseded by the [approved product improvement plan](2026-09-07-product-improvement-contract.md). User authorized continuous execution; Task01 product fix complete, Task26 next. Task02 skipped; GUI Task29.
 
 ## Authority and execution
 
