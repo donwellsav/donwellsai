@@ -39,3 +39,24 @@
 .project-analytics { flex: 0 1 auto; min-height: 28px; max-height: 65%; overflow: auto; font-size: 12px; }
 .project-analytics summary { cursor: pointer; padding-block: 4px; }
 .project-analytics p, .project-analytics li { overflow-wrap: anywhere; }
+
+/* Analytics controls remain stacked inside a narrow workbench panel. */
+.project-analytics { min-width: 0; }
+.project-analytics > summary { padding-block: 8px; }
+.project-analytics-body { display: flex; flex-direction: column; gap: 12px; padding: 8px 2px 14px; min-width: 0; }
+.project-analytics-body p { margin: 0; line-height: 1.5; }
+.project-analytics-controls { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.project-analytics-field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.project-analytics-field select { width: 100%; min-width: 0; min-height: 32px; border: 1px solid var(--input); border-radius: 4px; padding: 6px 8px; background: var(--background); color: var(--foreground); font: inherit; text-overflow: ellipsis; }
+.project-analytics-controls > button { align-self: flex-start; }
+.project-analytics .btn { min-height: 30px; padding: 6px 10px; white-space: normal; text-align: left; }
+.project-analytics-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.project-analytics-note, .project-analytics-result-status { font-size: 11px; color: var(--muted-fg); }
+.project-analytics-result-status { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: 1px solid var(--border); }
+.project-analytics-result-status strong { font-weight: 500; color: var(--foreground); }
+.project-analytics-table { max-width: 100%; margin: 0; flex-shrink: 0; }
+.project-analytics-table table { min-width: 390px; font-variant-numeric: tabular-nums; }
+.project-analytics-table caption { text-align: left; padding-block: 6px 10px; font-weight: 500; }
+.project-analytics-table th, .project-analytics-table td { padding: 8px; white-space: nowrap; font-size: 11px; line-height: 1.6; }
+.project-analytics-table thead th { white-space: normal; font-weight: 500; color: var(--muted-fg); }
+.project-analytics select:focus-visible, .project-analytics-table:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

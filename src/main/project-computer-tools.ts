@@ -21,7 +21,7 @@ const targets = new Map<string, string>(), starting = new Set<string>()
 let generation = 0, desktop: Attachment | null = null
 
 /** Each definition retains its attachments; window and input ownership span all definitions. */
-export function createComputerToolDefinition(binary: string): ProjectToolDefinition {
+export function createComputerToolDefinition(binary: string, hostBundleId = 'ai.donwells.desktop'): ProjectToolDefinition {
   const attached = new Map<string, Attachment>()
   const key = (item: Attachment) => `${item.pid}:${item.window}`
   const detach = (scope: ProjectToolScope) => {
@@ -122,7 +122,7 @@ export function createComputerToolDefinition(binary: string): ProjectToolDefinit
   return {
     id: 'computer-control', version: '0.23.2', protocolVersion: '2025-06-18', scope: 'checkout',
     prepare: async (_scope, signal) => { if (!isAbsolute(binary) || createHash('sha256').update(await readFile(binary)).digest('hex') !== '2cb9be8da6c91bfa6b535a0d777ca61e463996aff9cd769dace2eb840ddd0700') throw new Error('Cua Driver artifact does not match the admitted external executable'); signal.throwIfAborted() },
-    launch: () => ({ program: binary, args: ['mcp', '--direct', '--embedded', '--host-bundle-id', 'ai.donwells.desktop'], env: { CUA_DRIVER_RS_TELEMETRY_ENABLED: 'false' } }),
+    launch: () => ({ program: binary, args: ['mcp', '--direct', '--embedded', '--host-bundle-id', hostBundleId], env: { CUA_DRIVER_RS_TELEMETRY_ENABLED: 'false' } }),
     stopped: detach,
     operations: {
       status: operation('status', {}, true),

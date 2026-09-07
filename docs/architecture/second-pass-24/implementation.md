@@ -106,3 +106,43 @@ actual selected source copy and reviewed result application over SSH; Lume full 
 signing, clipboard/no-listener trial; persistent VM lifecycle/reconciliation and
 user-owned VM preservation; guest-bound computer control. Code and focused checks are present for the memory/result slices; external
 deployment and user-visible proof remain open.
+
+## Prepared Lume lifecycle increment
+
+`ProjectLume` now backs three app endpoints: `environmentLumeList`,
+`environmentLumeRegister` and `environmentLumeAction(start|stop|status)`. The
+existing environment settings panel exposes registration, start, owner refresh
+and stop. It does not download, clone, delete or modify another VM.
+
+Only prepared machines in `<userData>/project-environments/lume-vms` can be
+registered. The selected disk/NVRAM inode/device identity and machine identifier
+hash are retained in the private registry. The read-only source must belong to
+the registered checkout; writable returns must lie within the private
+`lume-results` directory. A private `lume-admission.json` supplies the admitted
+executable hash and qualified clipboard/no-VNC receipts. It is not editable by
+the renderer. The old research VM remains outside this storage and cannot be
+registered, started or stopped through this owner.
+
+Start saves its intent before invoking the existing process executor. Status
+uses pinned Lume `get NAME --storage DIRECTORY --format json`, then checks its
+VNC-disabled sessions.json PID/start timestamp. Pinned upstream get verifies the
+PID against the config-file lock. Reattachment requires the previously recorded
+PID and start time; uncertain launch without a recorded owner is not replayed.
+Stop uses upstream's exact storage-bound stop (which checks the config lock),
+then verifies stopped state. Cancellation before verified VM start only aborts
+the app's own process handle. A missing source mount cannot block stopping an
+already-owned VM. No bare saved PID is killed.
+
+Prepared fixture checks cover private-storage admission, registered project
+scope, one launch across reconnect, verified owner marker and retained disk
+bytes after stop. Eight environment tests and typecheck pass. These are local
+fixtures, not guest or signed-runtime evidence. Root owns the current patched
+Lume build, actual clipboard/VNC trial and SSH deployment. Native viewer
+reattachment after losing its launcher window is not implemented; reconnect
+here restores ownership/status, while terminal work uses the separate SSH path.
+
+Pinned API source checked for this increment:
+[Get.swift](https://github.com/trycua/cua/blob/a3228aebbed4c8d9c828c1ddea87cd12e99de238/libs/lume/src/Commands/Get.swift),
+[VMDirectory session ownership](https://github.com/trycua/cua/blob/a3228aebbed4c8d9c828c1ddea87cd12e99de238/libs/lume/src/FileSystem/VMDirectory.swift).
+
+Root built exact pinned patched Lume at `research/tool-trials/lume-patched-plan24/libs/lume/.build/release/lume` with Swift release/jobs4 and upstream local virtualization entitlement. Signed executable SHA256 a8b739a9d5a9bd7d0d7865de0f983a6b47e9bd2785e851ff0f05558ae667cc5a. CLI help exposes --no-clipboard and --vnc disabled. Native guest policy remains unqualified while Mac is locked; no admission success flags were written.

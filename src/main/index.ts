@@ -1,4 +1,5 @@
 import { ProjectEnvironments } from './project-environments'
+import { ProjectLume } from './project-lume'
 import { ProjectEnvironmentMemory } from './project-environment-memory'
 import { ProjectEnvironmentResults } from './project-environment-results'
 import { NativeTerminals } from './native-terminals'
@@ -618,7 +619,7 @@ app.whenReady().then(() => {
     referenceRoots: JSON.parse(process.env['DONWELLS_DOCUMENT_REFERENCES'] || '{}')[projectPath] ?? [],
     disabled: []
   }), (config, projectPath) => [
-    ...(config.computerBinary ? [createComputerToolDefinition(config.computerBinary)] : []),
+    ...(config.computerBinary ? [createComputerToolDefinition(config.computerBinary, app.isPackaged ? 'ai.donwells.desktop' : 'com.github.Electron')] : []),
     ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
     ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, retrievalMode: config.documentRetrievalMode, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
@@ -671,6 +672,10 @@ app.whenReady().then(() => {
   ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
   ipcMain.handle('projectMemoryErase', (_e, request: Parameters<IpcApi['projectMemoryErase']>[0]) => projectMemory.projectMemoryErase(request))
   const environments = new ProjectEnvironments(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), undefined, projectMemory)
+  const projectLume = new ProjectLume(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace))
+  ipcMain.handle('environmentLumeList', (_e, ...args: Parameters<IpcApi['environmentLumeList']>) => projectLume.list(...args))
+  ipcMain.handle('environmentLumeRegister', (_e, ...args: Parameters<IpcApi['environmentLumeRegister']>) => projectLume.register(...args))
+  ipcMain.handle('environmentLumeAction', (_e, ...args: Parameters<IpcApi['environmentLumeAction']>) => projectLume.action(...args))
   environmentMemory = new ProjectEnvironmentMemory(environments)
   const environmentResults = new ProjectEnvironmentResults(app.getPath('userData'), environments, git)
   ipcMain.handle('environmentList', (_e, ...args: Parameters<IpcApi['environmentList']>) => environments.list(...args))

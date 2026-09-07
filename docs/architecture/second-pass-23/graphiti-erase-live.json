@@ -1,0 +1,38 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-live-VsW0IS",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-temporal-live-VsW0IS/project",
+  "endpoint": "bolt://127.0.0.1:53211",
+  "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "checks": [
+    "Erasing source withdraws current and historical knowledge; explicit empty reconciliation acknowledges graph generation deletion"
+  ],
+  "erased": {
+    "id": "4c567186-c4d6-498b-8398-3a04a7f14338",
+    "revision": 2,
+    "erasedAt": "2026-09-07T14:57:51.632Z"
+  },
+  "cleaned": {
+    "enabled": true,
+    "generation": "donwells-5739d7d78103de93ad14dcedc756bdfb365ecd8680e77895dcc76539a879c673-b95ccaea-c746-4103-8356-3f05cc504137",
+    "sources": [],
+    "stale": false,
+    "pendingCleanup": 0,
+    "busy": false,
+    "error": null
+  },
+  "answer": {
+    "classification": "learned",
+    "generation": "donwells-5739d7d78103de93ad14dcedc756bdfb365ecd8680e77895dcc76539a879c673-b95ccaea-c746-4103-8356-3f05cc504137",
+    "asOf": "2026-09-07T14:57:52.789Z",
+    "mode": "current",
+    "omitted": 0,
+    "relationships": []
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

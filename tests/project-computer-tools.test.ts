@@ -8,6 +8,9 @@ import { ProjectTools } from '../src/main/project-tools'
 import type { ProjectToolScope } from '../src/shared/project-tools'
 
 const scopes = ['a','b'].map(indexKey => ({indexKey,projectKey:indexKey,checkoutPath:'/tmp/'+indexKey,projectPath:'/tmp/'+indexKey}))
+it('checks permissions for the actual development host rather than the installed app', () => {
+ expect(createComputerToolDefinition('/unused', 'com.github.Electron').launch(scopes[0]!).args).toContain('com.github.Electron')
+})
 it.each([false, true])('fences target ownership and desktop input across separate definitions: %s', async separate => {
  const definition=createComputerToolDefinition('/unused'), scope=scopes[0]!, other=scopes[1]!
  const otherDefinition=separate?createComputerToolDefinition('/another-path'):definition

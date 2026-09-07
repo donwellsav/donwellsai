@@ -9,3 +9,5 @@ Focused native history checks passed (6); actual application IPC loaded existing
 Remaining: actual visible history/analytics journeys; native Hermes cwd mapping is absent in the pinned upstream parser despite existing state.db metadata; current Kimi mapping still needs correction/verification. Task13 is partial. DuckDB is one slice of23, whose learned and temporal integrations remain open.
 
 Rejected/corrected experiments: missing HOME prevented native startup; preserve the original HOME and explicitly disable unselected parser roots. A three-project trial lost its page during the second index; do not repeat it unchanged. The bounded single-project trial succeeded; multi-project recovery remains unqualified.
+
+Analytics controls now use separated themed fields and a bounded scrolling table. Actual Electron DuckDB route rendered and visually inspected in `analytics-refined.png`; decision choices also reset on project switch and late loads are discarded.

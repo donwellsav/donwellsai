@@ -25,6 +25,9 @@ export type EnvironmentResultFile = { path: string; baseRevision: string | null;
 export type EnvironmentResultReview = { id: string; environmentId: string; generation: number; workspacePath: string; baseGitRevision: string | null; files: EnvironmentResultFile[] }
 export type EnvironmentMemoryState = { state: 'disconnected' | 'connecting' | 'connected' | 'failed'; detail?: string }
 export type ProjectEnvironmentApi = {
+  environmentLumeList(workspacePath: string): Promise<{ storageDirectory: string; returnDirectory: string; admissionPath: string; guests: LumeEnvironment[] }>
+  environmentLumeRegister(workspacePath: string, id: string, config: LumeEnvironmentConfig): Promise<LumeEnvironment>
+  environmentLumeAction(workspacePath: string, id: string, action: 'start' | 'stop' | 'status'): Promise<LumeEnvironment>
   environmentList(workspacePath: string): Promise<ProjectEnvironment[]>
   environmentConfigure(workspacePath: string, id: string, config: SshEnvironmentConfig): Promise<ProjectEnvironment>
   environmentConnect(workspacePath: string, id: string, generation: number): Promise<ProjectEnvironment>
@@ -37,3 +40,6 @@ export type ProjectEnvironmentApi = {
   environmentResultsStage(workspacePath: string, reviewId: string): Promise<EnvironmentResultReview>
   environmentResultsApply(workspacePath: string, reviewId: string, paths: string[]): Promise<EnvironmentResultReview>
 }
+
+export type LumeEnvironmentConfig = { storageDirectory: string; name: string; machineIdentifierSha256: string; mounts: Array<{ path: string; mode: 'ro' | 'rw'; purpose: 'source' | 'results' }> }
+export type LumeEnvironment = { id: string; projectKey: string; checkoutPath: string; config: LumeEnvironmentConfig; state: 'stopped' | 'starting' | 'running' | 'stopping' | 'unverifiable'; pid?: number; startedAt?: number; ipAddress?: string; detail?: string }

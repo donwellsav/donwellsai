@@ -1,0 +1,5 @@
+# Native control UI increment
+
+Current UI adds attachment identity/observation state, accessible-element actions, screenshot-point click/type, foreground permission and immediate release. An action consumes its observation; failures clear UI references rather than encouraging replay. The admitted Cua Driver0.23.2 remains selected; backend ownership/interrupt proof is retained at strengthening-16 with its original packaged source identity.
+
+Root found a real development-host permission bug: the driver always attributed access to ai.donwells.desktop even under com.github.Electron. Main now passes the actual development/packaged identity; focused test protects this route. Mac computer-use tool reports the desktop is locked and cannot auto-unlock. Empty AX/capture results in current UI trials cannot qualify native control. A user unlock request is pending; actual new UI screenshot-point input and closed-target recovery remain open. No further repeated native-input trials until unlocked. Task16 is externally blocked on that demonstration, not delivered.

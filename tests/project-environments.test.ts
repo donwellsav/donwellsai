@@ -197,3 +197,35 @@ it('serves the scoped memory socket only while its acknowledged forward is owned
     await expect(remoteMemoryRequest(localSocket, 'memory.list', {}, { token: 'valid' }, 'after-stop', 1000)).rejects.toThrow()
   } finally { await bridge.close() }
 })
+
+it('admits only private prepared Lume disks and reconnects/stops the recorded owner without replaying launch', async () => {
+  const { root, project } = fixture(), profile = join(root, 'lume-profile')
+  const { ProjectLume } = await import('../src/main/project-lume')
+  const scope = async (path: string) => { if (path !== project) throw new Error('foreign project'); return { projectPath: project, checkoutPath: project, projectKey: 'project', indexKey: 'checkout' } }
+  let running = false, release!: () => void, launches = 0
+  let vm = ''
+  const execute = vi.fn(async spec => {
+    if (spec.args[0] === 'get') return { stdout: JSON.stringify([{ name: 'fresh', cpuCount: 4, memorySize: 8 * 1024 ** 3, os: 'macOS', status: running ? 'running' : 'stopped', vncUrl: null, ipAddress: '192.168.64.20' }]) }
+    if (spec.args[0] === 'run') { launches++; running = true; writeFileSync(join(vm, 'sessions.json'), JSON.stringify({ vncEnabled: false, pid: process.pid, startedAt: 123 })); await new Promise<void>(resolve => { release = resolve }); return { stdout: '' } }
+    if (spec.args[0] === 'stop') { running = false; release(); return { stdout: '' } }
+    throw new Error('Unexpected command')
+  })
+  const owner = new ProjectLume(profile, scope, execute as never), info = await owner.list(project)
+  vm = join(info.storageDirectory, 'fresh'); mkdirSync(vm)
+  writeFileSync(join(vm, 'disk.img'), 'new disk'); writeFileSync(join(vm, 'nvram.bin'), 'new nvram')
+  writeFileSync(join(vm, 'config.json'), JSON.stringify({ machineIdentifier: 'new-machine', cpuCount: 4, memorySize: 8 * 1024 ** 3, os: 'macOS' }))
+  const binary = join(root, 'qualified-lume'); writeFileSync(binary, 'fixture')
+  const sha = (value: string) => createHash('sha256').update(value).digest('hex')
+  writeFileSync(info.admissionPath, JSON.stringify({ executable: binary, executableSha256: sha('fixture'), clipboardDisabledQualified: true, vncDisabledQualified: true }), { mode: 0o600 })
+  const config = { storageDirectory: info.storageDirectory, name: 'fresh', machineIdentifierSha256: sha('new-machine'), mounts: [{ path: project, mode: 'ro' as const, purpose: 'source' as const }, { path: info.returnDirectory, mode: 'rw' as const, purpose: 'results' as const }] }
+  await expect(owner.register(project, 'user-vm', { ...config, storageDirectory: root })).rejects.toThrow('retained')
+  await owner.register(project, 'fresh', config)
+  expect((await owner.action(project, 'fresh', 'start')).state).toBe('starting')
+  expect((await owner.action(project, 'fresh', 'status')).state).toBe('running')
+  const reconnected = new ProjectLume(profile, scope, execute as never)
+  expect(await reconnected.action(project, 'fresh', 'status')).toMatchObject({ state: 'running', pid: process.pid })
+  expect(launches).toBe(1)
+  await expect(reconnected.action('/foreign', 'fresh', 'stop')).rejects.toThrow('foreign')
+  expect((await reconnected.action(project, 'fresh', 'stop')).state).toBe('stopped')
+  expect(readFileSync(join(vm, 'disk.img'), 'utf8')).toBe('new disk')
+})

@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { parseDiffFromFile } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
-import type { ProjectEnvironment, SshEnvironmentConfig, EnvironmentResultReview, EnvironmentMemoryState, ProjectRemoteMethod } from '@shared/project-environment'
+import type { ProjectEnvironment, LumeEnvironment, LumeEnvironmentConfig, SshEnvironmentConfig, EnvironmentResultReview, EnvironmentMemoryState, ProjectRemoteMethod } from '@shared/project-environment'
 import type { TerminalSession } from '@shared/types'
 import { useAppStore } from '../store'
 import { terminalThemeOf } from '../terminal-themes'
@@ -81,6 +81,7 @@ export function ProjectEnvironmentPanel() {
   if (!workspacePath) return <p>Select a project to configure an environment.</p>
   return <section className="project-tool-settings" aria-label="Project environments" aria-busy={busy}>
     <h3>Project environments</h3>
+    <LumeEnvironmentSection key={workspacePath} workspacePath={workspacePath} />
     <p>Run terminal agents in a paired macOS guest. Closing this panel leaves remote work running.</p>
     <details><summary>Pair an SSH environment</summary>
       <form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; void run(() => configure(form)) }}>
@@ -120,4 +121,27 @@ export function ProjectEnvironmentPanel() {
     </>}
     {error && <p role="alert" style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
   </section>
+}
+
+
+function LumeEnvironmentSection({ workspacePath }: { workspacePath: string }) {
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof window.donwells.environmentLumeList>> | null>(null)
+  const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const active = useRef(true)
+  useEffect(() => { active.current = true; void window.donwells.environmentLumeList(workspacePath).then(value => { if (active.current) setInfo(value) }).catch(failure => { if (active.current) setError(String(failure)) }); return () => { active.current = false } }, [workspacePath])
+  const perform = async (action: () => Promise<unknown>) => { if (busy) return; setBusy(true); setError(''); try { await action(); const value = await window.donwells.environmentLumeList(workspacePath); if (active.current) setInfo(value) } catch (failure) { if (active.current) setError(String(failure)) } finally { if (active.current) setBusy(false) } }
+  const guestAction = (guest: LumeEnvironment, action: 'start' | 'stop' | 'status') => perform(() => window.donwells.environmentLumeAction(workspacePath, guest.id, action))
+  return <details aria-label="Prepared Lume desktops"><summary>Lume desktops · prepared guests</summary>
+    <p>4 CPUs · 8 GiB RAM · NAT · clipboard and VNC disabled. Start requires an admitted patched build. Closing this view does not stop its guest.</p>
+    {error && <p role="alert">{error}</p>}
+    {info && <>
+      {info.guests.map(guest => <div key={guest.id}><strong>{guest.id} · {guest.state}</strong><p>{guest.pid ? `Owner PID ${guest.pid}. ` : ''}{guest.ipAddress ? `Guest address ${guest.ipAddress}. Pair this address through SSH below for terminals and shared memory.` : 'Use Refresh owner to inspect boot and connection state.'}</p>{guest.detail && <p role="status">{guest.detail}</p>}<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn btn-secondary btn-sm" disabled={busy || guest.state !== 'stopped'} onClick={() => void guestAction(guest, 'start')}>Start desktop</button><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void guestAction(guest, 'status')}>Refresh / reconnect owner</button><button className="btn btn-secondary btn-sm" disabled={busy || !['running', 'starting'].includes(guest.state)} onClick={() => void guestAction(guest, 'stop')}>Stop desktop</button></div></div>)}
+      <details><summary>Register a newly prepared guest</summary><p>Prepared machines must be inside <code>{info.storageDirectory}</code>. Existing user VMs cannot be selected. Admission receipt: <code>{info.admissionPath}</code>.</p>
+        <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget), field = (name: string) => String(data.get(name) ?? '').trim(); const config: LumeEnvironmentConfig = { storageDirectory: info.storageDirectory, name: field('machine'), machineIdentifierSha256: field('identity'), mounts: [{ path: field('source'), mode: 'ro', purpose: 'source' }, { path: field('results'), mode: 'rw', purpose: 'results' }] }; void perform(() => window.donwells.environmentLumeRegister(workspacePath, field('id'), config)) }}>
+          {([['id', 'Environment ID', ''], ['machine', 'Prepared machine name', ''], ['identity', 'Machine identifier SHA-256', ''], ['source', 'Read-only project folder', workspacePath], ['results', 'Writable return folder', info.returnDirectory]] as const).map(([name, label, value]) => <label key={name} style={{ display: 'grid', gap: 4, marginBlock: 10 }}>{label}<input name={name} required defaultValue={value} disabled={busy} /></label>)}
+          <button className="btn btn-secondary btn-sm" disabled={busy}>Register prepared guest</button>
+        </form>
+      </details>
+    </>}
+  </details>
 }
