@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { access, readFile, stat, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { assertMatchingDirectory } from "../tests/helpers/package-evidence.mjs";
 
+const { values } = parseArgs({ options: { resources: { type: 'string' }, platform: { type: 'string' }, arch: { type: 'string' } } });
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const readJson = async (path) => JSON.parse(await readFile(resolve(root, path), "utf8"));
 const assert = (condition, message) => {
@@ -33,6 +34,8 @@ for (const platform of ["mac", "linux", "win"]) {
   assert(config[platform]?.executableName === "donwells", `${platform} executable name must be donwells`);
 }
 const resources = new Map(config.extraResources.map(({ from, to }) => [from, to]));
+assert(resources.get("scripts/profile-recovery.mjs") === "recovery/profile-recovery.mjs", "packaged recovery engine is missing");
+assert(resources.get("resources/native") === "native", "native resources are not packaged");
 assert(resources.get("cli") === "cli", "packaged CLI loader directory is missing");
 assert(resources.get("dist-cli") === "dist-cli", "packaged compiled CLI directory is missing");
 assert(resources.get("resources/bin") === "bin", "packaged CLI launchers are missing");
@@ -66,6 +69,44 @@ if (process.platform !== "win32") {
     assert((mode & 0o111) !== 0, `${executablePath} must be executable`);
   }
 }
+for (const suffix of ['', '.cmd']) {
+  const path = resolve(root, 'resources/bin/donwells-profile-recovery' + suffix);
+  const script = await readFile(path, 'utf8');
+  assert(script.includes('ELECTRON_RUN_AS_NODE=1') && script.includes('profile-recovery.mjs'), 'Recovery launcher must invoke the shipped engine through bundled Electron');
+  if (!suffix && process.platform !== 'win32') assert(((await stat(path)).mode & 0o111) !== 0, 'Recovery launcher must be executable');
+}
+const packagedMac = values.resources && existsSync(resolve(values.resources, '../MacOS/donwells'));
+const platform = packagedMac ? 'darwin' : values.platform ?? (values.resources ? 'other' : process.platform);
+assert(!values.platform || ['darwin', 'linux', 'win32'].includes(values.platform), 'Unsupported --platform');
+assert(!values.arch || ['arm64', 'x64'].includes(values.arch), 'Unsupported --arch');
+if (platform === 'darwin') {
+  const native = resolve(values.resources ?? resolve(root, 'resources'), 'native');
+  for (const name of ['ghostty.node', 'libDonwellsGhostty.dylib', 'build.json', 'Ghostty-LICENSE.txt', 'GhosttyTerminal-LICENSE.txt', 'MSDisplayLink-LICENSE.txt', 'notices/z2d-COPYING.txt', 'notices/z2d-LICENSE.txt', 'notices/z2d-source/COPYING', 'notices/z2d-source/LICENSE']) {
+    assert((await stat(resolve(native, name))).size > 0, `Missing or empty native resource: ${name}`);
+  }
+  assert((await readdir(resolve(native, 'GhosttyKit_GhosttyTerminal.bundle'))).length > 0, 'Native terminal resource bundle is empty');
+  assert((await readdir(resolve(native, 'notices/z2d-source'))).length > 2, 'z2d covered source is missing');
+  const build = JSON.parse(await readFile(resolve(native, 'build.json'), 'utf8'));
+  assert(/^[a-f0-9]{40}$/.test(build.wrapper) && /^[a-f0-9]{40}$/.test(build.core) && typeof build.z2dHash === 'string' && build.z2dHash.startsWith('z2d-'), 'Invalid native source provenance');
+  assert(build.flags?.includes('-Di18n=false'), 'Native build must disable gettext');
+  const targetArch = { 'aarch64-macos.13.0': 'arm64', 'x86_64-macos.13.0': 'x86_64' }[build.target];
+  assert(targetArch, 'Unsupported native target');
+  const expected = values.arch ?? (!values.resources ? process.arch : undefined);
+  if (expected) assert(targetArch === (expected === 'x64' ? 'x86_64' : expected), 'Native build target differs from requested architecture');
+  // ponytail: macOS binary qualification uses Apple tooling; cross-host mac checks fail explicitly rather than infer linkage from filenames.
+  for (const binary of ['ghostty.node', 'libDonwellsGhostty.dylib']) {
+    const path = resolve(native, binary);
+    assert(execFileSync('lipo', ['-archs', path], { encoding: 'utf8' }).trim() === targetArch, `Native architecture mismatch: ${binary}`);
+    const links = execFileSync('otool', ['-L', path], { encoding: 'utf8' });
+    assert(!/libintl|gettext/.test(links), `gettext dependency in ${binary}`);
+    // The first entry is this dylib's install ID, not an external dependency.
+    for (const line of links.trim().split('\n').slice(2)) {
+      const dependency = line.trim().split(' (')[0];
+      assert(dependency.startsWith('/usr/lib/') || dependency.startsWith('/System/Library/') || dependency === '@rpath/libDonwellsGhostty.dylib', `Nonportable native dependency: ${dependency}`);
+    }
+  }
+  if (packagedMac) assert(execFileSync('lipo', ['-archs', resolve(values.resources, '../MacOS/donwells')], { encoding: 'utf8' }).trim().split(/\s+/).includes(targetArch), 'App executable does not support native library architecture');
+}
 const notices = await readFile(resolve(root, "resources/THIRD_PARTY_NOTICES.txt"), "utf8");
 for (const required of ["Copyright (c) 2026 Lovecast Inc.", "Permission is hereby granted", "THE SOFTWARE IS PROVIDED \"AS IS\""]) {
   assert(notices.includes(required), `third-party notice is missing: ${required}`);
@@ -73,7 +114,6 @@ for (const required of ["Copyright (c) 2026 Lovecast Inc.", "Permission is hereb
 console.log("Package identity, native unpacking, CLI, icons, and notices are ready.");
 
 // Compare actual shipped bytes, not just the packaging configuration.
-const { values } = parseArgs({ options: { resources: { type: 'string' } } });
 if (values.resources) {
   const require = createRequire(import.meta.url);
   const asar = require(require.resolve('@electron/asar', { paths: [require.resolve('electron-builder')] }));

@@ -43,6 +43,10 @@
     {
       "from": "resources/native",
       "to": "native"
+    },
+    {
+      "from": "scripts/profile-recovery.mjs",
+      "to": "recovery/profile-recovery.mjs"
     }
   ],
   "mac": {

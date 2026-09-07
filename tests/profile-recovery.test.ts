@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,6 +10,24 @@ const createdRoots: string[] = [];
 
 afterEach(async () => {
   for (const root of createdRoots.splice(0)) await rm(root, { recursive: true, force: true });
+});
+
+it.skipIf(process.platform === 'win32')('shipped recovery launcher uses bundled Node mode and preserves spaced arguments', async () => {
+  const { root, source, destination, stateFile } = await fixture();
+  const resources = join(root, 'installed app', 'Resources');
+  const executable = process.platform === 'darwin' ? join(resources, '..', 'MacOS', 'donwells') : join(resources, '..', 'donwells');
+  await mkdir(join(resources, 'bin'), { recursive: true });
+  await mkdir(join(resources, 'recovery'));
+  await mkdir(resolve(executable, '..'), { recursive: true });
+  await copyFile(recoveryScript, join(resources, 'recovery', 'profile-recovery.mjs'));
+  const launcher = join(resources, 'bin', 'donwells-profile-recovery');
+  await copyFile(resolve('resources/bin/donwells-profile-recovery'), launcher);
+  // Only the Electron executable is substituted: exercise the actual shipped launcher and recovery engine.
+  await writeFile(executable, `#!/bin/sh\n[ "$ELECTRON_RUN_AS_NODE" = 1 ] || exit 99\nexec '${process.execPath.replaceAll("'", "'\\''")}' "$@"\n`);
+  await Promise.all([chmod(executable, 0o755), chmod(launcher, 0o755)]);
+  const result = spawnSync(launcher, ['--source', source, '--destination', destination, '--state-file', stateFile], { encoding: 'utf8' });
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout).mode).toBe('plan');
 });
 
 function invoke(args: string[], environment: Record<string, string> = {}) {
