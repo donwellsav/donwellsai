@@ -91,6 +91,7 @@ try {
     report.engineSha256 = hash(readFileSync(modulePath))
     const { openProjectDocumentIndex } = await import(pathToFileURL(modulePath).href)
     const config = { qmdPackage: packagePath, lancePackage: resolve(values['lance-package']), database: join(root, 'native-index'), embeddingModel: model, rerankingModel: reranker }
+    if (corpus.traps?.length) {
     const foreign = await openProjectDocumentIndex({ ...config, collections: [...new Set(corpus.traps.map(trap => hash(trap.scope)))] })
     try {
       for (const scope of new Set(corpus.traps.map(trap => trap.scope))) {
@@ -99,10 +100,11 @@ try {
         for (const trap of traps) assert((await foreign.search(trap.marker)).hits.some(hit => hit.collection === hash(scope) && hit.path === trap.path))
       }
     } finally { await foreign.close() }
+    }
     nativeIndex = await openProjectDocumentIndex({ ...config, collections: [hash('project')] })
     report.index = await nativeIndex.replace(hash('project'), manifest.map(file => ({ path: file.path, content: readFileSync(join(docs, file.path), 'utf8'), revision: file.sha256 })), (completed, total) => { if (completed % 160 === 0 || completed === total) console.error(JSON.stringify({ embedded: completed, total })) })
     report.embeddingMs = report.index.embeddingMs; report.indexMs = report.index.indexMs
-    report.foreignFixturesIndexedAndRetrievable = true; report.mode = 'production-lancedb-native-hybrid-local-rerank'
+    report.foreignFixturesIndexedAndRetrievable = Boolean(corpus.traps?.length); report.mode = 'production-lancedb-native-hybrid-local-rerank'
   } else if (values['lance-package']) {
     const lancePath = resolve(values['lance-package'])
     report.lanceVersion = JSON.parse(readFileSync(join(lancePath, 'package.json'), 'utf8')).version
