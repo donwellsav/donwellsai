@@ -407,6 +407,7 @@ export type UiCommand =
 
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
+export type AgentMemorySetupResult = { path: string; changed: boolean; backupPath?: string; launchArgs?: string[]; setupArgs?: string[]; replacement?: { revision: string; current: unknown; proposed: unknown } }
 export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-environment').ProjectEnvironmentApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
@@ -484,7 +485,7 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   agentAcpControl(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<import('./agent-runtime').AcpAgentSnapshot>
   agentInterrupt(sessionId: string): Promise<RunningAgent>
   agentStop(sessionId: string): Promise<RunningAgent>
-  agentConfigureMemory(workspacePath: string, provider: string, launchArgs?: string[]): Promise<{ path: string; changed: boolean; backupPath?: string; launchArgs?: string[]; setupArgs?: string[] }>
+  agentConfigureMemory(workspacePath: string, provider: string, launchArgs?: string[], replacement?: { action: 'preview' } | { action: 'apply'; revision: string }): Promise<AgentMemorySetupResult>
   agentDismiss(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   pickDirectory(): Promise<string | null>

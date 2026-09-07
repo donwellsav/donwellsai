@@ -5,7 +5,7 @@ import {
   agentProviderName,
   type AgentPresentation
 } from '@shared/agent-presentation'
-import type { RunningAgent } from '@shared/types'
+import type { AgentMemorySetupResult, RunningAgent } from '@shared/types'
 import { pinnedWorktree } from '../../commands'
 import { useAppStore } from '../../store'
 import { Icon } from '../Icon'
@@ -40,6 +40,7 @@ export function AgentsSection() {
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [memorySetup, setMemorySetup] = useState<{ target: string; message: string; launchArgs?: string[] } | null>(null)
+  const [memoryReplacement, setMemoryReplacement] = useState<{ target: string; provider: string; args: string[]; setup: AgentMemorySetupResult; error?: string } | null>(null)
   const [configuringMemory, setConfiguringMemory] = useState(false)
   const [opening, setOpening] = useState<string | null>(null)
   const [operation, setOperation] = useState<string | null>(null)
@@ -266,7 +267,8 @@ export function AgentsSection() {
             const target = `${targetPath}:${selectedPreset.id}`
             setConfiguringMemory(true)
             try {
-              const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id, args)
+              const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id, args, { action: 'preview' })
+              if (setup.replacement) { setMemoryReplacement({ target: targetPath, provider: selectedPreset.id, args: [...args], setup }); return }
               if (setup.setupArgs) {
                 const result = await runAgent(targetPath, { executable: selectedPreset.executablePath ?? selectedPreset.command, args: setup.setupArgs })
                 if (!result.ok) throw new Error(result.error)
@@ -432,6 +434,29 @@ export function AgentsSection() {
             <button type="button" className="btn btn-danger" disabled={operation !== null} onClick={() => void confirmAgentAction()}>
               {operation ? confirmation.kind === 'stop' ? 'Stopping…' : 'Dismissing…' : confirmation.kind === 'stop' ? 'Stop agent' : 'Dismiss history'}
             </button>
+          </div>
+        </ModalDialog>
+      )}
+      {memoryReplacement?.setup.replacement && (
+        <ModalDialog className="modal op-confirm agent-confirm" labelledBy="agent-memory-replace-title" onClose={() => { if (!configuringMemory) setMemoryReplacement(null) }}>
+          <span className="op-eyebrow">Review project configuration</span>
+          <h3 id="agent-memory-replace-title" className="modal-title">Replace the shared-memory entry?</h3>
+          <p>{memoryReplacement.provider === 'deepseek-harness' ? 'The existing managed DSH patch differs. Review the entire patch that will replace it.' : 'The existing entry points somewhere else. Review the exact entry change before replacing it. Other configuration entries are preserved.'}</p>
+          <dl className="agent-confirm-facts"><div><dt>Project</dt><dd>{memoryReplacement.target}</dd></div><div><dt>File</dt><dd>{memoryReplacement.setup.path}</dd></div></dl>
+          <pre className="op-confirm-command" tabIndex={0}>{`Current\n${JSON.stringify(memoryReplacement.setup.replacement.current, null, 2)}\n\nReplacement\n${JSON.stringify(memoryReplacement.setup.replacement.proposed, null, 2)}`}</pre>
+          {memoryReplacement.error && <p className="op-inline-error" role="alert"><strong>Replacement did not complete.</strong><span>{memoryReplacement.error} Close this review and prepare it again if the file changed.</span></p>}
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" disabled={configuringMemory} onClick={() => setMemoryReplacement(null)}>Keep existing entry</button>
+            <button type="button" className="btn btn-danger" disabled={configuringMemory} onClick={() => void (async () => {
+              setConfiguringMemory(true)
+              try {
+                const result = await window.donwells.agentConfigureMemory(memoryReplacement.target, memoryReplacement.provider, memoryReplacement.args, { action: 'apply', revision: memoryReplacement.setup.replacement!.revision })
+                const target = `${memoryReplacement.target}:${memoryReplacement.provider}`
+                setMemorySetup({ target, launchArgs: result.launchArgs, message: result.launchArgs ? 'Reviewed project memory patch replaced. Keep your native profile arguments below.' : 'Reviewed project memory entry replaced. New agent sessions will load it.' })
+                setMemoryReplacement(null)
+              } catch (error) { setMemoryReplacement(current => current ? { ...current, error: error instanceof Error ? error.message : String(error) } : current) }
+              finally { setConfiguringMemory(false) }
+            })()}>{configuringMemory ? 'Replacing…' : 'Replace reviewed entry'}</button>
           </div>
         </ModalDialog>
       )}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, statSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, statSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GitWorktrees } from '../src/main/git'
@@ -75,6 +75,7 @@ describe('GitWorktrees.writeFile', () => {
     const original = JSON.stringify({ mcpServers: { personal: { command: 'user-server' } }, unknown: ['keep'] })
     writeFileSync(join(path, '.omp/mcp.json'), original)
     const options = { files: git, workspacePath: path, provider: 'omp', userDataDir: path, executable: '/native/Electron', cliPath: '/native/cli/donwells.mjs' }
+    await expect(configureAgentMemory({ ...options, replacement: { action: 'replace', revision: 'anything' } as never })).rejects.toThrow(/Invalid memory configuration replacement/)
     const result = await configureAgentMemory(options)
     expect(readFileSync(result.backupPath!, 'utf8')).toBe(original)
     const config = JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8'))
@@ -86,6 +87,29 @@ describe('GitWorktrees.writeFile', () => {
     writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
     await expect(configureAgentMemory(options)).rejects.toThrow(/already has a different/)
     expect(JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8')).mcpServers['donwells-project-memory'].command).toBe('user-edited')
+    const preview = await configureAgentMemory({ ...options, replacement: { action: 'preview' } })
+    expect(preview.replacement?.current).toMatchObject({ command: 'user-edited' })
+    expect(preview.replacement?.proposed).toMatchObject({ command: '/native/Electron' })
+    rmSync(join(path, '.omp/mcp.json'))
+    await expect(configureAgentMemory({ ...options, replacement: { action: 'apply', revision: preview.replacement!.revision } })).rejects.toThrow(/changed after review/)
+    expect(existsSync(join(path, '.omp/mcp.json'))).toBe(false)
+    writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
+    const equivalentPreview = await configureAgentMemory({ ...options, replacement: { action: 'preview' } })
+    config.mcpServers['donwells-project-memory'] = equivalentPreview.replacement!.proposed
+    writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
+    const equivalentBytes = readFileSync(join(path, '.omp/mcp.json'))
+    await expect(configureAgentMemory({ ...options, replacement: { action: 'apply', revision: equivalentPreview.replacement!.revision } })).rejects.toThrow(/changed after review/)
+    expect(readFileSync(join(path, '.omp/mcp.json'))).toEqual(equivalentBytes)
+    config.mcpServers['donwells-project-memory'].command = 'user-edited'
+    writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
+    const applyPreview = await configureAgentMemory({ ...options, replacement: { action: 'preview' } })
+    const applied = await configureAgentMemory({ ...options, replacement: { action: 'apply', revision: applyPreview.replacement!.revision } })
+    expect(readFileSync(applied.backupPath!, 'utf8')).toContain('user-edited')
+    expect(JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8')).mcpServers.personal).toEqual({ command: 'user-server' })
+    expect(JSON.parse(readFileSync(join(path, '.omp/mcp.json'), 'utf8')).mcpServers['donwells-project-memory'].command).toBe('/native/Electron')
+    config.mcpServers['donwells-project-memory'].command = 'changed-after-review'
+    writeFileSync(join(path, '.omp/mcp.json'), JSON.stringify(config))
+    await expect(configureAgentMemory({ ...options, replacement: { action: 'apply', revision: applyPreview.replacement!.revision } })).rejects.toThrow(/changed after review/)
   })
 
   it('creates a scoped DSH launch patch and refuses to overwrite an edited patch', async () => {
@@ -107,6 +131,12 @@ describe('GitWorktrees.writeFile', () => {
     writeFileSync(join(path, result.path), '[]')
     await expect(configureAgentMemory(options)).rejects.toThrow(/left unchanged/)
     expect(readFileSync(join(path, result.path), 'utf8')).toBe('[]')
+    const preview = await configureAgentMemory({ ...options, replacement: { action: 'preview' } })
+    expect(preview.replacement?.current).toEqual([])
+    expect(preview.replacement?.proposed).toMatchObject([{ insert: [{ id: 'donwells-project-memory' }] }])
+    const applied = await configureAgentMemory({ ...options, replacement: { action: 'apply', revision: preview.replacement!.revision } })
+    expect(readFileSync(applied.backupPath!, 'utf8')).toBe('[]')
+    expect(JSON.parse(readFileSync(join(path, result.path), 'utf8'))[0].insert[0].id).toBe('donwells-project-memory')
     await expect(configureAgentMemory({ ...options, workspacePath: '/tmp' })).rejects.toThrow()
   })
 

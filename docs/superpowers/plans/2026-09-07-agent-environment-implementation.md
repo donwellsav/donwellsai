@@ -142,3 +142,9 @@ Extend `ComputerControlPanel.tsx` with host-versus-environment target identity a
 - Tests prove specific failures; delivery additionally requires the described in-app native/ACP and Lume/SSH journeys. A blocked provider or unavailable signing identity leaves its acceptance open while independent slices proceed. Do not mark an experiment's completion as completion of the integration.
 
 This specification requires no product edits, installation, VM activity or model calls during planning. Each implementation commit must update the parent checklist with the delivered behavior, remaining open acceptance and source evidence; continue to the next ready slice without a routine approval stop.
+
+## Task07 reviewed native configuration repair
+
+A moved app can leave OMP/Kimi memory configuration pointing at its old CLI. Setup now offers the exact existing/proposed entry through the existing confirmation dialog; Keep preserves bytes. Applying rechecks the entire reviewed file revision before every branch, preserves unrelated entries and writes a private exact backup. DSH explicitly reviews its entire managed patch. No ownership is inferred from a server name and unreviewed API callers still fail closed.
+
+`second-pass-07/config-repair-live.json` records the actual compact-window UI: scrollable keyboard-focusable preview, Keep, concurrent-edit rejection inside the dialog, fresh review/apply and exact backup. Deletion/equivalent concurrent changes are covered at the shared boundary by the existing file-write suite (16 passed); full typecheck passed. No provider prompts were used. Task07 remains partial pending the real ACP permission journey and complete named-adapter mapping.
