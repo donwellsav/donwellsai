@@ -1,0 +1,25 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-control-ui-lP9kpT",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-control-ui-lP9kpT/project",
+  "evidence": "/tmp/donwells-control16-current-evidence",
+  "fixture": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-control-ui-CW2eu3/fixture",
+  "fixtureHash": "7a41c1ecfb3f9f446a3c5c7f8141e083afa8690770e5edf09e132608a0e0586d",
+  "checks": [],
+  "dimensions": {
+    "width": 800,
+    "height": 424
+  },
+  "point": {
+    "x": 400,
+    "y": 244
+  },
+  "output": "Error: Error invoking remote method 'projectToolCall': Error: Tool argument is not permitted: element\nStop and release the controller before selecting a replacement if the target closed or input outcome is uncertain.",
+  "error": "Error: ENOENT: no such file or directory, open '/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-control-ui-lP9kpT/actions.json'",
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true,
+  "note": "Raw native window/menu output remains in private /tmp evidence; omitted here. No successful point input is claimed."
+}

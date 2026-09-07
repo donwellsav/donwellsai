@@ -1,0 +1,58 @@
+{
+  "profile": "/tmp/donwells-task26-physical-evidence-1/profile",
+  "fixture": "/tmp/donwells-task26-physical-evidence-1/project",
+  "evidence": "/tmp/donwells-task26-physical-evidence-1",
+  "scope": "External macOS automation input with ScreenCaptureKit observation; provider dispatch is synthetic and requires independent outcome checks.",
+  "ready": true,
+  "runnerPid": 79528,
+  "startIntent": true,
+  "sessionId": "ae557a00-4b4a-484c-8687-ad54becb77ce",
+  "nativePid": null,
+  "instance": "0c603fee-a973-44f3-8860-1d9781de4c48",
+  "nativeObservation": {
+    "finding": false,
+    "searchSelected": -1,
+    "ok": true,
+    "visible": true,
+    "text": "DONWELLS NATIVE GHOSTTY \u2014 PHYSICAL CHECK\nSELECT THIS EXACT TEXT: cobalt river 26\nType PHYSICAL26 then Return below. Input is echoed by cat.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+    "searchTotal": -1
+  },
+  "hostRect": {
+    "x": 224,
+    "y": 31,
+    "width": 988,
+    "height": 737
+  },
+  "finalObservation": {
+    "visible": true,
+    "finding": false,
+    "searchSelected": -1,
+    "searchTotal": -1,
+    "ok": true,
+    "text": "DONWELLS NATIVE GHOSTTY \u2014 PHYSICAL CHECK\nSELECT THIS EXACT TEXT: cobalt river 26\nType PHYSICAL26 then Return below. Input is echoed by cat.\n\nPHYSICAL26\nPHYSICAL26\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+  },
+  "agentStopped": true,
+  "shutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonStopped": true,
+  "cleaned": true,
+  "demonstrated": [
+    "Native Metal terminal visible in desktop capture",
+    "PHYSICAL26 visibly typed after native pointer focus; Return produced cat echo",
+    "Cmd-F opened native search; visible close button removed it"
+  ],
+  "unproven": [
+    "Pointer text selection: drag dispatches did not produce visible highlight",
+    "Initial typing before pointer focus did not visibly arrive",
+    "Full integrated final-package/native recovery remains22"
+  ],
+  "diagnostics": {
+    "rawDirectory": "/tmp/donwells-task26-physical-evidence-1",
+    "coordinateProbe": "Window-relative close-search click succeeded. A global-coordinate alternative drag was inconclusive; no coordinate defect is established.",
+    "provider": "Orca1.4.192 computer-use-macos; each synthetic dispatch is unverified until observable result",
+    "noModels": true
+  }
+}

@@ -15,8 +15,8 @@ export function ComputerControlPanel({workspacePath}:{workspacePath:string}) {
   try{
    const target=windows.find(window=>String(window.window_id)===selected)
    if(operation==='attach'&&!target)throw new Error('Choose an app window first')
-   const action=attachment?{owner:owner.current,generation:attachment.generation,revision:attachment.revision,element}:{}
-   const args=operation==='attach'?{owner:owner.current,pid:target!.pid,window:target!.window_id,foreground}:operation==='click'?action:operation==='type'?{...action,text:input}:operation==='hotkey'?{...action,keys:keys.split('+').map(value=>value.trim()).filter(Boolean)}:operation==='pixelClick'||operation==='pixelType'?{...action,...point,...(operation==='pixelType'?{text:input}:{})}:{}
+   const action=attachment?{owner:owner.current,generation:attachment.generation,revision:attachment.revision}:{}
+   const args=operation==='attach'?{owner:owner.current,pid:target!.pid,window:target!.window_id,foreground}:operation==='click'?{...action,element}:operation==='type'?{...action,element,text:input}:operation==='hotkey'?{...action,element,keys:keys.split('+').map(value=>value.trim()).filter(Boolean)}:operation==='pixelClick'||operation==='pixelType'?{...action,...point,...(operation==='pixelType'?{text:input}:{})}:{}
    const result=operation==='stop'?await window.donwells.projectToolStop(workspacePath,'computer-control'):await window.donwells.projectToolCall(workspacePath,'computer-control',operation,args)
    if(request!==sequence.current)return
    setImage('');setPoint(null)
