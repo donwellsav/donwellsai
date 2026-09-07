@@ -59,7 +59,7 @@ export function ProjectEnvironmentPanel() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [paths, setPaths] = useState(''), [reviews, setReviews] = useState<EnvironmentResultReview[]>([]), [reviewId, setReviewId] = useState(''), [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const environment = environments.find(item => item.id === selectedId), review = reviews.find(item => item.id === reviewId)
   const activeWorkspace = useRef(workspacePath); activeWorkspace.current = workspacePath
-  const refresh = async () => { if (!workspacePath) return; const values = await window.donwells.environmentList(workspacePath); if (activeWorkspace.current === workspacePath) { setEnvironments(values); setSelectedId(current => values.some(item => item.id === current) ? current : values[0]?.id ?? '') } }
+  const refresh = async () => { if (!workspacePath) return; const values = await window.donwells.environmentList(workspacePath); if (activeWorkspace.current === workspacePath) { setEnvironments(values); setSelectedId(current => values.some(item => item.id === current) ? current : values[0]?.id ?? '') } return values }
   useEffect(() => { setEnvironments([]); setSelectedId(''); setSessions([]); setSessionId(''); setReviews([]); setReviewId(''); setSelectedFiles([]); setError(''); void refresh().catch(failure => setError(String(failure))) }, [workspacePath])
   useEffect(() => {
     setSessions([]); setSessionId(''); setReviews([]); setReviewId(''); setSelectedFiles([]); setMemory({ state: 'disconnected' })
@@ -68,7 +68,18 @@ export function ProjectEnvironmentPanel() {
     void Promise.all([window.donwells.environmentResultsList(workspacePath, environment.id, environment.generation), window.donwells.environmentMemory(workspacePath, environment.id, environment.generation, 'status')]).then(([values, state]) => { if (!cancelled) { setReviews(values); setReviewId(values[0]?.id ?? ''); setMemory(state) } }).catch(failure => { if (!cancelled) setError(String(failure)) })
     return () => { cancelled = true }
   }, [workspacePath, selectedId])
-  const run = async (action: () => Promise<unknown>) => { if (busy) return; setBusy(true); setError(''); try { await action(); await refresh() } catch (failure) { if (activeWorkspace.current === workspacePath) setError(String(failure)) } finally { setBusy(false) } }
+  const run = async (action: () => Promise<unknown>) => {
+    if (busy) return
+    setBusy(true); setError('')
+    try { await action() } catch (failure) { if (activeWorkspace.current === workspacePath) setError(String(failure)) }
+    finally {
+      try {
+        const current = (await refresh())?.find(value => value.id === selectedId)
+        if (current) { const state = await window.donwells.environmentMemory(workspacePath!, current.id, current.generation, 'status'); if (activeWorkspace.current === workspacePath) setMemory(state) }
+      } catch (failure) { if (activeWorkspace.current === workspacePath) setError(previous => [previous, String(failure)].filter(Boolean).join('\n')) }
+      setBusy(false)
+    }
+  }
   const request = (method: ProjectRemoteMethod, params: Record<string, unknown> = {}) => window.donwells.environmentRequest(workspacePath!, environment!.id, environment!.generation, method, params, crypto.randomUUID())
   const loadSessions = async () => { const values = await request('terminal.list') as TerminalSession[]; if (activeWorkspace.current !== workspacePath) return; setSessions(values); setSessionId(current => values.some(item => item.id === current) ? current : values[0]?.id ?? '') }
   const acceptReview = (value: EnvironmentResultReview) => { if (activeWorkspace.current !== value.workspacePath) return; setReviews(current => [value, ...current.filter(item => item.id !== value.id)]); setReviewId(value.id); setSelectedFiles([]) }
@@ -107,6 +118,7 @@ export function ProjectEnvironmentPanel() {
       </div>
       {sessions.length > 0 && <select aria-label="Remote terminal" value={sessionId} onChange={event => setSessionId(event.target.value)}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title || item.id}{item.exited ? ' · stopped' : ''}</option>)}</select>}
       {sessionId && <EnvironmentTerminal key={terminalGeneration} workspacePath={workspacePath} environment={environment} sessionId={sessionId} onError={setError} />}
+      <details><summary>Remove SSH pairing</summary><p>Pauses new work and disconnects shared memory, then verifies that all remote terminals are stopped. An unreachable target cannot be removed. Remote files, keys and saved results stay intact. This pairing ID cannot be reused.</p><button disabled={busy} onClick={() => void run(() => window.donwells.environmentRemove(workspacePath, environment.id, environment.generation))}>Remove inactive SSH pairing</button></details>
       <details><summary>Source snapshot and reviewed results</summary>
         <label>Relative text file paths, one per line<textarea value={paths} onChange={event => setPaths(event.target.value)} rows={4} style={{ width: '100%' }} /></label>
         <p>Capture records the current local bytes, including uncommitted edits. Sending creates selected files in the remote project and refuses existing destinations. New result paths may be listed before they exist.</p>
@@ -130,12 +142,12 @@ function LumeEnvironmentSection({ workspacePath }: { workspacePath: string }) {
   const active = useRef(true)
   useEffect(() => { active.current = true; void window.donwells.environmentLumeList(workspacePath).then(value => { if (active.current) setInfo(value) }).catch(failure => { if (active.current) setError(String(failure)) }); return () => { active.current = false } }, [workspacePath])
   const perform = async (action: () => Promise<unknown>) => { if (busy) return; setBusy(true); setError(''); try { await action(); const value = await window.donwells.environmentLumeList(workspacePath); if (active.current) setInfo(value) } catch (failure) { if (active.current) setError(String(failure)) } finally { if (active.current) setBusy(false) } }
-  const guestAction = (guest: LumeEnvironment, action: 'start' | 'stop' | 'status') => perform(() => window.donwells.environmentLumeAction(workspacePath, guest.id, action))
+  const guestAction = (guest: LumeEnvironment, action: 'start' | 'stop' | 'status' | 'remove') => perform(() => window.donwells.environmentLumeAction(workspacePath, guest.id, action))
   return <details aria-label="Prepared Lume desktops"><summary>Lume desktops · prepared guests</summary>
     <p>4 CPUs · 8 GiB RAM · NAT · clipboard and VNC disabled. Start requires an admitted patched build. Closing this view does not stop its guest.</p>
     {error && <p role="alert">{error}</p>}
     {info && <>
-      {info.guests.map(guest => <div key={guest.id}><strong>{guest.id} · {guest.state}</strong><p>{guest.pid ? `Owner PID ${guest.pid}. ` : ''}{guest.ipAddress ? `Guest address ${guest.ipAddress}. Pair this address through SSH below for terminals and shared memory.` : 'Use Refresh owner to inspect boot and connection state.'}</p>{guest.detail && <p role="status">{guest.detail}</p>}<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn btn-secondary btn-sm" disabled={busy || guest.state !== 'stopped'} onClick={() => void guestAction(guest, 'start')}>Start desktop</button><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void guestAction(guest, 'status')}>Refresh / reconnect owner</button><button className="btn btn-secondary btn-sm" disabled={busy || !['running', 'starting'].includes(guest.state)} onClick={() => void guestAction(guest, 'stop')}>Stop desktop</button></div></div>)}
+      {info.guests.map(guest => <div key={guest.id}><strong>{guest.id} · {guest.state}</strong><p>{guest.pid ? `Owner PID ${guest.pid}. ` : ''}{guest.ipAddress ? `Guest address ${guest.ipAddress}. Pair this address through SSH below for terminals and shared memory.` : 'Use Refresh owner to inspect boot and connection state.'}</p>{guest.detail && <p role="status">{guest.detail}</p>}<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="btn btn-secondary btn-sm" disabled={busy || guest.state !== 'stopped'} onClick={() => void guestAction(guest, 'start')}>Start desktop</button><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void guestAction(guest, 'status')}>Refresh / reconnect owner</button><button className="btn btn-secondary btn-sm" disabled={busy || !['running', 'starting'].includes(guest.state)} onClick={() => void guestAction(guest, 'stop')}>Stop desktop</button></div><details><summary>Remove desktop binding</summary><p>Verifies the guest is stopped, then removes its app binding. The VM, disks, return files and admission remain intact. This binding ID cannot be reused.</p><button className="btn btn-secondary btn-sm" disabled={busy || guest.state !== 'stopped'} onClick={() => void guestAction(guest, 'remove')}>Remove inactive desktop binding</button></details></div>)}
       <details><summary>Register a newly prepared guest</summary><p>Prepared machines must be inside <code>{info.storageDirectory}</code>. Existing user VMs cannot be selected. Admission receipt: <code>{info.admissionPath}</code>.</p>
         <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget), field = (name: string) => String(data.get(name) ?? '').trim(); const config: LumeEnvironmentConfig = { storageDirectory: info.storageDirectory, name: field('machine'), machineIdentifierSha256: field('identity'), mounts: [{ path: field('source'), mode: 'ro', purpose: 'source' }, { path: field('results'), mode: 'rw', purpose: 'results' }] }; void perform(() => window.donwells.environmentLumeRegister(workspacePath, field('id'), config)) }}>
           {([['id', 'Environment ID', ''], ['machine', 'Prepared machine name', ''], ['identity', 'Machine identifier SHA-256', ''], ['source', 'Read-only project folder', workspacePath], ['results', 'Writable return folder', info.returnDirectory]] as const).map(([name, label, value]) => <label key={name} style={{ display: 'grid', gap: 4, marginBlock: 10 }}>{label}<input name={name} required defaultValue={value} disabled={busy} /></label>)}

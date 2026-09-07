@@ -5,7 +5,7 @@ export type SshEnvironmentConfig = {
   hostKey: string; hostFingerprint: string; remoteProjectId: string; remoteRoot: string
 }
 export type ProjectEnvironment = {
-  id: string; generation: number; projectKey: string; checkoutPath: string
+  id: string; generation: number; projectKey: string; checkoutPath: string; retired?: boolean
   state: 'configured' | 'ready' | 'paused' | 'unverifiable'; config: SshEnvironmentConfig; detail?: string
 }
 export type ProjectRemoteMethod = 'source.put' | 'result.read' | 'hello' | 'agent.start' | 'agent.authenticate' | 'memory.status' | 'memory.prepare' | 'memory.probe' | 'terminal.list' | 'terminal.open' | 'terminal.observe' | 'terminal.write' | 'terminal.resize' | 'terminal.stop' | 'operation.get'
@@ -27,10 +27,11 @@ export type EnvironmentMemoryState = { state: 'disconnected' | 'connecting' | 'c
 export type ProjectEnvironmentApi = {
   environmentLumeList(workspacePath: string): Promise<{ storageDirectory: string; returnDirectory: string; admissionPath: string; guests: LumeEnvironment[] }>
   environmentLumeRegister(workspacePath: string, id: string, config: LumeEnvironmentConfig): Promise<LumeEnvironment>
-  environmentLumeAction(workspacePath: string, id: string, action: 'start' | 'stop' | 'status'): Promise<LumeEnvironment>
+  environmentLumeAction(workspacePath: string, id: string, action: 'start' | 'stop' | 'status' | 'remove'): Promise<LumeEnvironment>
   environmentList(workspacePath: string): Promise<ProjectEnvironment[]>
   environmentConfigure(workspacePath: string, id: string, config: SshEnvironmentConfig): Promise<ProjectEnvironment>
   environmentConnect(workspacePath: string, id: string, generation: number): Promise<ProjectEnvironment>
+  environmentRemove(workspacePath: string, id: string, generation: number): Promise<void>
   environmentPause(workspacePath: string, id: string, generation: number): Promise<ProjectEnvironment>
   environmentRequest(workspacePath: string, id: string, generation: number, method: ProjectRemoteMethod, params: Record<string, unknown>, requestId: string): Promise<unknown>
   environmentMemory(workspacePath: string, id: string, generation: number, action: 'start' | 'stop' | 'status'): Promise<EnvironmentMemoryState>
@@ -42,4 +43,4 @@ export type ProjectEnvironmentApi = {
 }
 
 export type LumeEnvironmentConfig = { storageDirectory: string; name: string; machineIdentifierSha256: string; mounts: Array<{ path: string; mode: 'ro' | 'rw'; purpose: 'source' | 'results' }> }
-export type LumeEnvironment = { id: string; projectKey: string; checkoutPath: string; config: LumeEnvironmentConfig; state: 'stopped' | 'starting' | 'running' | 'stopping' | 'unverifiable'; pid?: number; startedAt?: number; ipAddress?: string; detail?: string }
+export type LumeEnvironment = { retired?: boolean; id: string; projectKey: string; checkoutPath: string; config: LumeEnvironmentConfig; state: 'stopped' | 'starting' | 'running' | 'stopping' | 'unverifiable'; pid?: number; startedAt?: number; ipAddress?: string; detail?: string }

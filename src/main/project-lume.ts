@@ -70,6 +70,7 @@ export class ProjectLume {
     const scope = await this.scope(path), row = this.db(db => db.prepare('SELECT record,disks FROM guests WHERE id=?').get(projectEnvironmentId(id)))
     if (!row) throw new Error('Prepared Lume guest is not registered')
     const record = JSON.parse(String(row.record)) as LumeEnvironment
+    if (record.retired) throw new Error('Lume binding was removed; use a new ID')
     if (record.projectKey !== scope.projectKey || record.checkoutPath !== scope.checkoutPath) throw new Error('Lume guest belongs to another project')
     if (record.config.storageDirectory !== realpathSync(this.storageDirectory) || this.disks(record.config) !== row.disks) throw new Error('Prepared Lume disk identity changed')
     prepareLumeEnvironment(this.admission(), { ...record.config, mounts: [] }, scope, this.returnDirectory)
@@ -77,7 +78,7 @@ export class ProjectLume {
   }
   async list(path: string) {
     const scope = await this.scope(path)
-    const guests = this.db(db => db.prepare('SELECT record FROM guests').all().map(row => JSON.parse(String(row.record)) as LumeEnvironment).filter(record => record.projectKey === scope.projectKey && record.checkoutPath === scope.checkoutPath))
+    const guests = this.db(db => db.prepare('SELECT record FROM guests').all().map(row => JSON.parse(String(row.record)) as LumeEnvironment).filter(record => !record.retired && record.projectKey === scope.projectKey && record.checkoutPath === scope.checkoutPath))
     return { storageDirectory: this.storageDirectory, returnDirectory: this.returnDirectory, admissionPath: this.admissionPath, guests }
   }
   async register(path: string, id: string, config: LumeEnvironmentConfig): Promise<LumeEnvironment> {
@@ -86,7 +87,14 @@ export class ProjectLume {
     prepareLumeEnvironment(this.admission(), config, scope, this.returnDirectory)
     if (!config.mounts.some(mount => mount.purpose === 'source') || !config.mounts.some(mount => mount.purpose === 'results')) throw new Error('Select one source and one return mount')
     const record: LumeEnvironment = { id, projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, config, state: 'stopped' }
-    this.db(db => { const prior = db.prepare('SELECT id FROM guests').all(); if (prior.length >= 8) throw new Error('Lume prepared guest limit reached'); const used = db.prepare('SELECT record FROM guests').all().some(row => (JSON.parse(String(row.record)) as LumeEnvironment).config.name === config.name); if (used) throw new Error('This machine is already registered'); db.prepare('INSERT INTO guests VALUES (?,?,?)').run(id, JSON.stringify(record), this.disks(config)) })
+    this.db(db => {
+      const prior = db.prepare('SELECT record FROM guests').all().map(row => JSON.parse(String(row.record)) as LumeEnvironment)
+      if (prior.some(value => value.id === id)) throw new Error('Lume binding ID has already been used')
+      const active = prior.filter(value => !value.retired)
+      if (active.length >= 8) throw new Error('Lume prepared guest limit reached')
+      if (active.some(value => value.config.name === config.name)) throw new Error('This machine is already registered')
+      db.prepare('INSERT INTO guests VALUES (?,?,?)').run(id, JSON.stringify(record), this.disks(config))
+    })
     return record
   }
   private async probe(record: LumeEnvironment): Promise<LumeEnvironment> {
@@ -102,17 +110,21 @@ export class ProjectLume {
     if (!this.launching.has(record.id) && (record.pid !== marker.pid || record.startedAt !== marker.startedAt)) throw new Error('Running Lume process does not match the recorded owner; it will not be adopted or stopped')
     return { ...record, state: 'running', pid: marker.pid, startedAt: marker.startedAt, ipAddress: typeof value.ipAddress === 'string' ? value.ipAddress : undefined, detail: undefined }
   }
-  async action(path: string, id: string, action: 'start' | 'stop' | 'status'): Promise<LumeEnvironment> {
+  async action(path: string, id: string, action: 'start' | 'stop' | 'status' | 'remove'): Promise<LumeEnvironment> {
     if (this.changing.has(id)) throw new Error('Lume operation already in progress')
     this.changing.add(id)
     let record: LumeEnvironment | undefined
     try {
       record = await this.record(path, id)
       const observed = await this.probe(record)
+      if (action === 'remove') {
+        if (observed.state !== 'stopped' || this.launching.has(id)) throw new Error('Stop the guest before removing its binding')
+        return this.save({ ...observed, retired: true })
+      }
       if (action === 'status') return this.save(observed)
       if (action === 'start') {
         if (observed.state !== 'stopped') throw new Error('Guest is already running or starting; reconnect to it')
-        if (this.launching.size || this.db(db => db.prepare('SELECT record FROM guests WHERE id<>?').all(id).some(row => (JSON.parse(String(row.record)) as LumeEnvironment).state !== 'stopped'))) throw new Error('Stop or reconcile other prepared guests before starting another VM')
+        if (this.launching.size || this.db(db => db.prepare('SELECT record FROM guests WHERE id<>?').all(id).some(row => { const guest = JSON.parse(String(row.record)) as LumeEnvironment; return !guest.retired && guest.state !== 'stopped' }))) throw new Error('Stop or reconcile other prepared guests before starting another VM')
         const scope = await this.scope(path), spec = prepareLumeEnvironment(this.admission(), record.config, scope, this.returnDirectory)
         record = this.save({ ...record, state: 'starting', detail: undefined })
         const controller = new AbortController()

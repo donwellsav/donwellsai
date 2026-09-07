@@ -5,6 +5,7 @@ const api: IpcApi = {
   environmentList: (...args) => ipcRenderer.invoke('environmentList', ...args),
   environmentConfigure: (...args) => ipcRenderer.invoke('environmentConfigure', ...args),
   environmentConnect: (...args) => ipcRenderer.invoke('environmentConnect', ...args),
+  environmentRemove: (...args) => ipcRenderer.invoke('environmentRemove', ...args),
   environmentPause: (...args) => ipcRenderer.invoke('environmentPause', ...args),
   environmentRequest: (...args) => ipcRenderer.invoke('environmentRequest', ...args),
   environmentMemory: (...args) => ipcRenderer.invoke('environmentMemory', ...args),

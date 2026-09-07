@@ -32,6 +32,57 @@ Focused Doctor/language checks: 20 passed, one preexisting skipped check.
 Read-only language inspection creates no child; pause verifies child exit,
 blocks editor restart, preserves another checkout, rejects foreign scope and
 resumes with a new owner. Typecheck passed. GUI/fresh-project setup proof remains
-with root. Task 19 is not closed: environment removal/migration remains absent;
+with root. Task 19 is not closed: environment migration remains absent;
 actual remote deployment belongs to24; every adapter still needs its own product
 acceptance. No source or authoritative knowledge is deleted by these controls.
+
+## Catalog follow-through after Lume integration
+
+The environment chooser now includes both persisted SSH pairings and registered
+Lume guests. Each source is read independently so a Lume admission/storage error
+does not hide SSH state. It labels these as recorded states and routes live
+owner verification to the existing environment controls; viewing Settings does
+not boot a guest or connect SSH. Language start now respects the same unsaved
+configuration guard as other service starts, preventing its shared refresh path
+from replacing a pending package draft.
+
+Reused the primary setup research above and traced current list/status owners
+before this change. Renderer typecheck passed; Doctor checks: 15 passed and one
+existing skipped. The root-run CDP journey at
+`/tmp/donwells-task19-management.mjs` checks actual draft preservation, combined
+environment discovery/control navigation and canonical memory reading in the
+existing app. It was prepared and syntax-checked, not executed by this worker.
+This bounded journey does not replace full delivery-class setup, bad-config
+repair, invocation and stop proof, nor Task24 guest/SSH qualification.
+
+## Inactive environment binding removal
+
+The existing SSH and Lume records now retain a retired marker; no second ledger
+or file deletion path was introduced. Removed IDs cannot be reused or accessed
+with an old generation. New bindings may register a previously stopped Lume
+machine under a new ID. Retired entries do not occupy active guest slots.
+
+SSH removal first rejects fetched unapplied results, pauses work and disconnects
+its memory bridge. The owner refuses in-flight SSH requests and pending memory
+mutations, then calls the existing scoped `terminal.list` protocol. Any non-exited
+session or unavailable transport blocks retirement. Its removing fence blocks
+new dispatch during verification. A failed removal leaves the pairing visible;
+the panel refreshes actual pause/memory status even after an operation fails.
+Lume removal reuses its existing operation fence, disk/machine identity checks
+and pinned `get` status; only a verified stopped guest without a launcher can
+be retired. It does not call upstream delete or stop as part of removal.
+
+Both controls explain that files, VM disks, keys, results and journals remain
+intact. These are binding controls, not environment migration or deletion.
+Focused environment tests: 9 passed, including unreachable/live rejection,
+concurrent dispatch rejection, stale-ID rejection after restart, retained trust
+and disk bytes, and new-ID registration of the stopped VM. Typecheck passed.
+Real SSH/guest removal remains part of Task24 qualification; fixture transport
+and fixture Lume status do not close those external clauses.
+
+Root observed the integration chooser using browser-default styling; the
+existing settings-input class and concise Integration accessible label now
+apply. Root's pre-removal management journey passed separately; it does not
+qualify these subsequent lifecycle changes.
+
+Actual current source-app journey `management-live.json` demonstrates draft preservation during status refresh, disabled language start while configuration is dirty, deliberate discard, SSH/Lume discovery routing and canonical fact-owner status. `management-owner-live.json` records the isolated profile and clean app/daemon exit. The initial runner used a literal /var path and exact wrapping-label text; canonical path and actual combobox name corrected those harness assumptions. This proof precedes the new removal actions: removal has owner tests and remains pending actual SSH/guest qualification in24.

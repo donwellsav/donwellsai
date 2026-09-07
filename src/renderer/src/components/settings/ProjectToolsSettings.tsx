@@ -52,7 +52,14 @@ export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'mem
       if (id === 'language') { const value = await window.donwells.projectLanguageStatus(workspacePath!); detail = `${value.state} · ${value.detail}${value.pid ? ` · PID ${value.pid}` : ''}` }
       if (id === 'learned') { const value = await window.donwells.projectKnowledgeStatus(workspacePath!); detail = `${value.enabled ? value.phase : 'disabled'} · ${value.error ?? (value.stale ? 'Sources changed; reconcile selected sources' : 'Source manifest inspected; external connection not checked')}` }
       if (id === 'temporal') { const value = await window.donwells.projectTemporalKnowledgeStatus(workspacePath!); detail = `${value.enabled ? (value.busy ? 'working' : 'idle') : 'disabled'} · ${value.error ?? 'Source manifest inspected; external connection not checked'}` }
-      if (id === 'environments') { const values = await window.donwells.environmentList(workspacePath!); detail = values.length ? values.map(value => `${value.id}: ${value.state}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') : 'No paired environment. Configure its verified host identity below.' }
+      if (id === 'environments') {
+        const [ssh, lume] = await Promise.allSettled([window.donwells.environmentList(workspacePath!), window.donwells.environmentLumeList(workspacePath!)])
+        const states = [
+          ssh.status === 'fulfilled' ? (ssh.value.map(value => `SSH ${value.id}: ${value.state}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') || 'No SSH pairing') : `SSH status unavailable: ${String(ssh.reason)}`,
+          lume.status === 'fulfilled' ? (lume.value.guests.map(value => `Lume ${value.id}: ${value.state}${value.pid ? ` · PID ${value.pid}` : ''}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') || 'No registered Lume guest') : `Lume status unavailable: ${String(lume.reason)}`
+        ]
+        detail = redactDesignCaptureSecrets(states.join('. ') + '. Recorded state only; use environment controls to verify or reconnect the owner.')
+      }
       if (id === 'facts') { const value = await window.donwells.projectMemoryList({ workspacePath: workspacePath! }); detail = `${value.total} canonical facts · local store readable · no background process to stop` }
       if (id === 'analytics') detail = report?.configuration.duckdbPython ? 'Python path configured; execute a report in Search → Sessions to verify DuckDB. Cancel remains beside that report.' : 'Set DuckDB Python under Native session history. Runtime has not been checked.'
       if (generation === roleOperation.current) setOwnerStatus(detail)
@@ -76,14 +83,14 @@ export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'mem
   if (!workspacePath) return <p>Select a project to configure its tools.</p>
   return <section className="project-tool-settings" aria-busy={busy} aria-label="Project tools" data-settings-dirty={dirty ? 'true' : undefined}>
     <h3>Project tools</h3>
-    <label>Integration <select value={role} onChange={event => { const id = event.target.value; setRole(id); if (id) void checkOwner(id) }}><option value="">Choose an integration</option>{PROJECT_INTEGRATION_ROLES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label>Integration <select aria-label="Integration" className="settings-input" value={role} onChange={event => { const id = event.target.value; setRole(id); if (id) void checkOwner(id) }}><option value="">Choose an integration</option>{PROJECT_INTEGRATION_ROLES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     {role && (() => {
       const selected = PROJECT_INTEGRATION_ROLES.find(item => item.id === role)!
       if (selected.route === 'package') return <button className="btn btn-secondary btn-sm" onClick={() => { const item = document.getElementById('project-tool-' + role) as HTMLDetailsElement | null; if (item) { item.open = true; item.scrollIntoView({ block: 'nearest' }) } }}>Configure {selected.name}</button>
       return <div aria-label={selected.name + ' controls'}><p role="status">{ownerStatus}</p>
         <button className="btn btn-secondary btn-sm" onClick={() => void checkOwner(role)}>Refresh owner status</button>
         {selected.route !== 'language' && <button className="btn btn-secondary btn-sm" disabled={dirty} onClick={() => openRole(selected.route)}>{role === 'analytics' ? 'Open Search → Sessions' : 'Open configuration and controls'}</button>}
-        {role === 'language' && <><p>Uses this checkout’s TypeScript installation. Install or repair its TypeScript dependency through your terminal, then start. Pausing prevents editor changes from restarting this owner; bundled open-file tools remain available.</p><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(async () => { await window.donwells.projectLanguageRestart(workspacePath); await checkOwner(role) })}>Start / resume language tools</button><button className="btn btn-secondary btn-sm" onClick={() => void window.donwells.projectLanguageStop(workspacePath).then(() => checkOwner(role)).catch(failure => setOwnerStatus(String(failure)))}>Pause language tools</button></>}
+        {role === 'language' && <><p>Uses this checkout’s TypeScript installation. Install or repair its TypeScript dependency through your terminal, then start. Pausing prevents editor changes from restarting this owner; bundled open-file tools remain available.</p><button className="btn btn-secondary btn-sm" disabled={busy || dirty} onClick={() => void run(async () => { await window.donwells.projectLanguageRestart(workspacePath); await checkOwner(role) })}>Start / resume language tools</button><button className="btn btn-secondary btn-sm" onClick={() => void window.donwells.projectLanguageStop(workspacePath).then(() => checkOwner(role)).catch(failure => setOwnerStatus(String(failure)))}>Pause language tools</button></>}
         {(role === 'learned' || role === 'temporal') && <button className="btn btn-secondary btn-sm" onClick={() => void (role === 'learned' ? window.donwells.projectKnowledgeStop(workspacePath) : window.donwells.projectTemporalKnowledgeStop(workspacePath)).then(() => checkOwner(role)).catch(failure => setOwnerStatus(String(failure)))}>Stop project requests</button>}
       </div>
     })()}
