@@ -193,6 +193,7 @@ describe('project memory MCP protocol', () => {
     expect(tools).toMatchObject({
       result: {
         tools: [
+          { name: 'project_engines' },
           { name: 'memory_search' },
           { name: 'memory_read' },
           { name: 'memory_record' },
@@ -495,6 +496,9 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   await call('code_graph_index')
   expect(calls.at(-1)?.params.operation).toBe('index')
   expect(toolValue(await call('documents_status'))).toEqual({ available: false, service: null })
+  const engines = toolValue(await call('project_engines'))
+  expect(engines).toMatchObject({ workspacePath: primaryWorkspace, engines: [{ engine: 'SQLite / FTS5' }, { id: 'documents', available: false }, { id: 'code-graph' }] })
+  expect(calls.at(-1)).toEqual({ method: 'tool.list', params: { workspacePath: primaryWorkspace } })
   expect(await call('documents_search', { query: 'needle' })).toMatchObject({ result: native })
   expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'documents', operation: 'query', arguments: { query: 'needle' } } })
   await call('documents_pause')
@@ -509,7 +513,8 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
     ['code_graph_status', { id: 'other' }],
     ['documents_search', { query: 'needle', workspacePath: '/other' }],
     ['documents_get', { id: 'reference', root: '/other' }],
-    ['documents_pause', { id: 'other' }]
+    ['documents_pause', { id: 'other' }],
+    ['project_engines', { workspacePath: '/other' }]
   ] as const) expect(await call(name, args)).toMatchObject({ result: { isError: true } })
   expect(calls).toHaveLength(count)
   graphError = true

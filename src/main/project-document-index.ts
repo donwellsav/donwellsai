@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { DocumentRetrievalMode } from '@shared/project-doctor'
 
 export type IndexedDocument = { path: string; content: string; revision: string }
 export type DocumentIndexConfiguration = {
@@ -12,6 +13,7 @@ export type DocumentIndexConfiguration = {
   collections: string[]
   embeddingModel?: string
   rerankingModel?: string
+  retrievalMode?: DocumentRetrievalMode
 }
 type Chunk = { collection: string; path: string; text: string; revision: string; indexedAt: string; hash: string; pos: number; line: number; embedded: boolean; vector: number[] }
 const sql = (value: string): string => "'" + value.replaceAll("'", "''") + "'"
@@ -43,7 +45,7 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
     if (!names.includes('documents')) await table.createIndex('text', { config: Index.fts() })
   } catch (error) { table?.close(); connection.close(); throw error }
   const fusion = await rerankers.RRFReranker.create()
-  const llm = config.embeddingModel && config.rerankingModel
+  const llm = config.retrievalMode !== 'lexical' && config.embeddingModel && config.rerankingModel
     ? new LlamaCpp({ embedModel: config.embeddingModel, rerankModel: config.rerankingModel, modelCacheDir: join(config.database, 'models') }) : null
   const scope = 'collection IN (' + config.collections.map(sql).join(',') + ')'
   const collectionFilter = (collection: string): string => {
@@ -105,7 +107,8 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
         hits = ranked.results.map((result: { index: number }) => hits[result.index]!)
         mode = 'hybrid'
       } catch (error) {
-        modelError = String(error).slice(0, 300)
+        if (config.retrievalMode === 'hybrid') throw new Error('Hybrid retrieval unavailable. Check the selected models and rebuild embeddings, or choose lexical retrieval.', { cause: error })
+        modelError = config.retrievalMode === 'lexical' ? null : String(error).slice(0, 300)
         hits = await table.query().where(scope).fullTextSearch(query).limit(50).toArray()
       }
       const seen = new Set<string>()

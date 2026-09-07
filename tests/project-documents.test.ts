@@ -8,6 +8,31 @@ import { openProjectDocumentIndex } from '../src/main/project-document-index'
 import { ProjectTools } from '../src/main/project-tools'
 import { createDocumentDefinition } from '../src/main/project-documents'
 
+it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKAGE)('honors lexical selection without reading models and refuses lexical fallback when hybrid is required', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'donwells-retrieval-mode-')))
+  const project = join(root, 'project'); await mkdir(project)
+  await writeFile(join(project, 'decision.md'), 'copperorchard uses durable project memory')
+  const badModel = join(root, 'not-a-model'); await writeFile(badModel, 'not an admitted model')
+  const config = { program: process.env.DONWELLS_DOCUMENT_TEST_EXECUTABLE ?? process.execPath, worker: process.env.DONWELLS_DOCUMENT_TEST_WORKER ?? join(process.cwd(), 'out/main/project-document-worker.js'), cache: join(root, 'cache'), qmdPackage: process.env.DONWELLS_QMD_PACKAGE!, lancePackage: process.env.DONWELLS_LANCE_PACKAGE! }
+  const resolve = async (path: string) => { if (path !== project) throw new Error('Unregistered project'); return { path, projectPath: path } }
+  const lexical = new ProjectTools(resolve, [createDocumentDefinition({ ...config, retrievalMode: 'lexical', embeddingModel: badModel, rerankingModel: badModel })])
+  const hybrid = new ProjectTools(resolve, [createDocumentDefinition({ ...config, retrievalMode: 'hybrid' })])
+  try {
+    await lexical.call(project, 'documents', 'index', {})
+    await expect.poll(async () => ((await lexical.call(project, 'documents', 'status', {})) as any).structuredContent.phase, { timeout: 15000 }).toBe('ready')
+    expect(await lexical.call(project, 'documents', 'status', {})).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelBytes: 0 } })
+    expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard' })).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelError: null, hits: [{ path: 'decision.md' }] } })
+    await lexical.stop(project, 'documents')
+    await expect(hybrid.start(project, 'documents')).rejects.toThrow('requires both admitted local models')
+    const index = await openProjectDocumentIndex({ ...config, database: join(root, 'required-hybrid'), collections: ['a'.repeat(64)], retrievalMode: 'hybrid' })
+    try {
+      await index.replace('a'.repeat(64), [{ path: 'decision.md', content: 'copperorchard', revision: 'one' }])
+      await expect(index.search('copperorchard')).rejects.toThrow('Hybrid retrieval unavailable')
+    } finally { await index.close() }
+    expect((await lexical.call(project, 'documents', 'query', { query: 'copperorchard' })) as any).toMatchObject({ structuredContent: { mode: 'lexical', hits: [{ path: 'decision.md' }] } })
+  } finally { await lexical.close(); await hybrid.close(); await rm(root, { recursive: true, force: true }) }
+}, 30000)
+
 it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKAGE)('updates native collections without leaking or deleting sibling sources and exposes lexical fallback', async () => {
   const root = await mkdtemp(join(tmpdir(), 'donwells-documents-'))
   const a = 'a'.repeat(64), b = 'b'.repeat(64), shared = 'c'.repeat(64)

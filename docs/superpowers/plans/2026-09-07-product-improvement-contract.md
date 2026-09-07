@@ -10,7 +10,7 @@
 
 **Spec:** [Existing product specification](../specs/2026-09-06-terminal-workspace-design.md), as amended by the user’s current product direction and the constraints below. This draft proposes replacing the execution order and completion rules of the earlier second-pass plan, not rolling back its source history.
 
-**Current position:** Task01, Task26 and Task04 product changes complete; Task03 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
+**Current position:** Task01, Task26, Task04 and Task03 product changes complete; Task05 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
 
 ## Product promise and non-negotiable requirements
 
@@ -97,9 +97,9 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 
 - [x] **01 — Finish a useful foundation change** — Delivered: same-position TUI redraws invalidate terminal search cache; focused packaged regression passes.
 - [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
-- [ ] **03 — Make engine choices usable per project** — ACTIVE: engine research and native-agent configuration.
+- [x] **03 — Make engine choices usable per project** — Delivered: explicit document retrieval modes, native-agent engine inventory, live configure/query/disable workflow.
 - [x] **04 — Own tools and resources by project** — Delivered: launch cancellation, truthful stopping state, live ownership/calls, shared native graph cache with isolated checkout sessions.
-- [ ] **05 — Establish the terminal-centered workspace** — Queued for implementation after preceding dependencies.
+- [ ] **05 — Establish the terminal-centered workspace** — ACTIVE: terminal-first shell research and concrete layout.
 - [ ] **06 — Make modules movable without disrupting work** — Queued for implementation after preceding dependencies.
 - [ ] **07 — Make native agents interchangeable** — Queued for implementation after preceding dependencies.
 - [ ] **08 — Make sessions recoverable and attention useful** — Queued for implementation after preceding dependencies.
@@ -171,9 +171,9 @@ Each unskipped card requires its fresh research and user-approved implementation
 
 **Starting files:** `src/main/project-doctor.ts`, `src/main/project-tools.ts`, `src/shared/project-doctor.ts`, `src/renderer/src/components/settings/ProjectToolsSettings.tsx`, `src/main/agents/project-memory-config.ts`.
 
-- [ ] Present an engine matrix by role: durable facts, document retrieval, code graph, learned memory and temporal relationships. Name a recommended default and explain each retained alternative.
-- [ ] Implement project configuration and usable connections for approved engines through the existing service owner; expose real supported operations and actionable unavailable states.
-- [ ] Connect the chosen existing-project retrieval route to native-agent tool configuration. Reserve automatic Hindsight/Graphiti projection and richer memory UI for Task23.
+- [x] Present an engine matrix by role: durable facts, document retrieval, code graph, learned memory and temporal relationships. Name a recommended default and explain each retained alternative.
+- [x] Implement project configuration and usable connections for approved engines through the existing service owner; expose real supported operations and actionable unavailable states.
+- [x] Connect the chosen existing-project retrieval route to native-agent tool configuration. Reserve automatic Hindsight/Graphiti projection and richer memory UI for Task23.
 
 **Done demonstration:** Configure a project engine, execute a real project-scoped query through the supported agent tool path, disable it, and continue using terminals and durable memory.
 

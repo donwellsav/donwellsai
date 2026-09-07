@@ -10,8 +10,9 @@ import { homedir } from 'node:os'
 import { AgentRegistry } from './agents/registry'
 import type { ProjectToolDefinition } from './project-tools'
 import type { DocumentWorkerConfiguration } from './project-document-worker'
+import type { DocumentRetrievalMode } from '@shared/project-doctor'
 
-export function createDocumentDefinition(config: { program: string; worker: string; cache: string; qmdPackage: string; lancePackage: string; embeddingModel?: string; rerankingModel?: string; references?: string }): ProjectToolDefinition {
+export function createDocumentDefinition(config: { program: string; worker: string; cache: string; qmdPackage: string; lancePackage: string; embeddingModel?: string; rerankingModel?: string; references?: string; retrievalMode?: DocumentRetrievalMode }): ProjectToolDefinition {
   const prepared = new Map<string, DocumentWorkerConfiguration>()
   const text = (value: unknown, limit = 1000): string => {
     if (typeof value !== 'string' || !value.trim() || value.length > limit || value.includes('\0')) throw new Error('Expected bounded document text')
@@ -47,8 +48,8 @@ export function createDocumentDefinition(config: { program: string; worker: stri
       const nativeHash = createHash('sha256')
       for await (const bytes of createReadStream(native, { signal })) nativeHash.update(bytes)
       if (nativeHash.digest('hex') !== 'a4f262311509ef1a33ad7279e75736b0077a14b01f9534e1b8dcb0ea35ef5892') throw new Error('Document native binding does not match the admitted artifact')
-      let modelBytes = 0, modelsAvailable = Boolean(config.embeddingModel && config.rerankingModel)
-      for (const [path, expected] of [[config.embeddingModel, 'b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d'], [config.rerankingModel, '22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48']]) {
+      let modelBytes = 0, modelsAvailable = config.retrievalMode !== 'lexical' && Boolean(config.embeddingModel && config.rerankingModel)
+      for (const [path, expected] of config.retrievalMode === 'lexical' ? [] : [[config.embeddingModel, 'b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d'], [config.rerankingModel, '22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48']]) {
         if (!path) continue
         if (!isAbsolute(path)) throw new Error('Document model paths must be absolute')
         const info = await stat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error })
@@ -59,10 +60,11 @@ export function createDocumentDefinition(config: { program: string; worker: stri
         if (hash.digest('hex') !== expected) throw new Error('Document model does not match the admitted artifact')
         modelBytes += info.size
       }
+      if (config.retrievalMode === 'hybrid' && !modelsAvailable) throw new Error('Hybrid retrieval requires both admitted local models. Select the embedding and reranking files in Project tools, or choose lexical retrieval.')
       const database = join(config.cache, scope.projectKey, 'qwen3-4b-v1')
       await mkdir(database, { recursive: true, mode: 0o700 })
       // ponytail: root selections are fixed for this service lifetime; Task 19 owns interactive configuration and restart.
-      prepared.set(scope.indexKey, { qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, database, collections: roots.map(root => root.collection), roots, indexKey: scope.indexKey, ripgrep, modelBytes, ...(modelsAvailable ? { embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel } : {}) })
+      prepared.set(scope.indexKey, { qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, retrievalMode: config.retrievalMode ?? 'auto', database, collections: roots.map(root => root.collection), roots, indexKey: scope.indexKey, ripgrep, modelBytes, ...(modelsAvailable ? { embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel } : {}) })
     },
     launch: scope => ({ program: config.program, args: [config.worker], env: { ELECTRON_RUN_AS_NODE: '1', QMD_EMBED_PARALLELISM: '2', DONWELLS_DOCUMENT_CONFIG: JSON.stringify(prepared.get(scope.indexKey)) } }),
     operations: {

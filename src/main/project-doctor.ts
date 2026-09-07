@@ -48,7 +48,7 @@ export class ProjectDoctor {
     const scope = await resolveProjectToolScope(path, this.resolveWorkspace)
     const directory = join(this.directory, scope.projectKey)
     await mkdir(directory, { recursive: true, mode: 0o700 })
-    return { ...scope, directory }
+    return { ...scope, directory: await realpath(directory) }
   }
 
   private async snapshot(directory: string, name = 'tools.json') {

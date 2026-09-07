@@ -13,7 +13,8 @@ export const PROJECT_TOOL_FIELDS = {
   browserExecutable: 'Browser executable',
   computerBinary: 'Cua Driver executable'
 } as const
-export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; disabled: string[] }
+export type DocumentRetrievalMode = 'auto' | 'lexical' | 'hybrid'
+export type ProjectToolConfiguration = Partial<Record<keyof typeof PROJECT_TOOL_FIELDS, string>> & { referenceRoots: string[]; historyOmpRoots?: string[]; historyDshRoots?: string[]; disabled: string[]; documentRetrievalMode?: DocumentRetrievalMode }
 export const INTEGRATED_PROJECT_TOOLS = [
   { id: 'history', name: 'Native session history', version: 'AgentsView 0.42.0', source: 'https://github.com/kenn-io/agentsview/releases/tag/v0.42.0', scope: 'Selected OMP and DeepSeek native session roots; archive filtered to this project checkout', models: 'None. Native transcripts remain separate from shared project memory.', fields: ['historyBinary'] },
   { id: 'backlog', name: 'Native task board', version: 'Backlog.md 1.51.0', source: 'https://github.com/MrLesk/Backlog.md', scope: 'Native task files in the selected checkout; select task authority in Agent sessions', models: 'None. The existing terminal owns each opened board.', fields: ['backlogBinary'] },
@@ -24,8 +25,12 @@ export const INTEGRATED_PROJECT_TOOLS = [
 ] as const
 
 export function parseProjectToolConfiguration(value: unknown): ProjectToolConfiguration {
-  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'disabled'].includes(key))) throw new Error('Invalid project tool configuration fields')
+  if (!isObject(value) || Object.keys(value).some(key => !Object.hasOwn(PROJECT_TOOL_FIELDS, key) && !['referenceRoots', 'historyOmpRoots', 'historyDshRoots', 'disabled', 'documentRetrievalMode'].includes(key))) throw new Error('Invalid project tool configuration fields')
   const result: ProjectToolConfiguration = { referenceRoots: [], disabled: [] }
+  if (value.documentRetrievalMode !== undefined) {
+    if (typeof value.documentRetrievalMode !== 'string' || !['auto', 'lexical', 'hybrid'].includes(value.documentRetrievalMode)) throw new Error('Choose automatic, lexical or hybrid document retrieval')
+    result.documentRetrievalMode = value.documentRetrievalMode as DocumentRetrievalMode
+  }
   for (const key of Object.keys(PROJECT_TOOL_FIELDS) as Array<keyof typeof PROJECT_TOOL_FIELDS>) {
     if (value[key] === undefined || value[key] === '') continue
     if (typeof value[key] !== 'string' || value[key].length > 4096 || /[\x00-\x1f\x7f]/.test(value[key]) || !value[key].startsWith('/')) throw new Error('Tool paths must be bounded absolute local paths')

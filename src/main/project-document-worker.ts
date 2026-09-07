@@ -55,7 +55,7 @@ async function main() {
     const lines = file.content.split('\n'), content = lines.slice(fromLine - 1, fromLine - 1 + maxLines).join('\n')
     return { id, path: file.path, root: root.path, fromLine, content: content.slice(0, 50000), truncated: content.length > 50000 || lines.length > fromLine - 1 + maxLines, revision: file.revision, indexedAt: indexed.indexedAt, stale: file.revision !== indexed.revision }
   }
-  const status = () => ({ ...state, phase: paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
+  const status = () => ({ ...state, requestedMode: config.retrievalMode ?? 'auto', phase: paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
   const rebuild = async () => {
     for (const selected of config.roots) {
       await checkpoint()
@@ -114,7 +114,7 @@ async function main() {
         hits.push({ source: 'document', id, title: basename(hit.path), path: hit.path, line: hit.line, excerpt: hit.text.slice(0, 4096), revision: hit.revision, indexedAt: hit.indexedAt, stale: current.file.revision !== hit.revision, root: current.root.path })
       } catch { /* A disappeared or inaccessible source is not a resolvable citation. */ }
     }
-    return response({ mode: result.mode, modelError: result.modelError, hits })
+    return response({ requestedMode: config.retrievalMode ?? 'auto', mode: result.mode, modelError: result.modelError, hits })
   })
   server.registerTool('get', { description: 'Read current source lines for a previously indexed, scoped document.', inputSchema: z.object({ id: z.string().max(8192), fromLine: z.number().int().min(1).max(1000000).default(1), maxLines: z.number().int().min(1).max(400).default(120) }).strict() }, async ({ id, fromLine, maxLines }: { id: string; fromLine: number; maxLines: number }) => response(await read(id, fromLine, maxLines)))
   server.registerTool('multi_get', { description: 'Read up to five scoped documents; each source is independently confined.', inputSchema: z.object({ ids: z.array(z.string().max(8192)).min(1).max(5) }).strict() }, async ({ ids }: { ids: string[] }) => response({ documents: await Promise.all(ids.map(id => read(id))) }))

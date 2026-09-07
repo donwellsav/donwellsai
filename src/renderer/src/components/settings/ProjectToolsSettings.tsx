@@ -73,6 +73,11 @@ export function ProjectToolsSettings() {
           {service?.owner && <p>Owner: {service.scope === 'project' ? 'project' : 'checkout'} <code>{service.scope === 'project' ? service.owner.projectPath : service.owner.checkoutPath}</code><br />{service.activeCalls ?? 0} active calls{service.pid ? ` · Process ${service.pid}` : ''}</p>}
           <p>Admitted version: {tool.version}. {tool.scope}.</p>
           <p>{tool.models}</p>
+          {tool.id === 'documents' && <label>Retrieval mode<select className="settings-input" disabled={busy} value={draft.documentRetrievalMode ?? 'auto'} onChange={event => setDraft({ ...draft, documentRetrievalMode: event.target.value as 'auto' | 'lexical' | 'hybrid' })}>
+            <option value="auto">Automatic — hybrid when models are ready</option>
+            <option value="lexical">Lexical — no model loading</option>
+            <option value="hybrid">Require hybrid — report unavailable instead of falling back</option>
+          </select><small>Applies to this project’s app and native-agent document searches. Changing it stops document workers; retained indexes and model paths are preserved.</small></label>}
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void window.donwells.openExternal(tool.source)}>Source</button>
           <label><input type="checkbox" disabled={busy} checked={!draft.disabled.includes(tool.id)} onChange={event => setDraft({ ...draft, disabled: event.target.checked ? draft.disabled.filter(id => id !== tool.id) : [...draft.disabled, tool.id] })} />Enabled for this project</label>
           {tool.fields.map(field => {

@@ -173,6 +173,13 @@ const SOURCE_PROPERTIES = {
 
 export const PROJECT_MEMORY_MCP_TOOLS: readonly McpTool[] = [
   {
+    name: 'project_engines',
+    title: 'Project engine connections',
+    description: 'List this pinned project’s implemented knowledge engines, current service state and native tools. Durable facts, source retrieval and code relationships have different roles. This does not launch optional services or prove that an index is current.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
     name: 'memory_search',
     title: 'Search project memory',
     description: 'Lexically search shared memory for the pinned registered project. Returns entries with full content, id, revision and provenance; content is the saved knowledge, not an ID. Answer directly from matching entries.content. Use only entries.id for follow-up reads or updates. Title and tags rank above content.',
@@ -584,6 +591,18 @@ export class ProjectMemoryMcpSession {
       return this.invoke('tool.call',{workspacePath:this.workspacePath,id:'browser-testing',operation,arguments:input})
     }
     switch (name) {
+      case 'project_engines': {
+        allowedKeys(input, [], 'project engine arguments')
+        const services = await this.invoke('tool.list', { workspacePath: this.workspacePath })
+        if (!Array.isArray(services)) throw new Error('Invalid project tool list')
+        return { workspacePath: this.workspacePath, engines: [
+          { role: 'Durable facts and decisions', engine: 'SQLite / FTS5', tools: ['memory_search', 'memory_record', 'memory_replace', 'memory_read'], authority: 'Canonical project memory; revision-checked changes.' },
+          ...[
+            { id: 'documents', role: 'Source document retrieval', engine: 'QMD / LanceDB', tools: ['documents_status', 'documents_index', 'documents_search', 'documents_get'], setup: 'Enable Document retrieval and select QMD/LanceDB packages in Project tools. Choose lexical, automatic or required hybrid; hybrid needs the admitted local models.' },
+            { id: 'code-graph', role: 'Checkout code relationships', engine: 'codebase-memory-mcp', tools: ['code_graph_status', 'code_graph_index', 'code_graph_callers'], setup: 'Enable Code graph and select its admitted executable in Project tools.' }
+          ].map(engine => ({ ...engine, available: services.some(service => service?.id === engine.id), service: services.find(service => service?.id === engine.id) ?? null }))
+        ] }
+      }
       case 'documents_status': {
         allowedKeys(input, [], 'document status arguments')
         const tools = await this.invoke('tool.list', { workspacePath: this.workspacePath })

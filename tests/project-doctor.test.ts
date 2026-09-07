@@ -24,8 +24,22 @@ async function fixture() {
 }
 
 it('validates only integrated local fields and rejects commands, credentials and unbounded roots', () => {
-  for (const config of [{ command: 'sh' }, { token: 'secret' }, { browserExecutable: 'https://example.com' }, { computerBinary: '/tmp/a\ncommand' }, { disabled: ['unknown'] }, { referenceRoots: Array(16).fill('/tmp') }]) expect(() => parseProjectToolConfiguration(config)).toThrow()
+  for (const config of [{ command: 'sh' }, { token: 'secret' }, { browserExecutable: 'https://example.com' }, { computerBinary: '/tmp/a\ncommand' }, { disabled: ['unknown'] }, { referenceRoots: Array(16).fill('/tmp') }, { documentRetrievalMode: ['auto'] }, { documentRetrievalMode: 'remote' }]) expect(() => parseProjectToolConfiguration(config)).toThrow()
+  expect(parseProjectToolConfiguration({ documentRetrievalMode: 'lexical' }).documentRetrievalMode).toBe('lexical')
   expect(parseProjectToolConfiguration({ referenceRoots: ['/tmp', '/tmp'], disabled: ['documents', 'documents'] })).toEqual({ referenceRoots: ['/tmp'], disabled: ['documents'] })
+})
+
+it('saves configuration through a symlinked app data directory', async () => {
+  const f = await fixture(), actual = join(f.root, 'actual'), alias = join(f.root, 'alias')
+  await mkdir(actual); await symlink(actual, alias)
+  const doctor = new ProjectDoctor(alias, async path => ({ path, projectPath: path }), () => ({ referenceRoots: [], disabled: [] }), () => [])
+  doctors.push(doctor)
+  const saved = await doctor.configure(f.project, { documentRetrievalMode: 'lexical' }, null)
+  expect(saved.configuration.documentRetrievalMode).toBe('lexical')
+  expect(saved.configurationPath.startsWith(actual + '/')).toBe(true)
+  const updated = await doctor.configure(f.project, { documentRetrievalMode: 'hybrid' }, saved.revision)
+  expect(updated.configuration.documentRetrievalMode).toBe('hybrid')
+  expect(updated.backups).toHaveLength(1)
 })
 
 it('does not launch on inspection and shares reversible configuration only within the registered project', async () => {
