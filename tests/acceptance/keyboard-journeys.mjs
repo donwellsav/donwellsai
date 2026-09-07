@@ -4,8 +4,8 @@ import {join,resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {execFileSync} from 'node:child_process'
 import {parseArgs} from 'node:util'
-import {hash,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
-import {cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
+import {artifactIdentity,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
+import {cleanSmokeAppShutdown,cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
 const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},pdf:{type:'boolean',default:false},'minimal-path':{type:'boolean',default:false}}})
 assert(values.playwright)
 const {app:executable,resources,profile,evidence}=validateOptions(values);mkdirSync(profile);mkdirSync(evidence);mkdirSync(join(profile,'fixture'))
@@ -18,8 +18,8 @@ for(const args of [['config','user.email','fixture@example.test'],['config','use
 const {_electron}=await import(pathToFileURL(resolve(values.playwright)))
 const {callRuntime}=await import(pathToFileURL(join(resources,'dist-cli/cli/rpc-client.js')))
 const invoke=async(method,params={})=>{const r=await callRuntime(method,params,profile,10000);assert(r.ok,r.error);return r.result}
-const report={source:sourceIdentity(),artifactSha256:hash(readFileSync(join(resources,'app.asar'))),profile,project,journeys:{},limitations:['Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately.']}
-let app,page
+const report={sourceBefore:sourceIdentity(),artifactBefore:artifactIdentity(executable,resources),profile,project,journeys:{},limitations:['Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately.']}
+let app,page,workflowPassed=false
 const command=async(label)=>{await page.keyboard.press('Meta+k');await page.locator('.palette-input').waitFor();assert(await page.locator('.palette-input').evaluate(e=>e===document.activeElement));await page.keyboard.press('Meta+a');await page.keyboard.insertText(label);await page.keyboard.press('Enter');await page.locator('.palette-input').waitFor({state:'detached'})}
 const reach=async(target)=>{await target.waitFor();const key=await target.evaluate(e=>document.activeElement&&(document.activeElement.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_PRECEDING)?'Shift+Tab':'Tab');if(await page.evaluate(()=>!!document.activeElement?.closest('.monaco-editor')))await page.keyboard.press('Control+m');for(let i=0;i<160;i++){if(await target.evaluate(e=>e===document.activeElement))return;await page.keyboard.press(key)}throw Error('Control unreachable using '+key+': '+await target.evaluate(e=>e.outerHTML.slice(0,200)))}
 const activate=async(target)=>{await reach(target);await page.keyboard.press('Enter')}
@@ -103,7 +103,7 @@ try{
  report.journeys.buildVerify={runId:verified.runId,status:verified.task.status,sourceState:verified.sourceState,artifactAttached:true}
  report.mouseEventsBeforeRestart=await page.evaluate(()=>globalThis.keyboardMouseEvents);assert.equal(report.mouseEventsBeforeRestart,0)
  const retainedIds=(await invoke('terminal.list')).sessions.map(s=>s.id).sort()
- report.restartShutdown=await closeOwnedSmokeApp(app);assert.equal(report.restartShutdown.forcedTermination,false)
+ report.restartShutdown=await closeOwnedSmokeApp(app);app=null;assert(cleanSmokeAppShutdown(report.restartShutdown),'Restart app shutdown was not clean')
  app=await _electron.launch({executablePath:executable,env});page=await app.firstWindow();page.setDefaultTimeout(5000)
  await page.getByRole('navigation',{name:'Workspace tools'}).waitFor()
  await page.evaluate(()=>{globalThis.keyboardMouseEvents=0;document.addEventListener('pointerdown',()=>globalThis.keyboardMouseEvents++,true)})
@@ -121,13 +121,19 @@ try{
   const pdf=page.getByRole('region',{name:'PDF preview: sample.pdf'});await pdf.waitFor();await pdf.getByText('donwells.ai page 1',{exact:true}).waitFor()
   assert(await pdf.locator('canvas').first().evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}))
   await activate(pdf.getByRole('button',{name:'Next page',exact:true}));await pdf.getByText('donwells.ai page 2',{exact:true}).waitFor()
+  assert(await pdf.locator('canvas[aria-label="PDF page 2"]').evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}))
   report.pdf={renderedCanvas:true,textLayer:true,secondPage:true,nodeCanvasRequired:false}
  }
- report.verified=true
  report.mouseEvents=await page.evaluate(()=>globalThis.keyboardMouseEvents);assert.equal(report.mouseEvents,0)
  await page.screenshot({path:join(evidence,'keyboard-workspace.png')})
+ workflowPassed=true
 }catch(error){report.error=error.stack;process.exitCode=1;if(page){report.focus=await page.evaluate(()=>({tag:document.activeElement?.tagName,role:document.activeElement?.getAttribute('role'),label:document.activeElement?.getAttribute('aria-label'),class:document.activeElement?.className})).catch(()=>null);await page.screenshot({path:join(evidence,'failure.png')}).catch(()=>{})}}
 finally{
- if(app){try{for(const r of(await invoke('agent.list')).agents){if(r.liveness!=='exited')await invoke('agent.stop',{sessionId:r.sessionId});const deadline=Date.now()+15000;while((await invoke('agent.list')).agents.find(x=>x.sessionId===r.sessionId)?.liveness!=='exited'){assert(Date.now()<deadline,'Agent stop timed out');await delay(100)}await invoke('agent.dismiss',{sessionId:r.sessionId})}for(const s of(await invoke('terminal.list')).sessions)await invoke('terminal.close',{sessionId:s.id})}catch(error){report.cleanupError=String(error);process.exitCode=1}report.appShutdown=await closeOwnedSmokeApp(app)}
- report.idleDaemonStopped=await cleanupOwnedSmokeDaemon(profile);if(report.error||report.cleanupError||!report.idleDaemonStopped)report.verified=false;writeFileSync(join(evidence,'result.json'),JSON.stringify(report,null,2)+'\n')
+ if(app){try{for(const r of(await invoke('agent.list')).agents){if(r.liveness!=='exited')await invoke('agent.stop',{sessionId:r.sessionId});const deadline=Date.now()+15000;while((await invoke('agent.list')).agents.find(x=>x.sessionId===r.sessionId)?.liveness!=='exited'){assert(Date.now()<deadline,'Agent stop timed out');await delay(100)}await invoke('agent.dismiss',{sessionId:r.sessionId})}for(const s of(await invoke('terminal.list')).sessions)await invoke('terminal.close',{sessionId:s.id})}catch(error){report.cleanupError=String(error);process.exitCode=1}try{report.appShutdown=await closeOwnedSmokeApp(app)}catch(error){report.shutdownError=String(error);process.exitCode=1}}
+ try{report.idleDaemonStopped=await cleanupOwnedSmokeDaemon(profile)}catch(error){report.daemonCleanupError=String(error);report.idleDaemonStopped=false;process.exitCode=1}
+ try{report.sourceAfter=sourceIdentity();report.sourceUnchanged=report.sourceBefore.contentHash===report.sourceAfter.contentHash}catch(error){report.sourceIdentityError=String(error);process.exitCode=1}
+ try{report.artifactAfter=artifactIdentity(executable,resources);report.artifactUnchanged=JSON.stringify(report.artifactBefore)===JSON.stringify(report.artifactAfter)}catch(error){report.artifactIdentityError=String(error);process.exitCode=1}
+ report.verified=workflowPassed&&!report.error&&!report.cleanupError&&!report.shutdownError&&!report.daemonCleanupError&&!report.sourceIdentityError&&!report.artifactIdentityError&&report.idleDaemonStopped&&report.sourceUnchanged&&report.artifactUnchanged&&cleanSmokeAppShutdown(report.restartShutdown??{})&&cleanSmokeAppShutdown(report.appShutdown??{})
+ if(!report.verified)process.exitCode=1
+ writeFileSync(join(evidence,'result.json'),JSON.stringify(report,null,2)+'\n')
 }

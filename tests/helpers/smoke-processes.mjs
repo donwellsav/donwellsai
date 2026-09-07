@@ -40,6 +40,10 @@ export async function closeOwnedSmokeApp(app) {
   return { forcedTermination, exitCode: child.exitCode, signal: child.signalCode, ...(closeError ? { closeError } : {}) }
 }
 
+export function cleanSmokeAppShutdown(result) {
+  return result.forcedTermination === false && result.exitCode === 0 && result.signal === null && !result.closeError
+}
+
 function localPidLiveness(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return 'unverifiable'
   try {

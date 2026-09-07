@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
+import { assertMatchingDirectory } from "../tests/helpers/package-evidence.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const readJson = async (path) => JSON.parse(await readFile(resolve(root, path), "utf8"));
@@ -87,7 +88,8 @@ if (values.resources) {
   for (const name of built) assert((await readFile(resolve(root, 'out', name))).equals(asar.extractFile(archive, 'out/' + name)), `Stale packaged application file: ${name}`);
   let resourceCount = 0;
   for (const { from, to } of config.extraResources) {
-    const names = (await stat(resolve(root, from))).isDirectory() ? await files(from) : [''];
+    const directory = (await stat(resolve(root, from))).isDirectory();
+    const names = directory ? assertMatchingDirectory(resolve(root, from), resolve(packaged, to)) : [''];
     for (const name of names) {
       assert((await readFile(resolve(root, from, name))).equals(await readFile(resolve(packaged, to, name))), `Stale packaged resource: ${to}/${name}`);
       resourceCount++;

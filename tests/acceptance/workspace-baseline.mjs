@@ -9,9 +9,14 @@ import { resolve, dirname, basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
+import { externalResourcesIdentity } from '../helpers/package-evidence.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 export const hash = value => createHash('sha256').update(value).digest('hex')
+const externalResources = JSON.parse(readFileSync(join(root, 'build/electron-builder.json'), 'utf8')).extraResources
+export function artifactIdentity(app, resources) {
+  return { executable: app, executableSha256: hash(readFileSync(app)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))), externalResources: externalResourcesIdentity(resources, externalResources) }
+}
 export function sourceIdentity() {
   const git = args => execFileSync('git', args, { cwd: root })
   const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']).toString().split('\0').filter(Boolean)
@@ -59,7 +64,7 @@ async function main() {
   const report = {
     schemaVersion: 1, startedAt: new Date().toISOString(), checkout: root,
     sourceBefore: sourceIdentity(),
-    artifact: { executable: app, executableSha256: hash(readFileSync(app)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))) },
+    artifact: artifactIdentity(app, resources),
     host: { platform: process.platform, arch: process.arch, osRelease: release(), cpu: cpus()[0]?.model, memoryBytes: totalmem() },
     profile, checks: {},
     journeys: Object.fromEntries(['start', 'collaborate', 'handoff', 'understand', 'build-and-verify', 'return-and-ship'].map(name => [name, 'not-run'])),
@@ -123,11 +128,17 @@ async function main() {
       for (let i = 0; i < 50 && !ended; i++) await delay(100)
       if (!ended) { child.kill('SIGKILL'); report.checks.forcedAppStop = true; process.exitCode = 1 }
     }
-    report.checks.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
+    try { report.checks.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile) }
+    catch (error) { report.cleanupError = String(error); report.checks.idleDaemonStopped = false }
     if (!report.checks.idleDaemonStopped) process.exitCode = 1
     report.sourceAfter = sourceIdentity()
     report.checks.sourceUnchangedDuringRun = report.sourceBefore.contentHash === report.sourceAfter.contentHash
     if (!report.checks.sourceUnchangedDuringRun) process.exitCode = 1
+    try {
+      report.artifactAfter = artifactIdentity(app, resources)
+      report.checks.artifactUnchangedDuringRun = JSON.stringify(report.artifact) === JSON.stringify(report.artifactAfter)
+    } catch (error) { report.artifactIdentityError = String(error); report.checks.artifactUnchangedDuringRun = false }
+    if (!report.checks.artifactUnchangedDuringRun) process.exitCode = 1
     report.elapsedMs = performance.now() - start
     writeFileSync(join(evidence, 'baseline.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
     // Redact the disposable profile's runtime credential if Electron happened to log it.

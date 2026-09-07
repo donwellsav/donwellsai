@@ -89,9 +89,19 @@ try {
     console.log(JSON.stringify(report.cycles.at(-1)))
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
-  await delay(200)
+  await until(async () => app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].isVisible()), 'Window did not become hidden')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show())
-  report.visibilityRecovery = true
+  await until(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 'Window did not become visible')
+  const pane = page.locator(`[data-pane-key="term:${sessionId}"]`)
+  await pane.locator('.xterm-helper-textarea').focus()
+  await page.keyboard.insertText('x')
+  await page.keyboard.press('Meta+f')
+  const search = pane.locator('.terminal-search')
+  await search.getByRole('textbox', { name: 'Find in terminal' }).fill(`RECOVERED ${fixturePid} INPUTS 1`)
+  await until(async () => { await search.getByTitle('Next result (Enter)', { exact: true }).click(); return /\d+ of [1-9]\d*/.test(await search.locator('.terminal-search-results').innerText()) }, 'Visible TUI did not redraw after real input')
+  await page.keyboard.press('Escape')
+  assert.deepEqual(readFileSync(starts, 'utf8').trim().split('\n'), [String(fixturePid)])
+  report.visibilityRecovery = { hidden: true, shown: true, sameProcess: true, inputProducedRedraw: true }
   await page.screenshot({ path: join(evidence, 'recovered.png') })
   const runtime = JSON.parse(readFileSync(join(profile, 'terminal-daemon/runtime.json'), 'utf8'))
   const daemon = await connectDaemon(runtime)
