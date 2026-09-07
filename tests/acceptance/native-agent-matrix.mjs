@@ -17,6 +17,7 @@ const { values } = parseArgs({ options: {
   'hermes-cli': { type: 'boolean', default: false },
   'omp-model': { type: 'string' },
   handoff: { type: 'boolean', default: false },
+  'code-search': { type: 'boolean', default: false }, 'kimi-index': { type: 'string' }, 'code-graph-binary': { type: 'string' },
   'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' },
   'integrated-journey': { type: 'boolean', default: false }
 } })
@@ -32,6 +33,8 @@ assert(!values['native-write'] || (values.memory && values.managed && agentIds[0
 assert(!values['integrated-journey'] || (values['native-write'] && values.sqlite && agentIds.length === 2 && agentIds[0] === 'omp' && agentIds[1] === 'deepseek-harness' && values['dsh-sessions'] && values.zstd), '--integrated-journey requires --native-write --sqlite --agents omp,deepseek-harness --dsh-sessions and --zstd')
 assert(!values['dsh-completed-answer'] || (values.memory && agentIds.includes('deepseek-harness') && values['dsh-sessions'] && values.zstd), '--dsh-completed-answer requires memory, DSH, --dsh-sessions and --zstd')
 assert(!values.handoff || (values.managed && values.memory && agentIds.length === 2 && !values['native-write']), '--handoff requires exactly two managed memory agents')
+assert(!values['code-search'] || (values.memory && values.managed && !values.handoff && !values['native-write'] && agentIds.length === 1 && agentIds[0] === 'kimi' && values['kimi-index']), '--code-search currently verifies one managed Kimi session and requires --kimi-index')
+assert(!values['code-graph-binary'] || values['code-search'], '--code-graph-binary requires --code-search')
 const hermesMemory = values.memory && agentIds.includes('hermes')
 assert(!hermesMemory || (values['hermes-home'] && values['hermes-python']), 'Hermes memory trial requires --hermes-home and --hermes-python')
 const { app: executable, resources, profile, evidence } = validateOptions(values)
@@ -46,11 +49,12 @@ if (values['integrated-journey']) {
   writeFileSync(join(fixture, 'verify.cjs'), `const fs=require('node:fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/native-agent.txt',${JSON.stringify(verificationWord)});console.log('VERIFIED_NATIVE_AGENT')`)
   writeFileSync(join(fixture, '.gitignore'), 'dist/\n')
 }
+if (values['code-search']) writeFileSync(join(fixture, 'code-probe.ts'), `export const nativeCodeProbe = "${verificationWord}";\nexport function graphTarget() { return 1 }\nexport function graphCaller() { return graphTarget() }\n`)
 execFileSync('git', ['init', '-b', 'main', fixture], { stdio: 'ignore' })
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)).href)
 const { callRuntime } = await import(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')).href)
 const invoke = async (method, params = {}) => {
-  const result = await callRuntime(method, params, profile, 10000)
+  const result = await callRuntime(method, params, profile, method === 'tool.call' ? 45000 : 10000)
   assert(result.ok, `${method}: ${result.error}`)
   return result.result
 }
@@ -60,6 +64,8 @@ const closeForRestart = async (application, child, label) => {
   return result
 }
 const env = { ...process.env, DONWELLS_USER_DATA: profile, KIMI_CODE_NO_AUTO_UPDATE: '1', KIMI_CLI_NO_AUTO_UPDATE: '1' }
+if (values['code-graph-binary']) env.DONWELLS_CODE_GRAPH_BINARY = resolve(values['code-graph-binary'])
+else delete env.DONWELLS_CODE_GRAPH_BINARY
 const hermesProfile = hermesMemory
   ? join(resolve(values['hermes-home']), 'profiles', `donwells-acceptance-${randomUUID()}`)
   : join(profile, 'profiles', 'hermes')
@@ -112,11 +118,52 @@ function completedIntegratedDshJourney() {
   const validation = validateIntegratedDshTurn(turn)
   return { nativeSessionId: events[0].id, turnReason: end.data.reason, ...validation, transcript: path }
 }
+function completedKimiCodeSearch() {
+  const readEvents = path => readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } })
+  const sessions = readEvents(values['kimi-index']).filter(session => session.workDir === realpathSync(fixture))
+  if (!sessions.length) return null
+  const directories = [...new Set(sessions.map(session => session.sessionDir))]
+  assert.equal(directories.length, 1, 'Ambiguous native Kimi session')
+  const wire = join(directories[0], 'agents/main/wire.jsonl')
+  const events = readEvents(wire)
+  const call = events.find(event => event.type === 'context.append_loop_event' && event.event?.type === 'tool.call' && event.event.name === 'mcp__donwells-project-memory__code_search')
+  if (!call) return null
+  assert.equal(call.event.args.query, 'nativeCodeProbe')
+  const response = events.find(event => event.type === 'context.append_loop_event' && event.event?.type === 'tool.result' && event.event.toolCallId === call.event.toolCallId)
+  if (!response) return null
+  const result = JSON.parse(response.event.result.output)
+  assert.equal(result.hits.length, 1, 'Expected the single fixture source hit')
+  assert.equal(result.hits[0].path, 'code-probe.ts')
+  assert.equal(result.hits[0].line, 1)
+  assert(result.hits[0].excerpt.includes(verificationWord))
+  const end = events.find(event => event.type === 'turn.ended' && String(event.turnId) === String(call.event.turnId))
+  if (!end) return null
+  assert.equal(end.reason, 'completed')
+  let graphEvidence = null, responseTime = response.time
+  if (values['code-graph-binary']) {
+    const graphCall = events.find(event => event.type === 'context.append_loop_event' && event.event?.type === 'tool.call' && event.event.name === 'mcp__donwells-project-memory__code_graph_callers' && String(event.event.turnId) === String(call.event.turnId))
+    assert(graphCall, 'Native graph caller tool was not used')
+    assert.equal(graphCall.event.args.function_name, 'graphTarget')
+    const graphResponse = events.find(event => event.type === 'context.append_loop_event' && event.event?.type === 'tool.result' && event.event.toolCallId === graphCall.event.toolCallId)
+    assert(graphResponse, 'Native graph result missing')
+    const graph = JSON.parse(graphResponse.event.result.output)
+    assert.equal(graph.freshness.state, 'current')
+    assert.deepEqual(graph.callers.groups.flatMap(group => group.rows.map(row => row[0])), ['graphCaller'])
+    responseTime = Math.max(responseTime, graphResponse.time)
+    graphEvidence = { toolCallId: graphCall.event.toolCallId, functionName: graphCall.event.args.function_name, freshness: graph.freshness, callers: ['graphCaller'] }
+  }
+  const turnTools = events.filter(event => event.type === 'context.append_loop_event' && event.event?.type === 'tool.call' && String(event.event.turnId) === String(call.event.turnId)).map(event => event.event.name)
+  assert.deepEqual(turnTools.sort(), ['mcp__donwells-project-memory__code_search', ...(values['code-graph-binary'] ? ['mcp__donwells-project-memory__code_graph_callers'] : [])].sort(), 'Native turn used unexpected tools or repeated calls')
+  const answer = events.filter(event => event.time > responseTime && event.type === 'context.append_loop_event' && event.event?.type === 'content.part' && String(event.event.turnId) === String(call.event.turnId) && event.event.part?.type === 'text').map(event => event.event.part.text).join('')
+  assert(answer.includes(verificationWord), 'Completed native answer omitted the source value')
+  if (graphEvidence) assert(answer.includes('graphCaller'), 'Completed native answer omitted the graph caller')
+  return { graph: graphEvidence, wire, wireSha256: hash(readFileSync(wire)), toolCallId: call.event.toolCallId, tool: call.event.name, query: call.event.args.query, sourcePath: result.hits[0].path, sourceLine: result.hits[0].line, excerptSha256: hash(result.hits[0].excerpt), answerSha256: hash(answer), turnReason: end.reason }
+}
 const start = performance.now()
 const report = {
   startedAt: new Date().toISOString(), source: sourceIdentity(), executable, profile, fixture,
   artifact: { executableSha256: hash(readFileSync(executable)), asarSha256: hash(readFileSync(join(resources, 'app.asar'))), memoryMcpSha256: hash(readFileSync(join(resources, 'dist-cli/cli/project-memory-mcp.js'))) },
-  agents: {}, limitations: [values.handoff ? 'Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates.' : values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
+  agents: {}, limitations: [values['code-search'] ? 'One completed Kimi code-tool turn; other native harnesses and broader workloads remain separate checks.' : values.handoff ? 'Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates.' : values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
 let appChild
@@ -375,7 +422,14 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
           }, { workspacePath: fixture, source: report.handoffSource.sessionId, recipient: result.sessionId, word: memoryWord })
           report.handoff = { id: handoff.id, from: report.handoffSource.sessionId, to: result.sessionId }
         }
-        await page.keyboard.type(values.handoff
+        if (values['code-graph-binary']) {
+          const indexed = await invoke('tool.call', { workspacePath: fixture, id: 'code-graph', operation: 'index', arguments: {} })
+          assert.equal(indexed.structuredContent?.freshness.state, 'current', JSON.stringify(indexed))
+          report.codeGraph = { binarySha256: hash(readFileSync(values['code-graph-binary'])), indexed: indexed.structuredContent }
+        }
+        await page.keyboard.type(values['code-search']
+          ? 'Call mcp__donwells-project-memory__code_search with query nativeCodeProbe. Reply with the exact string value from the returned code-probe.ts source line. ' + (values['code-graph-binary'] ? 'Also call mcp__donwells-project-memory__code_graph_callers with function_name graphTarget and name its direct caller in your answer. The checkout index is already built. ' : '') + 'Do not use other tools, run shell commands, or edit anything.'
+          : values.handoff
           ? handoffSource
             ? `Write handoff-source.txt in this current checkout containing exactly ${verificationWord} with no newline. Do not edit any other file. This is the first step of a two-agent fixture. Stop after writing it.`
             : `Call the ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_receive' : 'donwells-project-memory handoff_receive'} tool with id ${handoff.id} and expectedRevision ${handoff.revision}. Read the returned context and acknowledge it with ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_acknowledge' : 'handoff_acknowledge'} using its id and returned revision, then complete its next steps. Do not retry an uncertain receive.`
@@ -390,7 +444,7 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
         await delay(500)
         await page.keyboard.press('Enter')
         const deadline = Date.now() + responseTimeout
-        const outcome = values.memory ? 'memory' : 'query'
+        const outcome = values['code-search'] ? 'codeSearch' : values.memory ? 'memory' : 'query'
         result[outcome] = 'no-verified-response'
         while (Date.now() < deadline) {
           if (nativeWriter) {
@@ -410,7 +464,17 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
             continue
           }
           const output = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
-          if (values.memory && id === 'kimi' && !result.fixtureMemoryReadApproved && output.includes('Approve mcp__donwells-project-memory__memory_search?') && output.includes(memoryTitle) && output.includes('1. Approve once')) {
+          if (values['code-search']) {
+            if (!result.fixtureCodeReadApproved && output.includes('Approve mcp__donwells-project-memory__code_search?') && output.includes('nativeCodeProbe') && output.includes('1. Approve once')) {
+              await input.focus(); await page.keyboard.press('Enter'); result.fixtureCodeReadApproved = true
+            }
+            if (values['code-graph-binary'] && !result.fixtureGraphReadApproved && output.includes('Approve mcp__donwells-project-memory__code_graph_callers?') && output.includes('graphTarget') && output.includes('1. Approve once')) {
+              await input.focus(); await page.keyboard.press('Enter'); result.fixtureGraphReadApproved = true
+            }
+            result.completedCodeSearch = completedKimiCodeSearch()
+            if (result.completedCodeSearch) { result.codeSearch = 'completed-native-tool-turn'; break }
+          }
+          if (!values['code-search'] && values.memory && id === 'kimi' && !result.fixtureMemoryReadApproved && output.includes('Approve mcp__donwells-project-memory__memory_search?') && output.includes(memoryTitle) && output.includes('1. Approve once')) {
             // Approve only this disposable fixture's requested read, never a session-wide permission.
             await input.focus()
             await page.keyboard.press('Enter')
@@ -430,7 +494,7 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
               result[outcome] = 'handoff-step-completed'; break
             }
           }
-          if (!values.handoff && !nativeWriter && output.includes(values.memory ? memoryWord : verificationWord)) {
+          if (!values['code-search'] && !values.handoff && !nativeWriter && output.includes(values.memory ? memoryWord : verificationWord)) {
             if (values.memory && !managedMemory) {
               const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
               assert(calls.some(call => call.method === 'memory.list' && call.ok), 'Native memory search was not observed')
@@ -473,7 +537,7 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
       } else result.rendererClosedAfterPrompt = true
       result.binaryUnchanged = result.executableSha256 === hash(readFileSync(provider.executablePath))
       assert(result.binaryUnchanged, `${id} executable changed during qualification`)
-      console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query, memory: result.memory }))
+      console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query, memory: result.memory, codeSearch: result.codeSearch }))
     } catch (error) {
       result.error = error.message
       result.errorStack = error.stack
@@ -565,7 +629,8 @@ finally {
   report.requestedChecksPassed = agentIds.every(id => {
     const result = report.agents[id]
     return result && !result.error && result.startup === 'output-observed'
-      && (!(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === (values.handoff ? 'handoff-step-completed' : values['native-write'] && id === agentIds[0] ? 'native-write-persisted' : 'fixture-word-observed'))
+      && (!values['code-search'] || result.codeSearch === 'completed-native-tool-turn')
+      && (values['code-search'] || !(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === (values.handoff ? 'handoff-step-completed' : values['native-write'] && id === agentIds[0] ? 'native-write-persisted' : 'fixture-word-observed'))
   }) && (!values['integrated-journey'] || Boolean(report.integratedJourney?.staleRevisionRejected && report.integratedJourney?.nativeTurn && report.integratedJourney?.verification?.origin?.mode === 'native'))
   if (!report.requestedChecksPassed) process.exitCode = 1
  } catch (error) { report.finalizationError = error instanceof Error ? error.message : String(error); process.exitCode = 1 }

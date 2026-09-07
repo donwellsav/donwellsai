@@ -1,0 +1,164 @@
+{
+  "source": {
+    "commit": "fff1a99a0404ab37d79836ffe7bcf890c007bd86",
+    "dirty": true,
+    "contentHash": "dd06985491311e37d683a1b8b90bf224455743af881abf689ae7a20b4616f307"
+  },
+  "executable": "/tmp/donwells-pass2-01/package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-profile-ljGZPc",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-project-Kq2B57",
+  "artifact": {
+    "asarSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49"
+  },
+  "cycles": [
+    {
+      "cycle": 1,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 2,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 3,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 4,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 5,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 6,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 7,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 8,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 9,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 10,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 11,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 12,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 13,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 14,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 15,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 16,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 17,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 18,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 19,
+      "shutdown": "graceful",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    },
+    {
+      "cycle": 20,
+      "shutdown": "SIGKILL",
+      "sameProcess": true,
+      "renderedRedraw": true,
+      "resubmittedInput": false
+    }
+  ],
+  "limitations": [
+    "Custom TUI fixture exercises transport and redraw, not native-agent conversation quality.",
+    "Window hide/show exercises visibility recovery; physical system sleep is not induced on the user workstation."
+  ],
+  "sessionId": "4a1aaecc-e593-4843-9eb7-109745401d28",
+  "fixturePid": 81048,
+  "error": "AssertionError [ERR_ASSERTION]: Visible TUI did not redraw after real input\n    at until (file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/terminal-recovery.mjs:39:34)\n    at async file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/terminal-recovery.mjs:101:3",
+  "cleanupError": "terminal.close: agent sessions require interrupt followed by dismiss after confirmed exit",
+  "idleDaemonStopped": true
+}

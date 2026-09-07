@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-09-06T11:08:05.131Z",
+  "source": {
+    "commit": "b78d9a5893e335fa50228108a300e8250ff4c7d7",
+    "dirty": true,
+    "contentHash": "a07a6a1286f2e9e92f2ff8ab30eb8c16476e777e53f2c9d693c6e55f0f8a35e8"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-code-profile-02",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-6RoD21",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78",
+    "memoryMcpSha256": "45629d23966b28cac233122e603a538f252fea76248718d6512ec51d04f3f6d5"
+  },
+  "agents": {
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-6RoD21/.kimi-code/mcp.json",
+      "sessionId": "a30aad4d-9fa8-4f1e-ae22-0cdb217de424",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2392,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "codeSearch": "completed-native-tool-turn",
+      "completedCodeSearch": {
+        "wire": "/Users/muzikfirst/.kimi-code/sessions/wd_donwells-native-agents-6rod21_07138c459252/session_e7501dc9-8060-4a10-a9b1-b11aaa9cb004/agents/main/wire.jsonl",
+        "wireSha256": "cc90d16d483ac68049dc78f8ecbdce60f0d9ba69cb90af0ab2cf28feef7507f6",
+        "toolCallId": "tool_JnPPil1rGQ5rXu374I0AhQEM",
+        "tool": "mcp__donwells-project-memory__code_search",
+        "query": "nativeCodeProbe",
+        "sourcePath": "code-probe.ts",
+        "sourceLine": 1,
+        "excerptSha256": "16424b24f1a349694b41a1b985111a4b6da4ff663dca74704e2593c26551d0d7",
+        "answerSha256": "8f185b509ec8b1921859a548297c0bb4ec1f70a6c21a7869a433d76961b4a3b7",
+        "turnReason": "completed"
+      },
+      "fixtureCodeReadApproved": true,
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "One completed Kimi code-search turn; graph selection and other native harnesses remain separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 18204.255583000002
+    }
+  ],
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": true,
+  "durationMs": 18289.693750000002
+}

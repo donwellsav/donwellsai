@@ -653,6 +653,20 @@ These receipts prove the shipped MCP transport and runtime routes, not a new com
 Both packaged receipts use ASAR SHA-256 `8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78`.
 
 
+### Historical Kimi code-tool turn in the packaged terminal
+
+Retained evidence from source b78d9a5 and the artifact hashes below; this section does not qualify the current checkout or supersede the rebuilt01–26 plan.
+
+The native agent acceptance runner now supports a bounded managed Kimi code-tool check: `--agents kimi --memory --managed --code-search --kimi-index <native session_index.jsonl>`, with optional `--code-graph-binary <admitted executable>` for caller lookup. The native provider, managed MCP setup and terminal input all use the existing packaged app flow. The fixture supplies one source-only verification value; the prompt requests tool use without supplying that value or the expected caller name.
+
+The validator follows the exact fixture checkout into Kimi's own session index and wire log. It requires the actual `code_search` tool-call ID, its matching source result (`code-probe.ts`, line 1), a completed turn, and an answer containing the returned value. The graph variant additionally requires the actual `code_graph_callers` request/result, current freshness, the known caller, and its name in the completed answer. The final validator rejects additional tools or repeated calls. Native log paths and hashes are retained; raw transcripts stay in local private test output.
+
+Two failed experiments informed corrections to the runner, not production workarounds. `native-kimi-code-prompt-failure-01.json` records the old memory prompt being sent accidentally; the new code-search gate correctly refused to pass. `native-kimi-code-stale-fixture-01.json` records both tools executing but the graph being stale because setup wrote its project configuration after indexing. The runner now builds the index after agent setup and before submitting the model prompt. It retains the current-freshness requirement rather than weakening it.
+
+`native-kimi-code-search-01.json` passed the source-search-only turn. `native-kimi-code-tools-01.json` passed the combined turn in 28.76 seconds including setup and cleanup, with Kimi executable SHA-256 `72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66`, packaged ASAR SHA-256 `8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78`, and packaged MCP module SHA-256 `45629d23966b28cac233122e603a538f252fea76248718d6512ec51d04f3f6d5`. The final native wire file still matched its recorded hash after cleanup. Agent cleanup and idle-daemon shutdown passed; native graph processes were absent afterward. The terminal background remained `#16161D`.
+
+This is one real Kimi model turn, not qualification of OMP, Hermes, or DSH for the new code tools. Those native checks and broader source workloads remain open. The older Hermes setup acceptance also still expects eight tools and must be updated against the expanded tool list before its next native run; production setup discovers tools dynamically. No production code or dependency changed in this verification step.
+
 ### Current Task 02 verification in progress
 
 The current comparison reuses the same two packaged-daemon processes: xterm/FlexLayout, Ghostty/FlexLayout, then xterm/Dockview. Ghostty 0.4.0 again fails the actual SearchAddon (`onWriteParsed` missing) with native output. Both xterm layouts pass 100 terminal moves, 102 Monaco moves with the same model/draft, selection, native input/Unicode/resize/alternate-screen, multiline paste, SGR pointer reporting and real WebLinks activation with a non-navigating fixture callback. The completed run records equal per-layout input/load/focus distributions in current-terminal-layout-native.json. FlexLayout idle/loaded echo p95 was 3.6/4.8 ms; Dockview was 2.5/3.2 ms. These measurements do not establish a material performance advantage. Native IME and VoiceOver remain open; no final renderer/layout selection is credited.

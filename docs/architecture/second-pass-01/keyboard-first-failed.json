@@ -1,0 +1,344 @@
+{
+  "sourceBefore": {
+    "commit": "d06a160afb8ba0dc7308a31e650ed9583d3f01d0",
+    "dirty": true,
+    "contentHash": "fbcd02bc543646ae9c975e75d4abfbdb70895b33eab2be7bd9fbfed17186c67c"
+  },
+  "artifactBefore": {
+    "executable": "/private/tmp/donwells-pass2-01/package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+    "externalResources": {
+      "fileCount": 34,
+      "sha256": "a500039c8ee5c1e664bea0c624af6e8f0ee2d746aa0f78c41a16b95619b1d61b"
+    }
+  },
+  "profile": "/private/tmp/donwells-pass2-01/keyboard-profile",
+  "project": "/private/tmp/donwells-pass2-01/keyboard-profile/fixture",
+  "journeys": {
+    "start": {
+      "sessionId": "6f8732c0-908b-4274-a6b8-c5f6b8787891",
+      "workspacePath": "/private/tmp/donwells-pass2-01/keyboard-profile/fixture"
+    },
+    "collaborate": {
+      "sessionId": "fb731af0-71fc-4f4d-bf01-7ca25cf5e724",
+      "workspacePath": "/private/tmp/donwells-pass2-01/keyboard-profile/fixture",
+      "task": {
+        "intent": "Review shared README",
+        "files": [
+          "README.md"
+        ]
+      },
+      "overlapVisible": true
+    },
+    "handoff": {
+      "source": "6f8732c0-908b-4274-a6b8-c5f6b8787891",
+      "receiver": "fb731af0-71fc-4f4d-bf01-7ca25cf5e724",
+      "reviewed": true,
+      "accepted": true,
+      "instructionsCopied": true,
+      "nativeDelivery": "Qualified separately by native-handoff-cli.json"
+    }
+  },
+  "limitations": [
+    "Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately."
+  ],
+  "launchPath": "/usr/bin:/bin:/usr/sbin:/sbin",
+  "resolvedPath": "/usr/bin:/bin:/usr/sbin:/sbin:/Users/muzikfirst/.local/bin:/Users/muzikfirst/.bun/bin:/Users/muzikfirst/.kimi-code/bin:/opt/homebrew/bin:/usr/local/bin",
+  "discoveredProviders": {
+    "providers": [
+      {
+        "id": "codex",
+        "name": "Codex",
+        "command": "codex",
+        "hookSupport": {
+          "support": "native",
+          "adapter": "codex-hooks",
+          "events": [
+            "working",
+            "waiting",
+            "permission",
+            "completed"
+          ],
+          "documentationUrl": "https://developers.openai.com/codex/hooks"
+        },
+        "skillConsumer": {
+          "supported": true,
+          "root": ".agents/skills",
+          "discovery": "native"
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.local/bin/codex"
+      },
+      {
+        "id": "claude",
+        "name": "Claude Code",
+        "command": "claude",
+        "hookSupport": {
+          "support": "native",
+          "adapter": "claude-hooks",
+          "events": [
+            "working",
+            "waiting",
+            "permission",
+            "completed",
+            "failed"
+          ],
+          "documentationUrl": "https://code.claude.com/docs/en/hooks"
+        },
+        "skillConsumer": {
+          "supported": true,
+          "root": ".claude/skills",
+          "discovery": "native"
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.local/bin/claude"
+      },
+      {
+        "id": "pi",
+        "name": "Pi",
+        "command": "pi",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/opt/homebrew/bin/pi"
+      },
+      {
+        "id": "opencode",
+        "name": "OpenCode",
+        "command": "opencode",
+        "hookSupport": {
+          "support": "native",
+          "adapter": "opencode-plugin",
+          "events": [
+            "working",
+            "waiting",
+            "permission",
+            "completed",
+            "failed"
+          ],
+          "documentationUrl": "https://opencode.ai/docs/plugins/"
+        },
+        "skillConsumer": {
+          "supported": true,
+          "root": ".opencode/skills",
+          "discovery": "native"
+        },
+        "available": false,
+        "readiness": {
+          "installed": false,
+          "launchable": "unavailable",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        }
+      },
+      {
+        "id": "cursor-agent",
+        "name": "Cursor Agent",
+        "command": "cursor-agent",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.local/bin/cursor-agent"
+      },
+      {
+        "id": "qwen-code",
+        "name": "Qwen Code",
+        "command": "qwen-code",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": false,
+        "readiness": {
+          "installed": false,
+          "launchable": "unavailable",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        }
+      },
+      {
+        "id": "goose",
+        "name": "Goose",
+        "command": "goose",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": false,
+        "readiness": {
+          "installed": false,
+          "launchable": "unavailable",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        }
+      },
+      {
+        "id": "omp",
+        "name": "Oh My Pi",
+        "command": "omp",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.bun/bin/omp"
+      },
+      {
+        "id": "hermes",
+        "name": "Hermes",
+        "command": "hermes",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.local/bin/hermes"
+      },
+      {
+        "id": "kimi",
+        "name": "Kimi CLI",
+        "command": "kimi",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": true,
+        "readiness": {
+          "installed": true,
+          "launchable": "unverified",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        },
+        "executablePath": "/Users/muzikfirst/.kimi-code/bin/kimi"
+      },
+      {
+        "id": "deepseek-harness",
+        "name": "DeepSeek Harness",
+        "command": "dsh",
+        "hookSupport": {
+          "support": "unavailable",
+          "events": [],
+          "reason": "No documented per-run hook adapter is registered for this CLI."
+        },
+        "skillConsumer": {
+          "supported": false,
+          "reason": "No documented workspace skill discovery root is registered for this CLI."
+        },
+        "available": false,
+        "readiness": {
+          "installed": false,
+          "launchable": "unavailable",
+          "authenticated": "unknown",
+          "memoryConnected": false
+        }
+      }
+    ]
+  },
+  "memoryCommandTransfersFocus": true,
+  "error": "Error: Control unreachable using Shift+Tab: <button type=\"button\" class=\"btn btn-primary btn-sm\">New memory</button>\n    at reach (file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/keyboard-journeys.mjs:24:457)\n    at async activate (file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/keyboard-journeys.mjs:25:32)\n    at async file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/keyboard-journeys.mjs:73:2",
+  "focus": {
+    "tag": "TEXTAREA",
+    "role": null,
+    "label": "Terminal input",
+    "class": "xterm-helper-textarea"
+  },
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "idleDaemonStopped": true,
+  "sourceAfter": {
+    "commit": "d06a160afb8ba0dc7308a31e650ed9583d3f01d0",
+    "dirty": true,
+    "contentHash": "fbcd02bc543646ae9c975e75d4abfbdb70895b33eab2be7bd9fbfed17186c67c"
+  },
+  "sourceUnchanged": true,
+  "artifactAfter": {
+    "executable": "/private/tmp/donwells-pass2-01/package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+    "externalResources": {
+      "fileCount": 34,
+      "sha256": "a500039c8ee5c1e664bea0c624af6e8f0ee2d746aa0f78c41a16b95619b1d61b"
+    }
+  },
+  "artifactUnchanged": true,
+  "verified": false
+}

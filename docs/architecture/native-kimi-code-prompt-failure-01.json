@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-09-06T11:06:20.577Z",
+  "source": {
+    "commit": "b78d9a5893e335fa50228108a300e8250ff4c7d7",
+    "dirty": true,
+    "contentHash": "82f1c0a9e18bd3ef080b8074ac1e5cad0d9f131db024cfb30b56c244a9ea3548"
+  },
+  "executable": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-native-code-profile-01",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-SRlsMT",
+  "artifact": {
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "8440a71658a89287dc8e878125d2ae571da48c94aee17da9b1710cebbee7ef78",
+    "memoryMcpSha256": "45629d23966b28cac233122e603a538f252fea76248718d6512ec51d04f3f6d5"
+  },
+  "agents": {
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "not-run",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-SRlsMT/.kimi-code/mcp.json",
+      "sessionId": "ddbb204f-c297-4dca-843a-8113c4909d5c",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2392,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "codeSearch": "no-verified-response",
+      "completedCodeSearch": null,
+      "fixtureMemoryReadApproved": true,
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "One completed Kimi code-search turn; graph selection and other native harnesses remain separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1313.998
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "38916d52-865f-4f7c-bd2e-bb50ae25d42a",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      80595,
+      80686
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "requestedChecksPassed": false,
+  "durationMs": 70153.588875
+}
