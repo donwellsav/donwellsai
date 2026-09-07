@@ -40,6 +40,9 @@ import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
 import { registerProjectSearchHandlers } from './project-search-ipc'
+import { configureDesktopPath } from '@shared/child-process/process-environment'
+
+configureDesktopPath()
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.

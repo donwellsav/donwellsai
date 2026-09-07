@@ -1,3 +1,17 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+/** Finder does not inherit the user's terminal PATH. Preserve explicit tool precedence. */
+export function configureDesktopPath(env = process.env, platform = process.platform, home = homedir()): void {
+  if (platform !== 'darwin') return
+  // ponytail: standard CLI install locations only; custom locations still use an explicit PATH or executable.
+  env.PATH = [...new Set([
+    ...(env.PATH ?? '').split(':').filter(Boolean),
+    join(home, '.local/bin'), join(home, '.bun/bin'), join(home, '.kimi-code/bin'),
+    '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'
+  ])].join(':')
+}
+
 const PRIVATE_PROCESS_KEYS: Record<string, true> = {
   DONWELLS_DAEMON_TOKEN: true,
   ELECTRON_RUN_AS_NODE: true

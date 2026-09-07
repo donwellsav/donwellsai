@@ -6,13 +6,14 @@ import {execFileSync} from 'node:child_process'
 import {parseArgs} from 'node:util'
 import {hash,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
 import {cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
-const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'}}})
+const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},pdf:{type:'boolean',default:false},'minimal-path':{type:'boolean',default:false}}})
 assert(values.playwright)
 const {app:executable,resources,profile,evidence}=validateOptions(values);mkdirSync(profile);mkdirSync(evidence);mkdirSync(join(profile,'fixture'))
 const project=realpathSync(join(profile,'fixture'));writeFileSync(join(project,'README.md'),'# Keyboard fixture\nShared project keyboard journey.\n');execFileSync('git',['init','-q',project])
 writeFileSync(join(project,'package.json'),JSON.stringify({scripts:{test:'node check.cjs'}}))
 writeFileSync(join(project,'check.cjs'),`const fs=require('node:fs');require('node:assert/strict').ok(fs.readFileSync('README.md','utf8').includes('KEYBOARD_VERIFIED'));fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/result.txt','KEYBOARD_VERIFIED');console.log('KEYBOARD_VERIFIED')`)
 writeFileSync(join(project,'.gitignore'),'dist/\n')
+if(values.pdf)writeFileSync(join(project,'sample.pdf'),readFileSync(new URL('../fixtures/keyboard-preview.pdf',import.meta.url)))
 for(const args of [['config','user.email','fixture@example.test'],['config','user.name','Keyboard fixture'],['add','.'],['commit','-qm','Keyboard fixture']])execFileSync('git',args,{cwd:project})
 const {_electron}=await import(pathToFileURL(resolve(values.playwright)))
 const {callRuntime}=await import(pathToFileURL(join(resources,'dist-cli/cli/rpc-client.js')))
@@ -25,8 +26,9 @@ const activate=async(target)=>{await reach(target);await page.keyboard.press('En
 const enter=async(target,value)=>{await reach(target);await page.keyboard.press('Meta+a');await page.keyboard.insertText(value)}
 const choose=async(target,value)=>{const label=await target.evaluate((e,value)=>Array.from(e.options).find(o=>o.value===value)?.textContent,value);assert(label);await reach(target);for(let i=0;i<20&&await target.inputValue()!==value;i++){await page.keyboard.press(label[0]);await delay(60)}assert.equal(await target.inputValue(),value);await page.keyboard.press('Tab')}
 try{
- const env={...process.env,DONWELLS_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.ELECTRON_RENDERER_URL;delete env.DONWELLS_SMOKE
+ const env={...process.env,DONWELLS_USER_DATA:profile};if(values['minimal-path'])env.PATH='/usr/bin:/bin:/usr/sbin:/sbin';delete env.ELECTRON_RUN_AS_NODE;delete env.ELECTRON_RENDERER_URL;delete env.DONWELLS_SMOKE
  app=await _electron.launch({executablePath:executable,env});page=await app.firstWindow();page.setDefaultTimeout(5000);await page.getByRole('navigation',{name:'Workspace tools'}).waitFor()
+ if(values['minimal-path']){report.launchPath=env.PATH;report.resolvedPath=await app.evaluate(()=>process.env.PATH);report.discoveredProviders=await invoke('agent.providers')}
  await invoke('settings.set',{theme:'dark',agentCommand:'/bin/cat'});await invoke('repo.add',{dir:project})
  await page.evaluate(()=>{globalThis.keyboardMouseEvents=0;document.addEventListener('pointerdown',()=>globalThis.keyboardMouseEvents++,true)})
  await activate(page.getByRole('button',{name:/Main checkout/}));await command('Run default agent')
@@ -114,6 +116,13 @@ try{
  const restored=(await invoke('verification.list',{workspacePath:project,verifyArtifacts:true})).find(r=>r.runId===verified.runId)
  assert.equal(restored.task.status,'succeeded');assert.equal(restored.sourceState,'current');assert.equal(restored.artifacts[0].state,'unchanged')
  report.journeys.returnShip={restart:'Owned app graceful close and relaunch',terminalIdentitiesRetained:true,memoryOpenedByKeyboard:true,verificationRetained:true,artifactUnchanged:true,installedRelease:'Task 22'}
+ if(values.pdf){
+  await page.keyboard.press('Meta+p');await page.locator('.palette-input').waitFor();await page.keyboard.press('Meta+a');await page.keyboard.insertText('sample.pdf');await page.getByRole('option',{name:/sample.pdf/}).waitFor();await page.keyboard.press('Enter');await page.locator('.palette-input').waitFor({state:'detached'})
+  const pdf=page.getByRole('region',{name:'PDF preview: sample.pdf'});await pdf.waitFor();await pdf.getByText('donwells.ai page 1',{exact:true}).waitFor()
+  assert(await pdf.locator('canvas').first().evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}))
+  await activate(pdf.getByRole('button',{name:'Next page',exact:true}));await pdf.getByText('donwells.ai page 2',{exact:true}).waitFor()
+  report.pdf={renderedCanvas:true,textLayer:true,secondPage:true,nodeCanvasRequired:false}
+ }
  report.verified=true
  report.mouseEvents=await page.evaluate(()=>globalThis.keyboardMouseEvents);assert.equal(report.mouseEvents,0)
  await page.screenshot({path:join(evidence,'keyboard-workspace.png')})
