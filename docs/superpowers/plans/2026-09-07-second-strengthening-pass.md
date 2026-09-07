@@ -1,6 +1,6 @@
 # Second strengthening pass — research before implementation
 
-Current position: **Task 01 active — fresh research, baseline and evidence audit.** Task 02 is skipped. All other tasks are reopened for this pass; previous receipts are history, not current completion. Final GUI refinement is Task 29, confirmed by the user.
+Current position: **IMPLEMENTATION PAUSED by user.** The [controlled product improvement plan](2026-09-07-product-improvement-contract.md) is the new draft for review. No task in this second pass is complete. Task02 remains skipped and final GUI refinement is Task29. Earlier execution instructions below are suspended pending explicit approval.
 
 ## Authority and execution
 
@@ -9,6 +9,8 @@ The user's September 7 request supersedes earlier keep-current decisions: seek s
 Original task requirements remain in the [detailed plan](2026-09-06-terminal-workspace.md). Apply them as strengthening work to the current implementation, not rollback. Task 27 follows 13 and precedes 21. Final GUI task follows the functional changes, then repeat affected installed-release checks. Commit verified chunks locally, never push or open a PR without request. Show the full current checklist after each completed task and immediately continue.
 
 For every task:
+
+**User correction:** This is a product improvement pass, not a validation pass. Tests and receipts support an implementation; they do not count as the task deliverable. Avoid repeating baseline qualification. Each task must deliver a concrete capability, refinement, simplification or bug fix, with only the checks needed to prove that change.
 
 1. Reopen its current implementation and user journey; state observable gaps.
 2. Research current GitHub implementations, including candidates outside the supplied list. Verify source/release pins, actual license/dependencies, ownership and integration behavior. Metadata is triage, not admission.
