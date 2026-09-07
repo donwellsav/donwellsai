@@ -110,7 +110,7 @@ export class ProjectLume {
     if (!this.launching.has(record.id) && (record.pid !== marker.pid || record.startedAt !== marker.startedAt)) throw new Error('Running Lume process does not match the recorded owner; it will not be adopted or stopped')
     return { ...record, state: 'running', pid: marker.pid, startedAt: marker.startedAt, ipAddress: typeof value.ipAddress === 'string' ? value.ipAddress : undefined, detail: undefined }
   }
-  async action(path: string, id: string, action: 'start' | 'stop' | 'status' | 'remove'): Promise<LumeEnvironment> {
+  async action(path: string, id: string, action: 'start' | 'stop' | 'status' | 'show' | 'remove'): Promise<LumeEnvironment> {
     if (this.changing.has(id)) throw new Error('Lume operation already in progress')
     this.changing.add(id)
     let record: LumeEnvironment | undefined
@@ -122,6 +122,17 @@ export class ProjectLume {
         return this.save({ ...observed, retired: true })
       }
       if (action === 'status') return this.save(observed)
+      if (action === 'show') {
+        if (observed.state !== 'running' || !record.pid || record.pid !== observed.pid || record.startedAt !== observed.startedAt) throw new Error('Refresh verified running ownership before showing the desktop')
+        const markerPath = join(record.config.storageDirectory, record.config.name, '.native-display-owner.json'), markerStat = lstatSync(markerPath)
+        if (!markerStat.isFile() || markerStat.isSymbolicLink() || markerStat.nlink !== 1 || markerStat.size > 16384 || JSON.parse(readFileSync(markerPath, 'utf8')).processIdentifier !== observed.pid) throw new Error('Native viewer does not belong to the recorded VM owner')
+        // Pinned Lume attach rechecks the configuration lock before signaling its existing viewer.
+        // Explicit native prevents its otherwise automatic VNC fallback; it cannot start a VM.
+        await this.execute({ program: this.admission().executable, args: ['attach', record.config.name, '--storage', record.config.storageDirectory, '--display', 'native'], env: sanitizedProcessEnv(process.env), timeoutMs: 15000, maxOutputBytes: 65536 })
+        const after = await this.probe(observed)
+        if (after.state !== 'running' || after.pid !== observed.pid || after.startedAt !== observed.startedAt) throw new Error('VM owner changed while requesting its native viewer')
+        return this.save(after)
+      }
       if (action === 'start') {
         if (observed.state !== 'stopped') throw new Error('Guest is already running or starting; reconnect to it')
         if (this.launching.size || this.db(db => db.prepare('SELECT record FROM guests WHERE id<>?').all(id).some(row => { const guest = JSON.parse(String(row.record)) as LumeEnvironment; return !guest.retired && guest.state !== 'stopped' }))) throw new Error('Stop or reconcile other prepared guests before starting another VM')

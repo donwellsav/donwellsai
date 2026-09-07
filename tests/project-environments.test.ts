@@ -255,6 +255,7 @@ it('admits only private prepared Lume disks and reconnects/stops the recorded ow
     if (spec.args[0] === 'get') return { stdout: JSON.stringify([{ name: 'fresh', cpuCount: 4, memorySize: 8 * 1024 ** 3, os: 'macOS', status: running ? 'running' : 'stopped', vncUrl: null, ipAddress: '192.168.64.20' }]) }
     if (spec.args[0] === 'run') { launches++; running = true; writeFileSync(join(vm, 'sessions.json'), JSON.stringify({ vncEnabled: false, pid: process.pid, startedAt: 123 })); await new Promise<void>(resolve => { release = resolve }); return { stdout: '' } }
     if (spec.args[0] === 'stop') { running = false; release(); return { stdout: '' } }
+    if (spec.args[0] === 'attach') return { stdout: 'Requested native display' }
     throw new Error('Unexpected command')
   })
   const owner = new ProjectLume(profile, scope, execute as never), info = await owner.list(project)
@@ -272,10 +273,22 @@ it('admits only private prepared Lume disks and reconnects/stops the recorded ow
   const reconnected = new ProjectLume(profile, scope, execute as never)
   expect(await reconnected.action(project, 'fresh', 'status')).toMatchObject({ state: 'running', pid: process.pid })
   expect(launches).toBe(1)
+  writeFileSync(join(vm, '.native-display-owner.json'), JSON.stringify({ processIdentifier: process.pid + 1 }))
+  await expect(reconnected.action(project, 'fresh', 'show')).rejects.toThrow('Native viewer')
+  expect(execute.mock.calls.filter(([spec]) => spec.args[0] === 'attach')).toHaveLength(0)
+  writeFileSync(join(vm, '.native-display-owner.json'), JSON.stringify({ processIdentifier: process.pid }))
+  expect(await reconnected.action(project, 'fresh', 'show')).toMatchObject({ state: 'running', pid: process.pid, startedAt: 123 })
+  expect(execute.mock.calls.filter(([spec]) => spec.args[0] === 'attach').map(([spec]) => spec.args)).toEqual([['attach', 'fresh', '--storage', info.storageDirectory, '--display', 'native']])
+  expect(launches).toBe(1)
+  writeFileSync(join(vm, 'sessions.json'), JSON.stringify({ vncEnabled: false, pid: process.pid, startedAt: 124 }))
+  await expect(reconnected.action(project, 'fresh', 'show')).rejects.toThrow('recorded owner')
+  expect(execute.mock.calls.filter(([spec]) => spec.args[0] === 'attach')).toHaveLength(1)
+  writeFileSync(join(vm, 'sessions.json'), JSON.stringify({ vncEnabled: false, pid: process.pid, startedAt: 123 }))
   await expect(reconnected.action('/foreign', 'fresh', 'stop')).rejects.toThrow('foreign')
   await expect(reconnected.action(project, 'fresh', 'remove')).rejects.toThrow('Stop the guest')
   expect((await reconnected.action(project, 'fresh', 'status')).state).toBe('running')
   expect((await reconnected.action(project, 'fresh', 'stop')).state).toBe('stopped')
+  await expect(reconnected.action(project, 'fresh', 'show')).rejects.toThrow('running ownership')
   await reconnected.action(project, 'fresh', 'remove')
   expect((await reconnected.list(project)).guests).toEqual([])
   await expect(reconnected.register(project, 'fresh', config)).rejects.toThrow('already been used')

@@ -71,13 +71,21 @@ agent/MCP integration.
 
 Pinned `VMDisplayPresenter.swift` already implements `showWindow` and
 `applicationShouldHandleReopen`. Closing its window hides/detaches the view;
-Dock reopening recreates/attaches it to the same live VZVirtualMachine. There is
-no verified CLI `lume show` command. Donwells lacks a main-process route that
-sends the native application reopen event to the currently verified owner.
-A future `show` action must revalidate the recorded PID/start time/config lock,
-then address that process's existing application; it must not execute another
-`lume run` or attach a different VM. Launcher/process death cannot resurrect its
-in-memory VZVirtualMachine by reopening a window.
+Dock reopening recreates/attaches it to the same live VZVirtualMachine. The pinned source also provides `lume attach NAME --storage DIRECTORY --display native`.
+`NativeDisplayAttachService` verifies that its private native owner marker matches
+the configuration-file lock owner, then signals that process to reveal its existing
+viewer. Explicit `--display native` prevents the default VNC fallback. The app's
+Show desktop action now validates its recorded PID/start time and native marker,
+uses this exact command, and checks ownership again afterward. It never calls run.
+A stopped owner or stale marker is rejected. A successful attach requests reopening;
+physical viewer visibility remains a separate desktop observation.
+
+Primary pinned implementation: `libs/lume/src/Commands/Attach.swift` and
+`libs/lume/src/VM/NativeDisplayAttachService.swift` at
+[a3228aeb](https://github.com/trycua/cua/tree/a3228aebbed4c8d9c828c1ddea87cd12e99de238/libs/lume/src).
+The existing owner regression checks mismatched viewer PID, changed start identity,
+exact native-only attach argv, no additional VM launch, and stopped-owner refusal.
+
 
 Pinned DisplayMode includes `none`; `--display none --vnc disabled --no-clipboard`
 is syntactically supported for a separate headless trial. No clone/boot occurred

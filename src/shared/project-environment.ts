@@ -27,7 +27,7 @@ export type EnvironmentMemoryState = { state: 'disconnected' | 'connecting' | 'c
 export type ProjectEnvironmentApi = {
   environmentLumeList(workspacePath: string): Promise<{ storageDirectory: string; returnDirectory: string; admissionPath: string; guests: LumeEnvironment[] }>
   environmentLumeRegister(workspacePath: string, id: string, config: LumeEnvironmentConfig): Promise<LumeEnvironment>
-  environmentLumeAction(workspacePath: string, id: string, action: 'start' | 'stop' | 'status' | 'remove'): Promise<LumeEnvironment>
+  environmentLumeAction(workspacePath: string, id: string, action: 'start' | 'stop' | 'status' | 'show' | 'remove'): Promise<LumeEnvironment>
   environmentList(workspacePath: string): Promise<ProjectEnvironment[]>
   environmentConfigure(workspacePath: string, id: string, config: SshEnvironmentConfig): Promise<ProjectEnvironment>
   environmentConnect(workspacePath: string, id: string, generation: number): Promise<ProjectEnvironment>
