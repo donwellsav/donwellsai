@@ -84,7 +84,7 @@ describe('provider hook launch plans', () => {
     })
     const configDir = plan.env.OPENCODE_CONFIG_DIR
     if (!configDir) throw new Error('OpenCode adapter did not expose its disposable config directory')
-    const plugin = join(configDir, 'plugins', 'runtime-status.mjs')
+    const plugin = join(configDir, 'plugins', 'runtime-status.js')
     const pluginSource = readFileSync(plugin, 'utf8')
 
     expect(configDir.startsWith(runtimeDir)).toBe(true)

@@ -1,0 +1,464 @@
+{
+  "profile": "/private/tmp/donwells28-acp-gWzHru",
+  "project": "/private/tmp/donwells28-acp-gWzHru/project",
+  "updates": [
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "availableCommands": [
+          {
+            "name": "customize-opencode",
+            "description": "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself."
+          },
+          {
+            "name": "init",
+            "description": "guided AGENTS.md setup"
+          },
+          {
+            "name": "review",
+            "description": "review changes [commit|branch|pr], defaults to uncommitted"
+          }
+        ],
+        "sessionUpdate": "available_commands_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\nThe",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": " user wants me to reply with exactly ACP_READY",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": " and not use tools.\n",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\n\nACP_READY",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "used": 7475,
+        "size": 32768,
+        "cost": {
+          "amount": 0,
+          "currency": "USD"
+        },
+        "sessionUpdate": "usage_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "Reply with exactly ACP_READY. Do not use tools.",
+          "type": "text"
+        },
+        "messageId": "msg_07ad0128d0014pVKleR70gaEzR",
+        "sessionUpdate": "user_message_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\nThe user wants me to reply with exactly ACP_READY and not use tools.\n",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\n\nACP_READY",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01295001MAuJjEh0VR2adQ",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "availableCommands": [
+          {
+            "name": "customize-opencode",
+            "description": "Use ONLY when the user is editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/. Also use when creating or fixing opencode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring opencode itself."
+          },
+          {
+            "name": "init",
+            "description": "guided AGENTS.md setup"
+          },
+          {
+            "name": "review",
+            "description": "review changes [commit|branch|pr], defaults to uncommitted"
+          }
+        ],
+        "sessionUpdate": "available_commands_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\nThe user wants me to run the bash command with",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01f87001XxraaGqWqypWqA",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": " printf. Let me do that.\n",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01f87001XxraaGqWqypWqA",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "content": {
+          "text": "\n\n",
+          "type": "text"
+        },
+        "messageId": "msg_07ad01f87001XxraaGqWqypWqA",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "toolCallId": "call_851a83f4",
+        "title": "bash",
+        "kind": "execute",
+        "status": "pending",
+        "locations": [
+          {
+            "path": "/private/tmp/donwells28-acp-gWzHru/project"
+          }
+        ],
+        "rawInput": {
+          "cwd": "/private/tmp/donwells28-acp-gWzHru/project"
+        },
+        "sessionUpdate": "tool_call"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "toolCallId": "call_851a83f4",
+        "kind": "execute",
+        "status": "in_progress",
+        "title": "printf denied > should-not-exist.txt",
+        "locations": [
+          {
+            "path": "/private/tmp/donwells28-acp-gWzHru/project"
+          }
+        ],
+        "rawInput": {
+          "command": "printf denied > should-not-exist.txt",
+          "cwd": "/private/tmp/donwells28-acp-gWzHru/project"
+        },
+        "sessionUpdate": "tool_call_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "toolCallId": "call_851a83f4",
+        "kind": "execute",
+        "status": "failed",
+        "title": "printf denied > should-not-exist.txt",
+        "content": [
+          {
+            "content": {
+              "text": "The user rejected permission to use this specific tool call.",
+              "type": "text"
+            },
+            "type": "content"
+          }
+        ],
+        "locations": [
+          {
+            "path": "/private/tmp/donwells28-acp-gWzHru/project"
+          }
+        ],
+        "rawInput": {
+          "command": "printf denied > should-not-exist.txt",
+          "cwd": "/private/tmp/donwells28-acp-gWzHru/project"
+        },
+        "rawOutput": {
+          "error": "The user rejected permission to use this specific tool call."
+        },
+        "sessionUpdate": "tool_call_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "used": 7536,
+        "size": 32768,
+        "cost": {
+          "amount": 0,
+          "currency": "USD"
+        },
+        "sessionUpdate": "usage_update"
+      }
+    },
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "update": {
+        "used": 0,
+        "size": 32768,
+        "cost": {
+          "amount": 0,
+          "currency": "USD"
+        },
+        "sessionUpdate": "usage_update"
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+      "toolCall": {
+        "toolCallId": "call_851a83f4",
+        "kind": "execute",
+        "status": "pending",
+        "title": "printf denied > should-not-exist.txt",
+        "locations": [],
+        "rawInput": {
+          "command": "printf denied > should-not-exist.txt"
+        }
+      },
+      "options": [
+        {
+          "optionId": "once",
+          "name": "Allow once",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "always",
+          "name": "Always allow",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "reject",
+          "name": "Reject",
+          "kind": "reject_once"
+        }
+      ]
+    }
+  ],
+  "checks": [],
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "close": {},
+        "fork": {},
+        "list": {},
+        "resume": {}
+      }
+    },
+    "authMethods": [
+      {
+        "description": "Run `opencode auth login` in the terminal",
+        "name": "Login with opencode",
+        "id": "opencode-login"
+      }
+    ],
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.18.18"
+    }
+  },
+  "stderr": "Error handling request {\n  jsonrpc: \"2.0\",\n  id: 1,\n  method: \"initialize\",\n  params: {\n    protocolVersion: \"invalid\",\n    clientCapabilities: {},\n  },\n} {\n  code: -32602,\n  message: \"Invalid params\",\n  data: {\n    _errors: [],\n    protocolVersion: {\n      _errors: [ \"Invalid input: expected number, received string\" ],\n    },\n  },\n}\n",
+  "invalidSchemaRejected": true,
+  "invalidSchemaError": "RequestError: Invalid params",
+  "session": {
+    "sessionId": "ses_f852fed7affeZueD8532EZLc6O",
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
+        "options": [
+          {
+            "value": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
+            "name": "oMLX/Ornith-1.5-35B-A3B-MLX-8bit"
+          }
+        ]
+      },
+      {
+        "id": "mode",
+        "name": "Session Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "build",
+        "options": [
+          {
+            "value": "build",
+            "name": "build",
+            "description": "The default agent. Executes tools based on configured permissions."
+          },
+          {
+            "value": "plan",
+            "name": "plan",
+            "description": "Plan mode. Disallows all edit tools."
+          }
+        ]
+      }
+    ]
+  },
+  "prompt": {
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 1331,
+      "outputTokens": 21,
+      "totalTokens": 7496,
+      "cachedReadTokens": 6144
+    },
+    "_meta": {}
+  },
+  "reinitialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "sessionCapabilities": {
+        "close": {},
+        "fork": {},
+        "list": {},
+        "resume": {}
+      }
+    },
+    "authMethods": [
+      {
+        "description": "Run `opencode auth login` in the terminal",
+        "name": "Login with opencode",
+        "id": "opencode-login"
+      }
+    ],
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.18.18"
+    }
+  },
+  "loaded": {
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
+        "options": [
+          {
+            "value": "omlx/Ornith-1.5-35B-A3B-MLX-8bit",
+            "name": "oMLX/Ornith-1.5-35B-A3B-MLX-8bit"
+          }
+        ]
+      },
+      {
+        "id": "mode",
+        "name": "Session Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "build",
+        "options": [
+          {
+            "value": "build",
+            "name": "build",
+            "description": "The default agent. Executes tools based on configured permissions."
+          },
+          {
+            "value": "plan",
+            "name": "plan",
+            "description": "Plan mode. Disallows all edit tools."
+          }
+        ]
+      }
+    ]
+  },
+  "permissionPrompt": {
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 1392,
+      "outputTokens": 52,
+      "totalTokens": 7588,
+      "cachedReadTokens": 6144
+    },
+    "_meta": {}
+  },
+  "cancel": {
+    "stopReason": "cancelled",
+    "usage": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "totalTokens": 0
+    },
+    "_meta": {}
+  },
+  "deniedFileAbsent": true,
+  "sdkVersion": "1.4.0",
+  "opencodeSource": "31406ccc51b4bd2a4e1e086b2bcaa5f7f804f26d",
+  "binarySha256": "4f5979c2dadb06fbff1335335afaaea274e58f92e79aa43cf2ed98618d555422"
+}

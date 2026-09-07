@@ -4,6 +4,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type { Readable } from 'node:stream'
 import {
   AGENT_HOOK_INPUT_MAX_BYTES,
+  AGENT_HOOK_CAPABILITY,
   normalizeAgentHookMessage,
   type AgentHookEventKind,
   type AgentHookMessage
@@ -125,12 +126,20 @@ export async function emitAgentHook(options: {
         continue
       }
       const expectedId = stage === 'hello' ? helloId : emitId
+      if (!isRecord(response)) {
+        finish(new Error('invalid agent hook response'))
+        return
+      }
       if (response['id'] !== expectedId) continue
       if (response['ok'] !== true) {
         finish(new Error(String(response['error'] ?? 'agent hook rejected')))
         return
       }
       if (stage === 'hello') {
+        if (!Array.isArray(response['capabilities']) || !response['capabilities'].includes(AGENT_HOOK_CAPABILITY)) {
+          finish(new Error('agent hook protocol capability is unavailable'))
+          return
+        }
         stage = 'emit'
         writeFrame(socket, { id: emitId, op: 'hook.emit', ...normalized })
       } else {

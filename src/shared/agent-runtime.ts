@@ -14,6 +14,8 @@ export const AGENT_PROVIDER_IDS = [
   'deepseek-harness'
 ] as const
 
+export const AGENT_HOOK_CAPABILITY = 'agent-hook-events-v1'
+
 export type AgentProviderId = (typeof AGENT_PROVIDER_IDS)[number]
 export type AgentLiveness = 'live' | 'unverifiable' | 'exited'
 export type AgentActivity =

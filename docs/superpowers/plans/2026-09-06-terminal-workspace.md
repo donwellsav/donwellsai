@@ -657,14 +657,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes the existing agent registry, scoped tool configuration and admitted protocol versions. Produces capability-specific structured operations without changing native terminal ownership or session identity.
 
-- [ ] **Step 1:** Select one actually supported additional agent/protocol pair and document exact lifecycle, session identifiers, permissions, cancellation and resume behavior from its implementation.
-- [ ] **Step 2:** Use maintained protocol/client packages where compatible; preserve terminal launch as the default. Expose structured features only when negotiated and proved.
-- [ ] **Step 3:** Test schema/version mismatch, partial capability support, reconnect, canceled operations and permission requests; avoid starting a hidden second agent to simulate unsupported features.
-- [ ] **Step 4:** Add other agents through native executable/config adapters using the same evidence matrix. No claim of universal ACP support merely because the app can start a command.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/agent-capabilities.test.ts tests/agent-discovery.test.ts tests/agent-runtime.test.ts`; demonstrate the structured feature and unchanged native TUI on the selected agent.
-- [ ] **Review and commit:** Update capability documentation and local evidence; make a local commit.
+- [x] **Step 1:** Select one actually supported additional agent/protocol pair and document exact lifecycle, session identifiers, permissions, cancellation and resume behavior from its implementation.
+- [x] **Step 2:** Use maintained protocol/client packages where compatible; preserve terminal launch as the default. Expose structured features only when negotiated and proved.
+- [x] **Step 3:** Test schema/version mismatch, partial capability support, reconnect, canceled operations and permission requests; avoid starting a hidden second agent to simulate unsupported features.
+- [x] **Step 4:** Add other agents through native executable/config adapters using the same evidence matrix. No claim of universal ACP support merely because the app can start a command.
+- [x] **Verification:** Run `pnpm exec vitest run tests/agent-capabilities.test.ts tests/agent-discovery.test.ts tests/agent-runtime.test.ts`; demonstrate the structured feature and unchanged native TUI on the selected agent.
+- [x] **Review and commit:** Update capability documentation and local evidence; make a local commit.
 
 **Rollback:** Disable the optional structured adapter; native terminal launch and original session files continue to work.
+
+**Strengthening evidence and scope:** [Native status admission, ACP qualification and ownership boundary](../../architecture/agent-capabilities.md). Existing native integration selected; no implicit ACP client or universal protocol support is admitted.
 
 ## Selection scorecard
 
@@ -712,7 +714,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 28 active — optional ACP capabilities and additional agent adapters.** Tasks 01, 03–27 are strengthened. Task 02 remains skipped. Task 28 remains reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Final installed-package verification active.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. The latest production changes still require installed-package verification. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

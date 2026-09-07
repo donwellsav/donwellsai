@@ -1,0 +1,198 @@
+{
+  "profile": "/tmp/donwells28-native-1cAq61",
+  "project": "/private/tmp/donwells28-acp-BB3EZl/project",
+  "nativeSessionId": "ses_f85366d7dffeHDC8aTAwViYBG2",
+  "events": [
+    {
+      "event": "agent",
+      "run": {
+        "launch": {
+          "executable": "/Users/muzikfirst/.opencode/bin/opencode",
+          "args": [
+            "/private/tmp/donwells28-acp-BB3EZl/project",
+            "--session",
+            "ses_f85366d7dffeHDC8aTAwViYBG2",
+            "--model",
+            "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+          ]
+        },
+        "id": "9c33ada0-d952-49a7-8553-14eb6d99bb56",
+        "sessionId": "d86a693c-0ce8-4ec1-81f1-c5926afc4438",
+        "workspacePath": "/private/tmp/donwells28-acp-BB3EZl/project",
+        "command": "[\"/Users/muzikfirst/.opencode/bin/opencode\",\"/private/tmp/donwells28-acp-BB3EZl/project\",\"--session\",\"ses_f85366d7dffeHDC8aTAwViYBG2\",\"--model\",\"omlx/Ornith-1.5-35B-A3B-MLX-8bit\"]",
+        "presetId": "opencode",
+        "startedAt": "2026-09-07T07:40:29.808Z",
+        "updatedAt": "2026-09-07T07:40:35.817Z",
+        "liveness": "live",
+        "activity": "waiting",
+        "hook": {
+          "support": "native",
+          "adapter": "opencode-plugin",
+          "events": [
+            "working",
+            "waiting",
+            "permission",
+            "completed",
+            "failed"
+          ],
+          "documentationUrl": "https://opencode.ai/docs/plugins/",
+          "connected": true,
+          "lastEventAt": "2026-09-07T07:40:35.817Z"
+        }
+      }
+    }
+  ],
+  "checks": [
+    "native permission signal appeared without approving or executing the command",
+    "ACP history resumed in native TUI after ACP owner stopped",
+    "native structured status plugin connected",
+    "daemon client reconnect retained same run and terminal"
+  ],
+  "run": {
+    "launch": {
+      "executable": "/Users/muzikfirst/.opencode/bin/opencode",
+      "args": [
+        "/private/tmp/donwells28-acp-BB3EZl/project",
+        "--session",
+        "ses_f85366d7dffeHDC8aTAwViYBG2",
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ]
+    },
+    "id": "9c33ada0-d952-49a7-8553-14eb6d99bb56",
+    "sessionId": "d86a693c-0ce8-4ec1-81f1-c5926afc4438",
+    "workspacePath": "/private/tmp/donwells28-acp-BB3EZl/project",
+    "command": "[\"/Users/muzikfirst/.opencode/bin/opencode\",\"/private/tmp/donwells28-acp-BB3EZl/project\",\"--session\",\"ses_f85366d7dffeHDC8aTAwViYBG2\",\"--model\",\"omlx/Ornith-1.5-35B-A3B-MLX-8bit\"]",
+    "presetId": "opencode",
+    "startedAt": "2026-09-07T07:40:29.808Z",
+    "updatedAt": "2026-09-07T07:40:29.809Z",
+    "liveness": "live",
+    "activity": "working",
+    "hook": {
+      "support": "native",
+      "adapter": "opencode-plugin",
+      "events": [
+        "working",
+        "waiting",
+        "permission",
+        "completed",
+        "failed"
+      ],
+      "documentationUrl": "https://opencode.ai/docs/plugins/",
+      "connected": false
+    }
+  },
+  "current": {
+    "launch": {
+      "executable": "/Users/muzikfirst/.opencode/bin/opencode",
+      "args": [
+        "/private/tmp/donwells28-acp-BB3EZl/project",
+        "--session",
+        "ses_f85366d7dffeHDC8aTAwViYBG2",
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ]
+    },
+    "id": "9c33ada0-d952-49a7-8553-14eb6d99bb56",
+    "sessionId": "d86a693c-0ce8-4ec1-81f1-c5926afc4438",
+    "workspacePath": "/private/tmp/donwells28-acp-BB3EZl/project",
+    "command": "[\"/Users/muzikfirst/.opencode/bin/opencode\",\"/private/tmp/donwells28-acp-BB3EZl/project\",\"--session\",\"ses_f85366d7dffeHDC8aTAwViYBG2\",\"--model\",\"omlx/Ornith-1.5-35B-A3B-MLX-8bit\"]",
+    "presetId": "opencode",
+    "startedAt": "2026-09-07T07:40:29.808Z",
+    "updatedAt": "2026-09-07T07:40:35.817Z",
+    "liveness": "live",
+    "activity": "waiting",
+    "hook": {
+      "support": "native",
+      "adapter": "opencode-plugin",
+      "events": [
+        "working",
+        "waiting",
+        "permission",
+        "completed",
+        "failed"
+      ],
+      "documentationUrl": "https://opencode.ai/docs/plugins/",
+      "connected": true,
+      "lastEventAt": "2026-09-07T07:40:35.817Z"
+    }
+  },
+  "reconnected": {
+    "launch": {
+      "executable": "/Users/muzikfirst/.opencode/bin/opencode",
+      "args": [
+        "/private/tmp/donwells28-acp-BB3EZl/project",
+        "--session",
+        "ses_f85366d7dffeHDC8aTAwViYBG2",
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ]
+    },
+    "id": "9c33ada0-d952-49a7-8553-14eb6d99bb56",
+    "sessionId": "d86a693c-0ce8-4ec1-81f1-c5926afc4438",
+    "workspacePath": "/private/tmp/donwells28-acp-BB3EZl/project",
+    "command": "[\"/Users/muzikfirst/.opencode/bin/opencode\",\"/private/tmp/donwells28-acp-BB3EZl/project\",\"--session\",\"ses_f85366d7dffeHDC8aTAwViYBG2\",\"--model\",\"omlx/Ornith-1.5-35B-A3B-MLX-8bit\"]",
+    "presetId": "opencode",
+    "startedAt": "2026-09-07T07:40:29.808Z",
+    "updatedAt": "2026-09-07T07:40:35.817Z",
+    "liveness": "live",
+    "activity": "waiting",
+    "hook": {
+      "support": "native",
+      "adapter": "opencode-plugin",
+      "events": [
+        "working",
+        "waiting",
+        "permission",
+        "completed",
+        "failed"
+      ],
+      "documentationUrl": "https://opencode.ai/docs/plugins/",
+      "connected": true,
+      "lastEventAt": "2026-09-07T07:40:35.817Z"
+    }
+  },
+  "permissionRun": {
+    "launch": {
+      "executable": "/Users/muzikfirst/.opencode/bin/opencode",
+      "args": [
+        "/private/tmp/donwells28-acp-BB3EZl/project",
+        "--session",
+        "ses_f85366d7dffeHDC8aTAwViYBG2",
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ]
+    },
+    "id": "9c33ada0-d952-49a7-8553-14eb6d99bb56",
+    "sessionId": "d86a693c-0ce8-4ec1-81f1-c5926afc4438",
+    "workspacePath": "/private/tmp/donwells28-acp-BB3EZl/project",
+    "command": "[\"/Users/muzikfirst/.opencode/bin/opencode\",\"/private/tmp/donwells28-acp-BB3EZl/project\",\"--session\",\"ses_f85366d7dffeHDC8aTAwViYBG2\",\"--model\",\"omlx/Ornith-1.5-35B-A3B-MLX-8bit\"]",
+    "presetId": "opencode",
+    "startedAt": "2026-09-07T07:40:29.808Z",
+    "updatedAt": "2026-09-07T07:40:37.096Z",
+    "liveness": "live",
+    "activity": "permission",
+    "hook": {
+      "support": "native",
+      "adapter": "opencode-plugin",
+      "events": [
+        "working",
+        "waiting",
+        "permission",
+        "completed",
+        "failed"
+      ],
+      "documentationUrl": "https://opencode.ai/docs/plugins/",
+      "connected": true,
+      "lastEventAt": "2026-09-07T07:40:37.096Z"
+    },
+    "detail": "Permission requested"
+  },
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true,
+  "cleanupNote": "Dismissed retained exited trial agent, then verified daemon stopped"
+}

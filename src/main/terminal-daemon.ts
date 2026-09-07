@@ -13,6 +13,7 @@ import { dirname } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import {
   AGENT_PROVIDER_DEFINITIONS,
+  AGENT_HOOK_CAPABILITY,
   agentProviderForCommand,
   agentProviderForExecutable,
   parseAgentExecutable,
@@ -320,7 +321,7 @@ export class TerminalDaemon {
           if (message['op'] === 'hook.hello') {
             hookBinding = this.authenticateHook(message)
             if (hookBinding) {
-              this.reply(socket, message['id'], true, { capabilities: ['agent-hook-events-v1'] })
+              this.reply(socket, message['id'], true, { capabilities: [AGENT_HOOK_CAPABILITY] })
               continue
             }
           }

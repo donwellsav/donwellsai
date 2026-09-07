@@ -36,7 +36,7 @@ describe('agent hook emitter', () => {
           if (!line.trim()) continue
           const message: Record<string, unknown> = JSON.parse(line)
           received.push(message)
-          socket.write(`${JSON.stringify({ id: message['id'], ok: true })}\n`)
+          socket.write(`${JSON.stringify({ id: message['id'], ok: true, capabilities: ['agent-hook-events-v1'] })}\n`)
         }
       })
     })

@@ -178,7 +178,7 @@ export function createAgentLaunchPlan(options: {
   const pluginDir = join(configDir, 'plugins')
   mkdirSync(pluginDir, { recursive: true, mode: 0o700 })
   if (process.platform !== 'win32') chmodSync(pluginDir, 0o700)
-  const pluginPath = join(pluginDir, 'runtime-status.mjs')
+  const pluginPath = join(pluginDir, 'runtime-status.js')
   writeFileSync(pluginPath, opencodePluginSource(options.emitterCommand), {
     encoding: 'utf8',
     mode: 0o600,
