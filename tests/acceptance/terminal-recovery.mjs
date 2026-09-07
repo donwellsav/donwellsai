@@ -94,7 +94,7 @@ try {
   await until(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 'Window did not become visible')
   const pane = page.locator(`[data-pane-key="term:${sessionId}"]`)
   await pane.locator('.xterm-helper-textarea').focus()
-  await page.keyboard.insertText('x')
+  await page.keyboard.press('x')
   await page.keyboard.press('Meta+f')
   const search = pane.locator('.terminal-search')
   await search.getByRole('textbox', { name: 'Find in terminal' }).fill(`RECOVERED ${fixturePid} INPUTS 1`)
@@ -119,7 +119,14 @@ try {
 } catch (error) { report.error = error.stack; process.exitCode = 1 }
 finally {
   if (app) {
-    try { for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id }) }
+    try {
+      for (const run of (await invoke('agent.list')).agents) {
+        if (run.liveness !== 'exited') await invoke('agent.stop', { sessionId: run.sessionId })
+        await until(async () => (await invoke('agent.list')).agents.find(item => item.sessionId === run.sessionId)?.liveness === 'exited', 'Fixture agent did not stop')
+        await invoke('agent.dismiss', { sessionId: run.sessionId })
+      }
+      for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
+    }
     catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
     await app.close().catch(() => app.process().kill('SIGKILL'))
   }

@@ -20,7 +20,7 @@ const {callRuntime}=await import(pathToFileURL(join(resources,'dist-cli/cli/rpc-
 const invoke=async(method,params={})=>{const r=await callRuntime(method,params,profile,10000);assert(r.ok,r.error);return r.result}
 const report={sourceBefore:sourceIdentity(),artifactBefore:artifactIdentity(executable,resources),profile,project,journeys:{},limitations:['Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately.']}
 let app,page,workflowPassed=false
-const command=async(label)=>{await page.keyboard.press('Meta+k');await page.locator('.palette-input').waitFor();assert(await page.locator('.palette-input').evaluate(e=>e===document.activeElement));await page.keyboard.press('Meta+a');await page.keyboard.insertText(label);await page.keyboard.press('Enter');await page.locator('.palette-input').waitFor({state:'detached'})}
+const command=async(label)=>{await page.keyboard.press('Meta+k');await page.locator('.palette-input').waitFor();assert(await page.locator('.palette-input').evaluate(e=>e===document.activeElement));await page.keyboard.press('Meta+a');await page.keyboard.insertText(label);await page.keyboard.press('Enter');await page.locator('.palette-input').waitFor({state:'detached'});if(label==='Show project memory')await page.waitForFunction(()=>!!document.activeElement?.closest('.right-sidebar'),{},{timeout:2000})}
 const reach=async(target)=>{await target.waitFor();const key=await target.evaluate(e=>document.activeElement&&(document.activeElement.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_PRECEDING)?'Shift+Tab':'Tab');if(await page.evaluate(()=>!!document.activeElement?.closest('.monaco-editor')))await page.keyboard.press('Control+m');for(let i=0;i<160;i++){if(await target.evaluate(e=>e===document.activeElement))return;await page.keyboard.press(key)}throw Error('Control unreachable using '+key+': '+await target.evaluate(e=>e.outerHTML.slice(0,200)))}
 const activate=async(target)=>{await reach(target);await page.keyboard.press('Enter')}
 const enter=async(target,value)=>{await reach(target);await page.keyboard.press('Meta+a');await page.keyboard.insertText(value)}
@@ -36,7 +36,6 @@ try{
  while(!source){source=(await invoke('agent.list')).agents[0];assert(Date.now()<deadline,'Keyboard launch did not create a native session');if(!source)await delay(50)}
  assert.equal(source.workspacePath,project);report.journeys.start={sessionId:source.sessionId,workspacePath:source.workspacePath}
  await command('Show project memory')
- await page.waitForFunction(()=>!!document.activeElement?.closest('.right-sidebar'),{},{timeout:2000})
  report.memoryCommandTransfersFocus=true
  await command('Show agent sessions')
  await activate(page.locator('summary').filter({hasText:/^Task and file scope$/}))
