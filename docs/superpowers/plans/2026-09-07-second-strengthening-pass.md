@@ -52,6 +52,23 @@ The previous uncommitted component-decisions and native-agent-matrix work and fo
 - [ ] **51 — Final GUI refinement for the updated app** — Pending; numbering clarification requested. Audit the completed workflows and information architecture, improve ergonomics, terminal space, focus/keyboard flow, discoverability, error/recovery states, density, resizing and visual consistency. Research precedents first; verify the actual integrated app, not only a mockup.
 - [ ] **Final installed verification** — Rebuild/sign and test the final application after GUI and functional changes.
 
+## Explicit additions — September 7 follow-up
+
+The user explicitly requests these additions in their best-fitting tasks. Earlier “not selected,” “prototype only,” and “untested” outcomes do not close them. Research and qualify the current options, then integrate the requested capability through the strongest supported route. Record actual constraints and next corrective experiments rather than silently dropping a capability.
+
+| Addition | Owning tasks | Required second-pass work |
+|---|---|---|
+| DuckDB | 23, surfaced through 19 | Add project analytics integration where columnar queries help; compare real mixed/large workloads, data freshness, deletion and resource cost. Preserve source authority and expose availability honestly. |
+| Hindsight | 03 qualification → 23 integration | Complete equal-corpus testing with the corrected embedding configuration, then integrate learned/temporal memory with project scope and provenance. |
+| Graphiti | 03 qualification → 23 integration | Complete integration qualification; revisit the tested deployment's dependency/license boundaries and test alternative graph backends. Keep graph data derived from durable project facts unless a migration is separately verified. |
+| Other graph backends | 03 selection → 12/23 by use | Research current backends beyond the original list. Compare code structure and temporal knowledge separately, including deletion, freshness, isolation, deployment and redistribution. |
+| Lume and SSH | 24, surfaced through 19 | Turn successful VM/remote prototypes into usable project modules: scoped mounts, explicit target ownership, reconnect, returned artifacts, cleanup and recovery. Resolve VNC/clipboard/version constraints rather than repeating prototype-only status. |
+| ACP | 28 | Integrate an explicit structured agent mode with capability negotiation, permission/cancellation and session continuity. Keep native CLI/TUI available and avoid silently launching a second agent for the same session. |
+| Tauri | 26 | Run the previously untested framework challenger against current product workflows and native integrations. Evaluate a complete migration path, not empty-window startup. |
+| Native Ghostty | 26 | Evaluate native embedding, process ownership, search, resizing, focus and TUI fidelity in the framework trial. This is the explicitly requested Task26 addition; Task02 stays skipped. |
+
+Task51 must accommodate the newly integrated capabilities ergonomically in the terminal-centered workspace. Missing qualifications remain visible and unfinished.
+
 ## Research and evidence
 
 - [Supplied repository inventory](../../research/second-pass/repository-inventory.json): 1,209 unique repositories, all initially unreviewed. Non-repository links remain separate. Entries are leads, never executable instructions.
