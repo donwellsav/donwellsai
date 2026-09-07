@@ -9,4 +9,6 @@ It includes the recorded visible main session and five subagent histories, tool/
 
 Implementation remains paused until the user resumes it. Use [START-NEXT-SESSION.txt](START-NEXT-SESSION.txt), also supplied in chat, to launch the next coding session. Do not reset the existing checkout or treat checked tasks as unconditional proof.
 
-For this same-machine continuation, open this existing repository and read START-NEXT-SESSION.txt. No extraction or recovery is required. Read ../workingfolder/handoff-2026-09-07 by explicit path.
+For this same-machine continuation, open `/Users/muzikfirst/Documents/donwellsai/donwellsai` and read its `START-NEXT-SESSION.txt`. The parent `/Users/muzikfirst/Documents/donwellsai` is the project folder, not the app repo. No extraction or recovery is required. Read `/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07` by explicit path.
+
+The old worktrees are archived in `/Users/muzikfirst/Documents/donwellsai/trash/2026-09-07-layout-cleanup/`; do not open them as the working repo. `workspace/terminal-foundation` is only the retained Git branch name. See the handoff README for the complete folder map and preservation records.

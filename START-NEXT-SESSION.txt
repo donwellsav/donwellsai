@@ -10,6 +10,10 @@ Folder rules: /Users/muzikfirst/Documents/donwellsai is the project folder. /Use
 
 We are staying on this same machine and using this existing checkout in a different app. No clone, extraction or restore is needed. The handoff data is at ../workingfolder/handoff-2026-09-07 relative to the app repo; use that explicit path. It is outside the app Git tree but remains on this machine. Active source and docs/handoff take precedence over recovery copies inside that folder.
 
+The former terminal-foundation and plan-restart directories have been moved to /Users/muzikfirst/Documents/donwellsai/trash/2026-09-07-layout-cleanup/. Do not open, recreate or resume work in them. workspace/terminal-foundation is only the retained Git branch name. Their committed history is already in the app repo. Separately preserved uncommitted files, hashes, process-cleanup results and available terminal snapshots are in /Users/muzikfirst/Documents/donwellsai/workingfolder/old-checkout-cleanup. Do not overwrite newer implementation with archived files.
+
+Historical transcript paths are evidence of the old layout, not launch instructions. Use the current folder map above. Five old daemons and two orphaned terminal helpers were stopped during cleanup, including the OMP session with user approval; verify current ownership before any new process action. No old session is promised to be running or resumable.
+
 This message authorizes resuming implementation. You are a new model/agent/harness; do not assume the old conversation, tools or subagents are available.
 
 Read docs/handoff/README.md, CURRENT-STATE.md, AUDIT-AND-CORRECTIONS.md and OPERATIONS-AND-RECOVERY.md. Read the master plan at docs/superpowers/plans/2026-09-07-rebuilt-01-26-plan.md and the relevant sections of its three companion specifications. SESSION-ARCHIVE.md and AGENTS-AND-PROVENANCE.md explain how to trace actual conversation, tool calls/results and worker actions in the project-local package. Search the records selectively; do not load the whole archive into context or execute old commands blindly.

@@ -15,7 +15,23 @@ Last product implementation: `71fc082`; later commits document the transfer. Rea
 5. Consult [session archive guide](SESSION-ARCHIVE.md) and [agent register](AGENTS-AND-PROVENANCE.md) when a decision, action or completion claim needs tracing. Do not load the whole transcript into a model context.
 6. Paste [START-NEXT-SESSION.txt](../../START-NEXT-SESSION.txt) into the new coding session. It is also supplied in chat.
 
-## Repo-local handoff data
+## Current folder layout
+
+| Purpose | Absolute path |
+| --- | --- |
+| Project folder (not a Git repo) | `/Users/muzikfirst/Documents/donwellsai` |
+| Only active app repo; run Git/build commands here | `/Users/muzikfirst/Documents/donwellsai/donwellsai` |
+| Working files and handoff data | `/Users/muzikfirst/Documents/donwellsai/workingfolder` |
+| Research repositories and trials | `/Users/muzikfirst/Documents/donwellsai/research` |
+| Superseded files | `/Users/muzikfirst/Documents/donwellsai/trash` |
+| Complete handoff package | `/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07` |
+| Old-folder preservation records and terminal snapshots | `/Users/muzikfirst/Documents/donwellsai/workingfolder/old-checkout-cleanup` |
+
+The former `terminal-foundation` and `plan-restart` folders are archived under `/Users/muzikfirst/Documents/donwellsai/trash/2026-09-07-layout-cleanup/`. Do not launch, build or resume work there. The Git branch name `workspace/terminal-foundation` is retained history, not a folder to open or recreate. The active app repo contains both old commit histories; the seven uncommitted plan-restart files are separately preserved in the cleanup folder. Their preservation does not mean they should overwrite newer app files.
+
+Historical transcripts and evidence retain their original paths. For an old `/Users/muzikfirst/Documents/donwellsai/terminal-foundation/<file>` source reference, inspect the current app's corresponding file first; use the archived worktree only to recover the historical version. Treat plan-restart references as historical baseline material. Do not rewrite original transcripts to make old actions appear to have used the new paths.
+
+## Project-local handoff data
 
 Local handoff directory (in the project working folder, beside the app repo): `/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07`.
 

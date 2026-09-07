@@ -16,7 +16,7 @@ git log -7 --oneline
 
 The project folder is `/Users/muzikfirst/Documents/donwellsai`. The only app repository is its `donwellsai/` child, with its own `.git` directory. The sibling `workingfolder/` holds scratch/staging and handoff data, `research/` holds research and third-party trials, and `trash/` holds superseded files. Do not put app source at the project-folder root or create another worktree. Historical transcript paths refer to old layouts; use current source paths from this document.
 
-The old `terminal-foundation` and `plan-restart` worktrees have been moved into the project’s `trash/2026-09-07-layout-cleanup/`. Their daemons and orphaned helpers were stopped. Do not launch from those archives. Preservation checks and session snapshots are in `workingfolder/old-checkout-cleanup/`; all committed work is already in the active app repo.
+The old `terminal-foundation` and `plan-restart` worktrees have been moved into the project’s `trash/2026-09-07-layout-cleanup/`. Their daemons and orphaned helpers were stopped. Do not launch from those archives. Preservation checks and session snapshots are in `/Users/muzikfirst/Documents/donwellsai/workingfolder/old-checkout-cleanup/`; all committed work is already in the active app repo.
 
 ## Tool and build prerequisites
 

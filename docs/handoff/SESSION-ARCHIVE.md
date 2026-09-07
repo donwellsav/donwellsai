@@ -46,3 +46,11 @@ python3 scripts/export-session-handoff.py --thread 01a0741e-cbae-7b92-9b05-b2299
 ```
 
 Refreshing changes export hashes. Update the outer package manifest/archive if distributing that refreshed version; do not claim the old ZIP includes new records. On a different machine without the original Codex registry/logs, use the included snapshot and its explicit cutoff; the refresh command cannot recreate unavailable history.
+
+To refresh the full existing handoff package (docs, prompt, bundle, session export and integrity manifests) on this Mac, use:
+
+```sh
+python3 /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/finalize-package.py --no-zip
+```
+
+This refresh keeps the package in workingfolder and does not create another checkout. Original transcript paths stay unchanged; the evidence-retention script resolves the relocated archives when necessary. Current operating paths are listed in the handoff README.
