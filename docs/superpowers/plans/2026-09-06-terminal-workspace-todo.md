@@ -1,5 +1,7 @@
 # Terminal workspace execution checklist
 
+**Historical first pass. Active work is now tracked in the [second strengthening pass](2026-09-07-second-strengthening-pass.md); its tasks are reopened and Task 02 remains skipped.**
+
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
 Current position: **Strengthening pass and final installed-package verification complete.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. [Final installed verification](../../architecture/strengthening-final/README.md) covers the latest production changes. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.

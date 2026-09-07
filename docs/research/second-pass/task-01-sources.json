@@ -1,0 +1,82 @@
+[
+  {
+    "repository": "manaflow-ai/cmux",
+    "sourceSha": "7d78b6e4cb0236c3b4eb354d851498b685801e00",
+    "licenseMetadata": {
+      "key": "other",
+      "name": "Other",
+      "spdx_id": "NOASSERTION",
+      "url": null,
+      "node_id": "MDc6TGljZW5zZTA="
+    },
+    "licensePath": "LICENSE",
+    "licenseUrl": "https://github.com/manaflow-ai/cmux/blob/7d78b6e4cb0236c3b4eb354d851498b685801e00/LICENSE",
+    "admitted": false,
+    "licenseSha256": "f306eceb0a2964828e2fc3315a2924d1a685f538d5b5d5f4b5bb17d4da2865ea",
+    "observedLicenseText": "GPL-3.0-or-later default, file exceptions require separate inspection"
+  },
+  {
+    "repository": "wavetermdev/waveterm",
+    "sourceSha": "a4447c1563b2df285ab89e76c82f91e1a1a49c1e",
+    "licenseMetadata": {
+      "key": "apache-2.0",
+      "name": "Apache License 2.0",
+      "spdx_id": "Apache-2.0",
+      "url": "https://api.github.com/licenses/apache-2.0",
+      "node_id": "MDc6TGljZW5zZTI="
+    },
+    "licensePath": "LICENSE",
+    "licenseUrl": "https://github.com/wavetermdev/waveterm/blob/a4447c1563b2df285ab89e76c82f91e1a1a49c1e/LICENSE",
+    "admitted": false,
+    "licenseSha256": "2961c11688c782253260f3094ef85163871b9bcef1cfc21f8e0650170c736828",
+    "observedLicenseText": "Apache-2.0"
+  },
+  {
+    "repository": "charmbracelet/crush",
+    "sourceSha": "35a7bcab084a6022717d31b110c538a68d6fadf7",
+    "licenseMetadata": {
+      "key": "other",
+      "name": "Other",
+      "spdx_id": "NOASSERTION",
+      "url": null,
+      "node_id": "MDc6TGljZW5zZTA="
+    },
+    "licensePath": "LICENSE.md",
+    "licenseUrl": "https://github.com/charmbracelet/crush/blob/35a7bcab084a6022717d31b110c538a68d6fadf7/LICENSE.md",
+    "admitted": false,
+    "licenseSha256": "3faa5d4f3a51f07e4963b993f27af4b9344d7c509fa20aa856dd878788ba5f18",
+    "observedLicenseText": "FSL-1.1-MIT, not current MIT"
+  },
+  {
+    "repository": "wezterm/wezterm",
+    "sourceSha": "d2f3f05b38f26a872f4b0bfbb3d2eaa7bdfc1b0b",
+    "licenseMetadata": {
+      "key": "other",
+      "name": "Other",
+      "spdx_id": "NOASSERTION",
+      "url": null,
+      "node_id": "MDc6TGljZW5zZTA="
+    },
+    "licensePath": "LICENSE.md",
+    "licenseUrl": "https://github.com/wezterm/wezterm/blob/d2f3f05b38f26a872f4b0bfbb3d2eaa7bdfc1b0b/LICENSE.md",
+    "admitted": false,
+    "licenseSha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca",
+    "observedLicenseText": "MIT core; bundled fonts OFL-1.1"
+  },
+  {
+    "repository": "tmux/tmux",
+    "sourceSha": "578e07fcbc66dc60822b55b88ba12f518df57374",
+    "licenseMetadata": {
+      "key": "isc",
+      "name": "ISC License",
+      "spdx_id": "ISC",
+      "url": "https://api.github.com/licenses/isc",
+      "node_id": "MDc6TGljZW5zZTEw"
+    },
+    "licensePath": "COPYING",
+    "licenseUrl": "https://github.com/tmux/tmux/blob/578e07fcbc66dc60822b55b88ba12f518df57374/COPYING",
+    "admitted": false,
+    "licenseSha256": "2116115d46eeb1e736acfa562eed14fe6c34760794bc5b484642fe694adde0fd",
+    "observedLicenseText": "ISC"
+  }
+]
