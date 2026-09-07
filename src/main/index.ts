@@ -1,3 +1,4 @@
+import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { createHash } from 'node:crypto'
 import { ProjectTaskCoordination } from './project-task-coordination'
@@ -75,6 +76,7 @@ let secrets: SecretStore | null = null
 let operationalRuns: OperationalRunService
 let agentRuntime: AgentRuntime
 let mainWindow: BrowserWindow | null = null
+let nativeTerminals: NativeTerminals | undefined
 let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
@@ -90,6 +92,7 @@ function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): v
 function publishSettings(settings: AppSettings): AppSettings {
   send('settings:changed', { settings })
   buildMenu()
+  nativeTerminals?.configure()
   return settings
 }
 
@@ -272,6 +275,11 @@ function registerIpc(): void {
     return terminalBus.open(cwd ?? worktreePath, 100, 30)
   })
 
+  ipcMain.handle('native-terminal:request', (event, request) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !nativeTerminals) throw new Error('Native terminal request has no authorized owner')
+    return nativeTerminals.request(request)
+  })
+
   ipcMain.handle('attachTerminal', async (_e, sessionId: string) => {
     // scrollback snapshot + live session state for reattach after app restart
     return terminalBus.attach(sessionId)
@@ -385,6 +393,7 @@ function createWindow(): void {
   const window = mainWindow
   commandRouter.bind(window.webContents)
   browserViews = new BrowserViews(window, resolveRegisteredWorkspace)
+  nativeTerminals = new NativeTerminals(window, terminalBus, () => store.getSettings())
   // Documents may open content, never replace the privileged application renderer.
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -441,14 +450,17 @@ app.whenReady().then(() => {
     app.getPath('userData'),
     {
       disconnected: () => {
+        nativeTerminals?.disconnect()
         send('terminal:disconnected', {})
         for (const run of agentRuntime.connectionLost()) send('agent:changed', { run })
       },
       data: (sessionId, data, sequence) => {
+        nativeTerminals?.data(sessionId, data, sequence)
         send('terminal:data', { sessionId, data, sequence })
         void operationalRuns?.onDaemonEvent('data', sessionId, data).catch((error) => console.error('Run output persistence failed:', error))
       },
       exit: (sessionId, exitCode) => {
+        nativeTerminals?.exited(sessionId)
         send('terminal:exit', { sessionId, exitCode })
         void operationalRuns?.onDaemonEvent('exit', sessionId, '', exitCode).catch((error) => console.error('Run completion persistence failed:', error))
       },

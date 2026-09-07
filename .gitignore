@@ -4,3 +4,4 @@ dist
 dist-cli
 *.log
 .DS_Store
+resources/native/

@@ -188,6 +188,7 @@ export type AppSettings = {
   agentCommand: string
   theme: 'system' | 'dark' | 'light'
   uiScale: number
+  terminalRenderer: 'xterm' | 'ghostty'
   terminalFontFamily: string
   terminalFontSize: number
   terminalFontWeight: 400 | 500 | 600 | 700
@@ -435,6 +436,8 @@ export type IpcApi = import('./project-export').ProjectKitApi & import('./browse
 
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
+  nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
+  onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean } | null>
   closeTerminal(sessionId: string): Promise<void>
   /** Live daemon-owned sessions (for reattach after app restart). */

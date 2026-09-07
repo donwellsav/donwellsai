@@ -33,6 +33,8 @@ export type AttentionTerminalVisibility = {
   }
   /** True only for a fresh focus/visibility event, never a snapshot re-render. */
   allowCapture: boolean
+  /** Current first-responder state reported by the native terminal host. */
+  nativeFocused?: boolean
 }
 
 type FocusAgentSession = (sessionId: string) => Promise<boolean>
@@ -216,8 +218,8 @@ export async function revealAttentionEntry(
  */
 export async function acknowledgeVisibleAttention(visibility: AttentionTerminalVisibility): Promise<boolean> {
   if (!api || !visibility.isActive || visibility.runsOverlayOpen || state.overlayOpen) return false
-  if (document.visibilityState !== 'visible' || !document.hasFocus()) return false
-  if (!visibility.host.isConnected || !visibility.host.contains(document.activeElement)) return false
+  if (document.visibilityState !== 'visible' || (!visibility.nativeFocused && !document.hasFocus())) return false
+  if (!visibility.host.isConnected || (!visibility.nativeFocused && !visibility.host.contains(document.activeElement))) return false
   const bounds = visibility.host.getBoundingClientRect()
   if (bounds.width <= 0 || bounds.height <= 0) return false
 

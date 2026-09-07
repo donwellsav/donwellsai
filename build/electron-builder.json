@@ -39,6 +39,10 @@
     {
       "from": "resources/THIRD_PARTY_DEPENDENCIES.txt",
       "to": "THIRD_PARTY_DEPENDENCIES.txt"
+    },
+    {
+      "from": "resources/native",
+      "to": "native"
     }
   ],
   "mac": {

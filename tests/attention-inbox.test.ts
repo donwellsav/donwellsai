@@ -233,7 +233,7 @@ describe('durable attention inbox', () => {
     expect(readFileSync(file, 'utf8')).toBe('{broken')
   })
 
-  it('does not let an app-focus render acknowledge an event that arrived after the captured reveal', async () => {
+  it.each([false, true])('does not acknowledge newer events after a captured reveal (native focus: %s)', async (nativeFocused) => {
     const oldEntry: AttentionInboxEntry = {
       ...storedEvent(10_000, false),
       sessionId: 'session-focus',
@@ -278,12 +278,12 @@ describe('durable attention inbox', () => {
       const activeElement = {}
       vi.stubGlobal('document', {
         activeElement,
-        hasFocus: () => true,
+        hasFocus: () => !nativeFocused,
         visibilityState: 'visible'
       })
       const host = {
         isConnected: true,
-        contains: (element: Node | null) => element === document.activeElement,
+        contains: (element: Node | null) => !nativeFocused && element === document.activeElement,
         getBoundingClientRect: () => ({ width: 640, height: 400 })
       }
 
@@ -293,7 +293,8 @@ describe('durable attention inbox', () => {
         isActive: true,
         runsOverlayOpen: false,
         host,
-        allowCapture: false
+        allowCapture: false,
+        nativeFocused
       })).toBe(true)
       expect(requests).toEqual([{ eventId: oldEntry.id, eventVersion: oldEntry.version }])
       expect(getAttentionInboxState().snapshot?.unreadCount).toBe(1)
@@ -304,7 +305,8 @@ describe('durable attention inbox', () => {
         isActive: true,
         runsOverlayOpen: false,
         host,
-        allowCapture: false
+        allowCapture: false,
+        nativeFocused
       })).toBe(false)
       expect(requests).toHaveLength(1)
     } finally {

@@ -1,0 +1,36 @@
+{
+  "source": {
+    "commit": "536e03b8ff7c34f791575a7a173d89118ce0759f",
+    "dirty": true,
+    "contentHash": "eb716cf341035a802fcb2e38c0c71d634d875f91b4f20bb27a9f8960a2670cec"
+  },
+  "executable": "/tmp/donwells-pass2-26/final-package/mac-arm64/donwells.app/Contents/MacOS/donwells",
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-profile-z5RXah",
+  "fixture": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-project-WIYhUw",
+  "artifacts": {
+    "app.asar": "e72eea18c9f2ac9b9fc8cf4bd4afce195b30e9cae32c908959bd1f9ba5be9057",
+    "native/libDonwellsGhostty.dylib": "2fb4636de42a2a4d259d49ab673425ab3f166c6f0da943f623f1d4e985ed071b",
+    "native/ghostty.node": "d16465039fc77673d83c08cb1844c374edc55b0967320229fd127f15a38d8beb"
+  },
+  "checks": [
+    "Packaged native renderer displays daemon-owned TUI",
+    "Native keyDown reaches the retained PTY",
+    "Native search finds exactly two matches",
+    "Native Cmd+K opens unobscured app command palette",
+    "Renderer switch preserves PID and input",
+    "Real native agent receives input without submitting a model request",
+    "Embedded browser works alongside recoverable unsaved editor and shared project fact",
+    "Unsaved editor, shared memory and project browser recover after GUI crash",
+    "GUI crash recovery preserves PID and input without resubmission"
+  ],
+  "limitations": [
+    "Native AppKit events are dispatched in process; physical mouse, keyboard and rendered Metal pixels require an unlocked desktop.",
+    "The TUI fixture verifies transport and renderer lifecycle, not model inference."
+  ],
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

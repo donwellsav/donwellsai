@@ -10,7 +10,7 @@
 
 **Spec:** [Existing product specification](../specs/2026-09-06-terminal-workspace-design.md), as amended by the user’s current product direction and the constraints below. This draft proposes replacing the execution order and completion rules of the earlier second-pass plan, not rolling back its source history.
 
-**Current position:** Task01 product fix complete; Task26 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
+**Current position:** Task01 and Task26 product changes complete; Task04 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
 
 ## Product promise and non-negotiable requirements
 
@@ -98,7 +98,7 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 - [x] **01 — Finish a useful foundation change** — Delivered: same-position TUI redraws invalidate terminal search cache; focused packaged regression passes.
 - [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
 - [ ] **03 — Make engine choices usable per project** — Queued for implementation after preceding dependencies.
-- [ ] **04 — Own tools and resources by project** — Queued for implementation after preceding dependencies.
+- [ ] **04 — Own tools and resources by project** — ACTIVE: research and project lifecycle improvement.
 - [ ] **05 — Establish the terminal-centered workspace** — Queued for implementation after preceding dependencies.
 - [ ] **06 — Make modules movable without disrupting work** — Queued for implementation after preceding dependencies.
 - [ ] **07 — Make native agents interchangeable** — Queued for implementation after preceding dependencies.
@@ -120,7 +120,7 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 - [ ] **23 — Integrate analytics and richer project memory** — Queued for implementation after preceding dependencies.
 - [ ] **24 — Integrate isolated desktops and remote work** — Queued for implementation after preceding dependencies.
 - [ ] **25 — Improve building applications in the editor** — Queued for implementation after preceding dependencies.
-- [ ] **26 — Choose and establish the stronger desktop host** — ACTIVE: research and integrated host direction.
+- [x] **26 — Choose and establish the stronger desktop host** — Delivered: selectable native Ghostty on Electron, daemon-owned PTYs, native search and app shortcuts; packaged integrated recovery passes. Physical desktop qualification remains explicit.
 - [ ] **27 — Make native session history useful across agents** — Queued for implementation after preceding dependencies.
 - [ ] **28 — Integrate ACP and additional agent adapters** — Queued for implementation after preceding dependencies.
 - [ ] **29 — Refine the complete GUI around the integrated product** — Queued for implementation after preceding dependencies.
@@ -586,9 +586,9 @@ Each unskipped card requires its fresh research and user-approved implementation
 
 **Starting files:** `src/main/index.ts`, `src/main/terminal-daemon.ts`, `src/main/browser-views.ts`, `src/renderer/src/components/TerminalPane.tsx`, `src/renderer/src/components/Workbench.tsx`, `build/electron-builder.json`.
 
-- [ ] 26A: Bring a concrete recommendation to the user using a representative integrated slice: native agent, editor draft, browser, shared memory and reconnect. Define migration scope and full dependency rights.
-- [ ] 26B: If migration is approved, integrate the chosen host/native terminal with the existing project/process boundaries and port the actual required workflows before retiring the old path.
-- [ ] If retaining the current host is the supported recommendation, obtain explicit approval and identify a concrete host/terminal improvement to deliver; a keep-current report alone does not complete this product task.
+- [x] 26A: Bring a concrete recommendation to the user using a representative integrated slice: native agent, editor draft, browser, shared memory and reconnect. Define migration scope and full dependency rights.
+- [x] 26B: If migration is approved, integrate the chosen host/native terminal with the existing project/process boundaries and port the actual required workflows before retiring the old path.
+- [x] Under continuous execution authorization, retain Electron and deliver selectable native Ghostty with the existing daemon. See `docs/architecture/second-pass-26/decision.md`; no wholesale host replacement or user-app replacement.
 
 **Done demonstration:** The chosen host runs a real native agent with shared knowledge, preserves an unsaved editor and browser state, and reconnects correctly. Native Ghostty has usable search/input/resize integration if adopted.
 
@@ -671,3 +671,8 @@ A useful existing component can remain, but the card must explain what product i
 ## Task01 completion
 
 Delivered a narrow MIT search-addon patch invalidating cached lines on parsed writes. The current TUI text is searchable and overwritten text is absent; same process retained, one recovery cycle, deliberate owner-loss behavior and owned cleanup pass. [Focused result](../../research/second-pass/task-01-search-fix.json). No new runtime dependency or terminal replacement. Earlier baseline-only work does not count as this deliverable.
+
+## Carry-forward findings from Task26
+
+- Task08: layout persistence currently debounces for 400 ms. A crash immediately after opening a browser can lose that new location; native recovery evidence waits for the actual saved layout and does not claim immediate durability.
+- Task21/29: qualify native physical keyboard, pointer/selection, narrow search layout and Metal visuals on the unlocked desktop. The locked-session AppKit event check does not cover these.

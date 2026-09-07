@@ -1,3 +1,4 @@
+import { NativeTerminalPane } from './NativeTerminalPane'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -36,7 +37,12 @@ declare global {
   }
 }
 
-export function TerminalPane({ sessionId, cols, rows, isActive }: Props) {
+export function TerminalPane(props: Props) {
+  const renderer = useAppStore(state => state.settings.terminalRenderer)
+  return renderer === 'ghostty' ? <NativeTerminalPane {...props} /> : <XtermPane {...props} />
+}
+
+function XtermPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const fontSize = useAppStore((s) => s.settings.terminalFontSize)
   const fontFamily = useAppStore((s) => s.settings.terminalFontFamily)

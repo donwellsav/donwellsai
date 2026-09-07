@@ -1,0 +1,66 @@
+diff --git a/Sources/GhosttyTerminal/Configuration/GhosttyRuntimeResources.swift b/Sources/GhosttyTerminal/Configuration/GhosttyRuntimeResources.swift
+index 659fc21..f06f291 100644
+--- a/Sources/GhosttyTerminal/Configuration/GhosttyRuntimeResources.swift
++++ b/Sources/GhosttyTerminal/Configuration/GhosttyRuntimeResources.swift
+@@ -7,17 +7,22 @@ import Foundation
+ /// bundle location before the C runtime initializes. User-level Ghostty
+ /// resources and configuration are never consulted.
+ public enum GhosttyRuntimeResources {
++    // Embedding hosts can locate the immutable resource bundle beside their native library.
++    private static var resourceBundle: Bundle {
++        if let path = ProcessInfo.processInfo.environment["GHOSTTY_RESOURCE_BUNDLE"], let bundle = Bundle(path: path) { return bundle }
++        return .module
++    }
+     /// The package-bundled Ghostty resource directory.
+     ///
+     /// Ghostty expects shell integration below this directory and its compiled
+     /// terminfo database in a sibling `terminfo` directory.
+     public static var directoryURL: URL? {
+-        Bundle.module.url(forResource: "Ghostty", withExtension: nil)
++        resourceBundle.url(forResource: "Ghostty", withExtension: nil)
+     }
+ 
+     /// The compiled terminfo database exported to child shells by Ghostty.
+     public static var terminfoDirectoryURL: URL? {
+-        Bundle.module.url(forResource: "terminfo", withExtension: nil)
++        resourceBundle.url(forResource: "terminfo", withExtension: nil)
+     }
+ 
+     static func configureEnvironment() {
+diff --git a/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift b/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
+index 2e0f822..3be6c43 100644
+--- a/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
++++ b/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
+@@ -28,6 +28,16 @@ final class TerminalCallbackBridge {
+ 
+     func handleAction(_ action: ghostty_action_s) {
+         switch action.tag {
++        case GHOSTTY_ACTION_START_SEARCH:
++            let needle = action.action.start_search.needle.map { String(cString: $0) }
++            (delegate as? any TerminalSurfaceSearchDelegate)?.terminalDidRequestSearch(needle)
++        case GHOSTTY_ACTION_END_SEARCH:
++            (delegate as? any TerminalSurfaceSearchDelegate)?.terminalDidEndSearch()
++        case GHOSTTY_ACTION_SEARCH_TOTAL:
++            (delegate as? any TerminalSurfaceSearchDelegate)?.terminalDidUpdateSearch(total: action.action.search_total.total, selected: nil)
++        case GHOSTTY_ACTION_SEARCH_SELECTED:
++            (delegate as? any TerminalSurfaceSearchDelegate)?.terminalDidUpdateSearch(total: nil, selected: action.action.search_selected.selected)
++
+         case GHOSTTY_ACTION_SET_TITLE:
+             if let cStr = action.action.set_title.title {
+                 let title = String(cString: cStr)
+diff --git a/Sources/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift b/Sources/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
+index 70e652e..c4027a9 100644
+--- a/Sources/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
++++ b/Sources/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
+@@ -273,3 +273,11 @@ public struct TerminalClipboardContent: Sendable {
+         self.data = data
+     }
+ }
++
++/// Search UI belongs to the embedding host; values below zero mean unknown.
++@MainActor
++public protocol TerminalSurfaceSearchDelegate: TerminalSurfaceViewDelegate {
++    func terminalDidRequestSearch(_ needle: String?)
++    func terminalDidEndSearch()
++    func terminalDidUpdateSearch(total: Int?, selected: Int?)
++}

@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
+  nativeTerminal: request => ipcRenderer.invoke('native-terminal:request', request),
+  onNativeTerminal: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/native-terminal').NativeTerminalEvent) => callback(message); ipcRenderer.on('native-terminal:event', listener); return () => ipcRenderer.removeListener('native-terminal:event', listener) },
   projectKitExport: (...args) => ipcRenderer.invoke('projectKitExport', ...args),
   projectKitPreview: (...args) => ipcRenderer.invoke('projectKitPreview', ...args),
   projectKitImport: (...args) => ipcRenderer.invoke('projectKitImport', ...args),
