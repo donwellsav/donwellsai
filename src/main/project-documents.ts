@@ -74,7 +74,8 @@ export function createDocumentDefinition(config: { program: string; worker: stri
       cancel: { tool: 'cancel', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
       pause: { tool: 'pause', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
       resume: { tool: 'resume', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
-      query: { tool: 'query', readOnly: true, parameters: { query: value => text(value) }, targets: () => ({}) },
+      query: { tool: 'query', readOnly: true, parameters: { query: value => text(value), requestId: value => { if(value===undefined)return undefined; const id=text(value,80);if(!/^[a-zA-Z0-9_-]+$/.test(id))throw new Error('Invalid document request ID');return id } }, targets: () => ({}) },
+      cancelQuery: { tool: 'cancel_query', readOnly: false, requiresRunning: true, parameters: { requestId: value => {const id=text(value,80);if(!/^[a-zA-Z0-9_-]+$/.test(id))throw new Error('Invalid document request ID');return id} }, targets: () => ({}) },
       get: { tool: 'get', readOnly: true, parameters: { id: value => text(value, 8192), fromLine: value => line(value, 1, 1000000), maxLines: value => line(value, 120, 400) }, targets: () => ({}) },
       multiGet: { tool: 'multi_get', readOnly: true, parameters: { ids: value => { if (!Array.isArray(value) || !value.length || value.length > 5) throw new Error('Expected up to five document IDs'); return value.map(id => text(id, 8192)) } }, targets: () => ({}) }
     }

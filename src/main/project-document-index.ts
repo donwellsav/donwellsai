@@ -105,25 +105,33 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
     replace(collection: string, documents: IndexedDocument[], progress?: (completed: number, total: number) => void, checkpoint?: () => Promise<void>) {
       return replaceAll([{ collection, documents }], progress, checkpoint)
     },
-    async search(query: string, limit = 5) {
+    async search(query: string, limit = 5, check: () => void = () => {}) {
       if (typeof query !== 'string' || !query.trim() || query.length > 1000 || query.includes('\0') || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid document query')
+      check()
       await table.checkoutLatest()
+      check()
       if (!(await table.query().where(scope).limit(1).toArray()).length) return { mode: 'unindexed', modelError: null, hits: [] }
       let hits: Chunk[], mode = 'lexical', modelError: string | null = null
       try {
         if (!llm || (await table.query().where(scope + ' AND embedded = false').limit(1).toArray()).length) throw new Error('Semantic models or embeddings unavailable')
+        check()
         const vector = await llm.embed(formatQueryForEmbedding(query, config.embeddingModel))
+        check()
         if (!vector || vector.embedding.length !== 2560) throw new Error('Document embedding unavailable')
         hits = await table.vectorSearch(vector.embedding).where(scope).fullTextSearch(query).rerank(fusion).limit(50).toArray()
+        check()
         const ranked = await llm.rerank(query, hits.map((hit, index) => ({ file: String(index), text: hit.text })))
+        check()
         if (ranked.model === 'fallback') throw new Error('Document reranker unavailable')
         hits = ranked.results.map((result: { index: number }) => hits[result.index]!)
         mode = 'hybrid'
       } catch (error) {
+        check()
         if (config.retrievalMode === 'hybrid') throw new Error('Hybrid retrieval unavailable. Check the selected models and rebuild embeddings, or choose lexical retrieval.', { cause: error })
         modelError = config.retrievalMode === 'lexical' ? null : String(error).slice(0, 300)
         hits = await table.query().where(scope).fullTextSearch(query).limit(50).toArray()
       }
+      check()
       const seen = new Set<string>()
       return { mode, modelError, hits: hits.filter(hit => {
         const key = hit.collection + '\0' + hit.path

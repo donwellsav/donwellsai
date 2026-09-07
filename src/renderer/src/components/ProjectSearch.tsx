@@ -66,11 +66,17 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
   const current = useRef<{ id: string; path: string } | null>(null)
+  const documentRequest = useRef<string | null>(null)
   const stop = (): void => {
     const request = current.current
     current.current = null
-    if (request) void window.donwells.cancelWorkspaceContentSearch(request.id).catch(() => {})
+    if (request) {
+      void window.donwells.cancelWorkspaceContentSearch(request.id).catch(() => {})
+      if (historyAvailable) void window.donwells.projectSessionHistorySearchCancel(request.path, request.id).catch(() => {})
+      if (documentRequest.current === request.id) void window.donwells.projectToolCall(request.path, 'documents', 'cancelQuery', { requestId: request.id }).catch(() => {})
+    }
     setRunning(false)
+    setStatus(documentRequest.current ? 'Search stopped. An active document model stage may finish; remaining stages and results are cancelled.' : 'Search stopped.')
   }
   useEffect(() => window.donwells.on('project-search:hit', event => {
     if (current.current?.id === event.requestId && current.current.path === event.workspacePath) setHits(previous => [...previous, event.hit])
@@ -124,9 +130,12 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         // One search per panel in flight; obsolete queued queries never reach the shared model service.
         const pending = documentQueue.current.catch(() => {}).then(async () => {
           if (!live()) return
-          const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'query', { query }))
-          if (!Array.isArray(value.hits) || value.hits.some(hit => !isObject(hit) || hit.source !== 'document' || typeof hit.id !== 'string' || typeof hit.path !== 'string' || typeof hit.title !== 'string' || typeof hit.excerpt !== 'string' || !Number.isSafeInteger(hit.line) || Number(hit.line) < 1 || typeof hit.revision !== 'string' || typeof hit.indexedAt !== 'string' || typeof hit.stale !== 'boolean')) throw new Error('Invalid document matches')
-          accept('document', value.hits as ProjectSearchHit[], `${value.hits.length} documents · ${String(value.mode)}${value.modelError ? ' · semantic model unavailable' : ''}`)
+          documentRequest.current = id
+          try {
+            const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'query', { query, requestId: id }))
+            if (!Array.isArray(value.hits) || value.hits.some(hit => !isObject(hit) || hit.source !== 'document' || typeof hit.id !== 'string' || typeof hit.path !== 'string' || typeof hit.title !== 'string' || typeof hit.excerpt !== 'string' || !Number.isSafeInteger(hit.line) || Number(hit.line) < 1 || typeof hit.revision !== 'string' || typeof hit.indexedAt !== 'string' || typeof hit.stale !== 'boolean')) throw new Error('Invalid document matches')
+            accept('document', value.hits as ProjectSearchHit[], `${value.hits.length} documents · ${String(value.mode)}${value.modelError ? ' · semantic model unavailable' : ''}`)
+          } finally { if (documentRequest.current === id) documentRequest.current = null }
         })
         documentQueue.current = pending
         await pending
@@ -138,6 +147,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       if (current.current?.id === id) current.current = null
       void window.donwells.cancelWorkspaceContentSearch(id).catch(() => {})
       if (historyAvailable) void window.donwells.projectSessionHistorySearchCancel(workspacePath, id).catch(() => {})
+      if (documentRequest.current === id) void window.donwells.projectToolCall(workspacePath, 'documents', 'cancelQuery', { requestId: id }).catch(() => {})
     }
   }, [workspacePath, query, hidden, ignored, refresh, active, source, historyAvailable])
   useEffect(() => {
@@ -208,7 +218,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       <div className="project-search-input"><input ref={inputRef} id={inputId} type="search" value={query} maxLength={1000} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus() } }} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
       {(source === 'all' || source === 'file' || source === 'code') && <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>}
     </form>
-    <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={() => { stop(); setStatus('Stopped · results received so far') }}>Stop</button>}</div>
+    <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={stop}>Stop</button>}</div>
     <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>
     {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
     {(source === 'all' || source === 'document') && <button className="btn btn-secondary btn-sm" type="button" disabled={indexing} onClick={() => {

@@ -26,6 +26,7 @@ async function main() {
   const { z } = require('zod')
   const index = await openProjectDocumentIndex(config), files = new WorktreeFiles()
   const prefix = `document:${config.indexKey}:`
+  const queries = new Map<string, { active: boolean; cancelled: boolean; expires: number }>()
   let closed = false
   let paused: ReturnType<typeof Promise.withResolvers<void>> | null = null
   let pauseAcknowledged = false
@@ -59,7 +60,7 @@ async function main() {
     const lines = file.content.split('\n'), content = lines.slice(fromLine - 1, fromLine - 1 + maxLines).join('\n')
     return { id, path: file.path, root: root.path, fromLine, content: content.slice(0, 50000), truncated: content.length > 50000 || lines.length > fromLine - 1 + maxLines, revision: file.revision, indexedAt: indexed.indexedAt, stale: file.revision !== indexed.revision }
   }
-  const status = () => ({ ...state, publication, publicationState: state.phase === 'publication-uncertain' ? 'unknown' : state.phase === 'publishing' ? 'publishing' : state.phase === 'ready' ? 'published' : 'not-published', requestedMode: config.retrievalMode ?? 'auto', phase: cancelled && ['reading', 'indexing'].includes(state.phase) ? 'cancelling' : paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
+  const status = () => ({ ...state, activeQueries: [...queries].filter(([, request]) => request.active).map(([id, request]) => ({ id, cancelled: request.cancelled })), publication, publicationState: state.phase === 'publication-uncertain' ? 'unknown' : state.phase === 'publishing' ? 'publishing' : state.phase === 'ready' ? 'published' : 'not-published', requestedMode: config.retrievalMode ?? 'auto', phase: cancelled && ['reading', 'indexing'].includes(state.phase) ? 'cancelling' : paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
   const rebuild = async () => {
     const replacements: Array<{ collection: string; documents: IndexedDocument[] }> = []
     let totalBytes = 0
@@ -120,16 +121,40 @@ async function main() {
     const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve()
     return response(status())
   })
-  server.registerTool('query', { description: 'Search only this checkout and explicitly shared references.', inputSchema: z.object({ query: z.string().min(1).max(1000) }).strict() }, async ({ query }: { query: string }) => {
-    const result = await index.search(query), hits = []
-    for (const hit of result.hits) {
-      const id = idFor(hit.collection, hit.path)
-      try {
-        const current = await source(id)
-        hits.push({ source: 'document', id, title: basename(hit.path), path: hit.path, line: hit.line, excerpt: hit.text.slice(0, 4096), revision: hit.revision, sourceFingerprint: hit.revision, generation: hit.indexedAt, indexedAt: hit.indexedAt, stale: current.file.revision !== hit.revision, root: current.root.path })
-      } catch { /* A disappeared or inaccessible source is not a resolvable citation. */ }
+  // ponytail: at most 32 active/early-cancel IDs; two-minute early receipts cover transport reordering without an unbounded cache.
+  const admitQuery = (id: string) => {
+    for (const [key, value] of queries) if (!value.active && value.expires < Date.now()) queries.delete(key)
+    let request = queries.get(id)
+    if (!request) {
+      if (queries.size >= 32)throw new Error('Too many pending document queries; wait for current work')
+      request = { active: false, cancelled: false, expires: Date.now() + 120000 }
+      queries.set(id, request)
     }
-    return response({ requestedMode: config.retrievalMode ?? 'auto', mode: result.mode, modelError: result.modelError, hits })
+    return request
+  }
+  server.registerTool('cancel_query', { description: 'Skip remaining stages for one query; an executing native embedding/rerank stage finishes cooperatively. Does not cancel indexing.', inputSchema: z.object({ requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/) }).strict() }, async ({ requestId }: { requestId: string }) => {
+    const request = admitQuery(requestId)
+    request.cancelled = true
+    return response({ requestId, cancelled: true, activeStageMayFinish: request.active })
+  })
+  server.registerTool('query', { description: 'Search only this checkout and explicitly shared references.', inputSchema: z.object({ query: z.string().min(1).max(1000), requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).optional() }).strict() }, async ({ query, requestId = randomUUID() }: { query: string; requestId?: string }) => {
+    const request = admitQuery(requestId)
+    if (request.active)throw new Error('Document query ID is already active')
+    request.active = true
+    const check = () => { if (request.cancelled)throw new Error('Document query cancelled; active native stage finished, remaining stages skipped') }
+    try {
+      const result = await index.search(query, 5, check), hits = []
+      for (const hit of result.hits) {
+        check()
+        const id = idFor(hit.collection, hit.path)
+        try {
+          const current = await source(id)
+          hits.push({ source: 'document', id, title: basename(hit.path), path: hit.path, line: hit.line, excerpt: hit.text.slice(0, 4096), revision: hit.revision, sourceFingerprint: hit.revision, generation: hit.indexedAt, indexedAt: hit.indexedAt, stale: current.file.revision !== hit.revision, root: current.root.path })
+        } catch { /* A disappeared or inaccessible source is not a resolvable citation. */ }
+      }
+      check()
+      return response({ requestedMode: config.retrievalMode ?? 'auto', mode: result.mode, modelError: result.modelError, hits })
+    } finally { queries.delete(requestId) }
   })
   server.registerTool('get', { description: 'Read current source lines for a previously indexed, scoped document.', inputSchema: z.object({ id: z.string().max(8192), fromLine: z.number().int().min(1).max(1000000).default(1), maxLines: z.number().int().min(1).max(400).default(120) }).strict() }, async ({ id, fromLine, maxLines }: { id: string; fromLine: number; maxLines: number }) => response(await read(id, fromLine, maxLines)))
   server.registerTool('multi_get', { description: 'Read up to five scoped documents; each source is independently confined.', inputSchema: z.object({ ids: z.array(z.string().max(8192)).min(1).max(5) }).strict() }, async ({ ids }: { ids: string[] }) => response({ documents: await Promise.all(ids.map(id => read(id))) }))

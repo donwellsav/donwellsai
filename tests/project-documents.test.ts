@@ -22,6 +22,9 @@ it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKA
     await expect.poll(async () => ((await lexical.call(project, 'documents', 'status', {})) as any).structuredContent.phase, { timeout: 15000 }).toBe('ready')
     expect(await lexical.call(project, 'documents', 'status', {})).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelBytes: 0 } })
     expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard' })).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelError: null, hits: [{ path: 'decision.md' }] } })
+    await lexical.call(project, 'documents', 'cancelQuery', { requestId: 'cancel-before-query' })
+    expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard', requestId: 'cancel-before-query' })).toMatchObject({ isError: true })
+    expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard', requestId: 'fresh-query' })).toMatchObject({ structuredContent: { hits: [{ path: 'decision.md' }] } })
     await lexical.stop(project, 'documents')
     await expect(hybrid.start(project, 'documents')).rejects.toThrow('requires both admitted local models')
     const index = await openProjectDocumentIndex({ ...config, database: join(root, 'required-hybrid'), collections: ['a'.repeat(64)], retrievalMode: 'hybrid' })
@@ -43,6 +46,8 @@ it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKA
     await first.replace(a, [{ path: 'mémoire.md', content: 'copperorchard', revision: 'one' }])
     await second.replace(b, [{ path: 'private.md', content: 'violetmeadow', revision: 'one' }])
     await first.replace(shared, [{ path: 'reference.md', content: 'sharedreference', revision: 'one' }])
+    let checkpoints = 0
+    await expect(first.search('copperorchard', 5, () => { if (++checkpoints >= 3) throw new Error('query cancelled') })).rejects.toThrow('query cancelled')
     expect((await first.search('copperorchard'))).toMatchObject({ mode: 'lexical', hits: [{ path: 'mémoire.md' }] })
     expect((await second.search('copperorchard')).hits).toEqual([])
     expect((await second.search('sharedreference')).hits).toHaveLength(1)
