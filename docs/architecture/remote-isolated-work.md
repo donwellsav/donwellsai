@@ -1,6 +1,6 @@
 # Task 24 — isolated desktops and remote workspaces
 
-Status: in progress. No remote runtime or VM module is admitted yet.
+Status: Task 24 evaluation and transport design complete. No production remote runtime or VM module is admitted. The native nightly trial passes the bounded desktop/transport checks below; stable-release and isolation-control gaps prevent production admission.
 
 ## Current boundaries and reuse
 
@@ -32,3 +32,19 @@ The native VM receipt must prove guest boot, actual desktop input, selected-proj
 The remote receipt must separately prove pinned-host authentication, denied mismatched identity/project/version, disconnect during a write, repeated reconnect without replay, retained remote ownership, source divergence and selective artifact return. Local RPC tests cannot supply remote-transport proof. Any unqualified capability remains disabled and named in the admission decision.
 
 The native viewer automatically starts an SSH clipboard bridge using the default `lume` account. The manual trial uses a different guest account. A production isolated profile needs explicit control of that automatic behavior; desktop isolation must not silently grant host clipboard access.
+
+## Native and remote results
+
+[Guest receipt](strengthening-24/guest-desktop.json): macOS 26.6.2 boots with four CPUs, 8 GiB RAM and a 60 GiB sparse disk. Finder displays exactly the selected project, selected tools and artifact return directories. A guest write to the read-only project fails; its original revision hash is unchanged. The existing AppKit control fixture runs inside the guest, and clicking Record A returns its actual guest PID/action JSON to the host. This is native desktop input, not an Electron DOM simulation.
+
+[Separate SSH receipt](strengthening-24/remote-transport.json): the host pins the guest public host key returned through the explicit share. A dedicated key is restricted to `tests/fixtures/remote-work-trial.sh`; passwords, forwarding and unrestricted commands are disabled. The fixture exposes a fixed test project and protocol. Wrong keys, changed host keys, different projects/versions, arbitrary commands and traversal fail. Disconnecting during an accepted write leaves one owned operation running; three reconnects observe its original PID and completion. Submitting its ID again returns the existing result without another write. A stale source revision is refused. Pause refuses new work; resume works; stopping one owned operation preserves the completed sibling. Only the chosen artifact is staged into a new local directory, leaving the source intact.
+
+Reproduce against the provisioned disposable guest with `python3 tests/acceptance/remote-work-trial.py --trial-root /absolute/private/trial --host 192.168.64.2`. Provisioning uses the selected public key, guest-only SSH settings, and an executable copy of the shell fixture installed as that key's forced command. The private key never enters the guest/share. The acceptance runner records outcomes and hashes without credentials. This is a qualification protocol, not production RPC: there is no remote terminal/control dispatch, general project pairing, external concurrent source-edit test, or automatic import into an existing checkout.
+
+The controller was paused before final stop. Lume verified that its owned PID 73592 ended and now reports the guest stopped. The VM disk is retained because the user explored it; returned outputs are preserved and hashed. No user application was stopped. VM suspend is unavailable and is not represented as controller pause. `lume get` incorrectly reports null shares with VNC disabled; the actual guest mount contents and read-only failure supply that evidence.
+
+## Admission decision and concrete integration boundary
+
+Retain Electron and the existing local computer-control module. Do not add a production Lume dependency or expose the local global RPC socket. Stable 0.5.3 cannot meet the disabled-VNC profile; the qualified nightly still starts clipboard synchronization automatically for the native viewer. These are unresolved isolation controls, so the plan's conditional `isolated-workspace.ts` implementation gate is not met.
+
+A follow-on implementation must first qualify a maintained Lume release with explicit clipboard/network policy. Its project module should reuse current service ownership, hold the selected directory manifest, record the VM identity/resource limits, and return outputs through project-kit staging. The GUI belongs in the existing side panel; Stop and Close view retain their existing distinct meanings. Remote pairing then needs its own project-scoped runtime entry point: the negotiated project identity must be checked for every request, durable operation IDs must survive disconnect, and terminal/control ownership must be verified before enabling those capabilities. The trial proves transport and bounded operation mechanics; it does not waive those production gates.

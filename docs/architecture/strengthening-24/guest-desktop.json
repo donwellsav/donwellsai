@@ -1,0 +1,46 @@
+{
+  "guest": "macOS 26.6.2 (25G83)",
+  "vm": "donwells-task24-disposable",
+  "vncEnabled": false,
+  "cpuCount": 4,
+  "memoryBytes": 8589934592,
+  "diskLimitBytes": 64424509440,
+  "selectedShares": {
+    "selected-project": "read-only",
+    "selected-tools": "read-only",
+    "returned-artifacts": "read-write"
+  },
+  "guestShares": [
+    "returned-artifacts",
+    "selected-project",
+    "selected-tools"
+  ],
+  "readOnlyWriteError": "/Volumes/My Shared Files/selected-tools/setup.command: line 10: /Volumes/My Shared Files/selected-project/must-not-write: Operation not permitted",
+  "nativeActions": [
+    {
+      "frontmostPid": "788",
+      "target": "A"
+    }
+  ],
+  "stoppedOwnedPid": 73592,
+  "ownedProcessGone": true,
+  "guestDiskRetained": true,
+  "retentionReason": "Preserve guest files after user exploration; only service resources are released. No destructive disk cleanup.",
+  "artifacts": {
+    "source-sha256.txt": "487e1931a3efc1c074ae88da4c0047f8bb2500ee2b721a44930c14247a46f929",
+    "shared-directories.txt": "640fb2d6da6e32a822d5193fbe08b389a06ccd8f40f1db0b46b542ce285dd3f4",
+    "native-actions.json": "c2aa189803edee65c1e4e59c7cd02910e465cd9ee457309f0149428fedd902e6",
+    "guest-user.txt": "de6ebf147ad6edb36ae347eb6ff00b3939368e77c633ecb2f6daea6215974333",
+    "guest-system.txt": "cd5d6399b3785b04ceaae75045a9ca9f80f0bbc3526eff9d0c36b170ed1ec348",
+    "guest-host-key.pub": "065011873d01c013940045204a5b144a6465a7df448cfbcd400bf0cf4933b443",
+    "read-only-error.txt": "01e548efff8989d984ac3d5fa43c8fee11b4894bbe477c23a5b27c6bae9d5119",
+    "remote-e1f0573798484dfc91c8923b5b1a0e1c/artifact.txt": "60f7bfd649be088a082876c055967b97538e255e6e28bf3b0b90d77910bfa99c"
+  },
+  "limitations": [
+    "Nightly binary only; stable 0.5.3 cannot disable VNC",
+    "Native viewer automatic clipboard bridge lacks explicit opt-out; trial uses non-default guest identity",
+    "Controller pause verified in separate SSH trial; VM suspend not supported",
+    "No production VM or remote module admitted",
+    "Lume get omits shares under disabled VNC; guest mount contents verified directly"
+  ]
+}

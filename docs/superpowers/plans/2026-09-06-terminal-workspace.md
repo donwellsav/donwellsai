@@ -581,14 +581,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes project exports and scoped tool manifests. Produces optional isolated desktop work and a separately qualified remote runtime.
 
-- [ ] **Step 1:** Use Cua/Lume for a disposable local desktop where supported. Mount or copy only the selected project and explicit tool configuration, not home-directory secrets.
-- [ ] **Step 2:** Prove native control, artifact return, pause/stop, VM resource limits and cleanup. Preserve user-created outputs before destruction.
-- [ ] **Step 3:** Design remote host pairing with authenticated transport, explicit project mapping and capability/version negotiation. Do not pretend existing local RPC is remote-ready.
-- [ ] **Step 4:** Test disconnect during a write/action, repeated reconnect, remote process ownership, source revision divergence and selective artifact import. No automated remote/public exposure.
-- [ ] **Verification:** Run VM and remote checks separately; `pnpm exec vitest run tests/isolated-workspace.test.ts` covers state transitions only, not actual VM proof.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Use Cua/Lume for a disposable local desktop where supported. Mount or copy only the selected project and explicit tool configuration, not home-directory secrets.
+- [x] **Step 2:** Prove native control, artifact return, pause/stop, VM resource limits and cleanup. Preserve user-created outputs before destruction.
+- [x] **Step 3:** Design remote host pairing with authenticated transport, explicit project mapping and capability/version negotiation. Do not pretend existing local RPC is remote-ready.
+- [x] **Step 4:** Test disconnect during a write/action, repeated reconnect, remote process ownership, source revision divergence and selective artifact import. No automated remote/public exposure.
+- [x] **Verification:** Run VM and remote checks separately; `pnpm exec vitest run tests/isolated-workspace.test.ts` covers state transitions only, not actual VM proof.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Detach remote/VM service and retain artifact export; destroy only explicitly disposable instances.
+
+**Strengthening evidence:** [native desktop, restricted SSH, cleanup and admission decision](../../architecture/remote-isolated-work.md). Evaluation/design complete; production VM and remote integration are not admitted. Guest disk retained to preserve user exploration.
 
 ### Task 25: Language intelligence and reusable project workflows
 
@@ -706,7 +708,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 24 active — isolated desktops and remote workspaces.** Tasks 01, 03–23 and 27 are strengthened. Task 02 remains skipped. Tasks 24–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 25 active — language intelligence and reusable project workflows.** Tasks 01, 03–24 and 27 are strengthened. Task 02 remains skipped. Tasks 25–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 
