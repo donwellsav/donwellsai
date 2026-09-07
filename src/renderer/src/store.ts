@@ -86,7 +86,16 @@ export type ExplorerDirectoryState = {
   requestId: number
 }
 
+export type ExplorerEntryDialog = {
+  kind: 'create-file' | 'create-directory' | 'rename' | 'duplicate' | 'delete'
+  entry?: FileEntry
+  value: string
+  pending?: boolean
+  error?: string
+}
+
 export type ExplorerWorkspaceState = {
+  entryDialog?: ExplorerEntryDialog | null
   directories: Record<string, ExplorerDirectoryState>
   expanded: string[]
   selected: string | null
@@ -303,6 +312,7 @@ type AppState = {
 
   refreshExplorer(worktreePath: string, directory?: string): Promise<void>
   setExplorerExpanded(worktreePath: string, directory: string, expanded: boolean): void
+  setExplorerEntryDialog(worktreePath: string, dialog: ExplorerEntryDialog | null): void
   setExplorerSelected(worktreePath: string, relPath: string | null): void
   setExplorerVisibility(worktreePath: string, options: { showHidden?: boolean; includeIgnored?: boolean }): void
   collapseExplorer(worktreePath: string): void
@@ -386,8 +396,6 @@ async function restoreSession(
   const restoredPreviews: Record<string, Record<string, FileContent & { v: number }>> = {}
   const liveById = new Map(liveSessions.map((session) => [session.id, session]))
   const worktreePaths = new Set(repos.flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)))
-  const managedAgentIds = new Set<string>()
-  for (const run of agentRuns) managedAgentIds.add(run.sessionId)
   const savedRepos = saved?.repos ?? {}
 
   for (const repo of repos) {
@@ -408,11 +416,12 @@ async function restoreSession(
                 valid.push(pane)
                 continue
               }
-              if (Object.keys(files).length >= 12) continue
+              if (Object.keys(files).length >= 12) { valid.push(pane); continue }
               const content = await previewFileContent(worktreePath, pane.file)
               files[pane.file] = { ...content, v: 0 }
             } catch (cause) {
               state.error = `Could not restore ${pane.file}: ${String(cause)}. Any protected draft remains in Recover.`
+              valid.push(pane)
               continue
             }
           }
@@ -420,20 +429,11 @@ async function restoreSession(
           continue
         }
         const live = pane.sessionId ? liveById.get(pane.sessionId) : undefined
-        if (live && pane.sessionId && (!live.exited || managedAgentIds.has(pane.sessionId))) {
-          valid.push(pane)
+        valid.push(pane)
+        if (live && pane.sessionId && live.worktreePath === worktreePath) {
           restored.terminals[pane.sessionId] ??= { session: live, cols: 100, rows: 30 }
-          continue
         }
-        // Lost shells may be replaced; managed agents require a daemon-owned PTY.
-        if (pane.sessionId && managedAgentIds.has(pane.sessionId)) continue
-        try {
-          const fresh = await window.donwells.openTerminal(worktreePath, worktreePath)
-          restored.terminals[fresh.id] = { session: fresh, cols: 100, rows: 30 }
-          valid.push({ ...pane, key: pane.sessionId ? 'term:' + fresh.id : pane.key, sessionId: fresh.id })
-        } catch {
-          // The workspace disappeared; dropping only this pane preserves siblings.
-        }
+        // Preserve the missing reference; only an explicit user action may create a replacement PTY.
       }
       if (!valid.length) continue
       restored.panes[worktreePath] = valid
@@ -451,7 +451,7 @@ async function restoreSession(
   // Retained agent output remains inspectable until explicit dismissal.
   for (const run of agentRuns) {
     const live = liveById.get(run.sessionId)
-    if (!live || !worktreePaths.has(run.workspacePath)) continue
+    if (!live || live.worktreePath !== run.workspacePath || !worktreePaths.has(run.workspacePath)) continue
     restored.terminals[run.sessionId] ??= { session: live, cols: 100, rows: 30 }
     const workspacePanes = restored.panes[run.workspacePath] ?? []
     const key = 'term:' + run.sessionId
@@ -788,9 +788,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async closeTerminal(worktreePath: string, sessionId: string) {
+    const terminal = get().terminals[sessionId], agent = get().runningAgents[sessionId]
+    const ownsResource = (!terminal || terminal.session.worktreePath === worktreePath) && (!agent || agent.workspacePath === worktreePath)
     try {
-      const agent = get().runningAgents[sessionId]
-      if (agent) {
+      if (agent && ownsResource) {
         if (agent.liveness !== 'exited') {
           get().applyAgentRun(await window.donwells.agentStop(sessionId))
           return false
@@ -799,14 +800,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().applyAgentDismissed(sessionId)
         return true
       }
-      await window.donwells.closeTerminal(sessionId)
+      if (terminal && ownsResource) await window.donwells.closeTerminal(sessionId)
     } catch (error) {
       set({ error: `Terminal close is unverifiable: ${String(error)}` })
       return false
     }
     set((s) => {
       const terminals = { ...s.terminals }
-      delete terminals[sessionId]
+      if (ownsResource) delete terminals[sessionId]
       const previous = s.panes[worktreePath] ?? []
       const removedKeys = new Set(previous.filter((p) => p.sessionId === sessionId).map((p) => p.key))
       const cardPanes = previous.filter((p) => p.sessionId !== sessionId)
@@ -829,7 +830,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { terminals, panes, activePane, activeTerminal, terminalOrder, layouts, error: null }
     })
-    terminalBus.dropSession(sessionId)
+    if (ownsResource) terminalBus.dropSession(sessionId)
     persistSessionSoon()
     return true
   },
@@ -1143,6 +1144,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     else next.delete(directory)
     set((state) => ({ explorer: { ...state.explorer, [worktreePath]: { ...workspace, expanded: [...next] } } }))
     if (expanded && workspace.directories[directory]?.phase !== 'ready') void get().refreshExplorer(worktreePath, directory)
+  },
+
+  setExplorerEntryDialog(worktreePath, entryDialog) {
+    set(state => ({ explorer: { ...state.explorer, [worktreePath]: { ...(state.explorer[worktreePath] ?? emptyExplorerWorkspace()), entryDialog } } }))
   },
 
   setExplorerSelected(worktreePath: string, relPath: string | null) {

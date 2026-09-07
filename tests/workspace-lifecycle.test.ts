@@ -220,3 +220,58 @@ describe('workspace lifecycle store actions', () => {
     expect(useAppStore.getState().activeWorktreePath).toBeNull()
   })
 })
+
+
+it('preserves unavailable saved resources without starting replacement processes', async () => {
+  seed([gitProject()])
+  const savedPanes = [
+    { key: 'term:lost', kind: 'terminal', sessionId: 'lost' },
+    { key: 'term:foreign', kind: 'terminal', sessionId: 'foreign' },
+    { key: 'preview:gone.md', kind: 'preview', file: 'gone.md' }
+  ]
+  Object.assign(window.donwells, {
+    listRepos: vi.fn(async () => [gitProject()]), listAgents: vi.fn(async () => []), agentList: vi.fn(async () => []),
+    getSettings: vi.fn(async () => useAppStore.getState().settings), gitStatus: vi.fn(async () => null),
+    terminalSessions: vi.fn(async () => [{ id: 'foreign', worktreePath: folderRoot, title: 'foreign', exited: false, createdAt: 't0' }]),
+    readFile: vi.fn(async () => { throw new Error('File missing') }),
+    getWorkspaceSession: vi.fn(async () => ({ activeRepoId: 'git-project', repos: { 'git-project': {
+      panes: { [gitRoot]: savedPanes }, layouts: {}, activePane: { [gitRoot]: 'term:lost' },
+      activeTerminal: { [gitRoot]: 'lost' }, terminalOrder: { [gitRoot]: ['lost', 'foreign'] }, activeWorktreePath: gitRoot
+    } } }))
+  })
+  await useAppStore.getState().load()
+  expect(useAppStore.getState().initializationError).toBeNull()
+  expect(useAppStore.getState().panes[gitRoot]).toEqual(savedPanes)
+  expect(useAppStore.getState().terminals).toEqual({})
+  expect(useAppStore.getState().activePane[gitRoot]).toBe('term:lost')
+  expect(openTerminal).not.toHaveBeenCalled()
+})
+
+it('removes missing or foreign terminal references locally without stopping another workspace', async () => {
+  seed([gitProject(), folderProject()])
+  const foreign = { session: { id: 'foreign', worktreePath: folderRoot, title: 'zsh', exited: false, createdAt: 't0' }, cols: 100, rows: 30 }
+  useAppStore.setState({
+    terminals: { foreign },
+    panes: { [gitRoot]: [{ key: 'term:lost', kind: 'terminal', sessionId: 'lost' }, { key: 'term:foreign', kind: 'terminal', sessionId: 'foreign' }], [folderRoot]: [{ key: 'term:foreign', kind: 'terminal', sessionId: 'foreign' }] }
+  })
+  await expect(useAppStore.getState().closeTerminal(gitRoot, 'lost')).resolves.toBe(true)
+  await expect(useAppStore.getState().closeTerminal(gitRoot, 'foreign')).resolves.toBe(true)
+  expect(window.donwells.closeTerminal).not.toHaveBeenCalled()
+  expect(useAppStore.getState().panes[gitRoot]).toEqual([])
+  expect(useAppStore.getState().terminals.foreign).toEqual(foreign)
+  expect(useAppStore.getState().panes[folderRoot]).toHaveLength(1)
+})
+
+it('retains an Explorer operation draft across move and hide without sharing it with another checkout', () => {
+  seed([gitProject(), folderProject()])
+  const draft = { kind: 'create-file' as const, value: 'src/unfinished.ts', pending: true }
+  useAppStore.getState().setExplorerEntryDialog(gitRoot, draft)
+  useAppStore.getState().openWorkspaceModule(gitRoot, 'explorer')
+  useAppStore.getState().hidePaneView(gitRoot, `explorer:${gitRoot}`)
+  expect(useAppStore.getState().explorer[gitRoot]?.entryDialog).toBe(draft)
+  expect(useAppStore.getState().explorer[folderRoot]?.entryDialog).toBeUndefined()
+  useAppStore.getState().openWorkspaceModule(gitRoot, 'explorer')
+  expect(useAppStore.getState().explorer[gitRoot]?.entryDialog?.pending).toBe(true)
+  useAppStore.getState().setExplorerEntryDialog(gitRoot, null)
+  expect(useAppStore.getState().explorer[gitRoot]?.entryDialog).toBeNull()
+})

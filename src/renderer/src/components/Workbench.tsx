@@ -21,17 +21,27 @@ const EMPTY_PANES: Pane[] = []
 
 function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: string; paneKey: string; visible: boolean }) {
   const pane = useAppStore(state => state.panes[worktreePath]?.find(item => item.key === paneKey))
-  const terminal = useAppStore(state => pane?.sessionId ? state.terminals[pane.sessionId] : undefined)
+  const terminal = useAppStore(state => { const view = pane?.sessionId ? state.terminals[pane.sessionId] : undefined; return view?.session.worktreePath === worktreePath ? view : undefined })
+  const preview = useAppStore(state => pane?.file ? state.previews[worktreePath]?.[pane.file] : undefined)
   if (!pane) return null
   return <div className="pane" data-pane-key={pane.key} data-pane-kind={pane.kind} tabIndex={-1}
     onFocus={() => useAppStore.getState().setActivePane(worktreePath, paneKey)}
     onMouseDown={() => useAppStore.getState().setActivePane(worktreePath, paneKey)}>
     {pane.kind === 'browser' && pane.url ? <div className="browser-pane-slot" data-browser-worktree={worktreePath} /> :
       <div className={`pane-body-terminal${visible ? '' : ' terminal-hidden'}`}>
-        {pane.kind === 'terminal' && terminal ? <TerminalPane sessionId={terminal.session.id} cols={terminal.cols} rows={terminal.rows} isActive={visible} />
+        {pane.kind === 'terminal' && !terminal ? <div className="empty-note" role="status">
+          <strong>Previous terminal unavailable</strong>
+          <p>This saved session could not be reattached. A new terminal starts a separate shell; it does not resume the previous agent.</p>
+          <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openTerminal(worktreePath)}>Open new terminal</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().hidePaneView(worktreePath, pane.key)}>Hide this reference</button>
+        </div> : pane.kind === 'preview' && pane.file && !preview ? <div className="empty-note" role="status">
+          <strong>File preview unavailable</strong><p>{pane.file}</p>
+          <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openPreview(worktreePath, pane.file!)}>Retry file</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openWorkspaceModule(worktreePath, 'recovery')}>Recover unsaved files</button>
+        </div> : pane.kind === 'terminal' && terminal ? <TerminalPane sessionId={terminal.session.id} cols={terminal.cols} rows={terminal.rows} isActive={visible} />
           : pane.kind === 'preview' && pane.file ? <MediaPreviewRouter worktreePath={worktreePath} relPath={pane.file} />
           : pane.kind === 'diff' && pane.file ? <DiffPane worktreePath={worktreePath} relPath={pane.file} comparison={pane.comparison} />
-          : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} />
+          : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} active={visible} location="workspace" />
           : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
           : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
@@ -114,13 +124,14 @@ export function WorkspaceControls() {
   const activeKey = useAppStore(state => activePath ? state.activePane[activePath] : undefined)
   const previews = useAppStore(state => activePath ? state.previews[activePath] : undefined)
   const selected = activePath ? panes[activePath]?.find(pane => pane.key === activeKey) : undefined
+  const selectedTerminal = useAppStore(state => { const view = selected?.sessionId ? state.terminals[selected.sessionId] : undefined; return view?.session.worktreePath === activePath ? view : undefined })
   const hidden = activePath ? docking[activePath]?.hidden ?? [] : []
   return <><button aria-label="Layout" title="Workspace layout" popoverTarget={popoverId} disabled={!activePath}><Icon name="columns" size={19} /><span>Layout</span></button><div id={popoverId} popover="auto" className="workspace-layout-popover">
     <div className="workspace-arrangements" aria-label="Workspace arrangement">
       <NavigationControls />
       {activePath && selected?.kind === 'terminal' && <>
         <button onClick={() => void useAppStore.getState().splitTerminal(activePath, 'row')}><Icon name="columns" size={12} />Split terminal right</button>
-        <button className="danger" onClick={() => useAppStore.getState().requestClosePane(activePath, selected.key)}><Icon name="stop" size={12} />Stop {workspacePaneLabel(selected)} process</button>
+        {selectedTerminal && <button className="danger" onClick={() => useAppStore.getState().requestClosePane(activePath, selected.key)}><Icon name="stop" size={12} />Stop {workspacePaneLabel(selected)} process</button>}
       </>}
       {activePath && selected?.kind === 'preview' && selected.file && isMarkdownFile(selected.file) && <button onClick={() => useAppStore.getState().setPreviewMode(activePath, selected.file!, previews?.[selected.file!]?.mode === 'preview' ? 'edit' : 'preview')}><Icon name="eye" size={12} />Toggle Markdown preview</button>}
       <div className="workspace-preset-buttons">{([['focus', 'Focus'], ['pair', 'Pair'], ['build', 'Build & preview'], ['review', 'Review']] as const).map(([preset, label]) => <button key={preset} onClick={event => { if (activePath) useAppStore.getState().arrangeWorkspace(activePath, preset as WorkspacePreset); event.currentTarget.closest<HTMLElement>('.workspace-layout-popover')?.hidePopover() }}>{label}</button>)}</div>

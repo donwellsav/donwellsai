@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { FileEntry } from '@shared/types'
-import { useAppStore, type ExplorerWorkspaceState } from '../store'
+import { useAppStore, type ExplorerWorkspaceState, type ExplorerEntryDialog } from '../store'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
 
 type ExplorerRow = { entry: FileEntry; depth: number }
-type EntryDialog = {
-  kind: 'create-file' | 'create-directory' | 'rename' | 'duplicate' | 'delete'
-  entry?: FileEntry
-  value: string
-}
+type EntryDialog = ExplorerEntryDialog
 type ContextMenu = { entry?: FileEntry; x: number; y: number }
 
 const EMPTY_WORKSPACE: ExplorerWorkspaceState = {
@@ -60,7 +56,7 @@ function dialogTitle(dialog: EntryDialog): string {
   return 'Delete workspace entry'
 }
 
-export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
+export function ExplorerPane({ worktreePath, active = true, location = 'sidebar' }: { worktreePath: string; active?: boolean; location?: 'sidebar' | 'workspace' }) {
   const workspace = useAppStore((state) => state.explorer[worktreePath] ?? EMPTY_WORKSPACE)
   const refreshExplorer = useAppStore((state) => state.refreshExplorer)
   const setExpanded = useAppStore((state) => state.setExplorerExpanded)
@@ -68,10 +64,12 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
   const setVisibility = useAppStore((state) => state.setExplorerVisibility)
   const collapseExplorer = useAppStore((state) => state.collapseExplorer)
   const openPreview = useAppStore((state) => state.openPreview)
-  const [dialog, setDialog] = useState<EntryDialog | null>(null)
+  const dialog = workspace.entryDialog ?? null
+  const setDialog = (value: EntryDialog | null): void => useAppStore.getState().setExplorerEntryDialog(worktreePath, value)
+  const sidebarOwnsDialog = useAppStore(state => state.rightSidebarOpen && state.rightSidebarTab === 'explorer' && state.activeWorktreePath === worktreePath)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
-  const [mutationError, setMutationError] = useState('')
-  const [mutating, setMutating] = useState(false)
+  const mutationError = dialog?.error ?? ''
+  const mutating = dialog?.pending ?? false
   const treeRef = useRef<HTMLDivElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const rows = useMemo(() => flattenExplorer(workspace), [workspace])
@@ -101,12 +99,12 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
   }, [selectedIndex, workspace.selected])
 
   const openEntryDialog = (kind: EntryDialog['kind'], entry?: FileEntry): void => {
+    if (useAppStore.getState().explorer[worktreePath]?.entryDialog?.pending) return
     const base = entry?.type === 'dir' ? entry.path : directoryOf(entry?.path ?? '')
     let value = base ? base + '/' : ''
     if (kind === 'rename' && entry) value = entry.path
     if (kind === 'duplicate' && entry) value = duplicatePath(entry.path)
     if (kind === 'delete' && entry) value = entry.path
-    setMutationError('')
     setContextMenu(null)
     setDialog({ kind, entry, value })
   }
@@ -133,19 +131,21 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
   }
 
   const submitDialog = async (): Promise<void> => {
-    if (!dialog || mutating) return
-    setMutating(true)
-    setMutationError('')
-    let succeeded = false
+    const current = useAppStore.getState().explorer[worktreePath]?.entryDialog
+    if (!current || current.pending) return
+    const submitted = { ...current, pending: true, error: undefined }
+    setDialog(submitted)
     const store = useAppStore.getState()
-    if (dialog.kind === 'create-file') succeeded = await store.createWorkspaceEntry(worktreePath, dialog.value, 'file')
-    else if (dialog.kind === 'create-directory') succeeded = await store.createWorkspaceEntry(worktreePath, dialog.value, 'directory')
-    else if (dialog.kind === 'rename' && dialog.entry) succeeded = await store.moveWorkspaceEntry(worktreePath, dialog.entry.path, dialog.value)
-    else if (dialog.kind === 'duplicate' && dialog.entry) succeeded = await store.duplicateWorkspaceEntry(worktreePath, dialog.entry.path, dialog.value)
-    else if (dialog.kind === 'delete' && dialog.entry) succeeded = await store.deleteWorkspaceEntry(worktreePath, dialog.entry.path)
-    setMutating(false)
-    if (succeeded) setDialog(null)
-    else setMutationError(useAppStore.getState().error ?? 'The workspace operation failed.')
+    let succeeded = false, error: string | undefined
+    try {
+      if (current.kind === 'create-file') succeeded = await store.createWorkspaceEntry(worktreePath, current.value, 'file')
+      else if (current.kind === 'create-directory') succeeded = await store.createWorkspaceEntry(worktreePath, current.value, 'directory')
+      else if (current.kind === 'rename' && current.entry) succeeded = await store.moveWorkspaceEntry(worktreePath, current.entry.path, current.value)
+      else if (current.kind === 'duplicate' && current.entry) succeeded = await store.duplicateWorkspaceEntry(worktreePath, current.entry.path, current.value)
+      else if (current.kind === 'delete' && current.entry) succeeded = await store.deleteWorkspaceEntry(worktreePath, current.entry.path)
+    } catch (cause) { error = String(cause) }
+    if (useAppStore.getState().explorer[worktreePath]?.entryDialog !== submitted) return
+    setDialog(succeeded ? null : { ...current, pending: false, error: error ?? useAppStore.getState().error ?? 'The workspace operation failed.' })
   }
 
   const handleTreeKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -337,7 +337,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
           {contextMenu.entry ? <button type="button" role="menuitem" className="danger" onClick={() => openEntryDialog('delete', contextMenu.entry)}>Delete…</button> : null}
         </div>
       ) : null}
-      {dialog ? (
+      {dialog && active && (location === 'sidebar' || !sidebarOwnsDialog) ? (
         <ModalDialog labelledBy="explorer-dialog-title" onClose={() => !mutating && setDialog(null)}>
           <h2 id="explorer-dialog-title">{dialogTitle(dialog)}</h2>
           {dialog.kind === 'delete' ? (
@@ -348,6 +348,7 @@ export function ExplorerPane({ worktreePath }: { worktreePath: string }) {
               <input
                 className="input"
                 autoFocus
+                disabled={mutating}
                 value={dialog.value}
                 onChange={(event) => setDialog({ ...dialog, value: event.currentTarget.value })}
                 onKeyDown={(event) => {

@@ -1,0 +1,17 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-six-sRF0Uq",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-six-sRF0Uq/project",
+  "checks": [
+    "Missing saved session remains visible; restore starts no replacement process",
+    "Missing saved file retains its reference and recovery actions",
+    "Explicit Open new terminal creates one distinct shell",
+    "Explorer authored draft survives sidebar-to-dock move; Cancel clears shared draft"
+  ],
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}
