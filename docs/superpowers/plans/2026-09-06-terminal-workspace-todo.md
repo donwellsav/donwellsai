@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 25 active — language intelligence and reusable project workflows.** Tasks 01, 03–24 and 27 are strengthened. Task 02 remains skipped. Tasks 25–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 26 active — desktop framework and native-terminal challenger.** Tasks 01, 03–25 and 27 are strengthened. Task 02 remains skipped. Tasks 26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -483,14 +483,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes Monaco models, selected project runtime and existing skills mechanism. Produces optional diagnostics/navigation and portable project workflows.
 
-- [ ] **Step 1:** Evaluate language-server integration for the project languages actually used; start with TypeScript diagnostics/navigation. Keep editor model/URI identity tied to its checkout.
-- [ ] **Step 2:** Extend the run/test/build controls delivered in Task 17 with language-specific diagnostics and declared tool requirements. Core app-building commands must already work before release; do not defer them to this advanced milestone.
-- [ ] **Step 3:** Offer spec/task/skill bundles as versioned project choices with visible contents. Preserve user-authored instructions and prevent imported docs from escalating tool access.
-- [ ] **Step 4:** Test stale diagnostics after edits, switching worktrees, missing language server, crash recovery and undo/save continuity.
-- [ ] **Verification:** Run `pnpm exec vitest run tests/language-tools.test.ts tests/editor-save.test.ts tests/editor-recovery.test.ts tests/skill-packages.test.ts` only after the new language test exists; perform real navigation/diagnostics checks.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Evaluate language-server integration for the project languages actually used; start with TypeScript diagnostics/navigation. Keep editor model/URI identity tied to its checkout.
+- [x] **Step 2:** Extend the run/test/build controls delivered in Task 17 with language-specific diagnostics and declared tool requirements. Core app-building commands must already work before release; do not defer them to this advanced milestone.
+- [x] **Step 3:** Offer spec/task/skill bundles as versioned project choices with visible contents. Preserve user-authored instructions and prevent imported docs from escalating tool access.
+- [x] **Step 4:** Test stale diagnostics after edits, switching worktrees, missing language server, crash recovery and undo/save continuity.
+- [x] **Verification:** Run `pnpm exec vitest run tests/language-tools.test.ts tests/editor-save.test.ts tests/editor-recovery.test.ts tests/skill-packages.test.ts` only after the new language test exists; perform real navigation/diagnostics checks.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Disable language/workflow module without losing text models, source files or project scripts.
+
+**Strengthening evidence:** [checkout language tools, scoped save shortcut and versioned workflow](../../architecture/language-workflows.md). Full-project typechecking uses declared project scripts; editor diagnostics cover open files.
 
 ### Task 26: Desktop framework and native-terminal challenger
 

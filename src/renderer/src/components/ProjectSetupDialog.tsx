@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   projectCreationTargetPath,
+  APP_WORKFLOW_FILES,
   validateProjectCreationRequest,
   validateProjectName,
   validateProjectParentPath
@@ -22,6 +23,7 @@ export function ProjectSetupDialog() {
   const [name, setName] = useState('')
   const [parentPath, setParentPath] = useState('')
   const [initializeGit, setInitializeGit] = useState(true)
+  const [workflow, setWorkflow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [browsing, setBrowsing] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -87,7 +89,7 @@ export function ProjectSetupDialog() {
     setSubmitted(true)
     setNameTouched(true)
     setLocationTouched(true)
-    const validation = validateProjectCreationRequest({ parentPath, name, initializeGit })
+    const validation = validateProjectCreationRequest({ parentPath, name, initializeGit, ...(workflow ? { workflow: 'app-workflow-v1' } : {}) })
     if (!validation.ok) return
 
     setBusy(true)
@@ -100,6 +102,7 @@ export function ProjectSetupDialog() {
       store.setRightSidebarOpen(true)
       setName('')
       setInitializeGit(true)
+      setWorkflow(false)
       setSubmitted(false)
       setNameTouched(false)
       setLocationTouched(false)
@@ -131,7 +134,7 @@ export function ProjectSetupDialog() {
           <div>
             <p className="project-setup-kicker">New project</p>
             <h2 id="project-setup-title">Create a local project</h2>
-            <p>Start with a new empty folder. You can add files, open a terminal, and connect tools after creation.</p>
+            <p>Create a new folder, optionally with a specification and task workflow. Open a terminal and connect your tools after creation.</p>
           </div>
         </header>
 
@@ -206,6 +209,17 @@ export function ProjectSetupDialog() {
             <small>Creates an empty repository on the <code>main</code> branch. No commit or Git identity is required.</small>
           </span>
         </label>
+
+        <label className="project-setup-git-option">
+          <input type="checkbox" checked={workflow} disabled={disabled} onChange={(event) => setWorkflow(event.target.checked)} />
+          <span><strong>App workflow · v1.0.0</strong><small>Add an editable specification, task checklist and local skill. No tools are installed or enabled.</small></span>
+        </label>
+        {workflow && <details className="project-workflow-preview">
+          <summary>Review the three files before creation</summary>
+          {Object.entries(APP_WORKFLOW_FILES).map(([path, content]) => <details key={path}>
+            <summary>{path}</summary><pre>{content}</pre>
+          </details>)}
+        </details>}
 
         {submitError && (
           <div id="project-setup-submit-error" className="project-setup-submit-error" role="alert">

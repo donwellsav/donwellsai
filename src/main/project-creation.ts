@@ -1,15 +1,17 @@
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, stat, realpath } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import {
   validateProjectCreationRequest,
+  APP_WORKFLOW_FILES,
   type CreateProjectRequest
 } from '@shared/project-creation'
 import type { RepoSummary } from '@shared/types'
+import { WorktreeFiles } from './worktree-files'
 
 export type ProjectRegistration = (createdPath: string) => Promise<RepoSummary>
-export type ProjectCreationStage = 'validation' | 'folder' | 'git' | 'registration'
+export type ProjectCreationStage = 'validation' | 'folder' | 'git' | 'workflow' | 'registration'
 
 export class ProjectCreationError extends Error {
   constructor(
@@ -57,7 +59,7 @@ export async function createProject(
   const validation = validateProjectCreationRequest(input)
   if (!validation.ok) throw new ProjectCreationError(validation.error, 'validation')
 
-  const { parentPath, name, initializeGit } = validation.request
+  const { parentPath, name, initializeGit, workflow } = validation.request
   if (!isAbsolute(parentPath)) {
     throw new ProjectCreationError('Location must be an absolute folder path for this operating system.', 'validation')
   }
@@ -100,6 +102,21 @@ export async function createProject(
       projectPath,
       { cause }
     )
+  }
+
+  if (workflow) {
+    try {
+      const root = await realpath(projectPath)
+      const files = new WorktreeFiles()
+      for (const path of ['.agents', '.agents/skills', '.agents/skills/app-workflow']) {
+        await files.createWorkspaceEntry(root, { path, kind: 'dir' })
+      }
+      for (const [path, content] of Object.entries(APP_WORKFLOW_FILES)) {
+        await files.createWorkspaceEntry(root, { path, kind: 'file', content })
+      }
+    } catch (cause) {
+      throw new ProjectCreationError(`Workflow files could not be created: ${causeMessage(cause)} The project folder was left in place.`, 'workflow', projectPath, { cause })
+    }
   }
 
   if (initializeGit) {

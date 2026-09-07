@@ -2,7 +2,11 @@
  * the full env lives at 'monaco-editor' and weighs ~8 MB). */
 import * as monaco from 'monaco-editor/editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
-import TypescriptWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+import TypescriptWorker from './typescript-worker.js?worker'
+import { typescriptDefaults, javascriptDefaults } from 'monaco-editor/languages/features/typescript/register.js'
+import 'monaco-editor/editor/contrib/codelens/browser/codeLensCache.js'
+import 'monaco-editor/editor/common/services/treeViewsDndService.js'
+import { installLanguageDiagnostics } from './language-diagnostics'
 
 import 'monaco-editor/editor/contrib/find/browser/findController.js'
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js'
@@ -97,9 +101,42 @@ import 'monaco-editor/languages/definitions/cpp/register.js'
 import 'monaco-editor/languages/definitions/csharp/register.js'
 import 'monaco-editor/languages/definitions/dockerfile/register.js'
 
+const languageRoots = new Set<string>()
+const languageWorkers = new Set<Worker>()
+export function registerLanguageWorkspace(path: string): void {
+  const uri = monaco.Uri.file(path).toString().replace(/\/$/, '') + '/'
+  if (languageRoots.has(uri)) return
+  languageRoots.add(uri)
+  for (const worker of languageWorkers) worker.postMessage({ kind: 'donwells-language-roots', roots: [...languageRoots] })
+}
+export function restartLanguageTools(): void {
+  typescriptDefaults.setWorkerOptions({ ...typescriptDefaults.workerOptions })
+  javascriptDefaults.setWorkerOptions({ ...javascriptDefaults.workerOptions })
+}
+monaco.editor.onWillDisposeModel(() => queueMicrotask(() => {
+  if (monaco.editor.getModels().some((model) => ['typescript', 'javascript'].includes(model.getLanguageId()))) return
+  languageRoots.clear()
+  restartLanguageTools()
+}))
+typescriptDefaults.setEagerModelSync(true)
+javascriptDefaults.setEagerModelSync(true)
+typescriptDefaults.setModeConfiguration({ ...typescriptDefaults.modeConfiguration, diagnostics: false })
+javascriptDefaults.setModeConfiguration({ ...javascriptDefaults.modeConfiguration, diagnostics: false })
+const reportLanguageError = (message: string): void => {
+  void import('./store').then(({ useAppStore }) => useAppStore.getState().setError(message))
+}
+installLanguageDiagnostics(monaco, reportLanguageError)
 self.MonacoEnvironment = {
-  getWorker: (_moduleId: string, label: string) =>
-    label === 'typescript' || label === 'javascript' ? new TypescriptWorker() : new EditorWorker()
+  getWorker: (_moduleId: string, label: string) => {
+    if (label !== 'typescript' && label !== 'javascript') return new EditorWorker()
+    const worker = new TypescriptWorker()
+    worker.addEventListener('error', () => reportLanguageError('Language worker stopped. Use “Restart TypeScript / JavaScript tools” in the editor command menu.'))
+    languageWorkers.add(worker)
+    const terminate = worker.terminate.bind(worker)
+    worker.terminate = () => { languageWorkers.delete(worker); terminate() }
+    worker.postMessage({ kind: 'donwells-language-roots', roots: [...languageRoots] })
+    return worker
+  }
 }
 // Debug/agent handle: tooling (CDP probes, CLI eval) can read live models.
 ;(window as unknown as Record<string, unknown>).monaco = monaco
@@ -115,7 +152,7 @@ monaco.editor.defineTheme('donwells-dark', {
     { token: 'type', foreground: '7dd3fc' }
   ],
   colors: {
-    'editor.background': '#0a0a0a',
+    'editor.background': '#16161D',
     'editor.foreground': '#e4e4e7',
     'editorLineNumber.foreground': '#3f3f46',
     'editorLineNumber.activeForeground': '#a1a1aa',

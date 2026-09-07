@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { GitWorktrees } from '../src/main/git'
 import { createProject, ProjectCreationError } from '../src/main/project-creation'
 import { Store } from '../src/main/store'
-import { projectCreationTargetPath } from '../src/shared/project-creation'
+import { APP_WORKFLOW_FILES, projectCreationTargetPath } from '../src/shared/project-creation'
 import type { RepoSummary } from '../src/shared/types'
 
 const cleanup: string[] = []
@@ -40,6 +40,20 @@ describe('projectCreationTargetPath', () => {
 })
 
 describe('createProject', () => {
+  it('creates the reviewed versioned workflow exclusively and rejects unknown workflow versions', async () => {
+    const parentPath = tempParent()
+    const result = await createProject({ parentPath, name: 'app', initializeGit: false, workflow: 'app-workflow-v1' }, async (path) => summaryFor(path, 'folder'))
+    for (const [path, content] of Object.entries(APP_WORKFLOW_FILES)) {
+      expect(readFileSync(join(result.repo.path, path), 'utf8')).toBe(content)
+    }
+    expect(existsSync(join(result.repo.path, 'AGENTS.md'))).toBe(false)
+    writeFileSync(join(result.repo.path, 'SPEC.md'), 'User specification')
+    await expect(createProject({ parentPath, name: 'app', initializeGit: false, workflow: 'app-workflow-v1' }, async (path) => summaryFor(path, 'folder'))).rejects.toMatchObject({ stage: 'folder' })
+    expect(readFileSync(join(result.repo.path, 'SPEC.md'), 'utf8')).toBe('User specification')
+    await expect(createProject({ parentPath, name: 'unknown', initializeGit: false, workflow: 'other' as 'app-workflow-v1' }, async (path) => summaryFor(path, 'folder'))).rejects.toMatchObject({ stage: 'validation' })
+    expect(existsSync(join(parentPath, 'unknown'))).toBe(false)
+  })
+
   it('creates a plain folder exclusively and registers only after the folder exists', async () => {
     const parentPath = tempParent()
     const expectedPath = join(parentPath, 'notes')

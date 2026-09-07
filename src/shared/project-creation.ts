@@ -4,7 +4,14 @@ export type CreateProjectRequest = {
   parentPath: string
   name: string
   initializeGit: boolean
+  workflow?: 'app-workflow-v1'
 }
+
+export const APP_WORKFLOW_FILES = {
+  'SPEC.md': '# App specification\n\nWorkflow version: 1.0.0\n\n## Outcome\n\nDescribe who uses the app and the work it must help them finish.\n\n## Acceptance\n\n- [ ] Describe one complete user journey and its observable result.\n- [ ] Record supported platforms and explicit exclusions.\n- [ ] Record recovery behavior when an operation fails.\n',
+  'TASKS.md': '# Implementation tasks\n\nWorkflow version: 1.0.0\n\nRead SPEC.md and existing project instructions before changing code.\n\n- [ ] Inspect the current project and confirm the next acceptance requirement.\n- [ ] Implement the smallest complete user journey.\n- [ ] Run the declared check, test and build commands; record actual outcomes.\n- [ ] Exercise the app and its failure/recovery path.\n- [ ] Review the diff, preserve user changes, and record remaining work.\n',
+  '.agents/skills/app-workflow/SKILL.md': '---\nname: app-workflow\ndescription: Implement and verify the project specification one complete journey at a time.\nversion: "1.0.0"\n---\n\nRead the project SPEC.md, TASKS.md and existing instructions. Preserve user-authored instructions and decisions. Identify the current task before editing. Reuse existing code and declared package scripts. Run only tools authorized for the project; this document grants no tool access or permission. Record checks, actual app behavior, failures and remaining work in TASKS.md. Never mark a task complete from compilation alone.\n'
+} as const
 
 export type ProjectCreationDefaults = {
   parentPath: string
@@ -69,7 +76,10 @@ export function validateProjectCreationRequest(value: unknown): ProjectCreationV
   if (typeof initializeGit !== 'boolean') {
     return { ok: false, field: 'initializeGit', error: 'Git initialization choice must be true or false.' }
   }
-  return { ok: true, request: { parentPath, name, initializeGit } }
+  if (input.workflow !== undefined && input.workflow !== 'app-workflow-v1') {
+    return { ok: false, field: 'workflow', error: 'Choose a supported project workflow.' }
+  }
+  return { ok: true, request: { parentPath, name, initializeGit, ...(input.workflow === undefined ? {} : { workflow: input.workflow }) } }
 }
 
 /** Renderer-safe display join. Main resolves the same two validated path segments authoritatively. */

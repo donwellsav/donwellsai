@@ -1,7 +1,7 @@
 .project-setup-dialog.modal {
   width: min(560px, calc(100vw - 32px));
   padding: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .project-setup-form {
@@ -231,3 +231,7 @@
     justify-content: flex-end;
   }
 }
+
+.project-workflow-preview { font-size: 12px; max-height: 240px; overflow: auto; }
+.project-workflow-preview details { margin: 8px 0; }
+.project-workflow-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--muted-fg); }

@@ -17,7 +17,7 @@ import {
   type EditorRecoveryPersistenceStatus
 } from '../editor-recovery'
 import { VersionedEditorSave, type EditorSaveSnapshot } from '../editor-save'
-import { monaco } from '../monaco-setup'
+import { monaco, registerLanguageWorkspace, restartLanguageTools } from '../monaco-setup'
 import { isMarkdownFile, useAppStore } from '../store'
 import { MarkdownPreview } from './MarkdownPreview'
 import { ModalDialog } from './ModalDialog'
@@ -119,6 +119,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       let recoveryEditor: monaco.editor.IStandaloneCodeEditor | null = null
 
       if (!editorDocument) {
+        registerLanguageWorkspace(worktreePath)
         const separator = worktreePath.endsWith('/') || worktreePath.endsWith('\\') ? '' : '/'
         const uri = monaco.Uri.file(worktreePath + separator + diskPreview.path)
         const model = monaco.editor.createModel(recovered?.content ?? diskPreview.content, undefined, uri)
@@ -200,6 +201,27 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         fixedOverflowWidgets: true
       })
       editorRef.current = editor
+      const restartLanguages = editor.addAction({
+        id: 'donwells.restartLanguageTools',
+        label: 'Restart TypeScript / JavaScript tools',
+        contextMenuGroupId: 'navigation',
+        run: () => restartLanguageTools()
+      })
+      const languageNavigation = monaco.editor.registerEditorOpener({
+        openCodeEditor: async (source, resource, position) => {
+          if (source !== editor) return false
+          const root = monaco.Uri.file(worktreePath)
+          const prefix = root.path.replace(/\/$/, '') + '/'
+          if (resource.scheme !== 'file' || resource.authority !== root.authority || !resource.path.startsWith(prefix)) {
+            useAppStore.getState().setError('Language navigation target is outside this checkout.')
+            return true
+          }
+          const line = position && ('startLineNumber' in position ? position.startLineNumber : position.lineNumber)
+          const column = position && ('startColumn' in position ? position.startColumn : position.column)
+          await openPreview(worktreePath, resource.path.slice(prefix.length), { mode: 'edit', line, column })
+          return true
+        }
+      })
       recoveryEditor = editor
       documentRef.current = editorDocument
       editorDocument.model.updateOptions({ tabSize: settings.editorTabSize })
@@ -246,13 +268,22 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
       window.addEventListener('blur', persistBeforeSuspend)
       window.document.addEventListener('visibilitychange', persistWhenHidden)
 
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        window.clearTimeout(saveTimerRef.current)
-        saveTimerRef.current = undefined
-        void editorDocument.save.flush()
+      const saveAction = editor.addAction({
+        id: 'donwells.saveFile',
+        label: 'Save file',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+        contextMenuGroupId: '1_modification',
+        run: async () => {
+          window.clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = undefined
+          await editorDocument.save.flush()
+        }
       })
 
       disposeEditor = () => {
+        languageNavigation.dispose()
+        restartLanguages.dispose()
+        saveAction.dispose()
         changes.dispose()
         cursorChanges.dispose()
         scrollChanges.dispose()
