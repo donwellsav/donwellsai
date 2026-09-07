@@ -1,6 +1,6 @@
 # Second strengthening pass — research before implementation
 
-Current position: **Task 01 active — fresh research, baseline and evidence audit.** Task 02 is skipped. All other tasks are reopened for this pass; previous receipts are history, not current completion. Requested final GUI refinement is provisionally numbered 51 pending numbering clarification; do not invent Tasks 29–50.
+Current position: **Task 01 active — fresh research, baseline and evidence audit.** Task 02 is skipped. All other tasks are reopened for this pass; previous receipts are history, not current completion. Final GUI refinement is Task 29, confirmed by the user.
 
 ## Authority and execution
 
@@ -49,7 +49,7 @@ The previous uncommitted component-decisions and native-agent-matrix work and fo
 - [ ] **26 — Desktop framework and native-terminal challenger** — Pending research and strengthening.
 - [ ] **27 — Native session history and AgentsView integration** — Pending research and strengthening.
 - [ ] **28 — Optional ACP capabilities and additional agent adapters** — Pending research and strengthening.
-- [ ] **51 — Final GUI refinement for the updated app** — Pending; numbering clarification requested. Audit the completed workflows and information architecture, improve ergonomics, terminal space, focus/keyboard flow, discoverability, error/recovery states, density, resizing and visual consistency. Research precedents first; verify the actual integrated app, not only a mockup.
+- [ ] **29 — Final GUI refinement for the updated app** — Pending. Audit the completed workflows and information architecture, improve ergonomics, terminal space, focus/keyboard flow, discoverability, error/recovery states, density, resizing and visual consistency. Research precedents first; verify the actual integrated app, not only a mockup.
 - [ ] **Final installed verification** — Rebuild/sign and test the final application after GUI and functional changes.
 
 ## Explicit additions — September 7 follow-up
@@ -67,7 +67,7 @@ The user explicitly requests these additions in their best-fitting tasks. Earlie
 | Tauri | 26 | Run the previously untested framework challenger against current product workflows and native integrations. Evaluate a complete migration path, not empty-window startup. |
 | Native Ghostty | 26 | Evaluate native embedding, process ownership, search, resizing, focus and TUI fidelity in the framework trial. This is the explicitly requested Task26 addition; Task02 stays skipped. |
 
-Task51 must accommodate the newly integrated capabilities ergonomically in the terminal-centered workspace. Missing qualifications remain visible and unfinished.
+Task29 must accommodate the newly integrated capabilities ergonomically in the terminal-centered workspace. Missing qualifications remain visible and unfinished.
 
 ## Research and evidence
 
