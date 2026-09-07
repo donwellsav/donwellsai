@@ -12,14 +12,33 @@ export function ProjectToolsSettings() {
   const preview = useRef<HTMLDetailsElement>(null)
   useEffect(() => { if (backupSelection) preview.current?.scrollIntoView({ block: 'nearest' }) }, [backupSelection])
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [statusError, setStatusError] = useState('')
   const dirty = Boolean(report && draft && JSON.stringify(report.configuration) !== JSON.stringify(draft))
   const accept = (value: ProjectDoctorReport) => { setReport(value); setDraft(value.configuration); setBackupSelection('') }
   useEffect(() => {
     let cancelled = false
-    setReport(null); setDraft(null); setError(''); setBackupSelection('')
+    setReport(null); setDraft(null); setError(''); setStatusError(''); setBackupSelection('')
     if (workspacePath) void window.donwells.projectDoctorInspect(workspacePath).then(value => { if (!cancelled) accept(value) }).catch(error => { if (!cancelled) setError(redactDesignCaptureSecrets(String(error))) })
     return () => { cancelled = true }
   }, [workspacePath])
+  useEffect(() => {
+    if (!workspacePath || !report) return
+    let cancelled = false, pending = false
+    const refresh = async () => {
+      if (pending || document.visibilityState !== 'visible') return
+      pending = true
+      try {
+        const services = await window.donwells.projectToolsList(workspacePath)
+        if (!cancelled) {
+          setReport(current => current && ({ ...current, services: [...services, ...current.services.filter(service => service.id === 'history')] }))
+          setStatusError('')
+        }
+      } catch (error) { if (!cancelled) setStatusError(`Live service status unavailable: ${redactDesignCaptureSecrets(String(error))}`) }
+      finally { pending = false }
+    }
+    const timer = setInterval(() => void refresh(), 2000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [workspacePath, Boolean(report)])
   const run = async (action: () => Promise<unknown>) => {
     if (busy || !workspacePath) return
     setBusy(true); setError('')
@@ -36,6 +55,7 @@ export function ProjectToolsSettings() {
     <p>Use installed, admitted tools. Changing configuration stops this project’s tool services and preserves a backup. Native agent authentication stays with each CLI.</p>
     <p>Optional tools are installed separately. Downloads require a connection; installed tools and local models can work offline. Without them, terminals, files and shared project memory remain available.</p>
     {error && <p role="alert">{error}</p>}
+    {statusError && <p role="status">{statusError}</p>}
     <button type="button" className="btn btn-secondary btn-sm" disabled={busy || dirty} onClick={() => void run(async () => {})}>Recheck setup</button>
     {report?.problem && <p role="alert">{report.problem} {report.configurationPath}</p>}
     {report && draft && <>
@@ -50,6 +70,7 @@ export function ProjectToolsSettings() {
         const service = report.services.find(value => value.id === tool.id)
         return <details key={tool.id}>
           <summary>{tool.name} · {draft.disabled.includes(tool.id) ? 'disabled' : service?.status ?? (tool.id === 'backlog' && report.configuration.backlogBinary ? 'configured' : 'not configured')}</summary>
+          {service?.owner && <p>Owner: {service.scope === 'project' ? 'project' : 'checkout'} <code>{service.scope === 'project' ? service.owner.projectPath : service.owner.checkoutPath}</code><br />{service.activeCalls ?? 0} active calls{service.pid ? ` · Process ${service.pid}` : ''}</p>}
           <p>Admitted version: {tool.version}. {tool.scope}.</p>
           <p>{tool.models}</p>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void window.donwells.openExternal(tool.source)}>Source</button>

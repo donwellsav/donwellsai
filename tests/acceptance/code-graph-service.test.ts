@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { ProjectTools, resolveProjectToolScope } from '../../src/main/project-tools'
+import { resolveProjectToolScope } from '../../src/main/project-tools'
+import { ProjectDoctor } from '../../src/main/project-doctor'
 import { createCodeGraphDefinition } from '../../src/main/project-code-graph'
 import { GitWorktrees } from '../../src/main/git'
 import { Store } from '../../src/main/store'
@@ -24,8 +25,9 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     await git.addRepo(path)
   }
   const resolveWorkspace = async (path: string) => { if (!paths.includes(path)) throw new Error('Unknown checkout'); return { path, projectPath: path } }
-  const definition = createCodeGraphDefinition(binary, join(root, 'cache'), path => git.handoffSource(path))
-  const tools = new ProjectTools(resolveWorkspace, [definition], 30000)
+  const tools = new ProjectDoctor(join(root, 'config'), resolveWorkspace,
+    () => ({ codeGraphBinary: binary, referenceRoots: [], disabled: [] }),
+    () => [createCodeGraphDefinition(binary, join(root, 'cache'), path => git.handoffSource(path))])
   const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex')
   const report: Record<string, unknown> = { binary, binarySha256: hash(binary), runnerSha256: hash(import.meta.filename), sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), operations: [] }
   const unwrap = (value: any) => { expect(value.isError, JSON.stringify(value)).not.toBe(true); return value.structuredContent ?? JSON.parse(value.content[0].text) }
@@ -36,6 +38,12 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
   }
   try {
     report.start = await Promise.all(paths.map(path => tools.start(path, 'code-graph')))
+    const conflicting = new ProjectDoctor(join(root, 'conflicting-config'), resolveWorkspace,
+      () => ({ referenceRoots: [], disabled: [] }),
+      () => [createCodeGraphDefinition(binary, join(root, 'other-cache'))])
+    try { await expect(conflicting.start(paths[0]!, 'code-graph')).rejects.toThrow('Another code-graph installation is active') }
+    finally { await conflicting.close() }
+    report.foreignCacheConflictReportedWithoutStoppingOwners = true
     const beforeIndex = await tools.call(paths[0]!, 'code-graph', 'callers', { function_name: 'target' }) as { isError?: boolean }
     expect(beforeIndex.isError).toBe(true)
     report.unbuiltIndexRejected = true
@@ -60,6 +68,11 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     await tools.stop(paths[0]!, 'code-graph')
     expect(names(await call(paths[1]!, 'callers', { function_name: 'target' }))).toEqual(['secondCaller'])
     report.siblingSurvived = true
+    const sibling = (await tools.list(paths[1]!))[0]!
+    await tools.start(paths[0]!, 'code-graph')
+    expect((await tools.list(paths[1]!))[0]!.pid).toBe(sibling.pid)
+    expect(names(await call(paths[1]!, 'callers', { function_name: 'target' }))).toEqual(['secondCaller'])
+    report.siblingSurvivedRestart = true
   } catch (error) { report.error = String(error); throw error }
   finally {
     await tools.close()
@@ -74,7 +87,7 @@ it.skipIf(!process.env.DONWELLS_CODE_GRAPH_BINARY)('binds concurrent native grap
     expect(report.remainingProcesses).toEqual([])
     if (!report.error) {
       expect(String(report.daemonLog).match(/msg=daemon.start /g)).toHaveLength(1)
-      expect(String(report.daemonLog).match(/method=initialize /g)).toHaveLength(2)
+      expect(String(report.daemonLog).match(/method=initialize /g)).toHaveLength(3)
       expect(String(report.daemonLog)).not.toContain('msg=ui.serving')
     }
   }

@@ -10,7 +10,7 @@
 
 **Spec:** [Existing product specification](../specs/2026-09-06-terminal-workspace-design.md), as amended by the user’s current product direction and the constraints below. This draft proposes replacing the execution order and completion rules of the earlier second-pass plan, not rolling back its source history.
 
-**Current position:** Task01 and Task26 product changes complete; Task04 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
+**Current position:** Task01, Task26 and Task04 product changes complete; Task03 active next. Task02 is skipped; final GUI refinement is Task29. User authorized continuous execution across the plan. Preexisting Kimi changes remain separate. Historical tests and packages are not substituted for product improvements.
 
 ## Product promise and non-negotiable requirements
 
@@ -97,8 +97,8 @@ Task02 is excluded. Task26’s move earlier and final release after Task29 are e
 
 - [x] **01 — Finish a useful foundation change** — Delivered: same-position TUI redraws invalidate terminal search cache; focused packaged regression passes.
 - [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
-- [ ] **03 — Make engine choices usable per project** — Queued for implementation after preceding dependencies.
-- [ ] **04 — Own tools and resources by project** — ACTIVE: research and project lifecycle improvement.
+- [ ] **03 — Make engine choices usable per project** — ACTIVE: engine research and native-agent configuration.
+- [x] **04 — Own tools and resources by project** — Delivered: launch cancellation, truthful stopping state, live ownership/calls, shared native graph cache with isolated checkout sessions.
 - [ ] **05 — Establish the terminal-centered workspace** — Queued for implementation after preceding dependencies.
 - [ ] **06 — Make modules movable without disrupting work** — Queued for implementation after preceding dependencies.
 - [ ] **07 — Make native agents interchangeable** — Queued for implementation after preceding dependencies.
@@ -189,9 +189,9 @@ Each unskipped card requires its fresh research and user-approved implementation
 
 **Starting files:** `src/main/project-tools.ts`, `src/shared/project-tools.ts`, `src/main/project-doctor.ts`, `src/shared/child-process/run-process.ts`.
 
-- [ ] Use the existing canonical project key and separate checkout index key for every service; expose owner, active jobs and connection state.
-- [ ] Add only lifecycle capabilities needed by the approved engines: local child process or explicitly configured endpoint, cancellation, crash recovery and bounded output.
-- [ ] Make stop/disable remove the selected owner’s resources, and make missing optional services leave native terminals usable.
+- [x] Use the existing canonical project key and separate checkout index key for every service; expose owner, active jobs and connection state.
+- [x] Add only lifecycle capabilities needed by the approved engines: local child process or explicitly configured endpoint, cancellation, crash recovery and bounded output.
+- [x] Make stop/disable remove the selected owner’s resources, and make missing optional services leave native terminals usable.
 
 **Done demonstration:** Run two projects, stop or crash a service in A, and keep B responsive. Restart A without duplicate workers or replayed writes.
 

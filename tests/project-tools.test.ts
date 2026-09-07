@@ -97,6 +97,28 @@ it('deduplicates setup and cancels it before launching a native service', async 
   expect((await f.tools.list(f.project))[0]?.status).toBe('stopped')
 })
 
+it('honors stop during the final asynchronous scope check without launching or disturbing another project', async () => {
+  const f = fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  let prepared = false, held = false
+  const tools = new ProjectTools(async path => {
+    if (path === f.project && prepared && !held) { held = true; entered.resolve(); await release.promise }
+    return f.resolve(path)
+  }, [{ ...f.definition, prepare: async scope => { if (scope.checkoutPath === f.project) prepared = true } }])
+  owners.push(tools)
+  await tools.start(f.other, 'fixture')
+  const starting = tools.start(f.project, 'fixture').catch(error => error)
+  await entered.promise
+  const stopping = tools.stop(f.project, 'fixture')
+  // stop's own asynchronous scope lookup must reach the cancellation boundary first.
+  await new Promise(resolve => setTimeout(resolve, 30))
+  release.resolve(); await stopping
+  expect(await starting).toBeInstanceOf(Error)
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
+  expect((await tools.call(f.other, 'fixture', 'search', { query: 'still working' }) as { cwd: string }).cwd).toBe(f.other)
+  await tools.start(f.project, 'fixture')
+  expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(2)
+})
+
 it('reports an unadmitted graph executable without launching it or creating its cache', async () => {
   const f = fixture(), binary = join(f.project, 'unknown-binary'), cache = join(f.project, 'graph-cache')
   writeFileSync(binary, 'unadmitted')
@@ -212,9 +234,14 @@ it('honors a stop while an operation verifies source freshness', async () => {
   const result = f.tools.call(f.project, 'fixture', 'search', { query: 'hello' })
   const outcome = expect(result).rejects.toThrow('Tool stopped')
   await entered.promise
+  const live = (await f.tools.list(f.project))[0]!
+  expect(live.activeCalls).toBe(1)
+  expect(live.owner?.checkoutPath).toBe(f.project)
+  expect(live.pid).toBeGreaterThan(0)
   await f.tools.stop(f.project, 'fixture')
   release.resolve()
   await outcome
+  expect((await f.tools.list(f.project))[0]).toMatchObject({ activeCalls: 0, pid: null, status: 'stopped' })
   expect(readFileSync(f.counter, 'utf8').trim().split('\n')).toHaveLength(1)
 })
 
@@ -280,6 +307,7 @@ it('waits for detached-child cleanup before preparing a replacement service', as
   await f.tools.start(f.project, 'fixture')
   const stopping = f.tools.stop(f.project, 'fixture')
   await entered.promise
+  expect((await f.tools.list(f.project))[0]?.status).toBe('stopping')
   const restarting = f.tools.start(f.project, 'fixture')
   try {
     await new Promise(resolve => setTimeout(resolve, 25))

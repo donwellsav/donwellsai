@@ -1,6 +1,5 @@
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
-import { createHash } from 'node:crypto'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
@@ -585,7 +584,7 @@ app.whenReady().then(() => {
   }), (config, projectPath) => [
     ...(config.computerBinary ? [createComputerToolDefinition(config.computerBinary)] : []),
     ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
-    ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph', createHash('sha256').update(projectPath).digest('hex')), path => git.handoffSource(path))] : []),
+    ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
   ], join(app.getPath('userData'), 'project-tools', 'history'))
   ipcMain.handle('projectDoctorPreviewBackup', (_e, path: string, name: string) => projectTools!.previewBackup(path, name))

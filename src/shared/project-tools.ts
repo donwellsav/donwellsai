@@ -7,9 +7,13 @@ export type ProjectToolScope = {
 
 export type ToolServiceState = {
   id: string
-  status: 'stopped' | 'starting' | 'ready' | 'failed'
+  status: 'stopped' | 'starting' | 'ready' | 'stopping' | 'failed'
   version: string | null
   detail: string | null
+  owner?: ProjectToolScope
+  scope?: 'project' | 'checkout'
+  activeCalls?: number
+  pid?: number | null
 }
 
 export type ProjectSearchHit = {

@@ -35,6 +35,7 @@ type Service = {
   state: ToolServiceState
   process: ChildProcess
   pending: Map<string, Pending>
+  activeCalls: number
   ready: Promise<void>
   stopping?: Promise<boolean>
   stopRequested?: boolean
@@ -85,8 +86,9 @@ export class ProjectTools {
   async list(workspacePath: string): Promise<ToolServiceState[]> {
     await resolveProjectToolScope(workspacePath, this.resolveWorkspace)
     return Promise.all(this.definitions.map(async definition => {
-      const { key } = await this.bound(workspacePath, definition.id)
-      return { ...(this.setupStates.get(key) ?? this.services.get(key)?.state ?? { id: definition.id, status: 'stopped', version: null, detail: null }) }
+      const { key, scope } = await this.bound(workspacePath, definition.id)
+      const service = this.services.get(key)
+      return { ...(this.setupStates.get(key) ?? service?.state ?? { id: definition.id, status: 'stopped', version: null, detail: null }), owner: scope, scope: definition.scope, activeCalls: service?.activeCalls ?? 0, pid: service && service.process.exitCode === null && service.process.signalCode === null ? service.process.pid ?? null : null }
     }))
   }
 
@@ -110,7 +112,7 @@ export class ProjectTools {
       if (controller.signal.aborted || this.closed) throw new Error('Tool stopped')
       await definition.prepare?.(scope, controller.signal)
       if (controller.signal.aborted || this.closed) throw new Error('Tool stopped')
-      const state = await this.startPrepared(workspacePath, id, key)
+      const state = await this.startPrepared(workspacePath, id, key, controller.signal)
       this.setupStates.delete(key)
       return state
     }).catch(error => {
@@ -123,7 +125,7 @@ export class ProjectTools {
     return promise
   }
 
-  private async startPrepared(workspacePath: string, id: string, preparedKey: string): Promise<ToolServiceState> {
+  private async startPrepared(workspacePath: string, id: string, preparedKey: string, signal: AbortSignal): Promise<ToolServiceState> {
     const { definition, scope, key } = await this.bound(workspacePath, id)
     if (key !== preparedKey) throw new Error('Tool scope changed during preparation')
     let service = this.services.get(key)
@@ -132,17 +134,17 @@ export class ProjectTools {
       return { ...service.state }
     }
     if (service?.stopping && !await service.stopping) throw new Error('Previous tool termination could not be verified')
-    if (this.closed) throw new Error('Project tools are shutting down')
+    if (this.closed || signal.aborted) throw new Error('Tool stopped')
     // Recheck after asynchronous cleanup so concurrent restart requests still share one process.
     const current = this.services.get(key)
-    if (current !== service) return this.startPrepared(workspacePath, id, preparedKey)
+    if (current !== service) return this.startPrepared(workspacePath, id, preparedKey, signal)
     const launch = definition.launch(scope)
     const child = spawnProcess({ ...launch, cwd: scope.checkoutPath, env: sanitizedProcessEnv(process.env, launch.env), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
-    service = { scope, stopped: () => definition.stopped?.(scope), process: child, pending: new Map(), ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
+    service = { scope, stopped: () => definition.stopped?.(scope), process: child, pending: new Map(), activeCalls: 0, ready: Promise.resolve(), state: { id, status: 'starting', version: null, detail: null } }
     this.services.set(key, service)
     const owned = service
     const fail = (detail: string): void => {
-      if (owned.state.status === 'stopped' || owned.state.status === 'failed') return
+      if (owned.state.status === 'stopped' || owned.state.status === 'stopping' || owned.state.status === 'failed') return
       owned.state = { id, status: 'failed', version: owned.state.version, detail }
       for (const pending of owned.pending.values()) pending.reject(new ToolTransportError(detail))
       owned.pending.clear()
@@ -201,7 +203,7 @@ export class ProjectTools {
   }
 
   private request(service: Service, method: string, params: unknown): Promise<unknown> {
-    if (service.state.status === 'failed' || service.state.status === 'stopped') return Promise.reject(new ToolTransportError('Tool is unavailable'))
+    if (service.state.status === 'failed' || service.state.status === 'stopped' || service.state.status === 'stopping') return Promise.reject(new ToolTransportError('Tool is unavailable'))
     if (service.pending.size >= 64) return Promise.reject(new Error('Too many pending tool requests'))
     const id = randomUUID(), frame = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'
     if (Buffer.byteLength(frame) > 64 * 1024) return Promise.reject(new Error('Tool request exceeded limit'))
@@ -230,6 +232,7 @@ export class ProjectTools {
       } else await this.start(workspacePath, id)
       if ((await this.bound(workspacePath, id)).key !== key) throw new Error('Tool scope changed before request')
       const service = this.services.get(key)!
+      service.activeCalls++
       try {
         const request = async (tool = operation.tool, parameters?: Record<string, unknown>) => {
           if (service.state.status !== 'ready') throw new ToolTransportError('Tool stopped')
@@ -248,7 +251,7 @@ export class ProjectTools {
         if (!operation.readOnly) throw new ToolOutcomeUncertainError('Tool action outcome is uncertain; inspect before retrying')
         if (service.stopRequested || this.closed) throw new Error('Tool stopped')
         if (operation.requiresRunning || attempt > 0) throw error
-      }
+      } finally { service.activeCalls-- }
     }
     throw new Error('Tool unavailable')
   }
@@ -258,6 +261,7 @@ export class ProjectTools {
     if (this.unverifiedSetups.has(key)) throw new Error('Previous tool setup termination could not be verified')
     const pending = this.preparing.get(key)
     pending?.controller.abort()
+    if (pending) this.setupStates.set(key, { id, status: 'stopping', version: null, detail: 'Cancelling tool setup' })
     const service = this.services.get(key)
     if (service) { service.stopRequested = true; await this.stopOwned(service) }
     await pending?.promise.catch(error => { if (error instanceof ProcessExecutionError && error.kind === 'termination-unverified') throw error })
@@ -266,7 +270,7 @@ export class ProjectTools {
   }
 
   private async stopOwned(service: Service): Promise<void> {
-    service.state = { ...service.state, status: 'stopped', detail: null }
+    service.state = { ...service.state, status: 'stopping', detail: 'Waiting for owned process cleanup' }
     for (const pending of service.pending.values()) pending.reject(new ToolTransportError('Tool stopped'))
     service.pending.clear()
     service.stopping ??= (async () => {
@@ -289,6 +293,7 @@ export class ProjectTools {
       service.state = { ...service.state, status: 'failed', detail: 'Tool termination could not be verified' }
       throw new Error(service.state.detail!)
     }
+    service.state = { ...service.state, status: 'stopped', detail: null }
   }
 
   async close(): Promise<void> {

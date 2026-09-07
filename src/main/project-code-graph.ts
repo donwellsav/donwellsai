@@ -9,10 +9,12 @@ import { parseCodeGraphFunctionName, type ProjectToolScope } from '@shared/proje
 import type { GitWorktrees } from './git'
 import type { ProjectToolDefinition } from './project-tools'
 
+// Native CBM has one account-wide daemon/cache; project definitions share its setup queue.
+const setupQueues = new Map<string, Promise<void>>()
+
 /** Opt-in, admitted macOS ARM64 release. No installer or agent configuration writes. */
 export function createCodeGraphDefinition(binary: string, cachePath: string, captureSource?: GitWorktrees['handoffSource']): ProjectToolDefinition {
   const env = { CBM_CACHE_DIR: cachePath, CBM_WORKERS: '2', CBM_MEM_BUDGET_MB: '512' }
-  let setupQueue = Promise.resolve()
   type Source = Awaited<ReturnType<GitWorktrees['handoffSource']>>
   // ponytail: receipts live for this app session; persisted indexes require a
   // rebuild after restart before their Git-visible source can be certified.
@@ -69,7 +71,7 @@ export function createCodeGraphDefinition(binary: string, cachePath: string, cap
     prepare: (scope, signal) => {
       // ponytail: serialize this cache's native configuration writes; parallel
       // setup needs upstream configuration locking before removing this queue.
-      const setup = setupQueue.catch(error => {
+      const setup = (setupQueues.get(cachePath) ?? Promise.resolve()).catch(error => {
         if (error instanceof ProcessExecutionError && error.kind === 'termination-unverified') throw error
       }).then(async () => {
         signal.throwIfAborted()
@@ -83,8 +85,13 @@ export function createCodeGraphDefinition(binary: string, cachePath: string, cap
         for (const args of [['config', 'set', 'ui_enabled', 'false'], ['config', 'set', 'auto_watch', 'false'], ['allow-root', scope.checkoutPath]]) {
           await runProcess({ program: binary, args, cwd: cachePath, env: sanitizedProcessEnv(process.env, env), signal, timeoutMs: 10000, maxOutputBytes: 64 * 1024 })
         }
+      }).catch(error => {
+        if (error instanceof ProcessExecutionError && error.kind === 'exit' && error.result?.stderr.includes('CBM could not start because')) {
+          throw new Error('Another code-graph installation is active with a different cache or build. Finish that installation’s work before starting this app’s code graph; its processes were left running.')
+        }
+        throw error
       })
-      setupQueue = setup
+      setupQueues.set(cachePath, setup)
       return setup
     },
     launch: scope => ({ program: binary, args: ['--ui=false'], env: { ...env, CBM_ALLOWED_ROOT: scope.checkoutPath } }),
