@@ -11,6 +11,8 @@ import { useAppStore } from '../../store'
 import { Icon } from '../Icon'
 import { ModalDialog } from '../ModalDialog'
 import { formatRunTime } from './RunStatus'
+import { AcpSessions } from './AcpSessions'
+import { switchAgentMode } from '../../agent-mode-switch'
 
 type PresentedAgent = { run: RunningAgent; presentation: AgentPresentation; provider: string }
 type AgentConfirmation = { kind: 'stop' | 'dismiss'; run: RunningAgent }
@@ -31,6 +33,7 @@ export function AgentsSection() {
   const stopAgent = useAppStore((state) => state.stopAgent)
   const dismissAgent = useAppStore((state) => state.dismissAgent)
   const [command, setCommand] = useState(defaultCommand)
+  const [acpOpen, setAcpOpen] = useState(false)
   const [directLaunch, setDirectLaunch] = useState(false)
   const [args, setArgs] = useState<string[]>([])
   const [commandTouched, setCommandTouched] = useState(false)
@@ -164,6 +167,15 @@ export function AgentsSection() {
     } finally {
       setOperation(null)
     }
+  }
+  const switchToAcp = async (run: RunningAgent): Promise<void> => {
+    if (operation) return
+    setOperation(`switch:${run.sessionId}`); setSessionError(run.sessionId, null)
+    try {
+      await switchAgentMode(run.workspacePath, run.sessionId, 'acp')
+      setChosenPath(run.workspacePath); setAcpOpen(true)
+    } catch (error) { setSessionError(run.sessionId, String(error)) }
+    finally { setOperation(null) }
   }
 
   return (
@@ -299,6 +311,8 @@ export function AgentsSection() {
         </div>
       </form>
 
+      {targetPath && <details open={acpOpen} onToggle={event => setAcpOpen(event.currentTarget.open)}><summary>ACP sessions</summary>{acpOpen && <AcpSessions key={targetPath} workspacePath={targetPath} />}</details>}
+
       <div className="op-section-heading agent-supervision-heading">
         <div>
           <span className="op-eyebrow">Daemon-observed sessions</span>
@@ -330,6 +344,7 @@ export function AgentsSection() {
                 </div>
                 <span className={`agent-status agent-status-${presentation.tone}`}>{presentation.label}</span>
                 <div className="agent-card-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" title="Stop this owner and start a new OpenCode ACP conversation; use a reviewed handoff to transfer context" disabled={operation !== null || !(run.liveness === 'exited' || ['waiting', 'completed'].includes(run.activity))} onClick={() => void switchToAcp(run)}>Switch to new ACP</button>
                   <button type="button" className="btn btn-secondary btn-sm" disabled={openingThis || operation !== null} onClick={() => void openTerminal(run)}>
                     <Icon name="terminal" size={13} />
                     {openingThis ? 'Opening…' : run.liveness === 'exited' ? 'Open output' : 'Open terminal'}

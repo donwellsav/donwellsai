@@ -10,11 +10,14 @@ import type {
 import { requireLocalExecutionHost } from '@shared/child-process/execution-host'
 import type { ExecutionHost } from '@shared/child-process/process-spec'
 import { AgentRegistry } from './agents/registry'
+import type { DaemonClient } from './daemon-client'
+import type { McpServer } from '@agentclientprotocol/sdk'
 
 const MAX_AGENT_COMMAND_LENGTH = 16 * 1024
 export type AgentWorkspaceRegistration = { path: string; host: ExecutionHost }
 
 export type AgentRuntimeOptions = {
+  acpMcpServers?: (workspacePath: string, sessionId: string) => Promise<McpServer[]>
   registeredWorkspaces: () =>
     | readonly AgentWorkspaceRegistration[]
     | Promise<readonly AgentWorkspaceRegistration[]>
@@ -78,6 +81,54 @@ export class AgentRuntime {
 
   listAgents(): AgentPreset[] {
     return this.registry.list()
+  }
+
+  private async acpWorkspace(workspacePath: string): Promise<string> {
+    if (!this.daemon.startAcp || !this.daemon.listAcp || !this.daemon.observeAcp || !this.daemon.promptAcp || !this.daemon.controlAcp) throw new Error('ACP runtime is unavailable')
+    return validateAgentWorkspacePath(workspacePath, await this.options.registeredWorkspaces())
+  }
+
+  async switchMode(workspacePath: string, sessionId: string, target: 'native' | 'acp', requestId: string, context?: string) {
+    if (!this.daemon.switchMode) throw new Error('Mode switching is unavailable')
+    const cwd = await this.acpWorkspace(workspacePath)
+    const executable = this.registry.findExecutable('opencode')
+    if (!executable) throw new Error('Install OpenCode to switch modes')
+    const servers = target === 'acp' ? await this.options.acpMcpServers?.(cwd, requestId) ?? [] : []
+    await this.acpWorkspace(cwd)
+    return this.daemon.switchMode(cwd, sessionId, target, requestId, executable, servers, context)
+  }
+  async modeSwitchResult(workspacePath: string, requestId: string) {
+    if (!this.daemon.modeSwitchResult) throw new Error('Mode switching is unavailable')
+    return this.daemon.modeSwitchResult(await this.acpWorkspace(workspacePath), requestId)
+  }
+
+  async startAcp(workspacePath: string, requestId: string, loadRunId?: string) {
+    const cwd = await this.acpWorkspace(workspacePath)
+    const executable = this.registry.findExecutable('opencode')
+    if (!executable) throw new Error('Install OpenCode to start the admitted ACP adapter')
+    const servers = await this.options.acpMcpServers?.(cwd, requestId) ?? []
+    await this.acpWorkspace(cwd)
+    return this.daemon.startAcp!(cwd, requestId, { executable, args: ['acp', '--cwd', cwd, '--hostname', '127.0.0.1', '--port', '0'] }, servers, loadRunId)
+  }
+  async listAcp(workspacePath: string) { return this.daemon.listAcp!(await this.acpWorkspace(workspacePath)) }
+  async observeAcp(workspacePath: string, sessionId: string, afterSequence = 0) { return this.daemon.observeAcp!(await this.acpWorkspace(workspacePath), sessionId, afterSequence) }
+  async promptAcp(workspacePath: string, sessionId: string, requestId: string, text: string) { return this.daemon.promptAcp!(await this.acpWorkspace(workspacePath), sessionId, requestId, text) }
+  async controlAcp(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string) { return this.daemon.controlAcp!(await this.acpWorkspace(workspacePath), sessionId, operation, permissionId, optionId) }
+
+  async findAcpSession(sessionId: string) {
+    if (!this.daemon.listAcp) return undefined
+    const registrations = await this.options.registeredWorkspaces()
+    const paths = new Set<string>()
+    for (const registration of registrations) {
+      if (registration.host.kind !== 'local') continue
+      try { paths.add(validateAgentWorkspacePath(registration.path, registrations)) }
+      catch { /* A removed checkout cannot authorize a session. */ }
+    }
+    for (const workspacePath of paths) {
+      const session = (await this.daemon.listAcp(workspacePath)).find(run => run.id === sessionId)
+      if (session) return { sessionId: session.id, workspacePath: session.workspacePath, liveness: ['ready', 'working', 'permission'].includes(session.state) ? 'live' as const : session.state === 'exited' ? 'exited' as const : 'unverifiable' as const }
+    }
+    return undefined
   }
 
   observe(run: RunningAgent): void {
@@ -163,7 +214,7 @@ export class AgentRuntime {
   }
 }
 
-export type AgentRuntimeDaemonContract = {
+export type AgentRuntimeDaemonContract = Partial<Pick<DaemonClient, 'switchMode' | 'modeSwitchResult' | 'startAcp' | 'listAcp' | 'observeAcp' | 'promptAcp' | 'controlAcp'>> & {
   startAgent: (
     cwd: string,
     command: string,

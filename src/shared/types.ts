@@ -475,6 +475,13 @@ export type IpcApi = import('./project-export').ProjectKitApi & import('./browse
   projectTaskTool(workspacePath: string, tool: 'lazygit' | 'backlog'): Promise<TerminalSession>
   agentStart(workspacePath: string, command: string | import('./agent-runtime').AgentExecutable, task?: import('./agent-runtime').AgentTaskIntent): Promise<AgentStartResult>
   agentList(): Promise<RunningAgent[]>
+  agentSwitchMode(workspacePath: string, sessionId: string, target: 'native' | 'acp', requestId: string, context?: string): Promise<import('./agent-runtime').AgentModeSwitchReceipt>
+  agentSwitchResult(workspacePath: string, requestId: string): Promise<import('./agent-runtime').AgentModeSwitchReceipt>
+  agentAcpStart(workspacePath: string, requestId: string, loadRunId?: string): Promise<import('./agent-runtime').AcpAgentSnapshot>
+  agentAcpList(workspacePath: string): Promise<import('./agent-runtime').AcpAgentSnapshot[]>
+  agentAcpObserve(workspacePath: string, sessionId: string, afterSequence?: number): Promise<import('./agent-runtime').AcpObservation>
+  agentAcpPrompt(workspacePath: string, sessionId: string, requestId: string, text: string): Promise<import('./agent-runtime').AcpPromptRecord>
+  agentAcpControl(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<import('./agent-runtime').AcpAgentSnapshot>
   agentInterrupt(sessionId: string): Promise<RunningAgent>
   agentStop(sessionId: string): Promise<RunningAgent>
   agentConfigureMemory(workspacePath: string, provider: string, launchArgs?: string[]): Promise<{ path: string; changed: boolean; backupPath?: string; launchArgs?: string[]; setupArgs?: string[] }>

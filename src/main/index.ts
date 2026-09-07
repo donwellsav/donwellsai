@@ -355,6 +355,13 @@ function registerIpc(): void {
   ipcMain.handle('listAgents', () => agentRuntime.listAgents())
   ipcMain.handle('agentStart', (_e, ...args: Parameters<IpcApi['agentStart']>) => agentRuntime.start(...args))
   ipcMain.handle('agentList', () => agentRuntime.list())
+  ipcMain.handle('agentSwitchMode', (_e, ...args: Parameters<IpcApi['agentSwitchMode']>) => agentRuntime.switchMode(...args))
+  ipcMain.handle('agentSwitchResult', (_e, ...args: Parameters<IpcApi['agentSwitchResult']>) => agentRuntime.modeSwitchResult(...args))
+  ipcMain.handle('agentAcpStart', (_e, ...args: Parameters<IpcApi['agentAcpStart']>) => agentRuntime.startAcp(...args))
+  ipcMain.handle('agentAcpList', (_e, ...args: Parameters<IpcApi['agentAcpList']>) => agentRuntime.listAcp(...args))
+  ipcMain.handle('agentAcpObserve', (_e, ...args: Parameters<IpcApi['agentAcpObserve']>) => agentRuntime.observeAcp(...args))
+  ipcMain.handle('agentAcpPrompt', (_e, ...args: Parameters<IpcApi['agentAcpPrompt']>) => agentRuntime.promptAcp(...args))
+  ipcMain.handle('agentAcpControl', (_e, ...args: Parameters<IpcApi['agentAcpControl']>) => agentRuntime.controlAcp(...args))
   ipcMain.handle('agentInterrupt', (_e, sessionId: string) => agentRuntime.interrupt(sessionId))
   ipcMain.handle('agentStop', (_e, sessionId: string) => agentRuntime.stop(sessionId))
   ipcMain.handle('agentDismiss', (_e, sessionId: string) => agentRuntime.dismiss(sessionId))
@@ -479,6 +486,11 @@ app.whenReady().then(() => {
     return config.disabled.includes('backlog') ? undefined : config.backlogBinary
   })
   agentRuntime = new AgentRuntime(terminalBus, {
+    acpMcpServers: async workspacePath => {
+      const meta = runtimeMetadata(), mcp = meta.memoryMcp
+      if (!mcp) throw new Error('Project memory MCP launcher is unavailable')
+      return [{ name: 'donwells-project-memory', command: mcp.command, args: [...mcp.args, 'memory-mcp', '--workspace', workspacePath, '--harness', 'opencode', '--user-data', meta.userDataDir], env: Object.entries(mcp.env).map(([name, value]) => ({ name, value })) }]
+    },
     requireTask: (path, id) => projectTasks.requireTask(path, id),
     registeredWorkspaces: async () => (await git.listAll()).flatMap<AgentWorkspaceRegistration>((summary) => [
       { path: summary.repo.path, host: { kind: 'local' } },

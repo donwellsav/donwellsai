@@ -162,3 +162,32 @@ it.each(['create', 'get', 'accept', 'receive', 'acknowledge'] as const)('rejects
   await expect(result).rejects.toThrow('scope changed')
   expect(store.list(record.projectKey)).toEqual(before)
 })
+
+it('binds reviewed facts to project revisions and refuses changed, archived, erased, or foreign sources before claim and delivery', async () => {
+  const { root } = setup()
+  const { ProjectMemoryService } = await import('../src/main/project-memory')
+  const memory = new ProjectMemoryService(root, async path => ({ projectKey: path === '/other' ? 'd'.repeat(64) : record.projectKey, projectPath: path }))
+  const scope = { projectKey: record.projectKey, projectPath: '/project', checkoutPath: '/project', indexKey: 'checkout' }
+  const receiver = { sessionId: 'receiver', workspacePath: '/project', liveness: 'live' } as RunningAgent
+  const service = new ProjectHandoffService(root, async () => scope, { handoffSource: async () => ({ sourceRevision: record.sourceRevision, contentFingerprint: record.contentFingerprint, changedFiles: record.changedFiles }) }, { list: async () => [receiver, { ...receiver, sessionId: record.fromSessionId }] })
+  const fact = await memory.projectMemoryCreate({ workspacePath: '/project', kind: 'fact', title: 'Reviewed source', content: 'Version one', attribution: { harness: 'human' } })
+  const { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds } = record
+  const draft = { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds, memorySources: [{ id: fact.id, revision: 1 }] }
+  const handoff = await service.projectHandoffCreate('/project', draft)
+  expect((await service.projectHandoffGet('/project', handoff.id)).memorySources?.[0]).toMatchObject({ state: 'current', revision: 1 })
+  await memory.projectMemoryUpdate({ workspacePath: '/project', id: fact.id, expectedRevision: 1, kind: 'fact', title: fact.title, content: 'Version two', attribution: { harness: 'human' } })
+  expect(await service.projectHandoffGet('/project', handoff.id)).toMatchObject({ stale: true, memorySources: [{ state: 'changed', current: { revision: 2 } }] })
+  await expect(service.projectHandoffAccept('/project', handoff.id, 1, 'receiver', 'claim')).rejects.toThrow('source changed')
+  await expect(service.projectHandoffCreate('/project', draft)).rejects.toThrow('Referenced memory changed')
+  const fresh = await service.projectHandoffCreate('/project', { ...draft, memorySources: [{ id: fact.id, revision: 2 }] })
+  await service.projectHandoffAccept('/project', fresh.id, 1, 'receiver', 'fresh-claim')
+  await memory.projectMemoryArchive({ workspacePath: '/project', id: fact.id, expectedRevision: 2, archived: true, attribution: { harness: 'human' } })
+  expect((await service.projectHandoffGet('/project', fresh.id)).memorySources?.[0].state).toBe('archived')
+  await expect(service.receive(async () => receiver, { runId: 'run', sessionId: 'receiver', token: 'fixture' }, '/project', fresh.id, 2)).rejects.toThrow('source changed')
+  expect((await service.projectHandoffGet('/project', fresh.id)).handoff.delivery).toBe('not-sent')
+  await memory.projectMemoryErase({ workspacePath: '/project', id: fact.id, expectedRevision: 3 })
+  expect((await service.projectHandoffGet('/project', fresh.id)).memorySources).toEqual([{ id: fact.id, revision: 2, state: 'unavailable' }])
+  const foreign = await memory.projectMemoryCreate({ workspacePath: '/other', kind: 'fact', title: 'Foreign', content: 'Other project', attribution: { harness: 'human' } })
+  await expect(service.projectHandoffCreate('/project', { ...draft, memorySources: [{ id: foreign.id, revision: 1 }] })).rejects.toThrow('unavailable')
+  expect(() => parseProjectHandoff({ ...record, memorySources: [{ id: 'a', revision: 1 }, { id: 'a', revision: 1 }] })).toThrow('duplicate')
+})

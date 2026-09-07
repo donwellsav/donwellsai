@@ -25,6 +25,26 @@ import {
 
 const temporaryRoots: string[] = []
 
+it('reauthenticates credential-bound project tools and rejects calls after the owner stops', async () => {
+  const workspacePath = temporaryRoot(), credential = { runId: 'acp-run', sessionId: 'acp-run', token: 'private' }
+  const calls: string[] = []; let live = true
+  const session = new ProjectMemoryMcpSession({ workspacePath, harness: 'opencode', credential, invoke: async (method, params) => {
+    if (method === 'agent.authenticate') {
+      expect(params).toEqual({ workspacePath, credential })
+      if (!live) throw new Error('Invalid agent session credential')
+      return { workspacePath, sessionId: credential.sessionId, mode: 'acp' }
+    }
+    calls.push(method); return []
+  } })
+  await initialize(session, 1)
+  const query = () => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'project_engines', arguments: {} } })
+  expect(await query()).not.toMatchObject({ result: { isError: true } })
+  expect(calls).toEqual(['tool.list'])
+  live = false
+  expect(await query()).toMatchObject({ result: { isError: true } })
+  expect(calls).toEqual(['tool.list'])
+})
+
 function temporaryRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'donwells-memory-mcp-'))
   temporaryRoots.push(root)

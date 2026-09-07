@@ -1,4 +1,25 @@
 import type { TerminalSession } from './types'
+import type { InitializeResponse, RequestPermissionRequest, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk'
+
+export type AcpAgentSnapshot = {
+  mode: 'acp'
+  id: string
+  workspacePath: string
+  protocolSessionId: string | null
+  pid: number | null
+  state: 'starting' | 'ready' | 'working' | 'permission' | 'stopping' | 'exited' | 'uncertain'
+  capabilities: InitializeResponse['agentCapabilities']
+  permissions: Array<{ id: string; request: RequestPermissionRequest }>
+  detail?: string
+}
+export type AcpPromptRecord = { requestId: string; state: 'accepted' | 'completed' | 'uncertain'; result?: PromptResponse; error?: string }
+export type AcpObservation = { snapshot: AcpAgentSnapshot; sequence: number; truncated: boolean; updates: Array<{ sequence: number; notification: SessionNotification }>; requests: AcpPromptRecord[] }
+export type AuthenticatedAgentSession = { id: string; sessionId: string; workspacePath: string; liveness: 'live'; mode?: 'native' | 'acp' }
+export type AgentModeSwitchReceipt = {
+  requestId: string; workspacePath: string; sessionId: string; target: 'native' | 'acp'
+  state: 'accepted' | 'completed' | 'uncertain'; continuity: 'same-history' | 'new-session'
+  native?: AgentStartResult; acp?: AcpAgentSnapshot; error?: string
+}
 
 export const AGENT_PROVIDER_IDS = [
   'codex',

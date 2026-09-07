@@ -6,6 +6,7 @@ export type AgentAttachmentDraft = {
 }
 
 export type AgentDeliveryRequest = {
+  requestId?: string
   sessionId: string
   attachment: AgentAttachmentDraft
   submit: boolean

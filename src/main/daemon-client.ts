@@ -10,6 +10,8 @@ import type {
   AgentStartResult,
   RunningAgent
 } from '@shared/agent-runtime'
+import type { AcpAgentSnapshot, AcpObservation, AcpPromptRecord, AuthenticatedAgentSession, AgentModeSwitchReceipt } from '@shared/agent-runtime'
+import type { McpServer } from '@agentclientprotocol/sdk'
 import {
   ATTENTION_INBOX_CAPABILITY,
   parseAttentionAcknowledgeRequest,
@@ -27,6 +29,7 @@ import { readTerminalRuntime, localRuntimePaths } from './local-runtime'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
+  acp?: (snapshot: AcpAgentSnapshot) => void
   disconnected?: () => void
   data: (sessionId: string, data: string, sequence?: number) => void
   exit: (sessionId: string, exitCode?: number) => void
@@ -355,6 +358,8 @@ export class DaemonClient {
       this.events.title(sessionId, String(message['title'] ?? ''))
     } else if (event === 'agent' && isRunningAgent(message['run'])) {
       try { this.events.agent(requireRunningAgent(message['run'])) } catch { /* Ignore malformed unsolicited records. */ }
+    } else if (event === 'acp' && isRecord(message['snapshot']) && message['snapshot']['mode'] === 'acp') {
+      this.events.acp?.(message['snapshot'] as AcpAgentSnapshot)
     } else if (event === 'agent-dismissed') {
       this.events.agentDismissed(sessionId)
     }
@@ -406,6 +411,36 @@ export class DaemonClient {
     await this.requireCapability(SEQUENCED_OUTPUT, 'opening a terminal')
     const response = await this.request<{ session: TerminalSession }>('session.open', { cwd, cols, rows })
     return response.session
+  }
+
+  async switchMode(workspacePath: string, sessionId: string, target: 'native' | 'acp', requestId: string, executable: string, mcpServers: McpServer[], context?: string): Promise<AgentModeSwitchReceipt> {
+    await this.requireCapability('agent-acp-v1', 'agent mode switch')
+    return (await this.request<{ receipt: AgentModeSwitchReceipt }>('agent.switch', { workspacePath, sessionId, target, requestId, executable, mcpServers, context })).receipt
+  }
+  async modeSwitchResult(workspacePath: string, requestId: string): Promise<AgentModeSwitchReceipt> {
+    await this.requireCapability('agent-acp-v1', 'agent mode switch')
+    return (await this.request<{ receipt: AgentModeSwitchReceipt }>('agent.switch.get', { workspacePath, requestId })).receipt
+  }
+
+  async startAcp(workspacePath: string, sessionId: string, launch: AgentExecutable, mcpServers: McpServer[], loadRunId?: string): Promise<AcpAgentSnapshot> {
+    await this.requireCapability('agent-acp-v1', 'ACP sessions')
+    return (await this.request<{ snapshot: AcpAgentSnapshot }>('acp.open', { workspacePath, sessionId, launch, mcpServers, loadRunId })).snapshot
+  }
+  async listAcp(workspacePath: string): Promise<AcpAgentSnapshot[]> {
+    await this.requireCapability('agent-acp-v1', 'ACP sessions')
+    return (await this.request<{ sessions: AcpAgentSnapshot[] }>('acp.list', { workspacePath })).sessions
+  }
+  async observeAcp(workspacePath: string, sessionId: string, afterSequence = 0): Promise<AcpObservation> {
+    await this.requireCapability('agent-acp-v1', 'ACP sessions')
+    return this.request('acp.observe', { workspacePath, sessionId, afterSequence })
+  }
+  async promptAcp(workspacePath: string, sessionId: string, requestId: string, text: string): Promise<AcpPromptRecord> {
+    await this.requireCapability('agent-acp-v1', 'ACP sessions')
+    return (await this.request<{ request: AcpPromptRecord }>('acp.prompt', { workspacePath, sessionId, requestId, text })).request
+  }
+  async controlAcp(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<AcpAgentSnapshot> {
+    await this.requireCapability('agent-acp-v1', 'ACP sessions')
+    return (await this.request<{ snapshot: AcpAgentSnapshot }>(`acp.${operation}`, { workspacePath, sessionId, permissionId, optionId })).snapshot
   }
 
   /** Start a finite shell command owned by the daemon, not by the app process. */
@@ -495,11 +530,15 @@ export class DaemonClient {
     return requireRunningAgent(response.run)
   }
 
-  async authenticateAgent(binding: AgentSessionCredential): Promise<RunningAgent> {
+  async authenticateAgent(binding: AgentSessionCredential): Promise<AuthenticatedAgentSession> {
     if (!binding || typeof binding !== 'object' || Object.keys(binding).length !== 3 || ['runId', 'sessionId', 'token'].some(key => typeof binding[key as keyof AgentSessionCredential] !== 'string' || !binding[key as keyof AgentSessionCredential] || binding[key as keyof AgentSessionCredential].length > 256)) throw new Error('Invalid agent session credential')
     await this.requireCapability('agent-session-auth-v1', 'authenticating a native agent session')
     const response = await this.request<{ run: unknown }>('agent.authenticate', { runId: binding.runId, sessionId: binding.sessionId, hookToken: binding.token })
-    return requireRunningAgent(response.run)
+    const run = response.run
+    if (isRecord(run) && run['mode'] === 'acp' && run['liveness'] === 'live' && run['id'] === binding.runId && run['sessionId'] === binding.sessionId && typeof run['workspacePath'] === 'string' && run['workspacePath']) return run as AuthenticatedAgentSession
+    const native = requireRunningAgent(run)
+    if (native.liveness !== 'live') throw new Error('Invalid agent session credential')
+    return { ...native, liveness: 'live' }
   }
 
   async stopAgent(sessionId: string): Promise<RunningAgent> {
@@ -539,7 +578,11 @@ export class DaemonClient {
   }
 
   write(sessionId: string, data: string): void {
-    void this.request('session.write', { sessionId, data }).catch(() => {})
+    void this.writeAcknowledged(sessionId, data).catch(() => {})
+  }
+
+  async writeAcknowledged(sessionId: string, data: string): Promise<void> {
+    await this.request('session.write', { sessionId, data })
   }
 
   async resize(sessionId: string, cols: number, rows: number): Promise<void> {

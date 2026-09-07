@@ -1,4 +1,4 @@
-import { parseProjectMemoryIdentifier, parseProjectMemoryWorkspacePath } from './project-memory'
+import { type ProjectMemoryEntry, parseProjectMemoryIdentifier, parseProjectMemoryWorkspacePath } from './project-memory'
 
 export type ProjectHandoff = {
   id: string
@@ -15,6 +15,7 @@ export type ProjectHandoff = {
   nextSteps: string[]
   changedFiles: string[]
   evidenceIds: string[]
+  memorySources?: Array<{ id: string; revision: number }>
   state: 'open' | 'accepted' | 'superseded'
   delivery: 'not-sent' | 'confirmed' | 'uncertain'
   revision: number
@@ -25,7 +26,7 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid handoff')
   const input = value as Record<string, unknown>
   const names = ['id', 'projectKey', 'taskId', 'fromSessionId', 'toAgent', 'checkoutPath', 'sourceRevision', 'contentFingerprint', 'goal', 'summary', 'openQuestions', 'nextSteps', 'changedFiles', 'evidenceIds', 'state', 'delivery', 'revision', 'acceptedBySessionId']
-  if (Object.keys(input).length !== names.length || names.some(name => !Object.hasOwn(input, name))) throw new Error('Invalid handoff fields')
+  if (Object.keys(input).some(name => !names.includes(name) && name !== 'memorySources') || names.some(name => !Object.hasOwn(input, name))) throw new Error('Invalid handoff fields')
   const text = (name: string, max: number): string => {
     const v = input[name]
     if (typeof v !== 'string' || !v.trim() || v.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v)) throw new Error(`Invalid handoff ${name}`)
@@ -51,11 +52,13 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   if ((state === 'open' && acceptedBySessionId !== null) || (state === 'accepted' && acceptedBySessionId === null) || (delivery !== 'not-sent' && acceptedBySessionId === null)) throw new Error('Inconsistent handoff acceptance')
   const changedFiles = list('changedFiles')
   if (changedFiles.some(path => path.startsWith('/') || path.includes('\\') || path.split('/').some(part => part === '..' || part === '.' || !part) || /^[a-z]:/i.test(path))) throw new Error('Handoff files must be checkout-relative paths')
+  const memorySources = input.memorySources === undefined ? undefined : parseHandoffMemorySources(input.memorySources)
   const result: ProjectHandoff = {
     id: parseProjectMemoryIdentifier(input.id), projectKey, taskId: nullableId('taskId'),
     fromSessionId: parseProjectMemoryIdentifier(input.fromSessionId), toAgent: nullableId('toAgent'),
     checkoutPath: parseProjectMemoryWorkspacePath(input.checkoutPath), sourceRevision, contentFingerprint,
     goal: text('goal', 8000), summary: text('summary', 24000), openQuestions: list('openQuestions'), nextSteps: list('nextSteps'), changedFiles,
+    ...(memorySources === undefined ? {} : { memorySources }),
     evidenceIds: list('evidenceIds').map(id => parseProjectMemoryIdentifier(id)), state, delivery, revision: Number(input.revision), acceptedBySessionId
   }
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > 64000) throw new Error('Handoff is too large')
@@ -63,8 +66,21 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
 }
 
 
-export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds'>
-export type ProjectHandoffStatus = { handoff: ProjectHandoff; stale: boolean; sourceError?: string }
+export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds' | 'memorySources'>
+export type HandoffMemoryStatus = { id: string; revision: number; state: 'current' | 'changed' | 'archived' | 'unavailable'; current?: ProjectMemoryEntry }
+export type ProjectHandoffStatus = { handoff: ProjectHandoff; stale: boolean; sourceError?: string; memorySources?: HandoffMemoryStatus[] }
+
+export function parseHandoffMemorySources(value: unknown): Array<{ id: string; revision: number }> {
+  if (!Array.isArray(value) || value.length > 50) throw new Error('Handoff supports up to 50 reviewed memory references')
+  const seen = new Set<string>()
+  return value.map(ref => {
+    if (!ref || typeof ref !== 'object' || Array.isArray(ref) || Object.keys(ref).length !== 2 || !Object.hasOwn(ref, 'id') || !Object.hasOwn(ref, 'revision')) throw new Error('Invalid handoff memory reference')
+    const id = parseProjectMemoryIdentifier(ref.id)
+    if (seen.has(id) || !Number.isSafeInteger(ref.revision) || ref.revision < 1) throw new Error('Invalid or duplicate handoff memory revision')
+    seen.add(id)
+    return { id, revision: ref.revision }
+  })
+}
 export interface ProjectHandoffApi {
   projectHandoffExport(workspacePath: string): Promise<{ path: string; count: number }>
   projectHandoffList(workspacePath: string): Promise<ProjectHandoff[]>

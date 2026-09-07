@@ -579,6 +579,11 @@
   font-size: 14px;
 }
 
+.acp-sessions { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; }
+.acp-sessions > h3, .acp-sessions > p { margin: 0; }
+.acp-sessions > button { align-self: flex-start; }
+.acp-output { max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.acp-output > p { margin: 6px 0; }
 .agent-launcher {
   display: flex;
   flex-direction: column;

@@ -6,7 +6,7 @@ const MAX_ATTACHMENT_BYTES = 64 * 1024
 const CONTROL_CHARACTERS = /[\x00-\x08\x0b-\x1f\x7f]/
 
 export async function deliverAgentAttachment(
-  runtime: Pick<AgentRuntime, 'list'>,
+  runtime: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession' | 'promptAcp'>>,
   terminals: Pick<DaemonClient, 'writeAgent'>,
   resolveWorkspace: (path: string) => Promise<string>,
   request: AgentDeliveryRequest
@@ -23,6 +23,15 @@ export async function deliverAgentAttachment(
   if (bytes > MAX_ATTACHMENT_BYTES) throw new Error('Attachment exceeds the 64 KiB delivery limit')
   const workspacePath = await resolveWorkspace(attachment.workspacePath)
   const run = (await runtime.list()).find((candidate) => candidate.sessionId === sessionId)
+  if (!run && runtime.findAcpSession && runtime.promptAcp) {
+    const acp = await runtime.findAcpSession(sessionId)
+    if (!acp || acp.workspacePath !== workspacePath || acp.liveness !== 'live') throw new Error('Select an available ACP session in the attachment workspace')
+    if (!submit) throw new Error('Review this attachment in the ACP panel and explicitly submit it')
+    if (!request.requestId) throw new Error('ACP delivery requires a stable request ID')
+    const result = await runtime.promptAcp(workspacePath, sessionId, request.requestId, text)
+    if (result.state === 'uncertain') throw new Error(result.error ?? 'Previous ACP delivery outcome is uncertain; it was not replayed')
+    return { sessionId, bytes, submitted: true }
+  }
   if (!run || run.workspacePath !== workspacePath) throw new Error('Select an agent in the attachment workspace')
   if (run.liveness !== 'live' || !['working', 'waiting'].includes(run.activity)) throw new Error('The selected agent is not accepting attachments; permission prompts must be handled in its terminal')
   const input = '\x1b[200~' + text + '\x1b[201~' + (submit ? '\r' : '')

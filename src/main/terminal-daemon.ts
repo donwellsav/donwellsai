@@ -37,6 +37,8 @@ import {
   type AgentLaunchPlan
 } from './agents/provider-hooks'
 import { localRuntimePaths, readTerminalRuntime, type LocalRuntimePaths } from './local-runtime'
+import { AcpSessions } from './agents/acp-sessions'
+import type { McpServer } from '@agentclientprotocol/sdk'
 
 export const SCROLLBACK_MAX = 512 * 1024
 export const DAEMON_PROTOCOL_VERSION = 3
@@ -52,6 +54,7 @@ export const DAEMON_CAPABILITIES = [
   'agent-hooks-v1',
   'agent-session-auth-v1',
   'agent-input-v1',
+  'agent-acp-v1',
   ATTENTION_INBOX_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
@@ -101,6 +104,7 @@ export class TerminalDaemon {
   private readonly connections = new Set<Socket>()
   private readonly agentsBySession = new Map<string, AgentRecord>()
   private readonly agentsByRun = new Map<string, AgentRecord>()
+  private readonly acp: AcpSessions
   constructor(opts: {
     userDataDir: string
     authToken: string
@@ -109,6 +113,7 @@ export class TerminalDaemon {
   }) {
     this.authToken = opts.authToken
     this.paths = localRuntimePaths(opts.userDataDir, 'terminal')
+    this.acp = new AcpSessions(opts.userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
     this.emitterCommand = opts.emitterCommand ?? [
       process.execPath,
       process.argv[1] ?? '',
@@ -131,11 +136,11 @@ export class TerminalDaemon {
   }
 
   hasLiveSessions(): boolean {
-    return this.pty.list().some((session) => !session.exited)
+    return this.pty.list().some((session) => !session.exited) || this.acp.hasOwnedSessions()
   }
 
   hasOwnedSessions(): boolean {
-    return this.pty.list().length > 0
+    return this.pty.list().length > 0 || this.acp.hasOwnedSessions()
   }
 
   async stopIfIdle(): Promise<boolean> {
@@ -397,6 +402,19 @@ export class TerminalDaemon {
     this.reply(socket, id, true, {})
   }
 
+  private nativeOwnsHistory(workspacePath: string, history: string): boolean {
+    return [...this.agentsBySession.values()].some(({ run }) => run.workspacePath === workspacePath && run.presetId === 'opencode' && run.launch?.args.some((arg, index, args) => (arg === '--session' || arg === '-s') ? args[index + 1] === history : arg === '--session=' + history) && this.pty.liveness(run.sessionId) !== 'exited')
+  }
+
+  private async stopAgent(record: AgentRecord): Promise<RunningAgent> {
+    if (record.run.liveness !== 'exited') {
+      record.run = { ...record.run, activity: 'stopping', stopRequestedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      this.publishAgent(record.run)
+    }
+    await this.pty.stop(record.run.sessionId)
+    return cloneRun(record.run)
+  }
+
   private createAgent(
     cwd: string,
     command: string,
@@ -416,6 +434,9 @@ export class TerminalDaemon {
     const provider = requestedProviderId
       ? AGENT_PROVIDER_DEFINITIONS.find((candidate) => candidate.id === requestedProviderId)
       : inferredProvider
+    const historyArg = launch?.args.findIndex(arg => arg === '--session' || arg === '-s' || arg.startsWith('--session=')) ?? -1
+    const history = historyArg < 0 ? undefined : launch!.args[historyArg].startsWith('--session=') ? launch!.args[historyArg].slice(10) : launch!.args[historyArg + 1]
+    if (provider?.id === 'opencode' && history && (this.acp.ownsHistory(cwd, history) || this.nativeOwnsHistory(cwd, history))) throw new Error('OpenCode history already has an active or unverifiable owner')
     const runId = randomUUID()
     const sessionId = randomUUID()
     const hookToken = newAuthToken()
@@ -509,6 +530,56 @@ export class TerminalDaemon {
     const reply = (ok: boolean, result: Record<string, unknown>): void => this.reply(socket, id, ok, result)
     try {
       switch (op) {
+        case 'agent.switch.get':
+          reply(true, { receipt: this.acp.switchResult(String(message['workspacePath']), String(message['requestId'])) })
+          break
+        case 'agent.switch': {
+          const workspacePath = String(message['workspacePath']), sessionId = String(message['sessionId']), requestId = String(message['requestId'])
+          const target = message['target']
+          if (target !== 'native' && target !== 'acp') throw new Error('Invalid target mode')
+          const executable = String(message['executable'])
+          if (agentProviderForExecutable(executable)?.id !== 'opencode') throw new Error('Mode switching requires OpenCode')
+          const servers = message['mcpServers']
+          if (!Array.isArray(servers) || servers.length > 16) throw new Error('Invalid ACP MCP configuration')
+          reply(true, { receipt: this.acp.switchMode(workspacePath, sessionId, requestId, target, message['context'] as string | undefined, async () => {
+            if (target === 'native') {
+              const prior = this.acp.observe(workspacePath, sessionId).snapshot
+              if (!['ready', 'exited'].includes(prior.state) || !prior.protocolSessionId) throw new Error('Finish or stop the current ACP turn before switching')
+              const stopped = await this.acp.control(workspacePath, sessionId, 'stop')
+              if (stopped.pid && probeLocalProcessLiveness(stopped.pid) !== 'exited') throw new Error('ACP process stop could not be verified')
+              return { native: this.createAgent(workspacePath, 'opencode', 'opencode', 100, 30, { executable, args: [workspacePath, '--session', prior.protocolSessionId] }) }
+            }
+            const native = this.agentsBySession.get(sessionId)
+            if (!native || native.run.workspacePath !== workspacePath) throw new Error('Native session is not owned by this workspace')
+            if (native.run.liveness !== 'exited' && !['waiting', 'completed'].includes(native.run.activity)) throw new Error('Finish or stop the current native turn before switching to a new ACP session')
+            await this.stopAgent(native)
+            if (this.pty.liveness(sessionId) !== 'exited') throw new Error('Native process stop could not be verified')
+            return { acp: this.acp.start(workspacePath, randomUUID(), { executable, args: ['acp', '--cwd', workspacePath, '--hostname', '127.0.0.1', '--port', '0'] }, servers as McpServer[], undefined, message['context'] as string | undefined) }
+          }) })
+          break
+        }
+        case 'acp.open': {
+          const servers = message['mcpServers']
+          if (!Array.isArray(servers) || servers.length > 16) throw new Error('Invalid ACP MCP configuration')
+          if (message['loadRunId']) {
+            const prior = this.acp.observe(String(message['workspacePath']), String(message['loadRunId'])).snapshot
+            if (prior.protocolSessionId && this.nativeOwnsHistory(prior.workspacePath, prior.protocolSessionId)) throw new Error('OpenCode history is owned by a native session')
+          }
+          reply(true, { snapshot: this.acp.start(String(message['workspacePath']), String(message['sessionId']), parseAgentExecutable(message['launch']), servers as McpServer[], message['loadRunId'] === undefined ? undefined : String(message['loadRunId'])) })
+          break
+        }
+        case 'acp.list':
+          reply(true, { sessions: this.acp.list(String(message['workspacePath'])) })
+          break
+        case 'acp.observe':
+          reply(true, this.acp.observe(String(message['workspacePath']), String(message['sessionId']), Number(message['afterSequence'] ?? 0)))
+          break
+        case 'acp.prompt':
+          reply(true, { request: this.acp.prompt(String(message['workspacePath']), String(message['sessionId']), String(message['requestId']), message['text'] as string) })
+          break
+        case 'acp.stop': case 'acp.cancel': case 'acp.permission': case 'acp.dismiss':
+          reply(true, { snapshot: await this.acp.control(String(message['workspacePath']), String(message['sessionId']), op.slice(4) as 'stop' | 'cancel' | 'permission' | 'dismiss', message['permissionId'] as string | undefined, message['optionId'] as string | undefined) })
+          break
         case 'attention.list':
           reply(true, { snapshot: this.attention.list() })
           break
@@ -572,8 +643,12 @@ export class TerminalDaemon {
           break
         case 'agent.authenticate': {
           const binding = this.authenticateHook(message)
-          if (!binding || this.pty.liveness(binding.record.run.sessionId) !== 'live') throw new Error('Invalid agent session credential')
-          reply(true, { run: cloneRun(binding.record.run) })
+          if (binding && this.pty.liveness(binding.record.run.sessionId) === 'live') reply(true, { run: cloneRun(binding.record.run) })
+          else {
+            const run = this.acp.authenticate(String(message['runId'] ?? ''), String(message['sessionId'] ?? ''), typeof message['hookToken'] === 'string' ? message['hookToken'] : '')
+            if (!run) throw new Error('Invalid agent session credential')
+            reply(true, { run })
+          }
           break
         }
         case 'agent.get': {
@@ -586,6 +661,7 @@ export class TerminalDaemon {
           const sessionId = String(message['sessionId'])
           const record = this.agentsBySession.get(sessionId)
           if (!record) throw new Error('unknown agent session')
+          if (this.acp.isSwitching(sessionId)) throw new Error('Agent is switching modes')
           const ownerLiveness = this.pty.liveness(sessionId)
           if (record.run.liveness !== 'live' || ownerLiveness !== 'live') {
             throw new Error('agent input rejected because process liveness is ' + ownerLiveness)
@@ -604,12 +680,7 @@ export class TerminalDaemon {
         case 'agent.stop': {
           const record = this.agentsBySession.get(String(message['sessionId']))
           if (!record) throw new Error('unknown agent session')
-          if (record.run.liveness !== 'exited') {
-            record.run = { ...record.run, activity: 'stopping', stopRequestedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-            this.publishAgent(record.run)
-          }
-          await this.pty.stop(record.run.sessionId)
-          reply(true, { run: cloneRun(record.run) })
+          reply(true, { run: await this.stopAgent(record) })
           break
         }
         case 'agent.interrupt': {

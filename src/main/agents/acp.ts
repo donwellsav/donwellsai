@@ -3,24 +3,18 @@ import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { Readable, Transform, Writable } from 'node:stream'
 import type { ChildProcess } from 'node:child_process'
-import { ClientSideConnection, ndJsonStream, type InitializeResponse, type McpServer, type PromptResponse, type RequestPermissionRequest, type RequestPermissionResponse, type SessionNotification } from '@agentclientprotocol/sdk'
-import { parseAgentExecutable, type AgentExecutable } from '@shared/agent-runtime'
+import { ClientSideConnection, ndJsonStream, type McpServer, type PromptResponse, type RequestPermissionRequest, type RequestPermissionResponse, type SessionNotification } from '@agentclientprotocol/sdk'
+import { parseAgentExecutable, type AgentExecutable, type AcpAgentSnapshot } from '@shared/agent-runtime'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
+import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { version } from '../../../package.json'
 
-export type AcpAgentSnapshot = {
-  mode: 'acp'
-  id: string
-  workspacePath: string
-  protocolSessionId: string | null
-  state: 'starting' | 'ready' | 'working' | 'permission' | 'stopping' | 'exited' | 'uncertain'
-  capabilities: InitializeResponse['agentCapabilities']
-  permissions: Array<{ id: string; request: RequestPermissionRequest }>
-  detail?: string
-}
+export type { AcpAgentSnapshot } from '@shared/agent-runtime'
 
 type Options = {
+  id?: string
+  signal?: AbortSignal
   /** The owning runtime must authorize this existing directory against its registered projects. */
   workspacePath: string
   launch: AgentExecutable
@@ -44,9 +38,13 @@ export class AcpAgent {
   private stderr = ''
 
   private constructor(private readonly options: Options, workspacePath: string) {
-    this.snapshot = { mode: 'acp', id: randomUUID(), workspacePath, protocolSessionId: null, state: 'starting', capabilities: {}, permissions: [] }
+    this.snapshot = { mode: 'acp', id: options.id ?? randomUUID(), workspacePath, protocolSessionId: null, pid: null, state: 'starting', capabilities: {}, permissions: [] }
     const launch = parseAgentExecutable(options.launch)
-    this.child = spawnProcess({ program: launch.executable, args: launch.args, cwd: workspacePath, env: options.env, detached: true })
+    const env = sanitizedProcessEnv(options.env ?? process.env)
+    for (const key of Object.keys(env)) if (key.startsWith('DONWELLS_AGENT_HOOK_')) delete env[key]
+    this.child = spawnProcess({ program: launch.executable, args: launch.args, cwd: workspacePath, env, detached: true })
+    this.snapshot.pid = this.child.pid ?? null
+    this.options.onChange(this.get())
     this.child.stderr!.on('data', chunk => { this.stderr = (this.stderr + String(chunk)).slice(-8192) })
     this.child.on('error', error => this.lost(String(error)))
     this.child.on('exit', (code, signal) => this.lost(`ACP process exited (${signal ?? code}). ${this.stderr}`))
@@ -73,11 +71,15 @@ export class AcpAgent {
   }
 
   static async start(options: Options): Promise<AcpAgent> {
+    options.signal?.throwIfAborted()
     if (!isAbsolute(options.workspacePath)) throw new Error('ACP workspace must be an absolute directory')
     const path = realpathSync(options.workspacePath)
     if (!statSync(path).isDirectory()) throw new Error('ACP workspace is not a directory')
     const agent = new AcpAgent(options, path)
+    const abort = () => { void agent.stop().catch(() => {}) }
+    options.signal?.addEventListener('abort', abort, { once: true })
     try {
+      options.signal?.throwIfAborted()
       const initialized = await agent.deadline(agent.connection.initialize({ protocolVersion: 1, clientInfo: { name: 'donwells', version }, clientCapabilities: {} }), 15000)
       if (initialized.protocolVersion !== 1) throw new Error('Agent did not negotiate ACP protocol 1')
       agent.snapshot.capabilities = initialized.agentCapabilities ?? {}
@@ -95,19 +97,25 @@ export class AcpAgent {
     } catch (error) {
       await agent.stop()
       throw error
-    }
+    } finally { options.signal?.removeEventListener('abort', abort) }
   }
 
   get(): AcpAgentSnapshot { return structuredClone(this.snapshot) }
 
   observe(afterSequence = 0) {
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new Error('Invalid ACP observation sequence')
-    return { snapshot: this.get(), sequence: this.sequence, truncated: this.updates.length > 0 && afterSequence < this.updates[0]!.sequence - 1, updates: structuredClone(this.updates.filter(update => update.sequence > afterSequence).map(({ sequence, notification }) => ({ sequence, notification }))) }
+    const selected: typeof this.updates = []; let bytes = 0
+    for (const update of this.updates) {
+      if (update.sequence <= afterSequence) continue
+      if (selected.length && bytes + update.bytes > 512 * 1024) break
+      selected.push(update); bytes += update.bytes
+    }
+    return { snapshot: this.get(), sequence: selected.at(-1)?.sequence ?? Math.min(afterSequence, this.sequence), truncated: this.updates.length > 0 && afterSequence < this.updates[0]!.sequence - 1, updates: structuredClone(selected.map(({ sequence, notification }) => ({ sequence, notification }))) }
   }
 
   private setState(state: AcpAgentSnapshot['state'], detail?: string) {
     this.snapshot.state = state
-    this.snapshot.detail = detail
+    this.snapshot.detail = detail?.slice(0, 2048)
     this.snapshot.permissions = [...this.permissions].map(([id, { request }]) => ({ id, request }))
     this.options.onChange(this.get())
   }
@@ -122,7 +130,7 @@ export class AcpAgent {
   }
 
   private permission(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-    if (request.sessionId !== this.snapshot.protocolSessionId || !this.pending || this.stopping || !['working', 'permission'].includes(this.snapshot.state) || this.permissions.size >= 32) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    if (request.sessionId !== this.snapshot.protocolSessionId || !this.pending || this.stopping || !['working', 'permission'].includes(this.snapshot.state) || this.permissions.size >= 8 || Buffer.byteLength(JSON.stringify(request)) > 64 * 1024) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     return new Promise(resolve => {
       this.permissions.set(randomUUID(), { request, resolve })
       this.setState('permission')

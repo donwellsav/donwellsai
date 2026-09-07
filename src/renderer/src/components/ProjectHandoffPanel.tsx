@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectHandoff, ProjectHandoffStatus } from '@shared/project-handoff'
+import type { ProjectMemoryEntry } from '@shared/project-memory'
 import { agentProviderName } from '@shared/agent-presentation'
 import { useAppStore } from '../store'
 
@@ -17,6 +18,10 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const [summary, setSummary] = useState('')
   const [questions, setQuestions] = useState('')
   const [steps, setSteps] = useState('')
+  const [memoryQuery, setMemoryQuery] = useState('')
+  const [memoryResults, setMemoryResults] = useState<ProjectMemoryEntry[]>([])
+  const [memoryTotal, setMemoryTotal] = useState(0)
+  const [reviewedMemory, setReviewedMemory] = useState<ProjectMemoryEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [exportPath, setExportPath] = useState('')
@@ -62,7 +67,21 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       </details>
       {selected.handoff.openQuestions.length > 0 && <><strong>Open questions</strong><ul>{selected.handoff.openQuestions.map((text, i) => <li key={i}>{text}</li>)}</ul></>}
       <strong>Next steps</strong><ol>{selected.handoff.nextSteps.map((text, i) => <li key={i}>{text}</li>)}</ol>
+      {!!selected.memorySources?.length && <details open><summary>Referenced project facts · {selected.memorySources.length}</summary>
+        {selected.memorySources.map(ref => <div key={ref.id}>
+          <strong>{ref.current?.title ?? ref.id} · reviewed revision {ref.revision} · {ref.state}</strong>
+          {ref.current && <><p>Current revision {ref.current.revision}</p><pre>{ref.current.content}</pre></>}
+        </div>)}
+      </details>}
       {selected.stale && <p role="status">Source changed or is unavailable. Review and save a fresh handoff. {selected.sourceError}</p>}
+      <button className="btn btn-secondary btn-sm" disabled={busy || !!goal.trim() || !!summary.trim() || !!questions.trim() || !!steps.trim() || reviewedMemory.length > 0 || selected.handoff.checkoutPath !== workspacePath} onClick={() => {
+        setSource(selected.handoff.fromSessionId); setGoal(selected.handoff.goal); setSummary(selected.handoff.summary)
+        setQuestions(selected.handoff.openQuestions.join('\n')); setSteps(selected.handoff.nextSteps.join('\n'))
+        setReviewedMemory([])
+        setMemoryResults((selected.memorySources ?? []).flatMap(ref => ref.current && !ref.current.archivedAt ? [ref.current] : []))
+        setMemoryTotal(selected.memorySources?.length ?? 0)
+      }}>Copy to fresh draft for review</button>
+      <p className="memory-caption">Refresh a handoff in its source checkout with an empty draft. Review and attach current facts again before saving.</p>
       <p>Delivery: {selected.handoff.delivery}. Acceptance reserves the work; it does not send terminal input.</p>
       {selected.handoff.state === 'open' && <>
         <label>Receiving session<select aria-label="Receiving session" className="input" value={receiver} disabled={busy} onChange={event => setReceiver(event.target.value)}>
@@ -90,9 +109,9 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       })}>Supersede handoff</button>}
     </section>}
     <form aria-label="Save agent handoff" onSubmit={event => { event.preventDefault(); void operate(async () => {
-      const handoff = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal, summary, openQuestions: lines(questions), nextSteps: lines(steps), evidenceIds: [] })
+      const handoff = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal, summary, openQuestions: lines(questions), nextSteps: lines(steps), evidenceIds: [], memorySources: reviewedMemory.map(({ id, revision }) => ({ id, revision })) })
       setSelected(await window.donwells.projectHandoffGet(workspacePath, handoff.id))
-      setGoal(''); setSummary(''); setQuestions(''); setSteps('')
+      setGoal(''); setSummary(''); setQuestions(''); setSteps(''); setReviewedMemory([])
     }) }}>
       <strong>Save a handoff</strong>
       <fieldset disabled={busy}>
@@ -105,6 +124,19 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         <label>Progress summary<textarea className="input" required maxLength={24000} value={summary} onChange={event => setSummary(event.target.value)} /></label>
         <label>Open questions · one per line<textarea className="input" maxLength={16000} value={questions} onChange={event => setQuestions(event.target.value)} /></label>
         <label>Next steps · one per line<textarea className="input" maxLength={16000} value={steps} onChange={event => setSteps(event.target.value)} /></label>
+        <details><summary>Attach reviewed project facts · {reviewedMemory.length} / 50</summary>
+          <label>Find project facts<input className="input" value={memoryQuery} onChange={event => setMemoryQuery(event.target.value)} /></label>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void operate(async () => {
+            const result = await window.donwells.projectMemoryList({ workspacePath, ...(memoryQuery.trim() ? { query: memoryQuery.trim() } : {}), limit: 50 })
+            setMemoryResults(result.entries); setMemoryTotal(result.total)
+          })}>Find facts</button>
+          <p>Showing {memoryResults.length} of {memoryTotal} matches. Narrow the query for other facts. Attaching saves the reviewed ID and revision, not a second copy of the fact.</p>
+          {memoryResults.map(fact => <details key={fact.id}><summary>{fact.title} · Revision {fact.revision}</summary>
+            <pre>{fact.content}</pre><p>{fact.kind} · {fact.tags.join(', ')} · {fact.provenance.sourceRef ?? 'No source reference'}</p>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={reviewedMemory.length >= 50 && !reviewedMemory.some(ref => ref.id === fact.id)} onClick={() => setReviewedMemory(current => [...current.filter(ref => ref.id !== fact.id), fact])}>Attach reviewed revision</button>
+          </details>)}
+          {reviewedMemory.map(fact => <p key={fact.id}>{fact.title} · Revision {fact.revision} <button type="button" className="btn btn-secondary btn-sm" onClick={() => setReviewedMemory(current => current.filter(ref => ref.id !== fact.id))}>Remove reference</button></p>)}
+        </details>
         <button className="btn btn-primary btn-sm" disabled={!source || !goal.trim() || !summary.trim()}>Save handoff for review</button>
       </fieldset>
     </form>

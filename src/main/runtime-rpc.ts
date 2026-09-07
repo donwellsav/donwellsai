@@ -8,7 +8,7 @@ import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
   AppSettings,
@@ -78,7 +78,7 @@ export type RpcDeps = {
   store: Store
   git: GitWorktrees
   terminals: DaemonClient
-  agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'>
+  agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'> & Partial<Pick<AgentRuntime, 'switchMode' | 'modeSwitchResult' | 'startAcp' | 'listAcp' | 'observeAcp' | 'promptAcp' | 'controlAcp'>>
   deliverAgentAttachment: (request: AgentDeliveryRequest) => Promise<AgentDeliveryReceipt>
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
   projectKit?: import('@shared/project-export').ProjectKitApi
@@ -497,6 +497,32 @@ export class RuntimeRpcServer {
       case 'project.task-tool': return this.deps.projectTasks.openTool(str('workspacePath'), str('tool') as 'lazygit' | 'backlog')
       case 'agent.providers':
         return { providers: this.deps.agents.listAgents() }
+      case 'agent.authenticate': {
+        const identity = await this.deps.terminals.authenticateAgent(params['credential'] as AgentSessionCredential)
+        if (realpathSync(identity.workspacePath) !== realpathSync(str('workspacePath'))) throw new Error('Agent credential belongs to another workspace')
+        return identity
+      }
+      case 'agent.switch':
+        if (!this.deps.agents.switchMode) throw new Error('Mode switching unavailable')
+        return this.deps.agents.switchMode(str('workspacePath'), str('sessionId'), str('target') as 'native' | 'acp', str('requestId'), params['context'] as string | undefined)
+      case 'agent.switch.get':
+        if (!this.deps.agents.modeSwitchResult) throw new Error('Mode switching unavailable')
+        return this.deps.agents.modeSwitchResult(str('workspacePath'), str('requestId'))
+      case 'agent.acp.start':
+        if (!this.deps.agents.startAcp) throw new Error('ACP runtime unavailable')
+        return this.deps.agents.startAcp(str('workspacePath'), str('requestId'), params['loadRunId'] as string | undefined)
+      case 'agent.acp.list':
+        if (!this.deps.agents.listAcp) throw new Error('ACP runtime unavailable')
+        return { sessions: await this.deps.agents.listAcp(str('workspacePath')) }
+      case 'agent.acp.observe':
+        if (!this.deps.agents.observeAcp) throw new Error('ACP runtime unavailable')
+        return this.deps.agents.observeAcp(str('workspacePath'), str('sessionId'), Number(params['afterSequence'] ?? 0))
+      case 'agent.acp.prompt':
+        if (!this.deps.agents.promptAcp) throw new Error('ACP runtime unavailable')
+        return this.deps.agents.promptAcp(str('workspacePath'), str('sessionId'), str('requestId'), str('text'))
+      case 'agent.acp.cancel': case 'agent.acp.stop': case 'agent.acp.permission': case 'agent.acp.dismiss':
+        if (!this.deps.agents.controlAcp) throw new Error('ACP runtime unavailable')
+        return this.deps.agents.controlAcp(str('workspacePath'), str('sessionId'), method.slice(10) as 'cancel' | 'stop' | 'permission' | 'dismiss', params['permissionId'] as string | undefined, params['optionId'] as string | undefined)
       case 'agent.list':
         return { agents: await this.deps.agents.list() }
       case 'agent.start':
@@ -511,6 +537,7 @@ export class RuntimeRpcServer {
         return {}
       case 'agent.deliver':
         return this.deps.deliverAgentAttachment({
+          requestId: params['requestId'] as string | undefined,
           sessionId: str('sessionId'),
           attachment: {
             kind: str('kind') as 'diff-review' | 'design-capture',

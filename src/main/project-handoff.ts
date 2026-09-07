@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
-import type { ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
+import type { HandoffMemoryStatus, ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
 import type { ProjectToolScope } from '@shared/project-tools'
 import type { GitWorktrees } from './git'
 import type { AgentRuntime } from './agent-runtime'
@@ -9,8 +9,9 @@ import type { DaemonClient } from './daemon-client'
 import { closeSync, lstatSync, mkdirSync, openSync, writeFileSync, readFileSync, fsyncSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
+import { parseHandoffMemorySources, parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
 import { parseProjectMemoryIdentifier } from '@shared/project-memory'
+import { ProjectMemoryStore } from './project-memory-store'
 
 /** Task handoffs are operational records, separate from permanent project facts.
  * Callers must bind project/session authority before accessing this store. */
@@ -136,7 +137,7 @@ export class ProjectHandoffStore {
 /** Desktop authority boundary. Native delivery and external MCP claims require separate binding. */
 export class ProjectHandoffService implements ProjectHandoffApi {
   private readonly store: ProjectHandoffStore
-  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'>) {
+  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession'>>) {
     this.store = new ProjectHandoffStore(userDataDir)
   }
 
@@ -161,14 +162,29 @@ export class ProjectHandoffService implements ProjectHandoffApi {
   async projectHandoffGet(workspacePath: string, id: string): Promise<ProjectHandoffStatus> {
     const scope = await this.resolveScope(workspacePath)
     const handoff = this.store.get(scope.projectKey, id)
+    const memorySources = this.memorySources(scope.projectKey, handoff.memorySources)
     try {
       const source = await this.resolveScope(handoff.checkoutPath)
       if (source.projectKey !== scope.projectKey) throw new Error('Source checkout belongs to a different project')
       const snapshot = await this.git.handoffSource(source.checkoutPath)
-      return { handoff, stale: snapshot.contentFingerprint !== handoff.contentFingerprint }
+      return { handoff, memorySources, stale: snapshot.contentFingerprint !== handoff.contentFingerprint || memorySources.some(ref => ref.state !== 'current') }
     } catch (error) {
-      return { handoff, stale: true, sourceError: error instanceof Error ? error.message : String(error) }
+      return { handoff, memorySources, stale: true, sourceError: error instanceof Error ? error.message : String(error) }
     } finally { await this.assertScope(scope) }
+  }
+
+  private memorySources(projectKey: string, refs: ProjectHandoff['memorySources']): HandoffMemoryStatus[] {
+    if (!refs?.length) return []
+    // Read current authority on each request; a long-lived handoff service must survive memory backend switches.
+    let memory: ProjectMemoryStore
+    try { memory = new ProjectMemoryStore(this.userDataDir) }
+    catch { return refs.map(ref => ({ ...ref, state: 'unavailable' })) }
+    return refs.map(ref => {
+      try {
+        const current = memory.get(projectKey, ref.id)
+        return { ...ref, current, state: current.archivedAt ? 'archived' : current.revision === ref.revision ? 'current' : 'changed' }
+      } catch { return { ...ref, state: 'unavailable' } }
+    })
   }
 
   private async assertScope(scope: ProjectToolScope): Promise<void> {
@@ -180,7 +196,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
 
   private async session(scope: ProjectToolScope, sessionId: string, live: boolean) {
     parseProjectMemoryIdentifier(sessionId, 'session')
-    const session = (await this.agents.list()).find(run => run.sessionId === sessionId)
+    const session = (await this.agents.list()).find(run => run.sessionId === sessionId) ?? await this.agents.findAcpSession?.(sessionId)
     if (!session || (live && session.liveness !== 'live')) throw new Error('Select an available agent session')
     const target = await this.resolveScope(session.workspacePath)
     if (target.projectKey !== scope.projectKey) throw new Error('Agent session belongs to another project')
@@ -189,12 +205,14 @@ export class ProjectHandoffService implements ProjectHandoffApi {
 
   async projectHandoffCreate(workspacePath: string, draft: ProjectHandoffDraft): Promise<ProjectHandoff> {
     const fields = ['taskId', 'fromSessionId', 'toAgent', 'goal', 'summary', 'openQuestions', 'nextSteps', 'evidenceIds']
-    if (!draft || typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).length !== fields.length || fields.some(field => !Object.hasOwn(draft, field))) throw new Error('Invalid handoff draft fields')
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(field => !fields.includes(field) && field !== 'memorySources') || fields.some(field => !Object.hasOwn(draft, field))) throw new Error('Invalid handoff draft fields')
+    const memorySources = draft.memorySources === undefined ? undefined : parseHandoffMemorySources(draft.memorySources)
     const scope = await this.resolveScope(workspacePath)
     const source = await this.session(scope, draft.fromSessionId, false)
     if (source.checkoutPath !== scope.checkoutPath) throw new Error('Select the source session checkout before saving its handoff')
     const snapshot = await this.git.handoffSource(scope.checkoutPath)
     await this.assertScope(scope)
+    if (this.memorySources(scope.projectKey, memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed, was archived, or is unavailable; review current facts before saving')
     return this.store.create(parseProjectHandoff({ ...draft, ...snapshot, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null }))
   }
 
@@ -207,6 +225,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     if (status.stale) throw new Error('Handoff source changed or is unavailable; review and save a fresh handoff')
     await this.session(scope, sessionId, true)
     await this.assertScope(scope)
+    if (this.memorySources(scope.projectKey, status.handoff.memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed before acceptance; review a fresh handoff')
     return this.store.accept(scope.projectKey, id, expectedRevision, sessionId, idempotencyKey)
   }
 
@@ -220,6 +239,7 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     if (status.stale) throw new Error('Handoff source changed or is unavailable; inspect before delivery')
     await authenticate(credential)
     await this.assertScope(scope)
+    if (this.memorySources(scope.projectKey, status.handoff.memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed before delivery; review a fresh handoff')
     return this.store.beginDelivery(scope.projectKey, id, expectedRevision, run.sessionId)
   }
 

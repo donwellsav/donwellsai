@@ -73,7 +73,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: ProjectMemoryRpcMethod | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
+  method: ProjectMemoryRpcMethod | 'agent.authenticate' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -424,7 +424,10 @@ export class ProjectMemoryMcpSession {
     this.workspacePath = parseProjectMemoryWorkspacePath(options.workspacePath, 'pinned workspace')
     this.harness = parseProjectMemoryHarness(options.harness, 'pinned harness')
     this.credential = options.credential ? { ...options.credential } : undefined
-    this.invoke = options.invoke
+    this.invoke = async (method, params) => {
+      if (this.credential && !method.startsWith('handoff.')) await options.invoke('agent.authenticate', { workspacePath: this.workspacePath, credential: this.credential })
+      return options.invoke(method, params)
+    }
     this.serverVersion = options.serverVersion ?? '1.0.0'
     if (this.serverVersion.length === 0 || this.serverVersion.length > 128) {
       throw new Error('MCP server version must be a bounded string')
