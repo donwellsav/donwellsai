@@ -6,8 +6,9 @@ import {createServer} from 'node:http'
 import {parseArgs} from 'node:util'
 import {hash,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
 import {cleanupOwnedSmokeDaemon,delay} from '../helpers/smoke-processes.mjs'
-const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},package:{type:'string'},browser:{type:'string'},'crash-service':{type:'boolean',default:false}}})
+const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},package:{type:'string'},browser:{type:'string'},'crash-service':{type:'boolean',default:false},'crash-app':{type:'boolean',default:false}}})
 assert(values.package&&values.browser&&values.playwright)
+assert(!(values['crash-service']&&values['crash-app']))
 const {app:executable,resources,profile,evidence}=validateOptions(values);mkdirSync(profile);mkdirSync(evidence)
 mkdirSync(join(profile,'fixture'));const project=realpathSync(join(profile,'fixture')),source=join(project,'index.html')
 const broken='<!doctype html><title>Owned browser fixture</title><p>Browser cleanup</p>'
@@ -28,12 +29,14 @@ try{
  const browsers=processes.filter(p=>descendants.has(p.pid)&&p.args.includes('--remote-debugging-pipe')&&p.args.includes('Google Chrome for Testing')&&!p.args.includes('--type='))
  assert.equal(browsers.length,1,'Must identify exactly the managed browser via current ancestry')
  report.ownedBrowser=browsers[0]
- if(values['crash-service']){const owner=processes.find(p=>p.pid===browsers[0].parent);assert(owner&&descendants.has(owner.pid));report.crashedService=owner;process.kill(owner.pid,'SIGKILL');await delay(1000)}
+ if(values['crash-app']){const child=app.process();report.crashedAppPid=child.pid;child.kill('SIGKILL');const exited=Date.now()+5000;while(child.signalCode===null&&child.exitCode===null){assert(Date.now()<exited);await delay(50)}}
+ else if(values['crash-service']){const owner=processes.find(p=>p.pid===browsers[0].parent);assert(owner&&descendants.has(owner.pid));report.crashedService=owner;process.kill(owner.pid,'SIGKILL');await delay(1000)}
  else {await invoke('tool.stop',{workspacePath:project,id:'browser-testing'});await delay(250)}
  let remaining;const deadline=Date.now()+5000;do{remaining=rows().filter(p=>browsers.some(b=>b.pid===p.pid&&b.args===p.args));if(!remaining.length)break;await delay(100)}while(Date.now()<deadline);report.browserSurvivedStop=remaining.length>0
  for(const p of remaining){const group=Number(execFileSync('/bin/ps',['-p',String(p.pid),'-o','pgid='],{encoding:'utf8'}).trim());assert.equal(group,p.pid);process.kill(-group,'SIGKILL')}
- assert.equal(remaining.length,0,'Managed browser survived tool stop')
- if(values['crash-service']){const recovered=await invoke('tool.call',{workspacePath:project,id:'browser-testing',operation:'navigate',arguments:{}});assert(!recovered.isError);assert.notEqual(recovered.structuredContent.id,opened.structuredContent.id);report.recoveredFreshContext=true}
+ if(values['crash-app']){app=await _electron.launch({executablePath:executable,env});page=await app.firstWindow();await page.getByRole('navigation',{name:'Workspace tools'}).waitFor();await invoke('browser.open',{worktreePath:project,url})}
+ assert.equal(remaining.length,0,'Managed browser survived tool stop or app crash')
+ if(values['crash-service']||values['crash-app']){const recovered=await invoke('tool.call',{workspacePath:project,id:'browser-testing',operation:'navigate',arguments:{}});assert(!recovered.isError);assert.notEqual(recovered.structuredContent.id,opened.structuredContent.id);report.recoveredFreshContext=true}
  report.verified=true
 
 }catch(error){report.error=error.stack;process.exitCode=1;if(page)await page.screenshot({path:join(evidence,'failure.png')}).catch(()=>{})}

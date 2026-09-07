@@ -1,0 +1,244 @@
+{
+  "startedAt": "2026-09-07T04:08:10.059Z",
+  "source": {
+    "commit": "564dce1b3cc76eb920789c5c1b2da3aa32f6c316",
+    "dirty": true,
+    "contentHash": "c1f2d9b06485eafae0e1ff6c40b31f0e9c73021259bd0662c03c4f0bcc0e8236"
+  },
+  "executable": "/private/tmp/donwells-strengthen-22-install/current-final/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-22-native-final-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-Kf10Oy",
+  "artifact": {
+    "executableSha256": "ef4474f969a9298643e80c361ac65d66b45928ee2614a74d16be31239bf9b3c3",
+    "asarSha256": "7765d83e2c5590309454a4c72963d0934c61ae0d952fca4a26a5559f9d283e10",
+    "memoryMcpSha256": "28735cb760ab110c25060a550db942f769461a9155c16198055edaee67495321"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "native-write-persisted",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-Kf10Oy/.omp/mcp.json",
+      "nativeArguments": [
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ],
+      "sessionId": "cc5a2283-26bf-4962-8fb6-30adf82950c6",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 90198,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "interface": "tui",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "nativeSetupSession": "9b0d3124-7377-4929-9684-6e8ebdade526",
+      "existingHermesSettingsPreserved": true,
+      "managedConfiguration": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-822d16cd-cc2c-419a-8113-b0e9c73366c4/config.yaml",
+      "nativeToolsApproved": 42,
+      "nativeArguments": [
+        "--tui"
+      ],
+      "sessionId": "19168c2f-bd45-4631-be70-29a6b271f6c5",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "mcpProcesses": [
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42070,
+          "ppid": 42042,
+          "pgid": 42070,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42070,
+          "ppid": 42042,
+          "pgid": 42070,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42070,
+          "ppid": 42042,
+          "pgid": 42070,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42070,
+          "ppid": 42042,
+          "pgid": 42070,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 41393,
+          "ppid": 41365,
+          "pgid": 41365,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 42070,
+          "ppid": 42042,
+          "pgid": 42070,
+          "nodeMode": "1",
+          "bound": true
+        }
+      ],
+      "liveness": "live",
+      "outputBytes": 12734,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-Kf10Oy/.kimi-code/mcp.json",
+      "nativeArguments": [],
+      "sessionId": "b8d5bc05-08c9-4e56-a7f7-a551657ae259",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2379,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "fixtureMemoryReadApproved": true,
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "no-verified-response",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-Kf10Oy/.dsh/donwells-memory.patch.json",
+      "nativeArguments": [
+        "--profile",
+        "tui"
+      ],
+      "sessionId": "6d55d681-32fd-4ec5-aac0-cd369741f0b1",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 17891,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "completedAnswer": null,
+      "error": "Native DSH recall included a failed tool call\n\n1 !== 0\n",
+      "errorStack": "AssertionError [ERR_ASSERTION]: Native DSH recall included a failed tool call\n\n1 !== 0\n\n    at completedDshAnswer (file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/native-agent-matrix.mjs:84:10)\n    at file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/native-agent-matrix.mjs:438:40"
+    }
+  },
+  "limitations": [
+    "Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1391.972959
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "c46a0593-37bd-481c-91c8-6fbabd781474",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      41161,
+      41283
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "nativeWrite": {
+    "id": "e59fb0e0-2b67-46a1-961e-7d34d15f51e8",
+    "revision": 1,
+    "provenance": {
+      "harness": "omp",
+      "sourceSession": null,
+      "sourceRef": null,
+      "workspace": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-Kf10Oy"
+    },
+    "contentSha256": "da3a222c99c3e117e685cb7a2e17fad77b0a0bf733d88fe8fe3b873206d40367",
+    "writerSession": "cc5a2283-26bf-4962-8fb6-30adf82950c6",
+    "appPids": [
+      41283,
+      43659
+    ],
+    "recalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-822d16cd-cc2c-419a-8113-b0e9c73366c4",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": false,
+  "durationMs": 81811.406209
+}

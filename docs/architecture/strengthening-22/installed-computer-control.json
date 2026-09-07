@@ -1,0 +1,237 @@
+{
+  "source": {
+    "commit": "564dce1b3cc76eb920789c5c1b2da3aa32f6c316",
+    "dirty": true,
+    "contentHash": "488535667769e1f616d7eeec0a0025393a2c23f3de1a2a33ecce32fde0ee5d58"
+  },
+  "artifactSha256": "7765d83e2c5590309454a4c72963d0934c61ae0d952fca4a26a5559f9d283e10",
+  "driverSha256": "2cb9be8da6c91bfa6b535a0d777ca61e463996aff9cd769dace2eb840ddd0700",
+  "requests": [],
+  "packagedPermissions": {
+    "content": [
+      {
+        "text": "✅ Accessibility: granted.\n✅ Screen Recording: granted.\nℹ️  Direct ScreenCaptureKit readiness was not probed because this is a staged or read-only check. Run `cua-driver permissions grant` to request and verify direct capture explicitly.\nℹ️  Embedded mode: status reflects the HOST app's TCC grant. If a permission is missing, the host must request it — the driver will not prompt.",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "accessibility": true,
+      "direct_capture_error": null,
+      "direct_capture_status": "not_checked",
+      "screen_recording": true,
+      "screen_recording_capturable": null,
+      "source": {
+        "attribution": "host",
+        "direct_runtime": false,
+        "disclaim_env": false,
+        "embedded": true,
+        "executable": "/private/tmp/donwells-strengthen-22-install/tools/bin/cua-driver",
+        "host_bundle_id": "ai.donwells.desktop",
+        "note": "Embedded mode: these booleans reflect the HOST app's TCC grant (the driver is a child in the host's responsibility chain). No separate driver grant exists or is needed. If a permission is NOT granted, the host app must request it — the driver never raises its own prompt.",
+        "pid": 39673,
+        "responsible_ppid": 39614
+      }
+    }
+  },
+  "targets": {
+    "native": {
+      "app_name": "native-fixture",
+      "bounds": {
+        "height": 212,
+        "width": 400,
+        "x": 160,
+        "y": 705
+      },
+      "current_space_id": 1,
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": true,
+      "pid": 39701,
+      "space_ids": [
+        1
+      ],
+      "title": "Donwells Control Fixture A",
+      "window_id": 27019,
+      "z_index": 130
+    },
+    "electron": {
+      "app_name": "donwells.ai",
+      "bounds": {
+        "height": 420,
+        "width": 640,
+        "x": 544,
+        "y": 349
+      },
+      "current_space_id": 1,
+      "is_on_screen": true,
+      "layer": 0,
+      "on_current_space": true,
+      "pid": 39614,
+      "space_ids": [
+        1
+      ],
+      "title": "Donwells Electron Control Fixture",
+      "window_id": 27017,
+      "z_index": 8
+    }
+  },
+  "nativeBackground": [
+    {
+      "target": "A",
+      "frontmostPid": "39726"
+    }
+  ],
+  "axType": {
+    "refused": "Error: Native input outcome is uncertain; inspect and stop before retrying. Background input refused (same_pid_keyboard_ambiguity): pid 39614 owns 1 other eligible top-level window(s); process-scoped key events cannot be proven to reach window 27017 and could mutate a sibling window. Use an exact element action, the page tool for browser content, or delivery_mode:\"foreground\""
+  },
+  "axDom": {
+    "value": "",
+    "events": 0,
+    "saved": "Ready",
+    "rect": {
+      "x": 76.203125,
+      "y": 96.4375,
+      "width": 232,
+      "height": 46.5,
+      "top": 96.4375,
+      "right": 308.203125,
+      "bottom": 142.9375,
+      "left": 76.203125
+    },
+    "innerHeight": 388,
+    "outerHeight": 420
+  },
+  "backgroundPixelType": {
+    "refused": "Error: Native input outcome is uncertain; inspect and stop before retrying. Background input refused (same_pid_keyboard_ambiguity): pid 39614 owns 1 other eligible top-level window(s); process-scoped key events cannot be proven to reach window 27017 and could mutate a sibling window. Use an exact element action, the page tool for browser content, or delivery_mode:\"foreground\""
+  },
+  "beforeForeground": {
+    "value": "",
+    "events": 0,
+    "saved": "Ready",
+    "rect": {
+      "x": 76.203125,
+      "y": 96.4375,
+      "width": 232,
+      "height": 46.5,
+      "top": 96.4375,
+      "right": 308.203125,
+      "bottom": 142.9375,
+      "left": 76.203125
+    },
+    "innerHeight": 388,
+    "outerHeight": 420
+  },
+  "foregroundExplicit": true,
+  "pixelType": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"app\":\"donwells.ai\",\"title\":\"Donwells Electron Control Fixture\",\"pid\":39614,\"window\":27017,\"generation\":4,\"revision\":3,\"foregroundAllowed\":true,\"untrusted\":true}"
+      },
+      {
+        "text": "📨 Sent (unverified) 14 char(s) via foreground keystrokes (30ms delay). — web-content surface (Chromium / WebKit / Electron): AXValue read-back is not independent proof that the renderer/DOM observed the input. The pixel-focus rung already ran, so do not repeat it; verify the result via the screenshot.\n\n🪟 Action opened new window(s): Google Chrome.",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "delivery": {
+        "delivered_count": 14,
+        "mode": "foreground"
+      },
+      "effect": "unverifiable",
+      "route": "global_input",
+      "attachment": {
+        "app": "donwells.ai",
+        "title": "Donwells Electron Control Fixture",
+        "pid": 39614,
+        "window": 27017,
+        "generation": 4,
+        "revision": 3,
+        "foregroundAllowed": true,
+        "untrusted": true
+      }
+    }
+  },
+  "pixelDom": {
+    "value": "PIXEL_PROOF_16",
+    "events": 14,
+    "saved": "Ready",
+    "rect": {
+      "x": 76.203125,
+      "y": 96.4375,
+      "width": 232,
+      "height": 46.5,
+      "top": 96.4375,
+      "right": 308.203125,
+      "bottom": 142.9375,
+      "left": 76.203125
+    },
+    "innerHeight": 388,
+    "outerHeight": 420
+  },
+  "electronClick": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"app\":\"donwells.ai\",\"title\":\"Donwells Electron Control Fixture\",\"pid\":39614,\"window\":27017,\"generation\":4,\"revision\":5,\"foregroundAllowed\":true,\"untrusted\":true}"
+      },
+      {
+        "text": "✅ Performed AXPress on [6] AXButton \"Save fixture\".\n\n🪟 Action opened new window(s): Google Chrome.",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "delivery": {
+        "mode": "foreground"
+      },
+      "effect": "unverifiable",
+      "route": "accessibility",
+      "attachment": {
+        "app": "donwells.ai",
+        "title": "Donwells Electron Control Fixture",
+        "pid": 39614,
+        "window": 27017,
+        "generation": 4,
+        "revision": 5,
+        "foregroundAllowed": true,
+        "untrusted": true
+      }
+    }
+  },
+  "savedDom": {
+    "value": "PIXEL_PROOF_16",
+    "events": 14,
+    "saved": "Saved PIXEL_PROOF_16",
+    "rect": {
+      "x": 76.203125,
+      "y": 96.4375,
+      "width": 232,
+      "height": 46.5,
+      "top": 96.4375,
+      "right": 308.203125,
+      "bottom": 142.9375,
+      "left": 76.203125
+    },
+    "innerHeight": 388,
+    "outerHeight": 420
+  },
+  "interrupted": {
+    "error": "Error: Tool action outcome is uncertain; inspect before retrying"
+  },
+  "noInputReplayAfterStop": true,
+  "movedBounds": {
+    "height": 420,
+    "width": 640,
+    "x": 564,
+    "y": 369
+  },
+  "staleCoordinatesRefused": true,
+  "afterElectronFocus": {
+    "frontmostPid": "39614",
+    "target": "A"
+  },
+  "closedTargetRefused": true,
+  "movableModule": true,
+  "verified": true,
+  "idleDaemonStopped": true
+}

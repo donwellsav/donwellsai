@@ -5,7 +5,7 @@ import {join,resolve,dirname} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {parseArgs} from 'node:util'
 import {hash,sourceIdentity,validateOptions} from './workspace-baseline.mjs'
-import {cleanupOwnedSmokeDaemon,delay} from '../helpers/smoke-processes.mjs'
+import {cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
 const {values}=parseArgs({options:{app:{type:'string'},profile:{type:'string'},evidence:{type:'string'},playwright:{type:'string'},graph:{type:'string'},qmd:{type:'string'},lance:{type:'string'},history:{type:'string'},backlog:{type:'string'}}})
 const {app:executable,resources,profile,evidence}=validateOptions(values)
 mkdirSync(profile);mkdirSync(evidence);mkdirSync(join(profile,'fixture'));const project=realpathSync(join(profile,'fixture'))
@@ -47,8 +47,8 @@ try{
   const foreign=await invoke('history.search',{workspacePath:project,query:'HISTORY_ORNITH_27'}).then(()=>true,()=>false);assert.equal(foreign,false);report.historyScoped=true;await app.close();await open();report.retainedHistory=await invoke('history.search',{workspacePath:nativeProject,query:'HISTORY_ORNITH_27'});assert(report.retainedHistory.hits.length);
  }
  report.verified=true
-}catch(error){report.error=error.stack;process.exitCode=1;if(page)await page.screenshot({path:join(evidence,'failure.png')}).catch(()=>{})}
+}catch(error){report.error=error.stack;process.exitCode=1;if(app)report.failureProcess={exitCode:app.process().exitCode,signal:app.process().signalCode,windows:await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().map(w=>({id:w.id,destroyed:w.isDestroyed(),title:w.getTitle()}))).catch(error=>String(error))};if(page)await page.screenshot({path:join(evidence,'failure.png')}).catch(()=>{})}
 finally{
- if(app){try{for(const tool of await invoke('tool.list',{workspacePath:project}))await invoke('tool.stop',{workspacePath:project,id:tool.id});for(const session of(await invoke('terminal.list')).sessions)await invoke('terminal.close',{sessionId:session.id})}catch(error){report.cleanupError=String(error)}await app.close().catch(()=>{})}
+ if(app){try{for(const tool of await invoke('tool.list',{workspacePath:project}))await invoke('tool.stop',{workspacePath:project,id:tool.id})}catch(error){report.toolCleanupError=String(error)}try{for(const session of(await invoke('terminal.list')).sessions)await invoke('terminal.close',{sessionId:session.id})}catch(error){report.cleanupError=String(error)}report.appShutdown=await closeOwnedSmokeApp(app)}
  report.idleDaemonStopped=await cleanupOwnedSmokeDaemon(profile);writeFileSync(join(evidence,'result.json'),JSON.stringify(report,null,2)+'\n')
 }
