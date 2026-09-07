@@ -1,0 +1,251 @@
+{
+  "startedAt": "2026-09-07T04:11:07.027Z",
+  "source": {
+    "commit": "564dce1b3cc76eb920789c5c1b2da3aa32f6c316",
+    "dirty": true,
+    "contentHash": "7559daebfe90be81b01ccf256333abe8ec23bbef87fcfb3431e151f8eb036d4b"
+  },
+  "executable": "/private/tmp/donwells-strengthen-22-install/current-final/donwells.app/Contents/MacOS/donwells",
+  "profile": "/private/tmp/donwells-strengthen-22-native-v2-profile",
+  "fixture": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-BWy3CE",
+  "artifact": {
+    "executableSha256": "ef4474f969a9298643e80c361ac65d66b45928ee2614a74d16be31239bf9b3c3",
+    "asarSha256": "7765d83e2c5590309454a4c72963d0934c61ae0d952fca4a26a5559f9d283e10",
+    "memoryMcpSha256": "28735cb760ab110c25060a550db942f769461a9155c16198055edaee67495321"
+  },
+  "agents": {
+    "omp": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.bun/bin/omp",
+      "query": "not-run",
+      "memory": "native-write-persisted",
+      "resume": "not-run",
+      "executableSha256": "f93613f5cc66a22e4368e955f7d121b9508306d4153b2932318e5d45ecf13a44",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-BWy3CE/.omp/mcp.json",
+      "nativeArguments": [
+        "--model",
+        "omlx/Ornith-1.5-35B-A3B-MLX-8bit"
+      ],
+      "sessionId": "4a9d53d6-58ba-4568-a26a-933397019920",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 88989,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "hermes": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.local/bin/hermes",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "interface": "tui",
+      "executableSha256": "f0d11e89dd6cc84287464c1384067714f8caf3165cf575b71e680924af80fac8",
+      "nativeSetupSession": "d19bc391-fa4b-4216-861a-63fd13110845",
+      "existingHermesSettingsPreserved": true,
+      "managedConfiguration": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-20c4b1df-e684-4c3b-97f6-bb79071114f4/config.yaml",
+      "nativeToolsApproved": 42,
+      "nativeArguments": [
+        "--tui"
+      ],
+      "sessionId": "ff960ba4-9f16-45c3-bf02-83492d45f0fe",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "mcpProcesses": [
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 47231,
+          "ppid": 47169,
+          "pgid": 47231,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 47231,
+          "ppid": 47169,
+          "pgid": 47231,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 47231,
+          "ppid": 47169,
+          "pgid": 47231,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 47231,
+          "ppid": 47169,
+          "pgid": 47231,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 46592,
+          "ppid": 46544,
+          "pgid": 46544,
+          "nodeMode": "1",
+          "bound": true
+        },
+        {
+          "pid": 47231,
+          "ppid": 47169,
+          "pgid": 47231,
+          "nodeMode": "1",
+          "bound": true
+        }
+      ],
+      "liveness": "live",
+      "outputBytes": 13101,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "binaryUnchanged": true
+    },
+    "kimi": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "72b3cda45275ff66a8017149806c844ddc9eee724f62e0c079d319e33691ac66",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-BWy3CE/.kimi-code/mcp.json",
+      "nativeArguments": [],
+      "sessionId": "8898dfbd-30db-47d1-b4d2-c1b54ec18748",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 2376,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [
+        "trust"
+      ],
+      "disposableProjectTrusted": true,
+      "fixtureMemoryReadApproved": true,
+      "binaryUnchanged": true
+    },
+    "deepseek-harness": {
+      "installed": true,
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "query": "not-run",
+      "memory": "fixture-word-observed",
+      "resume": "not-run",
+      "executableSha256": "fa1039cdc3ea47bd434e4303b92a60a8e2078ff32d31c3d3ef1cb1bd7c31e8c2",
+      "managedConfiguration": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-BWy3CE/.dsh/donwells-memory.patch.json",
+      "nativeArguments": [
+        "--profile",
+        "tui"
+      ],
+      "sessionId": "1866df07-d40f-4da9-ad89-cb61dbd249b0",
+      "terminalBackground": "rgb(22, 22, 29)",
+      "liveness": "live",
+      "outputBytes": 17891,
+      "startup": "output-observed",
+      "processOnlyLabel": "Running",
+      "diagnostics": [],
+      "completedAnswer": {
+        "nativeSessionId": "session-969662fb-2c0c-423c-bcf0-6beebf1c6160",
+        "turnReason": {
+          "kind": "completed"
+        },
+        "answerSha256": "bffc78012e17956955ce4e52d5fea099d92b8e869fe29e7dc104edaf2c4b0222",
+        "failedToolCalls": 0,
+        "transcript": "/tmp/donwells-strengthen-09-dsh-ornith-home/sessions/--private-var-folders-ly-4j6lsfds4n3g0_xcjrwjf4b40000gn-T-donwells-native-agents-BWy3CE--/session-969662fb-2c0c-423c-bcf0-6beebf1c6160/session.jsonl.zstd"
+      },
+      "binaryUnchanged": true
+    }
+  },
+  "limitations": [
+    "Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks."
+  ],
+  "windowEvents": [
+    {
+      "event": "closed",
+      "atMs": 1419.400208
+    }
+  ],
+  "migratedMemory": {
+    "backend": "sqlite",
+    "entryId": "aea65a44-6b47-420c-945f-5a1b26d193f1",
+    "revision": 2,
+    "originalBackupUnchanged": true,
+    "appPids": [
+      46361,
+      46463
+    ],
+    "postUpgradeWriteRecalledAfterRestart": true
+  },
+  "nativeWrite": {
+    "id": "6fec6ea8-6926-49ca-ae15-8970debb4d98",
+    "revision": 1,
+    "provenance": {
+      "harness": "omp",
+      "sourceSession": null,
+      "sourceRef": null,
+      "workspace": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-BWy3CE"
+    },
+    "contentSha256": "da91a77fbf46f831f4fba0d85d04c103c9c50462957086083bd1725e4243e712",
+    "writerSession": "4a9d53d6-58ba-4568-a26a-933397019920",
+    "appPids": [
+      46463,
+      49283
+    ],
+    "recalledAfterRestart": true
+  },
+  "idleDaemonStopped": true,
+  "temporaryHermesConfigurationRemoved": true,
+  "hermesProfile": "/tmp/donwells-strengthen-09-hermes-ornith-home/profiles/donwells-acceptance-20c4b1df-e684-4c3b-97f6-bb79071114f4",
+  "hermesProfileRemainedAbsent": true,
+  "requestedChecksPassed": true,
+  "durationMs": 79750.831208
+}

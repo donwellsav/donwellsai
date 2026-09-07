@@ -543,14 +543,16 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes accepted component manifests and qualification results. Produces a locally installable, verified artifact with complete dependencies/notices.
 
-- [ ] **Step 1:** Bundle or deliberately provision each selected native binary, WASM asset, SQLite extension and model; show optional downloads with size/checksum and offline behavior.
-- [ ] **Step 2:** Build the local artifact with current packaging commands. Validate signing/notarization when credentials exist; otherwise report unsigned status explicitly without publishing.
-- [ ] **Step 3:** Install into a controlled acceptance location/profile and complete all six journeys. Verify hash/source relation, cold launch, updates/rollback, memory persistence and no dependence on developer node_modules.
-- [ ] **Step 4:** Write release notes from actual changes and evidence. Offer a concrete local artifact for user review; no automatic push, PR or public release.
-- [ ] **Verification:** Run `pnpm package:mac`, then `pnpm package:check` against the produced package inputs; use the actual produced artifact path from tool output, not a guessed versioned filename. Record installed acceptance results.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Bundle or deliberately provision each selected native binary, WASM asset, SQLite extension and model; show optional downloads with size/checksum and offline behavior.
+- [x] **Step 2:** Build the local artifact with current packaging commands. Validate signing/notarization when credentials exist; otherwise report unsigned status explicitly without publishing.
+- [x] **Step 3:** Install into a controlled acceptance location/profile and complete all six journeys. Verify hash/source relation, cold launch, updates/rollback, memory persistence and no dependence on developer node_modules.
+- [x] **Step 4:** Write release notes from actual changes and evidence. Offer a concrete local artifact for user review; no automatic push, PR or public release.
+- [x] **Verification:** Run `pnpm package:mac`, then `pnpm package:check` against the produced package inputs; use the actual produced artifact path from tool output, not a guessed versioned filename. Record installed acceptance results.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
 
 **Rollback:** Keep the previous binary and compatible data export. A binary downgrade must honor Task 09 migration rules.
+
+**Strengthening evidence:** [installed release, updates, native tools and recovery](../../architecture/strengthening-22/README.md). Signed 0.4.0 artifact; notarization unconfigured. Model and automation limitations remain recorded.
 
 ### Task 23: Analytics and richer learned/temporal memory
 
@@ -702,7 +704,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Task 22 active — installed release, update and recovery proof.** Tasks 01, 03–21 and 27 are strengthened. Task 02 remains skipped. Tasks 22–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 23 active — analytics and richer learned/temporal memory.** Tasks 01, 03–22 and 27 are strengthened. Task 02 remains skipped. Tasks 23–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

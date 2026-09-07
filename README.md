@@ -6,6 +6,17 @@ donwells.ai is a local desktop workspace for parallel agent development across G
 
 The donwells.ai workbench combines persistent workspace organization and split terminals with Explorer, Quick Open, Monaco, rich Markdown, source control, snapshot-bound review notes, and bounded image/PDF viewers. Settings cover agents, editor, source control, browser and media, appearance, terminals, shortcuts, notifications, privacy, and advanced behavior. Semantic light/dark themes and native interface scaling apply without restarting.
 
+## 0.4.0 changes
+
+- Keyboard commands transfer focus into side panels and remain available while editing. The installed keyboard acceptance covers shared-project agents, handoffs, memory, search/edit/save, build evidence and restart continuity.
+- macOS Finder launches discover standard Homebrew and user CLI installations while preserving an explicit PATH. Custom installation locations still require an explicit PATH or executable.
+- Project tool settings provide pinned optional downloads with sizes, SHA-256 and removal instructions. Tools and models remain separate installations; installed semantic retrieval is tested with external networking denied.
+- Managed browser-service crash recovery removes its private Chrome process before starting a fresh context.
+- Production dependency notices are generated and verified during packaging. PDF preview uses Chromium canvas without shipping unused Node canvas binaries.
+- The controlled 0.3.0 → 0.4.0 → 0.3.0 → 0.4.0 check preserves SQLite revisions, terminal identities, source files and the migration backup. Export a project kit before changing versions.
+
+Installed-release evidence and remaining qualification limits are in [Task 22](docs/architecture/strengthening-22/README.md). The local macOS ARM64 DMG is Developer ID signed; notarization is not configured. This is a local review artifact, with no automatic publishing or update delivery.
+
 ## 0.3.0 changes
 
 - Unified product identity, validated settings, semantic themes, native scaling, and explicit profile recovery.
