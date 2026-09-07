@@ -1,0 +1,27 @@
+{
+  "lumeVersion": "0.5.3",
+  "tag": "lume-v0.5.3",
+  "sourceCommit": "754eec754991e1760100621e9bfe7ec1395cc7db",
+  "archiveSha256": "af5d0556763a7f0116153c220aaabe44974e775091ac57e38da2abb2959c63e8",
+  "executableSha256": "82941bf535f8bebb469f6bd5c9b5cfbecee18fec8a34a99589d433f6b2989705",
+  "deepStrictSignatureVerified": true,
+  "virtualizationSupported": true,
+  "hostMemoryBytes": 137438953472,
+  "sourceFiles": {
+    "LICENSE.md": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
+    "libs/lume/src/LumeController.swift": "4f4397d308699a71428de2683c5448b6c35b6d32c0a1ad71e51478d7307c43a8",
+    "libs/lume/src/VNC/VNCService.swift": "c9fe167df449c82cacedbfd28f6d37cba67ad21a1a20f45edee2ee177a128e6a",
+    "libs/lume/src/FileSystem/Home.swift": "7ff6777937b0c23e9ac4604daf0deed33961b031c3599a3edf62cd88ec5e97c5",
+    "libs/lume/src/FileSystem/Settings.swift": "6cc6a7a365d84afa0453a6c8762d17f722eeac35414d7f2242f30a044ea92bab",
+    "libs/lume/src/VM/VM.swift": "83ed34be4ba148138b2691c0c83b4bbeae9dd22646ebaaed42221b6bf81b2dee",
+    "libs/lume/src/VM/VMDisplayPresenter.swift": "015c928e8c1fe5906612952e1f8f7ca4b9d8cced55fa7d541feefa1ac9cfc7ac",
+    "libs/lume/src/Commands/Config.swift": "5612f1d0991e65493cfa381900d76cc9f1f93efe9138f67cfc578c46d1faa32a",
+    "libs/lume/src/Commands/Run.swift": "e6d9adb74c06d6454c0f907c6b78d6eb81b1a373b5d23c4148f0927739c75ae8",
+    "libs/lume/src/Commands/Create.swift": "ca8f6beb7cbeefea7780e8e11d4a6abe5ac5e1fbb5a1cddac59e1df01ebb73ee",
+    "libs/lume/src/Telemetry/TelemetryClient.swift": "a2ee539ca13e513cb4dc06caa8173886917dc238bff2cf83d3af47e92503ea88",
+    "libs/lume/src/Unattended/MacOSOfflineSetupPatcher.swift": "7ff5e40542ca361032181eae8dc9d443a48864e8c134fb43c0857aab14fa4a3f",
+    "libs/lume/src/Unattended/UnattendedInstaller.swift": "d0983e4f42f2ef12b568cc10fad320f13e77d74d99887b5008a3b0808b4d4d23",
+    "libs/lume/src/Clipboard/ClipboardWatcher.swift": "6534c43dab9ad4eaf623c8916c37dbdd61b46b47654408f086b309246e351709"
+  },
+  "guestQualification": "pending"
+}
