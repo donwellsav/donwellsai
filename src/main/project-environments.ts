@@ -89,7 +89,8 @@ export class ProjectEnvironments {
     const record = await this.require(workspacePath, id, generation)
     try {
       const hello = await this.call(record, 'hello', {}, randomUUID(), signal) as Record<string, unknown>
-      if (hello.projectId !== record.config.remoteProjectId || hello.root !== record.config.remoteRoot || hello.environmentId !== id || hello.generation !== generation || hello.version !== 1 || hello.os !== 'darwin' || hello.arch !== 'arm64' || !Array.isArray(hello.capabilities)) throw new Error('Remote handshake does not match the pairing')
+      const capabilities = hello.capabilities
+      if (hello.projectId !== record.config.remoteProjectId || hello.root !== record.config.remoteRoot || hello.environmentId !== id || hello.generation !== generation || hello.version !== 1 || !['darwin', 'linux'].includes(String(hello.os)) || hello.arch !== 'arm64' || typeof hello.runtime !== 'string' || !/^v24\./.test(hello.runtime) || !Array.isArray(capabilities) || !['terminal', 'ordered-input', 'operation-journal'].every(capability => capabilities.includes(capability))) throw new Error('Remote handshake does not match the pairing')
       const current = await this.require(workspacePath, id, generation)
       if (current.state !== record.state) return current
       return this.save({ ...record, state: 'ready', detail: undefined })

@@ -7,7 +7,7 @@ import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import type { AgentSessionCredential } from '@shared/agent-runtime'
 import type { ProjectEnvironments } from './project-environments'
-import { sshProjectArguments, validateSshConfig } from './project-remote'
+import { sshFailureMessage, sshProjectArguments, validateSshConfig } from './project-remote'
 
 import type { EnvironmentMemoryState } from '@shared/project-environment'
 type Bridge = { status: EnvironmentMemoryState; controller: AbortController; server: Server; sockets: Set<Socket>; directory: string; completion: Promise<void>; challenge: string }
@@ -74,7 +74,7 @@ export class ProjectEnvironmentMemory {
       const args = sshProjectArguments(validateSshConfig(environment.config), this.environments.trustFile(id)).slice(0, -3)
       const clear = args.indexOf('ClearAllForwardings=yes'); args[clear] = 'ClearAllForwardings=no'
       args.push('-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2', '-o', 'StreamLocalBindMask=0177', '-o', 'StreamLocalBindUnlink=no', '-R', remoteSocket + ':' + localSocket, '--', environment.config.username + '@' + environment.config.hostname)
-      bridge.completion = this.execute({ program: '/usr/bin/ssh', args, env: sanitizedProcessEnv(process.env), timeoutMs: null, maxOutputBytes: 65536, signal: bridge.controller.signal, detached: true }).then(() => { bridge.status = { state: 'failed', detail: 'Memory forward disconnected' } }, error => { bridge.status = { state: 'failed', detail: String(error).slice(0, 1024) } })
+      bridge.completion = this.execute({ program: '/usr/bin/ssh', args, env: sanitizedProcessEnv(process.env), timeoutMs: null, maxOutputBytes: 65536, signal: bridge.controller.signal, detached: true }).then(() => { bridge.status = { state: 'failed', detail: 'Memory forward disconnected' } }, error => { bridge.status = { state: 'failed', detail: (sshFailureMessage(error) ?? String(error)).slice(0, 1024) } })
       for (let attempt = 0; attempt < 10; attempt++) {
         if (bridge.status.state === 'failed') throw new Error(bridge.status.detail)
         try {

@@ -6,7 +6,7 @@ import { ProjectRemoteServer, readRemoteProjectMapping } from './project-remote-
 import type { ProjectRemoteRequest } from '@shared/project-environment'
 
 export async function runProjectRemoteStdio(mappingPath: string): Promise<void> {
-  if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.getuid?.() === 0) throw new Error('Initial remote deployment requires a dedicated non-root macOS arm64 account')
+  if (!['darwin', 'linux'].includes(process.platform) || process.arch !== 'arm64' || process.getuid?.() === 0) throw new Error('Remote deployment requires a dedicated non-root macOS or Linux arm64 account')
   if (process.type !== undefined) throw new Error('Remote entry requires a compatible Node runtime, not GUI Electron')
   if (process.env.SSH_ORIGINAL_COMMAND !== 'donwells-project-v1') throw new Error('Remote entry requires its restricted SSH forced command')
   const mapping = readRemoteProjectMapping(mappingPath)

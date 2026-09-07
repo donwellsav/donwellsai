@@ -22,19 +22,23 @@ JS
 /usr/bin/install -d -o root -g wheel -m 755 /usr/local/lib "$mapping_dir"
 /usr/bin/ditto "$bundle" "$prefix"
 /usr/sbin/chown -R root:wheel "$prefix"
-/bin/chmod -R go-w "$prefix"
+/bin/chmod -R a+rX,go-w "$prefix"
 /usr/bin/install -d -o dwtrial -g staff -m 700 "$workspace" "$owner_state"
 "$prefix/bin/node" - "$mapping_dir" "$public_key" <<'JS'
 const fs=require('fs'),path=require('path');const [dir,key]=process.argv.slice(2);const entry='/usr/local/lib/donwells-plan24/bin/node /usr/local/lib/donwells-plan24/out/main/project-remote-entry.js --mapping /private/etc/donwells-plan24/project.json';fs.writeFileSync(path.join(dir,'authorized_keys'),'restrict,port-forwarding,command="'+entry+'" '+fs.readFileSync(key,'utf8').trim()+'\n',{mode:0o644,flag:'wx'});fs.writeFileSync(path.join(dir,'project.json'),JSON.stringify({version:1,environmentId:'plan24-guest',generation:1,projectId:'plan24-project',root:'/Users/dwtrial/donwells-plan24-project',stateDirectory:'/Users/dwtrial/.donwells-plan24-owner'},null,2)+'\n',{mode:0o644,flag:'wx'});
 JS
+/bin/chmod 644 "$mapping_dir/authorized_keys" "$mapping_dir/project.json"
 /bin/cat > "$config" <<'CONFIG'
 Match User dwtrial
   AuthorizedKeysFile /private/etc/donwells-plan24/authorized_keys
   AuthenticationMethods publickey
   PasswordAuthentication no
   KbdInteractiveAuthentication no
-  AllowTcpForwarding no
+  # OpenSSH gates StreamLocal forwarding on this flag; PermitOpen/PermitListen retain the TCP denial.
+  AllowTcpForwarding remote
   AllowStreamLocalForwarding remote
+  PermitOpen none
+  PermitListen none
   AllowAgentForwarding no
   X11Forwarding no
   PermitTunnel no

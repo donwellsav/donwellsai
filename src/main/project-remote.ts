@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, realpathSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
-import { runProcess } from '@shared/child-process/run-process'
+import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import type { ProjectEnvironment, ProjectRemoteRequest, ProjectRemoteResponse, SshEnvironmentConfig } from '@shared/project-environment'
 
@@ -29,11 +29,19 @@ export function sshProjectArguments(config: SshEnvironmentConfig, knownHosts: st
     '-p', String(config.port), '-i', config.identityFile, '--', config.username + '@' + config.hostname, 'donwells-project-v1']
 }
 
+export function sshFailureMessage(error: unknown): string | undefined {
+  if (!(error instanceof ProcessExecutionError)) return undefined
+  const detail = error.result?.stderr.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x1f\x7f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1024)
+  return detail ? `SSH remote request failed: ${detail}` : undefined
+}
+
 /** OpenSSH owns authentication; the existing process executor owns deadlines and cancellation. */
 export async function requestProjectRemote(environment: ProjectEnvironment, knownHosts: string, request: ProjectRemoteRequest, signal?: AbortSignal): Promise<unknown> {
   const config = validateSshConfig(environment.config)
-  const response = await runProcess({ program: '/usr/bin/ssh', args: sshProjectArguments(config, knownHosts), env: sanitizedProcessEnv(process.env),
-    input: JSON.stringify(request) + '\n', timeoutMs: 30000, maxOutputBytes: 2 * 1024 * 1024, signal, detached: true })
+  let response
+  try { response = await runProcess({ program: '/usr/bin/ssh', args: sshProjectArguments(config, knownHosts), env: sanitizedProcessEnv(process.env),
+    input: JSON.stringify(request) + '\n', timeoutMs: 30000, maxOutputBytes: 2 * 1024 * 1024, signal, detached: true }) }
+  catch (error) { const message = sshFailureMessage(error); if (message) throw new Error(message, { cause: error }); throw error }
   const lines = response.stdout.trim().split('\n')
   if (lines.length !== 1 || Buffer.byteLength(lines[0]) > 2 * 1024 * 1024) throw new Error('Invalid remote response frame')
   const parsed = JSON.parse(lines[0]) as ProjectRemoteResponse

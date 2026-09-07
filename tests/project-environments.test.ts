@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProjectEnvironments } from '../src/main/project-environments'
-import { validateSshConfig, sshProjectArguments } from '../src/main/project-remote'
+import { validateSshConfig, sshFailureMessage, sshProjectArguments } from '../src/main/project-remote'
+import { ProcessExecutionError } from '../src/shared/child-process/run-process'
 import { ProjectRemoteServer, readRemoteProjectMapping } from '../src/main/project-remote-server'
 import { TerminalDaemon } from '../src/main/terminal-daemon'
 import { DaemonClient } from '../src/main/daemon-client'
@@ -28,7 +29,9 @@ it('pins independently verified SSH identity and makes project pairing immutable
   const args = sshProjectArguments(config, '/private/known_hosts')
   expect(args).toEqual(expect.arrayContaining(['StrictHostKeyChecking=yes', 'ForwardAgent=no', 'IdentityAgent=none', 'ClearAllForwardings=yes']))
   expect(args.slice(-3)).toEqual(['--', 'dwtrial@127.0.0.1', 'donwells-project-v1'])
-  const transport = vi.fn(async (_environment, _knownHosts, request: ProjectRemoteRequest) => request.method === 'hello' ? { version: 1, projectId: config.remoteProjectId, root: project, environmentId: 'guest', generation: 1, os: 'darwin', arch: 'arm64', capabilities: ['terminal'] } : [])
+  let remotePlatform = { os: 'darwin', arch: 'arm64', runtime: 'v24.19.0' }
+  let remoteCapabilities = ['terminal', 'ordered-input', 'operation-journal']
+  const transport = vi.fn(async (_environment, _knownHosts, request: ProjectRemoteRequest) => request.method === 'hello' ? { version: 1, projectId: config.remoteProjectId, root: project, environmentId: request.environmentId, generation: 1, ...remotePlatform, capabilities: remoteCapabilities } : [])
   const environments = new ProjectEnvironments(join(root, 'profile'), async path => {
     if (path !== project) throw new Error('unregistered project')
     return { projectPath: project, checkoutPath: project, projectKey: 'project-key', indexKey: 'checkout-key' }
@@ -37,6 +40,18 @@ it('pins independently verified SSH identity and makes project pairing immutable
   expect(environment.state).toBe('configured')
   await expect(environments.request(project, 'guest', 1, 'terminal.open', { cols: 80, rows: 24 }, 'open')).rejects.toThrow('Connect')
   await environments.connect(project, 'guest', 1)
+  remotePlatform = { os: 'linux', arch: 'arm64', runtime: 'v24.19.0' }
+  await environments.configure(project, 'linux-guest', config)
+  expect((await environments.connect(project, 'linux-guest', 1)).state).toBe('ready')
+  remotePlatform = { os: 'linux', arch: 'x64', runtime: 'v24.19.0' }
+  await environments.configure(project, 'wrong-arch', config)
+  await expect(environments.connect(project, 'wrong-arch', 1)).rejects.toThrow('handshake')
+  remotePlatform = { os: 'linux', arch: 'arm64', runtime: 'v23.11.0' }
+  await environments.configure(project, 'wrong-runtime', config)
+  await expect(environments.connect(project, 'wrong-runtime', 1)).rejects.toThrow('handshake')
+  remotePlatform = { os: 'linux', arch: 'arm64', runtime: 'v24.19.0' }; remoteCapabilities = ['terminal']
+  await environments.configure(project, 'missing-capability', config)
+  await expect(environments.connect(project, 'missing-capability', 1)).rejects.toThrow('handshake')
   await environments.request(project, 'guest', 1, 'terminal.list', {}, 'list')
   await environments.pause(project, 'guest', 1)
   await expect(environments.request(project, 'guest', 1, 'terminal.open', { cols: 80, rows: 24 }, 'open')).rejects.toThrow('Connect')
@@ -46,6 +61,12 @@ it('pins independently verified SSH identity and makes project pairing immutable
   await expect(environments.connect(project, 'guest', 1)).rejects.toThrow('trust file changed')
   expect((await environments.list(project))[0].state).toBe('unverifiable')
   expect(() => readRemoteProjectMapping(join(root, 'mapping.json'))).toThrow()
+})
+
+it('reports bounded SSH stderr when the transport rejects authentication', () => {
+  const result = { code: 255, signal: null, stdout: '', stderr: '\u001b[31mPermission denied (publickey).\r\n', durationMs: 1 }
+  expect(sshFailureMessage(new ProcessExecutionError('exit', 'process exited with code 255', { result }))).toBe('SSH remote request failed: Permission denied (publickey).')
+  expect(sshFailureMessage(new Error('other failure'))).toBeUndefined()
 })
 
 it('keeps a real daemon terminal across endpoint reconnects without replaying ordered input', async () => {
@@ -115,7 +136,7 @@ it('authenticates each bridge call and writes one canonical memory revision with
   const memory = new ProjectMemoryService(profile, async path => { await scope(path); return { projectPath: project, projectKey } })
   let live = true
   const transport = vi.fn(async (_environment, _knownHosts, request: ProjectRemoteRequest) => {
-    if (request.method === 'hello') return { version: 1, projectId: config.remoteProjectId, root: project, environmentId: 'guest', generation: 1, os: 'darwin', arch: 'arm64', capabilities: ['terminal'] }
+    if (request.method === 'hello') return { version: 1, projectId: config.remoteProjectId, root: project, environmentId: 'guest', generation: 1, os: 'darwin', arch: 'arm64', runtime: 'v24.19.0', capabilities: ['terminal', 'ordered-input', 'operation-journal'] }
     if (request.method === 'agent.authenticate' && live && (request.params.credential as { token: string }).token === 'valid') return { workspacePath: project }
     throw new Error('owner credential revoked')
   })
@@ -196,6 +217,19 @@ it('serves the scoped memory socket only while its acknowledged forward is owned
     expect(stopped).toBe(true); expect(bridge.active).toBe(false)
     await expect(remoteMemoryRequest(localSocket, 'memory.list', {}, { token: 'valid' }, 'after-stop', 1000)).rejects.toThrow()
   } finally { await bridge.close() }
+})
+
+it('reports the SSH reason when a remote memory forward is rejected', async () => {
+  const { project, config } = fixture()
+  const { ProjectEnvironmentMemory } = await import('../src/main/project-environment-memory')
+  const environments = {
+    get: async () => ({ id: 'guest', generation: 1, state: 'ready', config }), trustFile: () => '/unused-known-hosts',
+    request: async (_workspace: string, _id: string, _generation: number, method: string) => method === 'hello' ? { memorySocket: '/private/remote-memory.sock' } : {}
+  } as unknown as ProjectEnvironments
+  const result = { exitCode: 255, signal: null, stdout: '', stderr: 'Error: remote port forwarding failed for listen path\n', timedOut: false, aborted: false, stdoutTruncated: false, stderrTruncated: false }
+  const bridge = new ProjectEnvironmentMemory(environments, (async () => { throw new ProcessExecutionError('exit', 'process exited with code 255', { result }) }) as never)
+  try { await expect(bridge.start(project, 'guest', 1)).rejects.toThrow('SSH remote request failed: Error: remote port forwarding failed for listen path') }
+  finally { await bridge.close() }
 })
 
 it('admits only private prepared Lume disks and reconnects/stops the recorded owner without replaying launch', async () => {

@@ -1,0 +1,9 @@
+# Linux remote agent integration
+
+The project endpoint now admits Linux arm64 with Node24 and a verified native node-pty build. The bundle preparation path selects the host-compatible native binding, and the Linux installer creates the same administrator-owned forced-command mapping and private project/state directories as the macOS route. Read/traverse permissions are explicit after umask handling; the public-key-only account must be usable. Remote-request and memory-forward errors include bounded SSH stderr.
+
+Actual owned Linux SSH fixture: node24.19.0, node-pty1.1.0, OpenCode1.18.18, local Ornith provider. The sealed image is donwells-task24-linux-ssh:node24-opencode1.18.18, sha256:921bb2f43e045f6bdf7f0df3b918707649ae76b0188f83a1dc133bda54626e16. The running container was repaired in place to preserve its project and independent host identity; the image records reproducible configuration rather than a claim that the container was recreated.
+
+OpenSSH8.4 rejects the original Unix forwarding policy due to its interaction with TCP forwarding permission. The native workaround sets AllowTcpForwarding remote and independently denies TCP with PermitOpen none and PermitListen none. The actual fixture accepts the Unix listener and rejects both local and remote TCP forwarding (ssh-forward-policy.json). No transport rewrite or SSH source fork was required. Upstream issue: https://lists.mindrot.org/pipermail/openssh-bugs/2024-May/026018.html .
+
+linux-agent-live.json records one actual remote OpenCode turn: authenticated read of the existing local project fact, canonical fact creation with opencode provenance, and exact agent-proof.txt bytes. Failed forwarding occurred before model input; continuation reused the same source fact. Agent, bridge, app and owned daemon stopped afterward. This closes the Linux remote-agent clause; SSH result/reconnect/portability continuation and physical Lume remain separate work.

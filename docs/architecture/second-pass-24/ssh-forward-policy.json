@@ -1,0 +1,14 @@
+{
+  "streamRemote": {
+    "alive": true,
+    "remoteSocket": true,
+    "stderr": "** WARNING: connection is not using a post-quantum key exchange algorithm.\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\n** The server may need to be upgraded. See https://openssh.com/pq.html"
+  },
+  "tcpRemote": {
+    "alive": false,
+    "code": 255,
+    "stderr": "** WARNING: connection is not using a post-quantum key exchange algorithm.\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\n** The server may need to be upgraded. See https://openssh.com/pq.html\nError: remote port forwarding failed for listen port 24333"
+  },
+  "tcpLocalRejected": "ConnectionResetError: [Errno 54] Connection reset by peer",
+  "tcpLocalStderr": "** WARNING: connection is not using a post-quantum key exchange algorithm.\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\n** The server may need to be upgraded. See https://openssh.com/pq.html\nchannel 2: open failed: administratively prohibited: open failed"
+}
