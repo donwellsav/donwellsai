@@ -1,52 +1,52 @@
 {
-  "engine": "baseline",
+  "engine": "graphiti",
   "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
   "embeddingDimensions": 2560,
   "retained": [
     {
       "id": "august.md",
       "returnedFactCount": null,
-      "ms": 1476.6120829153806
+      "ms": 4546.919208019972
     },
     {
       "id": "september.md",
       "returnedFactCount": null,
-      "ms": 89.69441696535796
+      "ms": 14069.527290994301
     },
     {
       "id": "ownership.md",
       "returnedFactCount": null,
-      "ms": 46.51887505315244
+      "ms": 13509.955708985217
     },
     {
       "id": "dependencies.md",
       "returnedFactCount": null,
-      "ms": 46.879750094376504
+      "ms": 9430.602208012715
     },
     {
       "id": "retry-policy.md",
       "returnedFactCount": null,
-      "ms": 46.56783305108547
+      "ms": 2939.1337919514626
     },
     {
       "id": "temporary-code.md",
       "returnedFactCount": null,
-      "ms": 46.54341598507017
+      "ms": 3063.201208016835
     },
     {
       "id": "foreign-private.md",
       "returnedFactCount": null,
-      "ms": 771.7245840467513
+      "ms": 6459.302749950439
     },
     {
       "id": "retry-policy.md",
       "returnedFactCount": null,
-      "ms": 47.6400830084458
+      "ms": 6016.223207931034
     },
     {
       "id": "retry-policy.md",
       "returnedFactCount": null,
-      "ms": 95.90533399023116
+      "ms": 3187.0119579834864
     }
   ],
   "queries": [
@@ -55,12 +55,12 @@
       "hits": [
         "august.md",
         "september.md",
-        "dependencies.md",
         "temporary-code.md",
+        "dependencies.md",
         "ownership.md"
       ],
       "recallAt5": 1.0,
-      "ms": 807.3335830122232,
+      "ms": 515.9210420679301,
       "forbiddenSourceLeak": false,
       "answer": "PostgreSQL",
       "answerCorrect": true
@@ -68,14 +68,14 @@
     {
       "id": "september-current",
       "hits": [
-        "september.md",
         "august.md",
-        "dependencies.md",
+        "september.md",
         "temporary-code.md",
+        "dependencies.md",
         "ownership.md"
       ],
       "recallAt5": 1.0,
-      "ms": 247.49345798045397,
+      "ms": 561.4666669862345,
       "forbiddenSourceLeak": false,
       "answer": "SQLite",
       "answerCorrect": true
@@ -85,12 +85,12 @@
       "hits": [
         "ownership.md",
         "dependencies.md",
-        "september.md",
+        "temporary-code.md",
         "august.md",
-        "temporary-code.md"
+        "september.md"
       ],
       "recallAt5": 1.0,
-      "ms": 214.1960411099717,
+      "ms": 567.7465000189841,
       "forbiddenSourceLeak": false,
       "answer": "Alice Chen",
       "answerCorrect": true
@@ -101,11 +101,11 @@
         "retry-policy.md",
         "temporary-code.md",
         "dependencies.md",
-        "ownership.md",
-        "august.md"
+        "september.md",
+        "ownership.md"
       ],
       "recallAt5": 1.0,
-      "ms": 224.4314169511199,
+      "ms": 550.300250062719,
       "forbiddenSourceLeak": false,
       "answer": "5",
       "answerCorrect": true
@@ -116,11 +116,11 @@
         "temporary-code.md",
         "september.md",
         "retry-policy.md",
-        "august.md",
-        "dependencies.md"
+        "dependencies.md",
+        "august.md"
       ],
       "recallAt5": 1.0,
-      "ms": 136.51275006122887,
+      "ms": 542.1742500038818,
       "forbiddenSourceLeak": false,
       "answer": "amber-lantern-731",
       "answerCorrect": true
@@ -132,7 +132,7 @@
         "retry-policy.md"
       ],
       "recallAt5": 1.0,
-      "ms": 800.9291250491515,
+      "ms": 290.58441694360226,
       "forbiddenSourceLeak": false,
       "answer": "violet-secret-982",
       "answerCorrect": true
@@ -144,10 +144,10 @@
         "september.md",
         "august.md",
         "dependencies.md",
-        "ownership.md"
+        "retry-policy.md"
       ],
       "recallAt5": null,
-      "ms": 209.8063750891015,
+      "ms": 529.4414169620723,
       "forbiddenSourceLeak": false,
       "answer": "UNKNOWN",
       "answerCorrect": true
@@ -159,7 +159,7 @@
         "foreign-private.md"
       ],
       "recallAt5": 1.0,
-      "ms": 168.55895891785622,
+      "ms": 314.0110829845071,
       "forbiddenSourceLeak": false,
       "answer": "9",
       "answerCorrect": true
@@ -169,12 +169,12 @@
       "hits": [
         "retry-policy.md",
         "september.md",
-        "dependencies.md",
         "august.md",
+        "dependencies.md",
         "ownership.md"
       ],
       "recallAt5": 1.0,
-      "ms": 167.70787502173334,
+      "ms": 487.58633295074105,
       "forbiddenSourceLeak": false,
       "answer": "3",
       "answerCorrect": true
@@ -183,13 +183,13 @@
       "id": "code-after-delete",
       "hits": [
         "september.md",
-        "retry-policy.md",
         "dependencies.md",
         "august.md",
+        "retry-policy.md",
         "ownership.md"
       ],
       "recallAt5": null,
-      "ms": 224.89912493620068,
+      "ms": 553.1696670223027,
       "forbiddenSourceLeak": false,
       "answer": "UNKNOWN",
       "answerCorrect": true
@@ -201,7 +201,7 @@
         "retry-policy.md"
       ],
       "recallAt5": 1.0,
-      "ms": 140.48166596330702,
+      "ms": 281.27329202834517,
       "forbiddenSourceLeak": false,
       "answer": "violet-secret-982",
       "answerCorrect": true
@@ -213,7 +213,7 @@
         "foreign-private.md"
       ],
       "recallAt5": 1.0,
-      "ms": 79.5272079994902,
+      "ms": 218.19933305960149,
       "forbiddenSourceLeak": false,
       "answer": "9",
       "answerCorrect": true
@@ -223,25 +223,25 @@
   "strictSchemaOverride": false,
   "runnerSha256": "c093828333484fb070aaa18d7a406f55f6180c64ad290bbe3860442544b7b238",
   "timingConditions": "One whole trial per bridge, one model request at a time; shared host and filesystem cache uncontrolled.",
-  "startedAt": "2026-09-07T05:56:02.551319+00:00",
+  "startedAt": "2026-09-07T05:56:45.051603+00:00",
   "corpusSha256": "24551f551040bbf4a61df91826c6221113c6e82e9f9fc41cc6c3f72d8d28fbd9",
-  "initializeMs": 79.95837496127933,
+  "initializeMs": 934.7859169356525,
   "deleted": [
     {
       "id": "retry-policy.md",
-      "ms": 10.263624950312078
+      "ms": 11.771834106184542
     },
     {
       "id": "temporary-code.md",
-      "ms": 7.834083982743323
+      "ms": 5.898499977774918
     }
   ],
   "complete": true,
   "closed": true,
-  "totalMs": 20117.837500059977,
-  "pythonPeakRssBytes": 49102848,
-  "reapedChildPeakRssBytes": 15741190144,
+  "totalMs": 86277.91799989063,
+  "pythonPeakRssBytes": 194723840,
+  "reapedChildPeakRssBytes": 5619712,
   "resourceLimit": "Python peak RSS excludes native database processes, shared model bridge, baseline child and oMLX.",
-  "derivedBytes": 452193,
-  "finishedAt": "2026-09-07T05:56:22.671225+00:00"
+  "derivedBytes": 3265503,
+  "finishedAt": "2026-09-07T05:58:11.354057+00:00"
 }

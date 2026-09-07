@@ -1,5 +1,6 @@
 """Summarize native trial receipts without treating partial runs as completed scores."""
 import argparse
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -7,13 +8,18 @@ from statistics import median
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--metrics', type=Path, required=True)
+parser.add_argument('--corpus', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('receipts', type=Path, nargs='+')
 args = parser.parse_args()
 metrics = json.loads(args.metrics.read_text())
+corpus = json.loads(args.corpus.read_text())
+corpus_hash = hashlib.sha256(json.dumps(corpus, sort_keys=True).encode()).hexdigest()
+initial_ids = [doc['id'] for doc in corpus['stages'][0]['documents']]
 rows = []
 for path in args.receipts:
     trial = json.loads(path.read_text())
+    assert trial['corpusSha256'] == corpus_hash, 'Compare the same authored corpus only'
     start, end = (datetime.fromisoformat(trial[key]) for key in ['startedAt', 'finishedAt'])
     calls = [call for call in metrics if call['candidate'] == trial['engine'] and start <= datetime.fromisoformat(call['at']) <= end]
     llm = [call for call in calls if call['operation'] == 'chat/completions']
@@ -29,6 +35,8 @@ for path in args.receipts:
         'forbiddenSourceLeaks': sum(q['forbiddenSourceLeak'] for q in queries),
         'errors': trial['errors'],
         'retentionMs': sum(item['ms'] for item in trial['retained']),
+        'initialSourceReadyComponentsMs': trial['initializeMs'] + sum(item['ms'] for item in trial['retained'][:len(initial_ids)]) + queries[0]['ms']
+            if queries and queries[0]['id'] == corpus['stages'][0]['questions'][0]['id'] and [item['id'] for item in trial['retained'][:len(initial_ids)]] == initial_ids else None,
         'medianRetrievalMs': median(q['ms'] for q in queries) if queries else None,
         'totalMs': trial['totalMs'], 'derivedBytes': trial['derivedBytes'],
         'pythonPeakRssBytes': trial['pythonPeakRssBytes'],
@@ -45,6 +53,7 @@ args.output.write_text(json.dumps({
     'limitations': [
         'Token usage includes extraction, retrieval and source-assisted answers; it is not billed cost.',
         'Retention time includes successful insert operations; failed extraction time is included only in total time.',
+        'Initial-source-ready time sums initialization, initial-stage insertions and first retrieval; it excludes harness gaps and answer generation.',
         'Python and reaped-child RSS are separate process maxima, not simultaneous process-tree or model-server memory.',
         'The baseline embeds and reranks in its own native child; those calls are absent from bridge metrics.',
         'Different corpus hashes, incomplete runs and uncontrolled host/cache conditions must remain explicit.',

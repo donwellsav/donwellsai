@@ -1,0 +1,19 @@
+{
+  "description": "Regression: retained provenance IDs must not make a second correction attempt delete an already removed episode.",
+  "stages": [
+    {
+      "documents": [{"id":"retry.md","text":"Copper Orchard's deployment retry limit is five attempts.","date":"2026-09-01T00:00:00+00:00"}],
+      "questions": []
+    },
+    {
+      "delete": [{"id":"retry.md"}],
+      "documents": [{"id":"retry.md","text":"Copper Orchard's deployment retry limit is three attempts.","date":"2026-09-02T00:00:00+00:00"}],
+      "questions": []
+    },
+    {
+      "delete": [{"id":"retry.md"}],
+      "documents": [{"id":"retry.md","text":"Copper Orchard's deployment retry limit is two attempts.","date":"2026-09-03T00:00:00+00:00"}],
+      "questions": [{"id":"twice-corrected","question":"What is Copper Orchard's deployment retry limit? Answer only an integer.","expectedSources":["retry.md"],"answerPattern":"^2$"}]
+    }
+  ]
+}

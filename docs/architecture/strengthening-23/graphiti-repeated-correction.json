@@ -1,0 +1,60 @@
+{
+  "engine": "graphiti",
+  "localModel": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "embeddingDimensions": 2560,
+  "retained": [
+    {
+      "id": "retry.md",
+      "returnedFactCount": null,
+      "ms": 4319.955290993676
+    },
+    {
+      "id": "retry.md",
+      "returnedFactCount": null,
+      "ms": 3747.118665953167
+    },
+    {
+      "id": "retry.md",
+      "returnedFactCount": null,
+      "ms": 3732.720625004731
+    }
+  ],
+  "queries": [
+    {
+      "id": "twice-corrected",
+      "hits": [
+        "retry.md"
+      ],
+      "recallAt5": 1.0,
+      "ms": 100.91400006785989,
+      "forbiddenSourceLeak": false,
+      "answer": "2",
+      "answerCorrect": true
+    }
+  ],
+  "errors": [],
+  "strictSchemaOverride": false,
+  "runnerSha256": "c093828333484fb070aaa18d7a406f55f6180c64ad290bbe3860442544b7b238",
+  "timingConditions": "One whole trial per bridge, one model request at a time; shared host and filesystem cache uncontrolled.",
+  "startedAt": "2026-09-07T05:58:31.468363+00:00",
+  "corpusSha256": "86d449a39ecb2d96b66ee20a634d812c01468ac4ffc7833a9d6e516f6cec2d3a",
+  "initializeMs": 578.1508749350905,
+  "deleted": [
+    {
+      "id": "retry.md",
+      "ms": 5.717750056646764
+    },
+    {
+      "id": "retry.md",
+      "ms": 5.722250090911984
+    }
+  ],
+  "complete": true,
+  "closed": true,
+  "totalMs": 16873.626624932513,
+  "pythonPeakRssBytes": 180027392,
+  "reapedChildPeakRssBytes": 5619712,
+  "resourceLimit": "Python peak RSS excludes native database processes, shared model bridge, baseline child and oMLX.",
+  "derivedBytes": 2668267,
+  "finishedAt": "2026-09-07T05:58:48.371833+00:00"
+}

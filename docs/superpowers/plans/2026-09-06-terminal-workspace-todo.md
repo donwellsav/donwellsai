@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Task 23 active — analytics and richer learned/temporal memory.** Tasks 01, 03–22 and 27 are strengthened. Task 02 remains skipped. Tasks 23–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Task 24 active — isolated desktops and remote workspaces.** Tasks 01, 03–23 and 27 are strengthened. Task 02 remains skipped. Tasks 24–26 and 28 remain reopened. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 
@@ -445,12 +445,14 @@ Browser trace attachment is an integration check after Task 15; basic run/test/b
 
 **Interfaces:** Consumes revision-bound local events and memory exports. Produces optional analytics and a measured learned-memory capability, not a replacement by assertion.
 
-- [ ] **Step 1:** Evaluate DuckDB against existing SQLite aggregation on real session history for cost trends, test outcomes and resource usage. Use read-only exports/snapshots of the operational store.
-- [ ] **Step 2:** Compare Hindsight, Graphiti and LightRAG on authored temporal/conflicting-fact and document-relation questions. Include extraction cost, correction/deletion behavior, time to first useful result and local-model compatibility.
-- [ ] **Step 3:** Admit at most one richer-memory engine per selected deployment profile; retain explicit provenance and project isolation. Use LadybugDB only when an embedded graph requirement and maintained driver are proved.
-- [ ] **Step 4:** If no candidate exceeds the simpler retrieval baseline on useful questions, retain the evaluation record and ship analytics without a second memory engine.
-- [ ] **Verification:** Run the same 50-question baseline plus temporal cases; publish measured quality/latency/resource comparison. If analytics is implemented, run `pnpm exec vitest run tests/project-analytics.test.ts`.
-- [ ] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+- [x] **Step 1:** Evaluate DuckDB against existing SQLite aggregation on real session history for cost trends, test outcomes and resource usage. Use read-only exports/snapshots of the operational store.
+- [x] **Step 2:** Compare Hindsight, Graphiti and LightRAG on authored temporal/conflicting-fact and document-relation questions. Include extraction cost, correction/deletion behavior, time to first useful result and local-model compatibility.
+- [x] **Step 3:** Admit at most one richer-memory engine per selected deployment profile; retain explicit provenance and project isolation. Use LadybugDB only when an embedded graph requirement and maintained driver are proved.
+- [x] **Step 4:** If no candidate exceeds the simpler retrieval baseline on useful questions, retain the evaluation record and ship analytics without a second memory engine.
+- [x] **Verification:** Run the same 50-question baseline plus temporal cases; publish measured quality/latency/resource comparison. If analytics is implemented, run `pnpm exec vitest run tests/project-analytics.test.ts`.
+- [x] **Review and commit:** Inspect the focused diff, record source/artifact evidence and make a local task commit when complete. No push/PR.
+
+**Strengthening evidence:** [analytics and richer-memory evaluation](../../architecture/advanced-memory-evaluation.md). SQLite analytics passed native GUI and scoped read-only checks; the production 50-question baseline and twelve-case temporal comparison support retaining the current retrieval engine. Richer full-source attempts remain explicitly unqualified; none is admitted. Native cleanup and Graphiti repeated correction passed.
 
 **Rollback:** Remove derived analytical/experimental indexes without touching authoritative memory; export corrections before disabling an adopted memory authority.
 
