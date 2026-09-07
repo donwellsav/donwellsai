@@ -1,0 +1,14 @@
+{
+  "project": "/private/tmp/donwells-task24-linux-app-profile/project",
+  "scope": "One native cat agent; exact owner selection and keyboard focus via Agent sessions Open terminal",
+  "sessionId": "5bb1fdc6-f5a9-4402-9667-f62c2db18e23",
+  "worktreePath": "/private/tmp/donwells-task24-linux-app-profile/project",
+  "focus": {
+    "documentHasFocus": true,
+    "activePane": "term:5bb1fdc6-f5a9-4402-9667-f62c2db18e23",
+    "runsClosed": true,
+    "exactTextareaFocused": true
+  },
+  "passed": true,
+  "catStoppedAndDismissed": true
+}

@@ -1773,6 +1773,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         runningAgents: { ...state.runningAgents, [sessionId]: run }
       }))
       persistSessionSoon()
+      if (typeof document !== 'undefined') focusPaneTarget()
       return true
     } catch (error) {
       set({ error: 'Could not open agent terminal: ' + String(error) })
