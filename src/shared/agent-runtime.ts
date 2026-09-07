@@ -259,13 +259,26 @@ export function unavailableAgentHooks(reason: string): AgentHookSupport {
 }
 
 /** Explicit argv bypasses shell parsing; legacy command strings remain a separate path. */
-export type AgentExecutable = { executable: string; args: string[] }
+export type AgentExecutable = { executable: string; args: string[]; hermesHome?: string }
 export function parseAgentExecutable(value: unknown): AgentExecutable {
-  if (!isRecord(value) || Object.keys(value).some(key => key !== 'executable' && key !== 'args') || typeof value.executable !== 'string' || !value.executable.trim() || value.executable.includes('\0')) throw new Error('Invalid agent executable')
+  if (!isRecord(value) || Object.keys(value).some(key => key !== 'executable' && key !== 'args' && key !== 'hermesHome') || typeof value.executable !== 'string' || !value.executable.trim() || value.executable.includes('\0')) throw new Error('Invalid agent executable')
   const args = value.args ?? []
   if (!Array.isArray(args) || args.length > 256 || args.some(arg => typeof arg !== 'string' || arg.includes('\0'))) throw new Error('Invalid agent arguments')
   if (new TextEncoder().encode(JSON.stringify([value.executable, args])).length > 16 * 1024) throw new Error('Agent executable and arguments exceed limit')
-  return { executable: value.executable, args: [...args] }
+  const home = value.hermesHome
+  if (home !== undefined && (
+    agentProviderForExecutable(value.executable)?.id !== 'hermes' ||
+    typeof home !== 'string' ||
+    home.length > 4096 ||
+    !/^(?:\/|[A-Za-z]:[\\/])/.test(home) ||
+    /[\x00-\x1f\x7f]/.test(home) ||
+    home.split(/[\\/]/).includes('..')
+  )) throw new Error('Invalid Hermes profile home')
+  return {
+    executable: value.executable,
+    args: [...args],
+    ...(typeof home === 'string' ? { hermesHome: home } : {})
+  }
 }
 
 export function agentProviderForExecutable(path: string): AgentProviderDefinition | undefined {

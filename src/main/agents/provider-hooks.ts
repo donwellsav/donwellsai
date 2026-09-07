@@ -6,7 +6,7 @@ import type {
   AgentHookSupport,
   AgentProviderDefinition
 } from '@shared/agent-runtime'
-import { unavailableAgentHooks } from '@shared/agent-runtime'
+import { parseAgentExecutable, unavailableAgentHooks } from '@shared/agent-runtime'
 import { quoteWindowsCmdArgument } from '@shared/child-process/windows-command-line'
 
 export const AGENT_HOOK_ENV = {
@@ -115,12 +115,14 @@ export function createAgentLaunchPlan(options: {
   inheritedEnv?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
 }): AgentLaunchPlan {
+  if (options.launch) options = { ...options, launch: parseAgentExecutable(options.launch) }
   const platform = options.platform ?? process.platform
   const base = { command: options.command, ...(options.launch ? { launch: options.launch } : {}) }
   const withArguments = (args: string[]) => options.launch
-    ? { ...base, launch: { executable: options.launch.executable, args: [...options.launch.args, ...args] } }
+    ? { ...base, launch: { ...options.launch, args: [...options.launch.args, ...args] } }
     : { command: appendArguments(options.command, args, platform) }
   const env: NodeJS.ProcessEnv = {
+    ...(options.launch?.hermesHome ? { HERMES_HOME: options.launch.hermesHome } : {}),
     [AGENT_HOOK_ENV.socket]: options.binding.socketPath,
     [AGENT_HOOK_ENV.runId]: options.binding.runId,
     [AGENT_HOOK_ENV.sessionId]: options.binding.sessionId,

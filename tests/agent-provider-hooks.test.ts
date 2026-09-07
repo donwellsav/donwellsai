@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProviderDefinition, AgentProviderId } from '../src/shared/agent-runtime'
-import { AGENT_PROVIDER_DEFINITIONS } from '../src/shared/agent-runtime'
+import { AGENT_PROVIDER_DEFINITIONS, parseAgentExecutable } from '../src/shared/agent-runtime'
 import { AGENT_HOOK_ENV, createAgentLaunchPlan } from '../src/main/agents/provider-hooks'
 
 const directories: string[] = []
@@ -121,5 +121,17 @@ it('appends native hooks to argv without interpreting user arguments', () => {
   expect(plan.launch?.args.slice(0, 2)).toEqual(launch.args)
   expect(plan.launch?.args[2]).toBe('-c')
   expect(plan.hookSupport.support).toBe('native')
+  plan.cleanup()
+})
+
+it('preserves a native Hermes archive home without changing HOME or per-run credentials',()=>{
+  const launch=parseAgentExecutable({executable:'/tools/hermes',args:['--tui','--resume','native-id'],hermesHome:'/owned/custom-hermes'})
+  const plan=createAgentLaunchPlan({command:'hermes',launch,provider:provider('hermes'),binding,emitterCommand:['node','emit'],runtimeDir:runtimeDirectory(),inheritedEnv:{HOME:'/user',HERMES_HOME:'/wrong'}})
+  expect(plan.launch).toEqual(launch)
+  expect(plan.env.HERMES_HOME).toBe('/owned/custom-hermes')
+  expect(plan.env.HOME).toBeUndefined()
+  expect(plan.env[AGENT_HOOK_ENV.token]).toBe(binding.token)
+  expect(parseAgentExecutable(JSON.parse(JSON.stringify(plan.launch)))).toEqual(launch)
+  for(const bad of [{...launch,executable:'kimi'},{...launch,hermesHome:'relative'},{...launch,hermesHome:'/owned/../other'},{...launch,hermesHome:'/owned\nother'}])expect(()=>parseAgentExecutable(bad)).toThrow('Hermes profile home')
   plan.cleanup()
 })

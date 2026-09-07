@@ -74,7 +74,9 @@ it('checks Hermes archive freshness using state, WAL, and transcript metadata', 
   db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)').run('hermes:archive','hermes',f.project,state,Number(size),mtime.toString(),'1',null,null,'Hermes archive','native','state-db-v23',null,'','')
   db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run('hermes:archive','archivefreshness canary','assistant')
   db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");db.close()
-  expect((await f.service.search(f.project,'archivefreshness')).hits).toHaveLength(1)
+  const hits=(await f.service.search(f.project,'archivefreshness')).hits
+  expect(hits).toHaveLength(1)
+  expect((await f.service.get(f.project,hits[0].id)).resume).toMatchObject({executable:'hermes',hermesHome:profile,args:['--tui','--resume','native']})
   await writeFile(join(sessions,'native.jsonl'),'changed transcript')
   expect((await f.service.search(f.project,'archivefreshness')).hits).toEqual([])
 })

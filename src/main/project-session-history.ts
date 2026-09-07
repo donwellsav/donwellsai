@@ -234,7 +234,16 @@ export class ProjectSessionHistory {
     const dshId = /^deepseek-harness:session-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(nativeId)?.[1]
     const role = helperSession(row) ? 'helper' : 'primary'
     const sourceSessionId = typeof row.source_session_id === 'string' && row.source_session_id ? row.source_session_id : null
-    const resume = role === 'helper' ? null : row.agent === 'omp' ? { executable: 'omp', args: ['--resume', String(row.file_path)] } : row.agent === 'deepseek-harness' && dshId ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId] } : row.agent === 'hermes' && sourceSessionId ? { executable: 'hermes', args: ['--tui', '--resume', sourceSessionId] } : row.agent === 'kimi' && sourceSessionId ? { executable: 'kimi', args: ['--session', sourceSessionId] } : null
+    const resume = role === 'helper' ? null
+      : row.agent === 'omp' ? { executable: 'omp', args: ['--resume', String(row.file_path)] }
+      : row.agent === 'deepseek-harness' && dshId ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId] }
+      : row.agent === 'hermes' && sourceSessionId ? {
+        executable: 'hermes',
+        args: ['--tui', '--resume', sourceSessionId],
+        hermesHome: dirname(String(row.file_path))
+      }
+      : row.agent === 'kimi' && sourceSessionId ? { executable: 'kimi', args: ['--session', sourceSessionId] }
+      : null
     const visible = messages.slice(0, limit)
     const sourceFormat = row.agent === 'hermes' ? 'Hermes state.db' : row.agent === 'kimi' ? 'Kimi wire.jsonl' : row.agent === 'deepseek-harness' ? 'DeepSeek Harness native session' : 'OMP native session'
     return { id, agent: String(row.agent), nativeId, source: String(row.file_path), sourceFormat, sourceVersion: typeof row.source_version === 'string' && row.source_version ? row.source_version : null, projectAttribution: 'cwd', parentNativeId: typeof row.parent_session_id === 'string' && row.parent_session_id ? row.parent_session_id : null, role, cwd: String(row.cwd), indexedAt, resume, messages: visible.map(message => ({ ordinal: Number(message.ordinal), role: String(message.role), content: String(message.content) })), previousOrdinal: fromOrdinal > 0 ? Math.max(0, fromOrdinal - limit) : null, nextOrdinal: messages.length > limit ? Number(messages[limit]!.ordinal) : null, untrusted: true }

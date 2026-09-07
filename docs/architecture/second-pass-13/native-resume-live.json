@@ -1,0 +1,54 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-history-YRDDh4",
+  "resumed": [
+    {
+      "agent": "hermes",
+      "expectedNativeId": "hermes:20260906_140945_efd5e4",
+      "sessionId": "6ad32569-b9d7-492c-92b2-60755d895270",
+      "launch": {
+        "executable": "/Users/muzikfirst/.local/bin/hermes",
+        "args": [
+          "--tui",
+          "--resume",
+          "20260906_140945_efd5e4"
+        ],
+        "hermesHome": "/private/tmp/donwells-strengthen-27-native/hermes-home"
+      },
+      "restoredMarker": "HISTORY_ORNITH_27"
+    },
+    {
+      "agent": "kimi",
+      "expectedNativeId": "kimi:wd_donwells-native-agents-ruk4ti_238ef3886e8f:main:session_8231090d-b0e3-4084-be6a-9fc6119170c4",
+      "sessionId": "8eea3a15-08b2-4468-9011-211f8cea48b8",
+      "launch": {
+        "executable": "/Users/muzikfirst/.kimi-code/bin/kimi",
+        "args": [
+          "--session",
+          "session_8231090d-b0e3-4084-be6a-9fc6119170c4"
+        ]
+      },
+      "restoredMarker": "native-eb65664a-a4c8-4055-a249-82e3cd5afc17"
+    }
+  ],
+  "checks": [
+    "hermes: history search \u2192 native resume \u2192 known archived content rendered, without new prompt",
+    "kimi: history search \u2192 native resume \u2192 known archived content rendered, without new prompt"
+  ],
+  "limitations": [
+    "No new prompt, provider response or model call. Native TUI restored existing archived content.",
+    "Hermes runner initially compared /tmp to /private/tmp literally; corrected path comparison. After successful content proof its incorrect closeTerminal call was rejected; subsequent cleanup uses stop then confirmed-exit dismissal.",
+    "Retained profile shell and exited sessions prevented initial idle daemon shutdown; cleanup remains explicit."
+  ],
+  "appShutdowns": [
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    }
+  ]
+}

@@ -11,3 +11,9 @@ Remaining: actual visible history/analytics journeys; native Hermes cwd mapping 
 Rejected/corrected experiments: missing HOME prevented native startup; preserve the original HOME and explicitly disable unselected parser roots. A three-project trial lost its page during the second index; do not repeat it unchanged. The bounded single-project trial succeeded; multi-project recovery remains unqualified.
 
 Analytics controls now use separated themed fields and a bounded scrolling table. Actual Electron DuckDB route rendered and visually inspected in `analytics-refined.png`; decision choices also reset on project switch and late loads are discarded.
+
+## Native archive resume increment
+
+Hermes history now carries its admitted archive directory in a narrow `hermesHome` launch field. The shared argv parser accepts this only for Hermes; the provider owner preserves it across launch/restart and sets native `HERMES_HOME`, leaving `HOME` unchanged. This repairs the actual custom archive path instead of relying on a global test environment override.
+
+`native-resume-live.json` records actual Sessions search → open transcript → Open native conversation for Hermes and Kimi, with exact native IDs and archived text visible in both TUIs. No new prompts/model calls were sent. Focused provider/history checks and typecheck passed; current source build passed. Task13 remains partial for the remaining grouped-search/cancellation journey.
