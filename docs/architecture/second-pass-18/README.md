@@ -1,0 +1,9 @@
+# Task18 delivery
+
+The coordination increment in cadab1d adds actionable owner terminal, checkout changes and shared handoff routes to each advisory overlap. No task authority or branch automation added. Actual current-app receipt `overlap-review-live.json` verifies all three routes, preserved conflict bytes on review, then explicit resolution with UI staging and commit producing a two-parent merge. Owned app and daemon closed cleanly. Reproduce after build with `tests/acceptance/overlap-review.mjs`; set DONWELLS_PLAYWRIGHT_MODULE if Playwright is installed outside this checkout.
+
+Retained source/evidence: `../strengthening-18/README.md` and `result.json` identify the exact earlier package/source hashes that already demonstrate shared and isolated sessions, persisted intent, native Backlog edits, and native Lazygit/Backlog launches. These clauses are reused rather than repeated. That receipt uses /bin/cat native processes; actual provider-authenticated handoff remains07/10 and is not claimed here.
+
+Research refreshed September7: [Lazygit](https://github.com/jesseduffield/lazygit) and [Backlog.md](https://github.com/MrLesk/Backlog.md) remain appropriate terminal tools; selected admitted pins0.62.2 and1.51.0 and their hashes are retained in strengthening-18. Both upstream LICENSE files state MIT. [GitButler](https://github.com/gitbutlerapp/gitbutler/blob/master/LICENSE.md) is the credible GUI/worktree alternative, but its current FSL-1.1-MIT license restricts competing use until its future MIT grant. Its separate GUI and branch-management model do not fix the missing advisory-to-review navigation. No replacement, install or dependency was needed for this gap.
+
+All Task18 acceptance clauses delivered. Ownership remains advisory, not filesystem isolation. No push, publication, automatic branch switch or automatic merge.
