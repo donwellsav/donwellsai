@@ -8,7 +8,8 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { hash, sourceIdentity, validateOptions } from './workspace-baseline.mjs'
-import { cleanupOwnedSmokeDaemon, delay } from '../helpers/smoke-processes.mjs'
+import { cleanupOwnedSmokeDaemon, cleanSmokeAppShutdown, closeOwnedSmokeApp, delay } from '../helpers/smoke-processes.mjs'
+import { validateIntegratedDshTurn } from '../helpers/dsh-transcript-validation.mjs'
 
 const { values } = parseArgs({ options: {
   app: { type: 'string' }, profile: { type: 'string' }, evidence: { type: 'string' },
@@ -16,7 +17,8 @@ const { values } = parseArgs({ options: {
   'hermes-cli': { type: 'boolean', default: false },
   'omp-model': { type: 'string' },
   handoff: { type: 'boolean', default: false },
-  'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' }
+  'dsh-completed-answer': { type: 'boolean', default: false }, 'dsh-sessions': { type: 'string' }, zstd: { type: 'string' }, 'native-write': { type: 'boolean', default: false }, 'hermes-home': { type: 'string' }, 'hermes-python': { type: 'string' }, managed: { type: 'boolean', default: false }, sqlite: { type: 'boolean', default: false }, 'dsh-profile': { type: 'string' }, 'response-timeout-ms': { type: 'string', default: '60000' },
+  'integrated-journey': { type: 'boolean', default: false }
 } })
 assert(values.playwright, '--playwright is required')
 const responseTimeout = Number(values['response-timeout-ms'])
@@ -27,6 +29,7 @@ assert(agentIds.length && agentIds.every(id => ['omp', 'hermes', 'kimi', 'deepse
 assert(!(values.memory && agentIds.includes('deepseek-harness')) || values['dsh-profile'], 'DSH memory trial requires a configured native --dsh-profile')
 assert(!values.managed || (values.memory && agentIds.every(id => ['omp', 'kimi', 'hermes', 'deepseek-harness'].includes(id))), 'Managed setup supports all four providers in disposable profiles')
 assert(!values['native-write'] || (values.memory && values.managed && agentIds[0] === 'omp' && agentIds.length > 1), '--native-write requires managed memory with OMP first and at least one reader')
+assert(!values['integrated-journey'] || (values['native-write'] && values.sqlite && agentIds.length === 2 && agentIds[0] === 'omp' && agentIds[1] === 'deepseek-harness' && values['dsh-sessions'] && values.zstd), '--integrated-journey requires --native-write --sqlite --agents omp,deepseek-harness --dsh-sessions and --zstd')
 assert(!values['dsh-completed-answer'] || (values.memory && agentIds.includes('deepseek-harness') && values['dsh-sessions'] && values.zstd), '--dsh-completed-answer requires memory, DSH, --dsh-sessions and --zstd')
 assert(!values.handoff || (values.managed && values.memory && agentIds.length === 2 && !values['native-write']), '--handoff requires exactly two managed memory agents')
 const hermesMemory = values.memory && agentIds.includes('hermes')
@@ -38,6 +41,11 @@ const verificationWord = `native-${randomUUID()}`
 const memoryWord = `memory-${randomUUID()}`
 const memoryTitle = values['native-write'] ? 'Native agent saved decision' : 'Native bridge verification'
 writeFileSync(join(fixture, 'README.md'), `# Native agent acceptance\n\nVerification word: ${verificationWord}\n`)
+if (values['integrated-journey']) {
+  writeFileSync(join(fixture, 'package.json'), JSON.stringify({ scripts: { verify: 'node verify.cjs' } }))
+  writeFileSync(join(fixture, 'verify.cjs'), `const fs=require('node:fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/native-agent.txt',${JSON.stringify(verificationWord)});console.log('VERIFIED_NATIVE_AGENT')`)
+  writeFileSync(join(fixture, '.gitignore'), 'dist/\n')
+}
 execFileSync('git', ['init', '-b', 'main', fixture], { stdio: 'ignore' })
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)).href)
 const { callRuntime } = await import(pathToFileURL(join(resources, 'dist-cli/cli/rpc-client.js')).href)
@@ -45,6 +53,11 @@ const invoke = async (method, params = {}) => {
   const result = await callRuntime(method, params, profile, 10000)
   assert(result.ok, `${method}: ${result.error}`)
   return result.result
+}
+const closeForRestart = async (application, child, label) => {
+  const result = await closeOwnedSmokeApp(application, child)
+  assert(cleanSmokeAppShutdown(result), `${label}: ${JSON.stringify(result)}`)
+  return result
 }
 const env = { ...process.env, DONWELLS_USER_DATA: profile, KIMI_CODE_NO_AUTO_UPDATE: '1', KIMI_CLI_NO_AUTO_UPDATE: '1' }
 const hermesProfile = hermesMemory
@@ -78,6 +91,27 @@ function completedDshAnswer() {
   assert.equal(errors.length, 0, 'Native DSH recall included a failed tool call')
   return { nativeSessionId: events[0].id, turnReason: end.data.reason, answerSha256: hash(answer), failedToolCalls: errors.length, transcript: path }
 }
+function completedIntegratedDshJourney() {
+  const root = resolve(values['dsh-sessions'])
+  const projects = readdirSync(root).filter(name => name.endsWith(`-${basename(fixture)}--`))
+  if (!projects.length) return null
+  assert.equal(projects.length, 1, 'Ambiguous native DSH project logs')
+  const sessions = readdirSync(join(root, projects[0])).filter(name => name.startsWith('session-'))
+  assert.equal(sessions.length, 1, 'Ambiguous native DSH session logs')
+  const path = join(root, projects[0], sessions[0], 'session.jsonl.zstd')
+  let events
+  try { events = execFileSync(values.zstd, ['-dc', path], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n').map(JSON.parse) }
+  catch { return null }
+  assert.equal(events[0].cwd, realpathSync(fixture))
+  const end = events.findLast(event => event.type === 'turn/end')
+  if (!end) return null
+  assert.equal(end.data.reason?.kind, 'completed', 'Integrated DSH turn did not complete normally')
+  const turn = events.filter(event => event.data?.turn === end.data.turn)
+  const serialized = JSON.stringify(turn)
+  for (const tool of ['memory_replace', 'memory_search', 'project_verification_run', 'project_verification_results']) assert(serialized.includes(tool), `Native DSH turn did not call ${tool}`)
+  const validation = validateIntegratedDshTurn(turn)
+  return { nativeSessionId: events[0].id, turnReason: end.data.reason, ...validation, transcript: path }
+}
 const start = performance.now()
 const report = {
   startedAt: new Date().toISOString(), source: sourceIdentity(), executable, profile, fixture,
@@ -85,48 +119,55 @@ const report = {
   agents: {}, limitations: [values.handoff ? 'Bounded two-agent file continuation; broader app-building, native resume and linked-worktree handoff remain separate gates.' : values['native-write'] ? 'Native create and cross-agent recall only; revision replacement, resumption, linked-worktree recall and explicit handoff require separate checks.' : values.memory ? 'Recall only; native writes, resumption, linked-worktree recall and handoff require separate checks.' : 'Startup/output evidence alone does not qualify model authentication. Native resume and shared memory require separate checks.']
 }
 let app
+let appChild
 let ownsHermesProfile = false
 try {
   app = await _electron.launch({ executablePath: executable, env })
+  appChild = app.process()
   let page = await app.firstWindow()
-  await app.evaluate(({ app, BrowserWindow }, path) => {
+  report.windowEvents = []
+  const observeApp = async label => {
+    await app.evaluate(({ app, BrowserWindow }, { path, label }) => {
     const { appendFileSync } = process.getBuiltinModule('node:fs')
-    const log = (event, detail = '') => appendFileSync(path, JSON.stringify({ event, detail, at: Date.now(), stack: new Error().stack }) + '\n', { mode: 0o600 })
+    const log = (event, detail = '') => appendFileSync(path, JSON.stringify({ label, event, detail, at: Date.now(), stack: new Error().stack }) + '\n', { mode: 0o600 })
     for (const event of ['before-quit', 'will-quit', 'window-all-closed']) app.on(event, () => log(event))
     for (const window of BrowserWindow.getAllWindows()) {
       window.on('close', () => log('window-close'))
       window.webContents.on('render-process-gone', (_event, detail) => log('renderer-gone', detail.reason))
       window.webContents.on('before-input-event', (_event, input) => { if (input.meta && ['w', 'q'].includes(input.key.toLowerCase())) log('window-shortcut', input.key) })
     }
-  }, join(evidence, 'window-lifecycle.jsonl'))
-
-  report.windowEvents = []
-  page.on('close', () => report.windowEvents.push({ event: 'closed', atMs: performance.now() - start }))
-  page.on('crash', () => report.windowEvents.push({ event: 'crashed', atMs: performance.now() - start }))
+    }, { path: join(evidence, 'window-lifecycle.jsonl'), label })
+    page.on('close', () => report.windowEvents.push({ label, event: 'closed', atMs: performance.now() - start }))
+    page.on('crash', () => report.windowEvents.push({ label, event: 'crashed', atMs: performance.now() - start }))
+  }
+  await observeApp('initial')
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('settings.set', { theme: 'dark' })
   await invoke('repo.add', { dir: fixture })
+
   if (values.memory) {
     const entry = await invoke('memory.create', { workspacePath: fixture, kind: 'decision', title: 'Native bridge verification', content: values.sqlite || values['native-write'] ? 'Before SQLite upgrade' : memoryWord, attribution: { harness: 'cli' } })
     if (values.sqlite) {
       const original = hash(readFileSync(join(profile, 'project-memory.json')))
-      await page.getByRole('button', { name: /Main checkout/ }).click()
+      await page.evaluate(path => window.__store.getState().setActiveWorktree(path), fixture)
       await page.getByRole('button', { name: 'Project memory', exact: true }).click()
-      await page.locator('.memory-storage > summary').click()
+      await page.getByText(/^Memory storage ·/).click()
       await page.getByRole('button', { name: 'Upgrade to SQLite', exact: true }).click()
       await page.getByText('Shared memory now uses SQLite.', { exact: true }).waitFor()
       const authority = JSON.parse(readFileSync(join(profile, 'project-memory-active.json'), 'utf8'))
       assert.equal(authority.state, 'sqlite')
       assert.equal(hash(readFileSync(join(profile, authority.directory, 'project-memory.json.backup'))), original)
       const updated = await invoke('memory.update', { workspacePath: fixture, id: entry.id, kind: entry.kind, title: entry.title, expectedRevision: 1, content: values['native-write'] ? 'App-created migration baseline' : memoryWord, attribution: { harness: 'cli' } })
-      const previousPid = app.process().pid
-      await app.close()
+      const previousPid = appChild.pid
+      report.migrationAppShutdown = await closeForRestart(app, appChild, 'Migration app did not close cleanly')
       app = await _electron.launch({ executablePath: executable, env })
+      appChild = app.process()
       page = await app.firstWindow()
+      await observeApp('post-migration')
       await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
-      assert.notEqual(app.process().pid, previousPid)
+      assert.notEqual(appChild.pid, previousPid)
       assert.deepEqual(await invoke('memory.get', { workspacePath: fixture, id: entry.id }), updated)
-      report.migratedMemory = { backend: 'sqlite', entryId: entry.id, revision: updated.revision, originalBackupUnchanged: true, appPids: [previousPid, app.process().pid], postUpgradeWriteRecalledAfterRestart: true }
+      report.migratedMemory = { backend: 'sqlite', entryId: entry.id, revision: updated.revision, originalBackupUnchanged: true, appPids: [previousPid, appChild.pid], postUpgradeWriteRecalledAfterRestart: true }
     }
     for (const id of agentIds) {
       if (values.managed && ['omp', 'kimi', 'deepseek-harness'].includes(id)) continue
@@ -160,13 +201,35 @@ await runProjectMemoryMcp({ workspacePath: ${JSON.stringify(fixture)}, harness: 
       }
     }
   }
-  await page.getByRole('button', { name: /Main checkout/ }).click()
+  await page.evaluate(path => window.__store.getState().setActiveWorktree(path), fixture)
   const providers = (await invoke('agent.providers')).providers
+  let integratedPrepared = false
   for (const id of agentIds) {
     const handoffSource = values.handoff && id === agentIds[0]
     let handoff
     const nativeWriter = values['native-write'] && id === agentIds[0]
     if (values['native-write'] && !nativeWriter) assert(report.nativeWrite, 'Do not test recall before a native write is verified')
+    if (values['integrated-journey'] && !nativeWriter && !integratedPrepared) {
+      const previousPid = appChild.pid
+      await invoke('agent.stop', { sessionId: report.nativeWrite.writerSession })
+      const stopDeadline = Date.now() + 15000
+      while ((await invoke('agent.list')).agents.find(run => run.sessionId === report.nativeWrite.writerSession)?.liveness !== 'exited') {
+        assert(Date.now() < stopDeadline, 'Native writer did not stop before app restart')
+        await delay(100)
+      }
+      await invoke('agent.dismiss', { sessionId: report.nativeWrite.writerSession })
+      report.integratedWriterAppShutdown = await closeForRestart(app, appChild, 'Writer app did not close cleanly')
+      app = await _electron.launch({ executablePath: executable, env })
+      appChild = app.process()
+      page = await app.firstWindow()
+      await observeApp('post-writer')
+      await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+      assert.notEqual(appChild.pid, previousPid)
+      const beforeConflict = await invoke('memory.get', { workspacePath: fixture, id: report.nativeWrite.id })
+      const current = await invoke('memory.update', { workspacePath: fixture, id: beforeConflict.id, expectedRevision: beforeConflict.revision, kind: beforeConflict.kind, title: beforeConflict.title, content: `${memoryWord}-current`, tags: beforeConflict.tags, attribution: { harness: 'acceptance-controller' } })
+      report.integratedJourney = { appPids: [previousPid, appChild.pid], currentRevision: current.revision, currentContentSha256: hash(current.content) }
+      integratedPrepared = true
+    }
     const managedMemory = values.managed
     const provider = providers.find(item => item.id === id)
     if (!provider?.executablePath) { report.agents[id] = { installed: false, startup: 'unavailable' }; continue }
@@ -318,6 +381,8 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
             : `Call the ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_receive' : 'donwells-project-memory handoff_receive'} tool with id ${handoff.id} and expectedRevision ${handoff.revision}. Read the returned context and acknowledge it with ${id === 'deepseek-harness' ? 'mcp__donwells-project-memory__handoff_acknowledge' : 'handoff_acknowledge'} using its id and returned revision, then complete its next steps. Do not retry an uncertain receive.`
           : nativeWriter
           ? `Call the donwells-project-memory MCP server memory_record tool exactly once with kind decision, title ${JSON.stringify(memoryTitle)}, and content ${JSON.stringify(memoryWord)}. Save that decision to shared project memory. Do not edit files or use another memory server. Do not repeat a write if its outcome is uncertain.`
+          : values['integrated-journey']
+          ? `Call mcp__donwells-project-memory__memory_replace for id ${report.nativeWrite.id}, expectedRevision 1, kind decision, title ${JSON.stringify(memoryTitle)}, and content ${JSON.stringify(`${memoryWord}-stale`)}. This stale update must fail. Then call mcp__donwells-project-memory__memory_search for ${JSON.stringify(memoryTitle)} and confirm its content is ${JSON.stringify(`${memoryWord}-current`)}. Finally call mcp__donwells-project-memory__project_verification_run with script verify and outputs ["dist/native-agent.txt"], then call mcp__donwells-project-memory__project_verification_results until that run has an actual exit status. Reply with ${JSON.stringify(memoryWord)} and the verification status. Do not edit files or run a shell command directly.`
           : values.memory
           ? `Call the ${['kimi', 'deepseek-harness'].includes(id) ? 'mcp__donwells-project-memory__memory_search' : 'donwells-project-memory MCP server memory_search'} tool to search for "${memoryTitle}" and reply with the decision content. Do not read files, edit anything, or use another memory server.`
           : 'Read README.md in the current project and reply with its verification word. Do not edit files or call external tools. Use only a local file read and your configured model.', { delay: id === 'hermes' ? 10 : 0 })
@@ -328,6 +393,22 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
         const outcome = values.memory ? 'memory' : 'query'
         result[outcome] = 'no-verified-response'
         while (Date.now() < deadline) {
+          if (nativeWriter) {
+            const saved = (await invoke('memory.list', { workspacePath: fixture, query: memoryTitle })).entries.filter(entry => entry.title === memoryTitle)
+            if (saved.length) {
+              assert.equal(saved.length, 1, 'Native writer created duplicate decisions')
+              const entry = await invoke('memory.get', { workspacePath: fixture, id: saved[0].id })
+              assert.equal(entry.content, memoryWord)
+              assert.equal(entry.provenance.harness, id)
+              assert.equal(entry.revision, 1)
+              report.nativeWrite = { id: entry.id, revision: entry.revision, provenance: entry.provenance, contentSha256: hash(entry.content), writerSession: result.sessionId }
+              result[outcome] = 'native-write-persisted'
+              break
+            }
+            if ((await invoke('agent.list')).agents.find(item => item.sessionId === result.sessionId)?.liveness === 'exited') break
+            await delay(250)
+            continue
+          }
           const output = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
           if (values.memory && id === 'kimi' && !result.fixtureMemoryReadApproved && output.includes('Approve mcp__donwells-project-memory__memory_search?') && output.includes(memoryTitle) && output.includes('1. Approve once')) {
             // Approve only this disposable fixture's requested read, never a session-wide permission.
@@ -349,19 +430,6 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
               result[outcome] = 'handoff-step-completed'; break
             }
           }
-          if (nativeWriter) {
-            const saved = (await invoke('memory.list', { workspacePath: fixture, query: memoryTitle })).entries.filter(entry => entry.title === memoryTitle)
-            if (saved.length) {
-              assert.equal(saved.length, 1, 'Native writer created duplicate decisions')
-              const entry = await invoke('memory.get', { workspacePath: fixture, id: saved[0].id })
-              assert.equal(entry.content, memoryWord)
-              assert.equal(entry.provenance.harness, id)
-              assert.equal(entry.revision, 1)
-              report.nativeWrite = { id: entry.id, revision: entry.revision, provenance: entry.provenance, contentSha256: hash(entry.content), writerSession: result.sessionId }
-              result[outcome] = 'native-write-persisted'
-              break
-            }
-          }
           if (!values.handoff && !nativeWriter && output.includes(values.memory ? memoryWord : verificationWord)) {
             if (values.memory && !managedMemory) {
               const calls = readFileSync(join(evidence, `${id}-memory-methods.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line))
@@ -369,6 +437,24 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
               result.memoryCalls = calls
             }
             if (managedMemory) assert(output.includes('memory_search'), 'Native memory tool output was not observed')
+            if (values['integrated-journey']) {
+              const current = await invoke('memory.get', { workspacePath: fixture, id: report.nativeWrite.id })
+              assert.equal(current.revision, report.integratedJourney.currentRevision, 'Stale native replacement changed the current revision')
+              assert.equal(hash(current.content), report.integratedJourney.currentContentSha256, 'Stale native replacement changed current content')
+              const verified = (await invoke('verification.list', { workspacePath: fixture, verifyArtifacts: true })).find(entry => entry.task.verification?.origin?.kind === 'agent' && entry.task.verification.origin.sessionId === result.sessionId)
+              if (!verified || verified.sourceState === 'running') { await delay(250); continue }
+              assert.equal(verified.task.status, 'succeeded')
+              assert.equal(verified.task.exitCode, 0)
+              assert.deepEqual(verified.task.verification.origin, { kind: 'agent', runId: run.id, sessionId: result.sessionId, mode: 'native' })
+              assert.equal(verified.artifacts.length, 1)
+              assert.equal(verified.artifacts[0].relationship, 'observed-during-run')
+              assert.equal(verified.artifacts[0].state, 'unchanged')
+              report.integratedJourney.verification = { runId: verified.runId, taskId: verified.task.id, exitCode: verified.task.exitCode, origin: verified.task.verification.origin, artifact: verified.artifacts[0] }
+              report.integratedJourney.staleRevisionRejected = true
+              const nativeTurn = completedIntegratedDshJourney()
+              if (!nativeTurn) { await delay(250); continue }
+              report.integratedJourney.nativeTurn = nativeTurn
+            }
             if (id === 'deepseek-harness' && values['dsh-completed-answer']) {
               result.completedAnswer = completedDshAnswer()
               if (!result.completedAnswer) { await delay(250); continue }
@@ -379,10 +465,12 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
           await delay(250)
         }
       }
-      await page.screenshot({ path: join(evidence, `${id}.png`) })
-      // Local diagnostic output stays private; receipts contain observations, not conversation transcripts.
-      const finalOutput = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
-      writeFileSync(join(evidence, `${id}.txt`), stripVTControlCharacters(finalOutput), { mode: 0o600 })
+      if (!page.isClosed()) {
+        await page.screenshot({ path: join(evidence, `${id}.png`) })
+        // Local diagnostic output stays private; receipts contain observations, not conversation transcripts.
+        const finalOutput = await page.evaluate(async sessionId => (await window.donwells.attachTerminal(sessionId)).scrollback, result.sessionId)
+        writeFileSync(join(evidence, `${id}.txt`), stripVTControlCharacters(finalOutput), { mode: 0o600 })
+      } else result.rendererClosedAfterPrompt = true
       result.binaryUnchanged = result.executableSha256 === hash(readFileSync(provider.executablePath))
       assert(result.binaryUnchanged, `${id} executable changed during qualification`)
       console.log(JSON.stringify({ agent: id, startup: result.startup, query: result.query, memory: result.memory }))
@@ -402,7 +490,7 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
     await app.evaluate(({ app }) => app.getAppMetrics())
     await delay(10000)
     const daemon = JSON.parse(readFileSync(join(profile, 'terminal-daemon/runtime.json'), 'utf8'))
-    const roots = new Set([app.process().pid, daemon.pid])
+    const roots = new Set([appChild.pid, daemon.pid])
     const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,%cpu=,comm='], { encoding: 'utf8' }).trim().split('\n').map(line => {
       const [pid, ppid, rssKiB, lifetimeCpuPercent, ...command] = line.trim().split(/\s+/)
       return { pid: Number(pid), ppid: Number(ppid), rssKiB: Number(rssKiB), lifetimeCpuPercent: Number(lifetimeCpuPercent), command: command.join(' ') }
@@ -416,23 +504,35 @@ print(json.dumps(rows))`, profile], { encoding: 'utf8' }))
     report.resources = { method: 'After ten seconds without submitted queries. Electron CPU is sampled separately; ps CPU is lifetime average. Only fixture app/daemon descendants included; pre-existing model services excluded.', electron: await app.evaluate(({ app }) => app.getAppMetrics()), ownedProcesses: owned, daemonPid: daemon.pid }
   }
   if (values['native-write'] && report.nativeWrite) {
-    const previousPid = app.process().pid
-    await app.close()
+    const previousPid = appChild.pid
+    for (const run of (await invoke('agent.list')).agents) {
+      if (run.liveness !== 'exited') await invoke('agent.stop', { sessionId: run.sessionId })
+      const stopDeadline = Date.now() + 15000
+      while ((await invoke('agent.list')).agents.find(item => item.sessionId === run.sessionId)?.liveness !== 'exited') {
+        assert(Date.now() < stopDeadline, `Agent stop timed out before memory restart: ${run.sessionId}`)
+        await delay(100)
+      }
+      await invoke('agent.dismiss', { sessionId: run.sessionId })
+    }
+    report.memoryAppShutdown = await closeForRestart(app, appChild, 'Memory app did not close cleanly')
     app = await _electron.launch({ executablePath: executable, env })
+    appChild = app.process()
     page = await app.firstWindow()
+    await observeApp('memory-recall')
     await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
-    assert.notEqual(app.process().pid, previousPid)
+    assert.notEqual(appChild.pid, previousPid)
     const saved = (await invoke('memory.list', { workspacePath: fixture, query: memoryTitle })).entries.filter(entry => entry.title === memoryTitle)
     assert.equal(saved.length, 1, 'Native decision was duplicated or lost')
     assert.equal(saved[0].id, report.nativeWrite.id)
     const entry = await invoke('memory.get', { workspacePath: fixture, id: report.nativeWrite.id })
     assert.equal(hash(entry.content), report.nativeWrite.contentSha256)
     assert.deepEqual(entry.provenance, report.nativeWrite.provenance)
-    report.nativeWrite.appPids = [previousPid, app.process().pid]
+    report.nativeWrite.appPids = [previousPid, appChild.pid]
     report.nativeWrite.recalledAfterRestart = true
   }
 } catch (error) { report.error = error.message; process.exitCode = 1 }
 finally {
+ try {
   if (app) {
     try {
       for (const run of (await invoke('agent.list')).agents) {
@@ -447,17 +547,8 @@ finally {
       for (const session of (await invoke('terminal.list')).sessions) await invoke('terminal.close', { sessionId: session.id })
     }
     catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
-    const child = app.process()
-    let timer
-    try { await Promise.race([app.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('App shutdown timed out')), 10000) })]) }
-    catch (error) { report.cleanupError = error.message; child.kill('SIGKILL'); process.exitCode = 1 }
-    finally { clearTimeout(timer) }
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGTERM')
-      const deadline = Date.now() + 5000
-      while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) await delay(50)
-      if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); report.cleanupError = 'App did not exit after termination'; process.exitCode = 1 }
-    }
+    try { report.appShutdown = await closeOwnedSmokeApp(app, appChild) }
+    catch (error) { report.cleanupError = error.message; process.exitCode = 1 }
   }
   report.idleDaemonStopped = await cleanupOwnedSmokeDaemon(profile)
   if (!report.idleDaemonStopped) process.exitCode = 1
@@ -475,9 +566,12 @@ finally {
     const result = report.agents[id]
     return result && !result.error && result.startup === 'output-observed'
       && (!(values.query || values.memory) || result[values.memory ? 'memory' : 'query'] === (values.handoff ? 'handoff-step-completed' : values['native-write'] && id === agentIds[0] ? 'native-write-persisted' : 'fixture-word-observed'))
-  })
+  }) && (!values['integrated-journey'] || Boolean(report.integratedJourney?.staleRevisionRejected && report.integratedJourney?.nativeTurn && report.integratedJourney?.verification?.origin?.mode === 'native'))
   if (!report.requestedChecksPassed) process.exitCode = 1
-  report.durationMs = performance.now() - start
-  writeFileSync(join(evidence, 'native-agents.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
-  console.log(JSON.stringify(report, null, 2))
+ } catch (error) { report.finalizationError = error instanceof Error ? error.message : String(error); process.exitCode = 1 }
+ finally {
+   report.durationMs = performance.now() - start
+   writeFileSync(join(evidence, 'native-agents.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600 })
+   console.log(JSON.stringify(report, null, 2))
+ }
 }

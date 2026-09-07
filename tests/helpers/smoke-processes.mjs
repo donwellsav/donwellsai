@@ -19,8 +19,7 @@ export function delay(ms) {
 
 // A disconnected Chromium context can make ElectronApplication.close() a no-op.
 // Call only after closing this disposable profile's sessions and owned tools.
-export async function closeOwnedSmokeApp(app) {
-  const child = app.process()
+export async function closeOwnedSmokeApp(app, child = app.process()) {
   const exited = () => child.exitCode !== null || child.signalCode !== null
   let timer, closeError, forcedTermination = false
   try {
