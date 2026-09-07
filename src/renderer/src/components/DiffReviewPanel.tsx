@@ -115,7 +115,7 @@ function StoredContext({ note }: { note: DiffReviewNote }) {
   )
 }
 
-function VerificationPanel({workspacePath,sourceVersion,onSelect}:{workspacePath:string;sourceVersion:string;onSelect:(entry:VerificationEntry)=>void}) {
+function VerificationPanel({workspacePath,sourceVersion,onSelect,onSourcesChecked}:{workspacePath:string;sourceVersion:string;onSelect:(entry:VerificationEntry)=>void;onSourcesChecked:()=>void}) {
   const [entries,setEntries]=useState<VerificationEntry[]>([]),[scripts,setScripts]=useState<string[]>([]),[script,setScript]=useState(''),[refresh,setRefresh]=useState(0),[checking,setChecking]=useState(false),[acting,setActing]=useState(false),[error,setError]=useState(''),[artifact,setArtifact]=useState('')
   const [command,setCommand]=useState(''),[outputs,setOutputs]=useState('')
   const runOptions=()=>({outputs:outputs.split('\n').map(path=>path.trim()).filter(Boolean)})
@@ -124,41 +124,44 @@ function VerificationPanel({workspacePath,sourceVersion,onSelect}:{workspacePath
   useEffect(()=>{
     let live=true;setChecking(true)
     const verify=checkArtifacts.current;checkArtifacts.current=false
-    void Promise.all([window.donwells.verificationList(workspacePath,verify),window.donwells.verificationScripts(workspacePath).catch(():string[]=>[])]).then(([entries,scripts])=>{if(live){setEntries(entries);setScripts(scripts);setScript(current=>scripts.includes(current)?current:scripts[0]??'');setError('')}}).catch(error=>{if(live)setError(String(error))}).finally(()=>{if(live)setChecking(false)})
+    void Promise.all([window.donwells.verificationList(workspacePath,verify),window.donwells.verificationScripts(workspacePath).catch(():string[]=>[])]).then(([entries,scripts])=>{if(live){setEntries(entries);setScripts(scripts);setScript(current=>scripts.includes(current)?current:scripts[0]??'');setError('');onSourcesChecked()}}).catch(error=>{if(live)setError(String(error))}).finally(()=>{if(live)setChecking(false)})
     return()=>{live=false}
-  },[workspacePath,sourceVersion,refresh])
+  },[workspacePath,sourceVersion,refresh,onSourcesChecked])
   useEffect(()=>window.donwells.on('worktree:changed',()=>{setEntries(entries=>entries.map(entry=>({...entry,sourceState:'unverified'})));setRefresh(value=>value+1)}),[workspacePath])
   const running=entries.some(entry=>entry.sourceState==='running')
   useEffect(()=>{if(!running)return;const timer=setInterval(()=>setRefresh(value=>value+1),2000);return()=>clearInterval(timer)},[running])
   const act=async(action:()=>Promise<unknown>)=>{setActing(true);try{await action();if(alive.current)setRefresh(value=>value+1)}catch(error){if(alive.current)setError(String(error))}finally{if(alive.current)setActing(false)}}
   return <section className="diff-review-range" aria-label="Verification evidence">
     <div className="diff-review-section-head"><h3>Verification</h3><button className="btn btn-secondary btn-sm" disabled={checking||acting} onClick={()=>{checkArtifacts.current=true;setRefresh(value=>value+1)}}>Recheck evidence</button></div>
+    <details><summary>Run verification</summary>
     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}><select className="input" aria-label="Project verification script" value={script} onChange={event=>setScript(event.target.value)} disabled={acting||!scripts.length}>{scripts.map(script=><option key={script}>{script}</option>)}</select><button className="btn btn-secondary btn-sm" disabled={acting||!script} onClick={()=>void act(()=>runWithEditorGuard(workspacePath,undefined,()=>window.donwells.verificationRun(workspacePath,script,runOptions())))}>Run script</button></div>
     <label>Expected output files (one checkout-relative path per line)<textarea className="input" value={outputs} onChange={event=>setOutputs(event.target.value)} placeholder="dist/index.html"/></label>
     <label>Explicit project command<input className="input" value={command} maxLength={16000} onChange={event=>setCommand(event.target.value)} placeholder="For projects without package scripts"/></label>
     <button className="btn btn-secondary btn-sm" disabled={acting||!command.trim()} onClick={()=>void act(()=>runWithEditorGuard(workspacePath,undefined,()=>window.donwells.parallelRunStart({name:'Review command',command:command.trim(),targets:[{kind:'local',root:workspacePath,label:workspacePath.split('/').at(-1)||workspacePath}],concurrency:1},runOptions())))}>Run command in this checkout</button>
+    </details>
     {checking&&<p role="status">Checking source…</p>}{error&&<p role="alert">{error}</p>}
     {!entries.length&&!checking&&<p>No recorded verification runs for this checkout.</p>}
     {entries.map(entry=><details key={entry.task.id} className="diff-review-context">
       <summary>Command {entry.task.status} · source {checking?'checking':entry.sourceState}</summary>
       <button className="btn btn-secondary btn-sm" disabled={!entry.task.verification?.before} onClick={()=>onSelect(entry)}>Use this run for the next review note</button>
-      {entry.task.verification?.origin && <p>Origin: {entry.task.verification.origin.kind==='agent'?`${entry.task.verification.origin.mode} session ${entry.task.verification.origin.sessionId}`:'unattributed local request'}</p>}
-      {entry.task.verification?.outputs?.map(output=><p key={output.path}>{output.path} · {output.state}{output.problem ? ' · '+output.problem : ''}</p>)}
+      {entry.task.verification?.origin && <p title={entry.task.verification.origin.kind==='agent'?entry.task.verification.origin.sessionId:undefined}>Origin: {entry.task.verification.origin.kind==='agent'?`${entry.task.verification.origin.mode} agent`:'unattributed local request'}</p>}
+      {entry.task.verification?.outputs?.map(output=><p key={output.path} title={output.path}>{output.path.startsWith(workspacePath+'/')?output.path.slice(workspacePath.length+1):output.path.split('/').at(-1)} · {output.state}{output.problem ? ' · '+output.problem : ''}</p>)}
       <p>Exit {entry.task.exitCode??'unknown'} · {entry.task.finishedAt??entry.task.startedAt??'not started'}</p>
       <details><summary>Command and source details</summary><p>{entry.task.command}</p><p>Checkout: {entry.task.target.root}</p>
       {entry.task.verification?.problem&&<p>{entry.task.verification.problem}</p>}
       <pre>{JSON.stringify({before:entry.task.verification?.before,after:entry.task.verification?.after,tools:entry.task.verification?.toolVersions,environment:entry.task.verification?.environment},null,2)}</pre></details>
       {entry.sourceState==='running'&&<button className="btn btn-secondary btn-sm" onClick={()=>void act(()=>window.donwells.parallelRunCancel(entry.runId))}>Stop verification</button>}
-      <pre>{entry.task.output||entry.task.error||'No command output recorded.'}</pre>
+      <details><summary>Command output</summary><pre>{entry.task.output||entry.task.error||'No command output recorded.'}</pre></details>
       <label>Artifact path<input className="input" value={artifact} onChange={event=>setArtifact(event.target.value)} placeholder="Absolute build output or browser trace path"/></label>
       <button className="btn btn-secondary btn-sm" disabled={acting||!artifact.trim()} onClick={()=>void act(()=>window.donwells.verificationAttach(workspacePath,entry.runId,entry.task.id,artifact.trim()))}>Attach reference</button>
-      {entry.artifacts.map(file=><div key={file.path}><p>{file.path} · {file.state==='unchecked'?'bytes not rechecked':file.state}</p><code style={{overflowWrap:"anywhere"}}>{file.sha256}</code><p>{file.bytes} bytes · {file.relationship==='observed-during-run'?'new or changed during this run; concurrent writers are not excluded':'attached reference; producer not verified'}</p><button className="btn btn-secondary btn-sm" disabled={acting} onClick={()=>void act(()=>window.donwells.verificationOpen(workspacePath,entry.runId,entry.task.id,file.path))}>Recheck and open artifact</button></div>)}
+      {entry.artifacts.map(file=><div key={file.path}><p title={file.path}>{file.path.startsWith(workspacePath+'/')?file.path.slice(workspacePath.length+1):file.path.split('/').at(-1)} · {file.state==='unchecked'?'bytes not rechecked':file.state}</p><details><summary>Artifact identity · {file.bytes} bytes</summary><p>{file.path}</p><code style={{overflowWrap:"anywhere"}}>{file.sha256}</code></details><p> {file.relationship==='observed-during-run'?'new or changed during this run; concurrent writers are not excluded':'attached reference; producer not verified'}</p><button className="btn btn-secondary btn-sm" disabled={acting} onClick={()=>void act(()=>window.donwells.verificationOpen(workspacePath,entry.runId,entry.task.id,file.path))}>Recheck and open artifact</button></div>)}
     </details>)}
   </section>
 }
 
 export function DiffReviewPanel({
   workspacePath,
+  onSourcesChecked,
   id,
   snapshot,
   selection,
@@ -179,6 +182,7 @@ export function DiffReviewPanel({
   onClose
 }: {
   workspacePath: string
+  onSourcesChecked(): void
   id: string
   snapshot: DiffReviewSnapshotIdentity
   selection: DiffReviewSelection | null
@@ -240,7 +244,7 @@ export function DiffReviewPanel({
     onSelectionChange({ side: manualSide, startLine, endLine })
   }
 
-  const [selectedRun, setSelectedRun] = useState<Pick<DiffReviewRunLink, 'runId' | 'taskId'> | undefined>()
+  const [selectedRun, setSelectedRun] = useState<(Pick<DiffReviewRunLink, 'runId' | 'taskId'> & {label:string}) | undefined>()
   const currentCount = notes.filter((note) => diffReviewNoteIsCurrent(note, snapshot)).length
   const staleCount = notes.length - currentCount
 
@@ -254,8 +258,8 @@ export function DiffReviewPanel({
         <button type="button" className="icon-btn" aria-label="Close review notes" title="Close review notes" onClick={onClose}>×</button>
       </header>
 
-      <VerificationPanel key={workspacePath} workspacePath={workspacePath} sourceVersion={JSON.stringify(snapshot)} onSelect={entry=>setSelectedRun({runId:entry.runId,taskId:entry.task.id})} />
-      {selectedRun && <p>Next note links run {selectedRun.runId} / task {selectedRun.taskId} <button className="btn btn-secondary btn-sm" onClick={()=>setSelectedRun(undefined)}>Clear link</button></p>}
+      <VerificationPanel key={workspacePath} onSourcesChecked={onSourcesChecked} workspacePath={workspacePath} sourceVersion={JSON.stringify(snapshot)} onSelect={entry=>setSelectedRun({runId:entry.runId,taskId:entry.task.id,label:entry.task.command})} />
+      {selectedRun && <p className="diff-review-run-link" title={`Run ${selectedRun.runId} / task ${selectedRun.taskId}`}>Next note: {selectedRun.label.length>64?selectedRun.label.slice(0,61)+'…':selectedRun.label} <button className="btn btn-secondary btn-sm" onClick={()=>setSelectedRun(undefined)}>Clear link</button></p>}
       <section className="diff-review-range" aria-labelledby={rangeTitleId}>
         <div className="diff-review-section-head">
           <h3 id={rangeTitleId}>Line range</h3>
@@ -294,7 +298,7 @@ export function DiffReviewPanel({
             label={selection ? `New note on ${reviewRangeLabel(selection)}` : 'New note'}
             initialValue=""
             saving={saving}
-            onSave={body=>onCreate(body,selectedRun)}
+            onSave={body=>onCreate(body,selectedRun?{runId:selectedRun.runId,taskId:selectedRun.taskId}:undefined)}
             onCancel={() => setCreating(false)}
           />
         ) : (
@@ -325,7 +329,7 @@ export function DiffReviewPanel({
             <span>{error}</span>
             <button type="button" className="btn btn-secondary btn-sm" disabled={loading} onClick={onRetry}>Retry</button>
           </div>
-        ) : loading ? (
+        ) : loading && notes.length === 0 ? (
           <p className="diff-review-muted" role="status">Loading review notes…</p>
         ) : notes.length === 0 ? (
           <div className="diff-review-empty">
@@ -360,7 +364,7 @@ export function DiffReviewPanel({
                     ) : (
                       <p className="diff-review-note-body">{note.body}</p>
                     )}
-                    {note.runLink && <p className="diff-review-muted">Linked run {note.runLink.runId} / task {note.runLink.taskId}: {runStates[note.id] ? `${runStates[note.id]!.status} · exit ${runStates[note.id]!.exitCode ?? 'unknown'} · source ${runStates[note.id]!.sourceState}` : 'run unavailable or source receipt changed'}. Original source {note.runLink.sourceFingerprint.slice(0,12)}.</p>}
+                    {note.runLink && <p className="diff-review-muted" title={`Run ${note.runLink.runId} / task ${note.runLink.taskId} / source ${note.runLink.sourceFingerprint}`}>Linked run {note.runLink.runId.slice(0,8)}: {runStates[note.id] ? `${runStates[note.id]!.status} · exit ${runStates[note.id]!.exitCode ?? 'unknown'} · source ${runStates[note.id]!.sourceState}` : 'run unavailable or source receipt changed'}. Original source {note.runLink.sourceFingerprint.slice(0,12)}.</p>}
                     <StoredContext note={note} />
                     {!editing && (
                       <footer>

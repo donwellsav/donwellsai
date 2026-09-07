@@ -120,6 +120,9 @@ export function DiffPane({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [attachment, setAttachment] = useState<AgentAttachmentDraft | null>(null)
   const diffHostRef = useRef<HTMLDivElement>(null)
+  const loadedTarget = useRef('')
+  const refreshSources = useCallback(() => setRefresh(value => value + 1), [])
+  useEffect(() => window.donwells.on('worktree:changed', refreshSources), [refreshSources])
 
   useEffect(() => setSideBySide(settings.diffViewStyle === 'split'), [settings.diffViewStyle])
 
@@ -133,16 +136,15 @@ export function DiffPane({
 
   useEffect(() => {
     let current = true
-    setLoaded(null)
+    const targetKey = JSON.stringify([worktreePath, relPath, comparison])
+    const targetChanged = loadedTarget.current !== targetKey
+    loadedTarget.current = targetKey
+    if (targetChanged) setLoaded(null)
     setStatus('loading')
     setErrorMessage('')
-    setSelection(null)
-    setNotes([])
-    setRunStates({})
-    setReviewTarget(null)
+    if (targetChanged) { setSelection(null); setNotes([]); setRunStates({}); setReviewTarget(null); setEditingNoteId(null) }
     setReviewError('')
     setReviewLoading(true)
-    setEditingNoteId(null)
 
     void window.donwells.diffReviewList({ workspacePath: worktreePath, filePath: relPath, comparison })
       .then((result) => {
@@ -209,6 +211,7 @@ export function DiffPane({
           ? null
           : parseDiffFromFile(oldFile, newFile, undefined, true)
         if (!current) return
+        if (loaded && JSON.stringify(loaded.snapshot) !== JSON.stringify(snapshot)) setSelection(null)
         setLoaded({ metadata, sources, snapshot })
         setStatus('ready')
       } catch (error) {
@@ -483,7 +486,7 @@ export function DiffPane({
               <span>{errorMessage}</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setRefresh((value) => value + 1)}>Retry</button>
             </div>
-          ) : status === 'loading' || !loaded ? (
+          ) : !loaded ? (
             <div className="diff-review-status" role="status"><span>Loading exact snapshots…</span></div>
           ) : blank ? (
             <div className="diff-review-status">
@@ -507,6 +510,7 @@ export function DiffPane({
         {reviewOpen && loaded && (
           <DiffReviewPanel
             workspacePath={worktreePath}
+            onSourcesChecked={refreshSources}
             id={reviewPanelId}
             snapshot={loaded.snapshot}
             selection={selection}

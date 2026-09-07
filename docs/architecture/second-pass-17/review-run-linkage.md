@@ -18,3 +18,11 @@ Checks: `pnpm exec vitest run tests/diff-review.test.ts tests/verification-evide
 Open: actual fail → fix → rerun → open artifact app journey and real native/ACP tool-to-run demonstration. Authentication integration is checked through the daemon contract, not a new live model session. Focused checks do not close these product demonstrations.
 
 Compatibility correction: operational source fingerprints include the `sha256:` prefix. The review link parser and real OperationalRunService→DiffReviewService regression now preserve that exact format; diff file digests remain raw SHA256.
+
+## Current app increment
+
+The portable `tests/acceptance/review-run-linkage.mjs` now exercises actual UI script failure, correction, successful exit, declared output capture, selected-run note creation, preserved unsaved note during recheck, stale saved note after another file edit and refusal to open changed artifact bytes. `review-run-live.json` records clean app/daemon shutdown; the screenshot was inspected and displays the corrected `good` source next to its saved review. The sidebar scrolled764.5px while the comparison ancestor stayed at0.
+
+Two product defects found through this journey were fixed at their owning boundaries: preload now forwards declared output options for both verification and explicit parallel commands; successful evidence refresh/worktree events refresh the displayed comparison without discarding mounted note drafts. The sidebar owns vertical scrolling, while detailed output/hash records remain collapsed. Existing13 focused review/verification checks pass and the source build/typecheck pass.
+
+Still open: real native/ACP authenticated tool-to-run journey and successful external artifact viewing on the unlocked desktop. Current screenshot/fixture does not qualify those clauses. Raw filesystem writes that emit no existing worktree event require a recheck/manual refresh.
