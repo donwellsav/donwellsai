@@ -1,0 +1,5 @@
+Launcher starting on macos...
+Current directory: /private/tmp/donwells26-installed02/Donwells Framework Trial-canary.app/Contents/MacOS
+Spawning: /private/tmp/donwells26-installed02/Donwells Framework Trial-canary.app/Contents/MacOS/cottontail /private/tmp/donwells26-installed02/Donwells Framework Trial-canary.app/Contents/MacOS/../Resources/main.js
+Child process spawned with PID 62212
+Uncaught exception in worker: Error: The _read() method is not implemented
