@@ -8,7 +8,7 @@ Editor, files, changes, browser, knowledge, resources and environments are movab
 
 ## State at transfer
 
-- Source root and branch: `/Users/muzikfirst/Documents/donwellsai`, `workspace/terminal-foundation`.
+- Source root and branch: `/Users/muzikfirst/Documents/donwellsai/donwellsai`, `workspace/terminal-foundation`.
 - Last product change:71fc082 (point request payload fix). c89e541 adds Lume Show desktop; e8ecff0 corrects global module labels. These are partial increments.
 - 2c6f020 was the last handoff-audit commit before this package. This package adds a later documentation/exporter commit. Do not reset to old hashes.
 - Implementation is paused by the user for transfer. No product builds, model calls or VM/desktop trials were run during handoff review/export.
@@ -92,8 +92,14 @@ Report exact source commit/artifact hash and signing/notarization truth, verify 
 
 The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Skip only02.
 
-## User-corrected folder layout
+## Correct folder layout — latest explicit user correction
 
-The one app repository is now `/Users/muzikfirst/Documents/donwellsai`, with independent Git metadata and the current tracked implementation preserved. Use `workingfolder/` for scratch/staging and the handoff archive, `research/` for research, and `trash/` for superseded files. Do not create another app worktree.
+- Project folder: `/Users/muzikfirst/Documents/donwellsai` (not Git).
+- Only app repository: `/Users/muzikfirst/Documents/donwellsai/donwellsai`.
+- Working/staging/handoff: `/Users/muzikfirst/Documents/donwellsai/workingfolder`.
+- Research: `/Users/muzikfirst/Documents/donwellsai/research`.
+- Trash: `/Users/muzikfirst/Documents/donwellsai/trash`.
 
-At consolidation, the old `plan-restart` checkout had uncommitted changes and the original `donwellsai` checkout had untracked planning documents. They were preserved in place; status and patch records are in `workingfolder/repo-consolidation/`. Old checkout folders remain temporarily because live processes still reference them, including a daemon using the normal user profile. Do not delete or move them until those owners are safely resolved. Root code/history no longer depend on their Git metadata. The old ZIP/checksum were moved into `trash/2026-09-07-layout-cleanup/`.
+The assistant previously misread the project folder as the app Git root. That relocation was corrected: latest source, dependencies and independent Git history were moved into the app child without reverting implementation. The preserved pre-correction commit is33e668e. The parent no longer contains app files or .git.
+
+The previous baseline app checkout, including its untracked planning documents, is preserved in `trash/2026-09-07-layout-cleanup/original-app-before-correction`. Old terminal-foundation and plan-restart folders remain temporarily because running processes reference them; their Git pointers now target that archived original Git store. No process was stopped and no uncommitted work was discarded. The active app repository does not depend on them. Do not delete/move live resources without resolving their owners. Preservation records are in `workingfolder/repo-consolidation/`.

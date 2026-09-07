@@ -40,7 +40,7 @@ For exact records use Python JSON loading line by line and filter source_ordinal
 A reusable exporter is committed at `scripts/export-session-handoff.py`. It opens the Codex thread registry read-only, follows recorded child edges, preserves visible records and writes only its own marked export destination. It does not launch agents, replay commands, alter original logs or contact a service.
 
 ```sh
-cd /Users/muzikfirst/Documents/donwellsai
+cd /Users/muzikfirst/Documents/donwellsai/donwellsai
 python3 scripts/export-session-handoff.py --self-test
 python3 scripts/export-session-handoff.py --thread 01a0741e-cbae-7b92-9b05-b2299f723c9a --output /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/session-archive
 ```

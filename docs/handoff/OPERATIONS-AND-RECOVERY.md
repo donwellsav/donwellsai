@@ -2,19 +2,19 @@
 
 ## New application/session on this Mac
 
-Open `/Users/muzikfirst/Documents/donwellsai` as the local project. In a CLI, change to that directory before starting the harness's normal executable. Select the desired model in the new application; no provider-specific flags are guessed. Paste `START-NEXT-SESSION.txt` (also in chat). A text-only session cannot perform local implementation or macOS qualification.
+Open `/Users/muzikfirst/Documents/donwellsai/donwellsai` as the local project. In a CLI, change to that directory before starting the harness's normal executable. Select the desired model in the new application; no provider-specific flags are guessed. Paste `START-NEXT-SESSION.txt` (also in chat). A text-only session cannot perform local implementation or macOS qualification.
 
 Initial read-only commands:
 
 ```sh
-cd /Users/muzikfirst/Documents/donwellsai
+cd /Users/muzikfirst/Documents/donwellsai/donwellsai
 git rev-parse --show-toplevel
 git branch --show-current
 git status --short
 git log -7 --oneline
 ```
 
-The app repository is /Users/muzikfirst/Documents/donwellsai with its own .git directory. Use workingfolder/ for staging, scratch work and the local handoff archive; research/ for research and third-party trials; trash/ for superseded files. Do not create another app checkout or worktree. Historical paths in transcripts refer to the old layout and must be mapped through this note.
+The project folder is `/Users/muzikfirst/Documents/donwellsai`. The only app repository is its `donwellsai/` child, with its own `.git` directory. The sibling `workingfolder/` holds scratch/staging and handoff data, `research/` holds research and third-party trials, and `trash/` holds superseded files. Do not put app source at the project-folder root or create another worktree. Historical transcript paths refer to old layouts; use current source paths from this document.
 
 ## Tool and build prerequisites
 
@@ -92,7 +92,7 @@ It is not final. Recorded signing is ad hoc Electron executable only, no Develop
 
 ## Recover the source if the original checkout is unavailable
 
-The repo-local handoff package contains repository.bundle with the reachable history of workspace/terminal-foundation. Verify the package hash manifest and Git bundle before use. Clone into a NEW empty destination, never over this checkout:
+The project-local handoff package contains repository.bundle with the reachable history of workspace/terminal-foundation. Verify the package hash manifest and Git bundle before use. Clone into a NEW empty destination, never over this checkout:
 
 ```sh
 git bundle verify /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/repository.bundle

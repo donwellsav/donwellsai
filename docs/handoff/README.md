@@ -4,7 +4,7 @@ Prepared 2026-09-07 for a different application, model and agent harness. Produc
 
 ## Start here
 
-Actual repository: `/Users/muzikfirst/Documents/donwellsai`
+Actual repository: `/Users/muzikfirst/Documents/donwellsai/donwellsai`
 Branch: `workspace/terminal-foundation`
 Last product implementation: `71fc082`; later commits document the transfer. Read actual HEAD/status before working.
 
@@ -17,7 +17,7 @@ Last product implementation: `71fc082`; later commits document the transfer. Rea
 
 ## Repo-local handoff data
 
-Local private directory (inside this repository): `/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07`.
+Local handoff directory (in the project working folder, beside the app repo): `/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07`.
 
 It contains the six-thread conversation/action export, chronology index, coverage and SHA-256 manifests, Git recovery bundle, readable handoff and plan copies, selected ephemeral evidence, original repository-list attachments and a Git change log. The final package manifest records exactly what was included and what stayed machine-local. Do not assume VM disks, credentials, node_modules or local models are inside the bundle.
 
@@ -31,4 +31,4 @@ Current user instructions and active harness rules take precedence; the master p
 
 ## Opening this repository in another app
 
-Open /Users/muzikfirst/Documents/donwellsai and paste the launch prompt; no extraction, clone, restore or app migration is needed. `workingfolder/handoff-2026-09-07/` is deliberately Git-ignored because it contains large/private session records and binaries. The files are present on disk. If the new harness hides ignored files, read them by explicit path or use `rg --no-ignore` scoped to that directory. The active plan/source and docs/handoff are authoritative; copies inside the data folder are recovery snapshots.
+Open `/Users/muzikfirst/Documents/donwellsai/donwellsai` as the app repository and paste the launch prompt. The project folder above it is not a Git repository. No extraction, clone or restore is needed. The full archive is at `../workingfolder/handoff-2026-09-07`; read it by explicit path. The active app source and docs/handoff are authoritative; package copies are recovery snapshots. Do not relocate either folder.

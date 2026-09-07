@@ -7,7 +7,7 @@ Root:01a0741e-cbae-7b92-9b05-b2299f723c9a. The root integrates and commits work,
 
 ## Turing — /root/pass2_baseline_research
 
-Thread: `01a07ae6-0254-7433-91e8-ba107a6594d8`. At inventory: 15 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-0254-7433-91e8-ba107a6594d8/` in the repo-local package.
+Thread: `01a07ae6-0254-7433-91e8-ba107a6594d8`. At inventory: 15 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-0254-7433-91e8-ba107a6594d8/` in the project-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -25,10 +25,10 @@ Last recorded assistant report (historical claim, preserved for traceability):
 > 
 > Current local comparison:
 > 
-> - [terminal-daemon.ts](/Users/muzikfirst/Documents/donwellsai/src/main/terminal-daemon.ts:94) already has the essential detached execution owner, sequence-bearing output/attach snapshots, authenticated run/session hook bindings, and fail-closed stale-endpoint handling. Replacing it solely because another project has these mechanisms would add little.
+> - [terminal-daemon.ts](/Users/muzikfirst/Documents/donwellsai/donwellsai/src/main/terminal-daemon.ts:94) already has the essential detached execution owner, sequence-bearing output/attach snapshots, authenticated run/session hook bindings, and fail-closed stale-endpoint handling. Replacing it solely because another project has these mechanisms would add little.
 > - Its `broadcast()` writes to every connected client without handling socket backpressure. Bounded scrollback does not itself bound each socket’s pending write buffer. This is a source-observed pressure candidate, not a reproduced failure.
-> - [terminal-daemon.test.ts](/Users/muzikfirst/Documents/donwellsai/tests/terminal-daemon.test.ts:193) exercises a fresh socket attachment, explicitly simulating app restart. Its `echo DAEMON_MARKER_42` marker can match terminal command echo; it does not independently prove that command execution produced the marker.
-> - [workspace-baseline.mjs](/Users/muzikfirst/Documents/donwellsai/tests/acceptance/workspace-baseline.mjs:61) correctly separates source fingerprints from artifact hashes and explicitly says they do not establish the source/build relationship. Existing installed evidence is stronger than this baseline, but [strengthening-final/README.md](/Users/muzikfirst/Documents/donwellsai/docs/architecture/strengthening-final/README.md:3) remains historical evidence for its stated artifact.
+> - [terminal-daemon.test.ts](/Users/muzikfirst/Documents/donwellsai/donwellsai/tests/terminal-daemon.test.ts:193) exercises a fresh socket attachment, explicitly simulating app restart. Its `echo DAEMON_MARKER_42` marker can match terminal command echo; it does not independently prove that command execution produced the marker.
+> - [workspace-baseline.mjs](/Users/muzikfirst/Documents/donwellsai/donwellsai/tests/acceptance/workspace-baseline.mjs:61) correctly separates source fingerprints from artifact hashes and explicitly says they do not establish the source/build relationship. Existing installed evidence is stronger than this baseline, but [strengthening-final/README.md](/Users/muzikfirst/Documents/donwellsai/donwellsai/docs/architecture/strengthening-final/README.md:3) remains historical evidence for its stated artifact.
 > 
 > Recommended Task01 checks, in priority order:
 > 
@@ -48,7 +48,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Arendt — /root/pass2_baseline_audit
 
-Thread: `01a07ae6-2985-7853-a3eb-40a8e12f8572`. At inventory: 13 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-2985-7853-a3eb-40a8e12f8572/` in the repo-local package.
+Thread: `01a07ae6-2985-7853-a3eb-40a8e12f8572`. At inventory: 13 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07ae6-2985-7853-a3eb-40a8e12f8572/` in the project-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -68,7 +68,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Zeno — /root/pass2_evidence_fix
 
-Thread: `01a07aea-a4f6-7e81-a5b9-09620a5f171f`. At inventory: 557 command events and 157 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07aea-a4f6-7e81-a5b9-09620a5f171f/` in the repo-local package.
+Thread: `01a07aea-a4f6-7e81-a5b9-09620a5f171f`. At inventory: 557 command events and 157 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07aea-a4f6-7e81-a5b9-09620a5f171f/` in the project-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -89,7 +89,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Newton — /root/plan_knowledge
 
-Thread: `01a07bba-124f-74b2-9992-b5e6cfb86e06`. At inventory: 442 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-124f-74b2-9992-b5e6cfb86e06/` in the repo-local package.
+Thread: `01a07bba-124f-74b2-9992-b5e6cfb86e06`. At inventory: 442 command events and 0 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-124f-74b2-9992-b5e6cfb86e06/` in the project-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
@@ -100,7 +100,7 @@ Last recorded assistant report (historical claim, preserved for traceability):
 
 ## Gibbs — /root/plan_execution
 
-Thread: `01a07bba-4010-7681-a41e-c5924380132d`. At inventory: 445 command events and 34 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-4010-7681-a41e-c5924380132d/` in the repo-local package.
+Thread: `01a07bba-4010-7681-a41e-c5924380132d`. At inventory: 445 command events and 34 file-change events (not unique edits/commits). Complete transcript/action record: `session-archive/01a07bba-4010-7681-a41e-c5924380132d/` in the project-local package.
 
 Last recorded assistant report (historical claim, preserved for traceability):
 
