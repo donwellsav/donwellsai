@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { PROJECT_MEMORY_MAX_DOCUMENT_BYTES, type ProjectMemoryDocument, type ProjectMemoryStorageStatus } from '@shared/project-memory'
 import { assertJsonAuthority, readProjectMemorySnapshot } from './project-memory-store'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
-import { readSqliteMemoryDocument } from './project-memory-sqlite'
+import { readSqliteMemoryDocument, MEMORY_ERASURE_SCHEMA } from './project-memory-sqlite'
 
 function digest(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
@@ -85,7 +85,7 @@ export function inspectProjectMemoryStorage(userDataDir: string): ProjectMemoryS
       if (authority.state === 'sqlite') {
         const db = openProjectMemoryDatabase(profile, authority, true)
         try {
-          if (db.prepare('PRAGMA user_version').get()?.user_version !== 1 || db.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok') throw new Error('Project memory database failed its schema or integrity check')
+          if (![1, 2].includes(Number(db.prepare('PRAGMA user_version').get()?.user_version)) || db.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok') throw new Error('Project memory database failed its schema or integrity check')
         } finally { db.close() }
       }
     }
@@ -345,10 +345,13 @@ function prepareLockedMigration(profile: string) {
         INSERT INTO memory_search(rowid,title,content,tags) VALUES(new.rowid,new.title,new.content,new.tags);
       END;
     `)
+    db.exec(MEMORY_ERASURE_SCHEMA)
+    const erasureInsert = db.prepare('INSERT INTO erased_memories(id,project_key,revision,erased_at) VALUES (?,?,?,?)')
     const projectInsert = db.prepare('INSERT INTO projects VALUES (?,?)')
     const entryInsert = db.prepare('INSERT INTO entries(id,project_key,current_json,history_json) VALUES (?,?,?,?)')
     for (const project of source.document.projects) {
       projectInsert.run(project.projectKey, project.projectPath)
+      for (const erased of project.erased ?? []) erasureInsert.run(erased.id, project.projectKey, erased.revision, erased.erasedAt)
       for (const entry of project.entries) entryInsert.run(entry.current.id, project.projectKey, JSON.stringify(entry.current), JSON.stringify(entry.history))
     }
     db.exec("INSERT INTO memory_search(memory_search,rank) VALUES('integrity-check',1)")
@@ -373,4 +376,19 @@ function prepareLockedMigration(profile: string) {
     rmSync(directory, { recursive: true, force: true })
     throw error
   }
+}
+
+
+/** Called under the existing memory write lock; older clients reject user_version 2. */
+export function upgradeProjectMemoryErasureSchema(db: DatabaseSync, backupPath: string): void {
+  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
+  if (version === 2) return
+  if (version !== 1) throw new Error('Unsupported project memory database schema')
+  // Pre-create an owner-only backup destination; SQLite VACUUM INTO accepts an empty file.
+  writePrivate(backupPath, '')
+  try { db.prepare('VACUUM INTO ?').run(backupPath) }
+  catch (error) { rmSync(backupPath, { force: true }); throw error }
+  db.exec('BEGIN IMMEDIATE')
+  try { db.exec(MEMORY_ERASURE_SCHEMA); db.exec('COMMIT') }
+  catch (error) { db.exec('ROLLBACK'); throw error }
 }

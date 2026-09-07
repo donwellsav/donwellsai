@@ -8,7 +8,7 @@ import {
 import { ProjectMemoryConflictError, ProjectMemoryNotFoundError, ProjectMemoryLimitError } from './project-memory-store'
 
 function assertSchema(db: DatabaseSync): void {
-  if (db.prepare('PRAGMA user_version').get()?.user_version !== 1) throw new Error('Unsupported project memory database schema')
+  if (![1, 2].includes(Number(db.prepare('PRAGMA user_version').get()?.user_version))) throw new Error('Unsupported project memory database schema')
 }
 
 /** Internal migration/export operation; callers must not expose an unscoped database export to agents. */
@@ -17,12 +17,15 @@ export function readSqliteMemoryDocument(db: DatabaseSync, projectKey?: string) 
   try {
     assertSchema(db)
     const entries = db.prepare('SELECT current_json,history_json FROM entries WHERE project_key = ? ORDER BY id')
+    const erasures = Number(db.prepare('PRAGMA user_version').get()?.user_version) === 2
+      ? db.prepare('SELECT id,revision,erased_at AS erasedAt FROM erased_memories WHERE project_key=? ORDER BY id') : null
     const projects = projectKey === undefined
       ? db.prepare('SELECT project_key,project_path FROM projects ORDER BY project_key').all()
       : db.prepare('SELECT project_key,project_path FROM projects WHERE project_key = ?').all(projectKey)
     return parseProjectMemoryDocument({
       schemaVersion: PROJECT_MEMORY_SCHEMA_VERSION,
       projects: projects.map(project => ({
+        erased: erasures?.all(project.project_key!) ?? [],
         projectKey: project.project_key,
         projectPath: project.project_path,
         entries: entries.all(project.project_key!).map(entry => ({ current: JSON.parse(String(entry.current_json)), history: JSON.parse(String(entry.history_json)) }))
@@ -38,8 +41,10 @@ export function createSqliteMemoryEntry(db: DatabaseSync, projectValue: ProjectM
   db.exec('BEGIN IMMEDIATE')
   try {
     assertSchema(db)
+    if (Number(db.prepare('PRAGMA user_version').get()?.user_version) === 2 && db.prepare('SELECT id FROM erased_memories WHERE id=?').get(entry.current.id)) throw new Error('An erased memory ID cannot be reused')
     if (db.prepare('SELECT id FROM entries WHERE id = ?').get(entry.current.id)) throw new ProjectMemoryConflictError(entry.current.id, 1, 1)
-    if (Number(db.prepare('SELECT count(*) AS n FROM entries').get()!.n) >= PROJECT_MEMORY_MAX_ENTRIES) throw new ProjectMemoryLimitError('Project memory entry limit reached')
+    const erasures = Number(db.prepare('PRAGMA user_version').get()?.user_version) === 2 ? Number(db.prepare('SELECT count(*) AS n FROM erased_memories').get()!.n) : 0
+    if (Number(db.prepare('SELECT count(*) AS n FROM entries').get()!.n) + erasures >= PROJECT_MEMORY_MAX_ENTRIES) throw new ProjectMemoryLimitError('Project memory entry limit reached')
     if (Number(db.prepare('SELECT count(*) AS n FROM entries WHERE project_key = ?').get(project.projectKey)!.n) >= PROJECT_MEMORY_MAX_ENTRIES_PER_PROJECT) throw new ProjectMemoryLimitError('Project memory entry limit reached for this project')
     db.prepare('INSERT INTO projects(project_key,project_path) VALUES (?,?) ON CONFLICT(project_key) DO UPDATE SET project_path=excluded.project_path').run(project.projectKey, project.projectPath)
     db.prepare('INSERT INTO entries(id,project_key,current_json,history_json) VALUES (?,?,?,?)').run(entry.current.id, project.projectKey, JSON.stringify(entry.current), '[]')
@@ -78,4 +83,21 @@ export function replaceSqliteMemoryEntry(db: DatabaseSync, projectValue: Project
     db.exec('ROLLBACK')
     throw error
   }
+}
+
+
+export const MEMORY_ERASURE_SCHEMA = `CREATE TABLE erased_memories (id TEXT PRIMARY KEY, project_key TEXT NOT NULL REFERENCES projects(project_key), revision INTEGER NOT NULL CHECK(revision > 0), erased_at TEXT NOT NULL) STRICT; PRAGMA user_version=2;`
+
+export function eraseSqliteMemoryEntry(db: DatabaseSync, projectKey: string, id: string, expectedRevision: number, erasedAt: string) {
+  db.exec('PRAGMA secure_delete=ON; BEGIN IMMEDIATE')
+  try {
+    assertSchema(db)
+    const entry = db.prepare('SELECT revision FROM entries WHERE project_key=? AND id=?').get(projectKey, id)
+    if (!entry) throw new ProjectMemoryNotFoundError(id)
+    if (entry.revision !== expectedRevision) throw new ProjectMemoryConflictError(id, expectedRevision, Number(entry.revision))
+    db.prepare('INSERT INTO erased_memories(id,project_key,revision,erased_at) VALUES (?,?,?,?)').run(id, projectKey, expectedRevision, erasedAt)
+    db.prepare('DELETE FROM entries WHERE project_key=? AND id=? AND revision=?').run(projectKey, id, expectedRevision)
+    db.exec('COMMIT')
+    return { id, revision: expectedRevision, erasedAt }
+  } catch (error) { db.exec('ROLLBACK'); throw error }
 }

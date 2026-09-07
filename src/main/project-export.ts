@@ -72,7 +72,7 @@ function parseKit(bytes: Buffer): Kit {
   if (kit.schemaVersion !== 1 || typeof kit.archiveId !== 'string' || !/^[a-f0-9-]{36}$/.test(kit.archiveId) || typeof kit.sourceProjectKey !== 'string' || !/^[a-f0-9]{64}$/.test(kit.sourceProjectKey) || validateProjectName(kit.sourceName) || typeof kit.createdAt !== 'string' || !Number.isFinite(Date.parse(kit.createdAt))) throw new Error('Unsupported or invalid project kit manifest')
   exact(kit.payload, sections); exact(kit.checksums, sections)
   for (const key of sections) if (kit.checksums[key] !== hash(JSON.stringify(kit.payload[key]))) throw new Error('Project kit checksum mismatch: ' + key)
-  const memory = parseProjectMemoryDocument({ schemaVersion: 1, projects: [kit.payload.memory] }).projects[0]!
+  const memory = parseProjectMemoryDocument({ schemaVersion: 2, projects: [kit.payload.memory] }).projects[0]!
   if (memory.projectKey !== kit.sourceProjectKey || memory.projectPath !== PORTABLE_ROOT) throw new Error('Project kit memory identity mismatch')
   if (!Array.isArray(kit.payload.handoffs) || kit.payload.handoffs.length > 2500) throw new Error('Project kit handoff limit exceeded')
   const handoffs = kit.payload.handoffs.map(parseProjectHandoff)
@@ -131,7 +131,7 @@ export class ProjectExport implements ProjectKitApi {
     const remap = (value: unknown): unknown => typeof value === 'string' ? keys.get(value) ?? value : Array.isArray(value) ? value.map(remap) : isObject(value) ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, remap(child)])) : value
     const panes = original.map(pane => ({ key: keys.get(pane.key)!, kind: pane.kind }))
     const payload: Payload = {
-      memory: { projectKey: scope.projectKey, projectPath: PORTABLE_ROOT, entries: memory.entries.map(entry => ({ current: portableRevision(entry.current), history: entry.history.map(portableRevision) })) },
+      memory: { projectKey: scope.projectKey, projectPath: PORTABLE_ROOT, ...(memory.erased?.length ? { erased: memory.erased } : {}), entries: memory.entries.map(entry => ({ current: portableRevision(entry.current), history: entry.history.map(portableRevision) })) },
       handoffs: handoffs.map(value => ({ ...value, checkoutPath: PORTABLE_ROOT, goal: safeText(value.goal), summary: safeText(value.summary), openQuestions: value.openQuestions.map(safeText), nextSteps: value.nextSteps.map(safeText), fromSessionId: 'historical', acceptedBySessionId: value.acceptedBySessionId ? 'historical' : null, evidenceIds: [] })),
       artifacts, layout: { panes, docking: restoreWorkspaceLayout(remap(clean), panes).layout },
       tools: INTEGRATED_PROJECT_TOOLS.map(tool => ({ id: tool.id, version: tool.version, configured: tool.fields.some(field => Boolean(config[field])), enabled: !config.disabled.includes(tool.id) }))
@@ -183,7 +183,7 @@ export class ProjectExport implements ProjectKitApi {
       write(join(configuration, 'tools.json'), { referenceRoots: [], disabled: INTEGRATED_PROJECT_TOOLS.map(tool => tool.id) })
       const reports = join(this.profile, 'project-kits'); await mkdir(reports, { recursive: true, mode: 0o700 })
       write(join(reports, scope.projectKey + '.json'), report)
-      const mapped = { projectKey: scope.projectKey, projectPath: target, entries: kit.payload.memory.entries.map(entry => ({ current: { ...portableRevision(entry.current), id: randomUUID(), provenance: { ...portableRevision(entry.current).provenance, workspace: target } }, history: entry.history.map(value => ({ ...portableRevision(value), provenance: { ...portableRevision(value).provenance, workspace: target } })) })) }
+      const mapped = { projectKey: scope.projectKey, projectPath: target, ...(kit.payload.memory.erased?.length ? { erased: kit.payload.memory.erased } : {}), entries: kit.payload.memory.entries.map(entry => ({ current: { ...portableRevision(entry.current), id: randomUUID(), provenance: { ...portableRevision(entry.current).provenance, workspace: target } }, history: entry.history.map(value => ({ ...portableRevision(value), provenance: { ...portableRevision(value).provenance, workspace: target } })) })) }
       memory.importProject(mapped); importedMemory = mapped
       const mappedHandoffs = kit.payload.handoffs.map(value => parseProjectHandoff({ ...value, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: target, contentFingerprint: 'sha256:' + '0'.repeat(64), goal: safeText(value.goal), summary: safeText(value.summary), openQuestions: value.openQuestions.map(safeText), nextSteps: value.nextSteps.map(safeText), evidenceIds: [], fromSessionId: 'historical', state: 'superseded', delivery: 'not-sent', acceptedBySessionId: null }))
       handoffStore.importProject(scope.projectKey, mappedHandoffs); importedHandoffs = mappedHandoffs

@@ -16,8 +16,8 @@ import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
 import type { DatabaseSync } from 'node:sqlite'
-import { abortProjectMemoryMigration, reverseProjectMemoryMigration, migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority } from './project-memory-migration'
-import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry } from './project-memory-sqlite'
+import { abortProjectMemoryMigration, reverseProjectMemoryMigration, migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority, upgradeProjectMemoryErasureSchema } from './project-memory-migration'
+import { createSqliteMemoryEntry, readSqliteMemoryDocument, replaceSqliteMemoryEntry, eraseSqliteMemoryEntry } from './project-memory-sqlite'
 import {
   PROJECT_MEMORY_MAX_DOCUMENT_BYTES,
   PROJECT_MEMORY_MAX_ENTRIES,
@@ -183,7 +183,7 @@ export function readProjectMemorySnapshot(path: string): { document: ProjectMemo
         throw error
       }
       if (typeof decoded === 'object' && decoded !== null && !Array.isArray(decoded)
-        && 'schemaVersion' in decoded && decoded.schemaVersion !== PROJECT_MEMORY_SCHEMA_VERSION) {
+        && 'schemaVersion' in decoded && decoded.schemaVersion !== 1 && decoded.schemaVersion !== PROJECT_MEMORY_SCHEMA_VERSION) {
         throw new ProjectMemoryLoadError(
           'unsupported-schema',
           path,
@@ -217,6 +217,11 @@ function writeDocument(path: string, document: ProjectMemoryDocument): void {
 
   const directory = dirname(path)
   mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const previous = readProjectMemorySnapshot(path).bytes
+  if (previous && JSON.parse(previous.toString('utf8')).schemaVersion === 1) {
+    const backup = openSync(`${path}.schema1-backup-${randomUUID()}`, 'wx', 0o600)
+    try { writeFileSync(backup, previous); fsyncSync(backup) } finally { closeSync(backup) }
+  }
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
   let descriptor: number | undefined
   try {
@@ -348,10 +353,11 @@ export class ProjectMemoryStore {
 
   create(projectValue: ProjectMemoryProject, entryValue: ProjectMemoryEntry): ProjectMemoryEntry {
     const project = parseProjectMemoryProject(projectValue)
-    this.refreshProject(project.projectKey)
+    if (this.authority) this.refreshProject(project.projectKey)
+    else assertJsonAuthority(this.path)
     const entry = parseProjectMemoryEntry(entryValue)
     if (entry.revision !== 1) throw new Error('A new project memory entry must start at revision 1')
-    const totalEntries = this.document.projects.reduce((total, candidate) => total + candidate.entries.length, 0)
+    const totalEntries = this.document.projects.reduce((total, candidate) => total + candidate.entries.length + (candidate.erased?.length ?? 0), 0)
     if (totalEntries >= PROJECT_MEMORY_MAX_ENTRIES) {
       throw new ProjectMemoryLimitError(`Project memory limit reached (${PROJECT_MEMORY_MAX_ENTRIES})`)
     }
@@ -443,6 +449,22 @@ export class ProjectMemoryStore {
     }
   }
 
+  erase(project: ProjectMemoryProject, id: string, expectedRevision: number, erasedAt: string) {
+    return withProjectMemoryWriteLock(dirname(this.path), () => {
+      if (this.authority) return this.withSqlite(false, db => {
+        upgradeProjectMemoryErasureSchema(db, join(dirname(this.path), this.authority!.directory, `schema1-backup-${randomUUID()}.sqlite`))
+        return eraseSqliteMemoryEntry(db, project.projectKey, id, expectedRevision, erasedAt)
+      })
+      assertJsonAuthority(this.path)
+      this.document = readProjectMemorySnapshot(this.path).document
+      const { projectDocument, stored } = this.locate(project.projectKey, id)
+      this.assertRevision(stored.current, expectedRevision)
+      const erased = { id, revision: expectedRevision, erasedAt }
+      this.commitLockedProject({ ...projectDocument, entries: projectDocument.entries.filter(entry => entry.current.id !== id), erased: [...(projectDocument.erased ?? []), erased] })
+      return erased
+    })
+  }
+
   /** Scoped portable snapshot; retain archived entries and every retained revision. */
   exportProject(project: ProjectMemoryProject): ProjectMemoryDocument['projects'][number] {
     this.refreshProject(project.projectKey)
@@ -452,17 +474,25 @@ export class ProjectMemoryStore {
 
   /** Restore only into an absent identity; never merge or overwrite another project. */
   importProject(value: ProjectMemoryDocument['projects'][number]): void {
-    const project = parseProjectMemoryDocument({ schemaVersion: 1, projects: [value] }).projects[0]!
+    const project = parseProjectMemoryDocument({ schemaVersion: PROJECT_MEMORY_SCHEMA_VERSION, projects: [value] }).projects[0]!
     withProjectMemoryWriteLock(dirname(this.path), () => {
       if (this.authority) {
         this.withSqlite(false, db => {
+          upgradeProjectMemoryErasureSchema(db, join(dirname(this.path), this.authority!.directory, `schema1-backup-${randomUUID()}.sqlite`))
           db.exec('BEGIN IMMEDIATE')
           try {
             if (db.prepare('SELECT project_key FROM projects WHERE project_key=?').get(project.projectKey)) throw new Error('Memory project already exists')
-            if (Number(db.prepare('SELECT count(*) AS n FROM entries').get()!.n) + project.entries.length > PROJECT_MEMORY_MAX_ENTRIES) throw new ProjectMemoryLimitError('Project memory entry limit reached')
+            if (Number(db.prepare('SELECT (SELECT count(*) FROM entries) + (SELECT count(*) FROM erased_memories) AS n').get()!.n) + project.entries.length + (project.erased?.length ?? 0) > PROJECT_MEMORY_MAX_ENTRIES) throw new ProjectMemoryLimitError('Project memory entry limit reached')
             db.prepare('INSERT INTO projects(project_key,project_path) VALUES (?,?)').run(project.projectKey, project.projectPath)
             const insert = db.prepare('INSERT INTO entries(id,project_key,current_json,history_json) VALUES (?,?,?,?)')
-            for (const entry of project.entries) insert.run(entry.current.id, project.projectKey, JSON.stringify(entry.current), JSON.stringify(entry.history))
+            for (const entry of project.entries) {
+              if (db.prepare('SELECT id FROM erased_memories WHERE id=?').get(entry.current.id)) throw new Error('An erased memory ID cannot be reused')
+              insert.run(entry.current.id, project.projectKey, JSON.stringify(entry.current), JSON.stringify(entry.history))
+            }
+            for (const erased of project.erased ?? []) {
+              if (db.prepare('SELECT id FROM entries WHERE id=?').get(erased.id)) throw new Error('Erased ID conflicts with existing memory')
+              db.prepare('INSERT INTO erased_memories(id,project_key,revision,erased_at) VALUES (?,?,?,?)').run(erased.id, project.projectKey, erased.revision, erased.erasedAt)
+            }
             db.exec('COMMIT')
           } catch (error) { db.exec('ROLLBACK'); throw error }
         })
@@ -470,7 +500,7 @@ export class ProjectMemoryStore {
         assertJsonAuthority(this.path)
         const current = readProjectMemorySnapshot(this.path).document
         if (current.projects.some(value => value.projectKey === project.projectKey)) throw new Error('Memory project already exists')
-        const next = parseProjectMemoryDocument({ schemaVersion: 1, projects: [...current.projects, project] })
+        const next = parseProjectMemoryDocument({ schemaVersion: PROJECT_MEMORY_SCHEMA_VERSION, projects: [...current.projects, project] })
         writeDocument(this.path, next); this.document = next
       }
     })
@@ -484,7 +514,7 @@ export class ProjectMemoryStore {
         const sorted = (value: typeof expected | undefined) => value && { ...value, entries: value.entries.toSorted((a, b) => a.current.id.localeCompare(b.current.id)) }
         if (!isDeepStrictEqual(sorted(actual), sorted(expected))) throw new Error('Imported memory changed; rollback refused')
         db.exec('BEGIN IMMEDIATE')
-        try { db.prepare('DELETE FROM entries WHERE project_key=?').run(expected.projectKey); db.prepare('DELETE FROM projects WHERE project_key=?').run(expected.projectKey); db.exec('COMMIT') }
+        try { if (Number(db.prepare('PRAGMA user_version').get()?.user_version) === 2) db.prepare('DELETE FROM erased_memories WHERE project_key=?').run(expected.projectKey); db.prepare('DELETE FROM entries WHERE project_key=?').run(expected.projectKey); db.prepare('DELETE FROM projects WHERE project_key=?').run(expected.projectKey); db.exec('COMMIT') }
         catch (error) { db.exec('ROLLBACK'); throw error }
       })
       else {
@@ -565,7 +595,11 @@ export class ProjectMemoryStore {
   }
 
   private refreshProject(projectKey: string): void {
-    if (!this.authority) { assertJsonAuthority(this.path); return }
+    if (!this.authority) {
+      assertJsonAuthority(this.path)
+      this.document = readProjectMemorySnapshot(this.path).document
+      return
+    }
     this.document = this.withSqlite(true, db => readSqliteMemoryDocument(db, projectKey))
   }
 

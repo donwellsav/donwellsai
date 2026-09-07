@@ -1,20 +1,10 @@
 import { useEffect, useState } from 'react'
 import { PROJECT_MEMORY_KINDS, PROJECT_MEMORY_MAX_CONTENT_LENGTH, PROJECT_MEMORY_MAX_TITLE_LENGTH } from '@shared/project-memory'
 import type { ProjectMemoryEntry, ProjectMemoryHistoryResult } from '@shared/project-memory'
-import { archiveProjectMemoryEditor, memoryDraftIsDirty, saveProjectMemoryEditor, useProjectMemoryEditor } from '../project-memory-editor'
+import { archiveProjectMemoryEditor, eraseProjectMemoryEditor, resolveProjectMemoryEditor, memoryDraftIsDirty, saveProjectMemoryEditor, useProjectMemoryEditor } from '../project-memory-editor'
 import { pathBasename } from '../workspace-navigation'
 import { ModalDialog } from './ModalDialog'
 import './project-memory.css'
-
-function draftFromEntry(entry: ProjectMemoryEntry) {
-  return {
-    kind: entry.kind,
-    title: entry.title,
-    content: entry.content,
-    tags: entry.tags.join(', '),
-    sourceRef: entry.provenance.sourceRef ?? ''
-  }
-}
 
 export function ProjectMemoryEditor() {
   const editor = useProjectMemoryEditor((state) => state.editor)
@@ -22,23 +12,25 @@ export function ProjectMemoryEditor() {
   const error = useProjectMemoryEditor((state) => state.error)
   const change = useProjectMemoryEditor((state) => state.change)
   const [discarding, setDiscarding] = useState(false)
+  const [erasing, setErasing] = useState(false)
   const [history, setHistory] = useState<ProjectMemoryHistoryResult | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyAttempt, setHistoryAttempt] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [resolutionConfirm, setResolutionConfirm] = useState(false)
+  const [reviewedLatest, setReviewedLatest] = useState<ProjectMemoryEntry | null>(null)
   const [resolving, setResolving] = useState(false)
   const entryId = editor?.entry?.id
   const workspacePath = editor?.workspacePath
 
   useEffect(() => {
     setDiscarding(false)
+    setErasing(false)
     setHistoryOpen(false)
     setHistory(null)
     setHistoryError(null)
     setHistoryLoading(false)
-    setResolutionConfirm(false)
+    setReviewedLatest(null)
   }, [entryId, workspacePath])
   useEffect(() => {
     if (!historyOpen || !entryId || !workspacePath) return
@@ -60,7 +52,7 @@ export function ProjectMemoryEditor() {
   const { draft, entry } = editor
   const dirty = memoryDraftIsDirty(editor)
   const archived = !!entry?.archivedAt
-  const revisionConflict = !!(entry && dirty && error && /revision|conflict|changed before|changed since/i.test(error))
+  const revisionConflict = !!(entry && error && /revision|conflict|changed before|changed since/i.test(error))
   const close = (): void => {
     if (busy) return
     if (dirty) setDiscarding(true)
@@ -72,28 +64,27 @@ export function ProjectMemoryEditor() {
     useProjectMemoryEditor.setState((state) => state.editor === editor
       ? { editor: { ...editor, entry: null, original: blankOriginal }, error: null }
       : {})
-    setResolutionConfirm(false)
+    setReviewedLatest(null)
     setHistoryOpen(false)
   }
 
-  const reloadLatest = async (): Promise<void> => {
+  const compareLatest = async (): Promise<void> => {
     if (!entry || resolving) return
     const editorAtStart = editor
     setResolving(true)
     try {
       const latest = await window.donwells.projectMemoryGet({ workspacePath: editor.workspacePath, id: entry.id })
-      const nextDraft = draftFromEntry(latest)
-      useProjectMemoryEditor.setState((state) => state.editor === editorAtStart
-        ? { editor: { ...editorAtStart, entry: latest, draft: nextDraft, original: nextDraft }, error: null }
-        : {})
-      setHistory(null)
-      setHistoryOpen(false)
-      setResolutionConfirm(false)
+      if (useProjectMemoryEditor.getState().editor === editorAtStart) setReviewedLatest(latest)
     } catch (cause) {
-      useProjectMemoryEditor.setState({ error: 'Could not load the latest memory revision: ' + String(cause) })
-    } finally {
-      setResolving(false)
-    }
+      if (useProjectMemoryEditor.getState().editor === editorAtStart) useProjectMemoryEditor.setState({ error: 'Could not load the latest memory revision: ' + String(cause) })
+    } finally { setResolving(false) }
+  }
+  const resolveWithReviewed = (retainDraft: boolean): void => {
+    if (!reviewedLatest || reviewedLatest.id !== entry?.id || busy || (retainDraft && reviewedLatest.archivedAt)) return
+    resolveProjectMemoryEditor(editor, reviewedLatest, retainDraft)
+    setReviewedLatest(null)
+    setHistory(null)
+    setHistoryOpen(false)
   }
   return (
     <ModalDialog className="modal memory-editor" labelledBy="memory-editor-title" onClose={close}>
@@ -120,9 +111,23 @@ export function ProjectMemoryEditor() {
         <strong>Memory action failed</strong>
         <p>{error}</p>
         <p>{revisionConflict ? 'Your draft is retained. Compare revision history before resolving the conflicting change.' : 'Your draft is retained. You can retry the action without re-entering it.'}</p>
-        {revisionConflict && !resolutionConfirm && <div className="memory-error-actions"><button type="button" className="btn btn-secondary btn-sm" disabled={resolving} onClick={() => setResolutionConfirm(true)}>Reload latest…</button><button type="button" className="btn btn-primary btn-sm" disabled={resolving} onClick={saveAsNew}>Keep as new draft</button></div>}
-        {revisionConflict && resolutionConfirm && <div className="memory-conflict-confirm" role="group" aria-label="Confirm latest revision reload"><span>Replace this retained draft with the latest saved revision?</span><button type="button" className="btn btn-secondary btn-sm" disabled={resolving} onClick={() => setResolutionConfirm(false)}>Keep draft</button><button type="button" className="btn btn-danger btn-sm" disabled={resolving} onClick={() => void reloadLatest()}>{resolving ? 'Loading…' : 'Replace with latest'}</button></div>}
+        {revisionConflict && !reviewedLatest && <div className="memory-error-actions"><button type="button" className="btn btn-secondary btn-sm" disabled={resolving} onClick={() => void compareLatest()}>{resolving ? 'Loading…' : 'Compare latest…'}</button><button type="button" className="btn btn-primary btn-sm" disabled={resolving} onClick={saveAsNew}>Keep as new draft</button></div>}
+
       </div>}
+      {reviewedLatest && <section className="memory-history" aria-label="Review latest revision before resolving">
+        <strong>Latest saved revision {reviewedLatest.revision}{reviewedLatest.archivedAt ? ' · Archived' : ''}</strong>
+        <p>{reviewedLatest.title} · {reviewedLatest.kind}</p>
+        <pre>{reviewedLatest.content}</pre>
+        <p>Tags: {reviewedLatest.tags.join(', ') || 'None'} · Source: {reviewedLatest.provenance.sourceRef || 'None'}</p>
+        <p>Your authored draft remains in the fields above. Reapply keeps those fields and updates the revision used by Save memory. Saving remains a separate action.</p>
+        {reviewedLatest.archivedAt && <p>This entry was archived. Keep your draft as a new fact, or replace it with the archived revision to restore that entry.</p>}
+        <div className="memory-error-actions">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setReviewedLatest(null)}>Keep editing</button>
+          <button type="button" className="btn btn-danger btn-sm" onClick={() => resolveWithReviewed(false)}>Replace draft with reviewed revision</button>
+          <button type="button" className="btn btn-primary btn-sm" disabled={!!reviewedLatest.archivedAt} onClick={() => resolveWithReviewed(true)}>Reapply draft to latest revision</button>
+          {reviewedLatest.archivedAt && <button type="button" className="btn btn-secondary btn-sm" onClick={saveAsNew}>Keep as new draft</button>}
+        </div>
+      </section>}
       {entry && <section className="memory-history">
         <button type="button" className="btn btn-secondary btn-sm" aria-expanded={historyOpen} onClick={() => setHistoryOpen(!historyOpen)}>Revision history</button>
         {historyOpen && <div className="memory-history-list">
@@ -137,12 +142,17 @@ export function ProjectMemoryEditor() {
         </div>}
       </section>}
       <footer className="modal-footer memory-editor-footer">
-        {discarding ? <>
+        {erasing ? <>
+          <span>Erase this entry and its retained revision contents? Archive remains reversible; erasure does not. Older backups and exports keep their copies. This removes local authoritative memory only; external engine cleanup is not yet integrated.</span>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setErasing(false)}>Keep entry</button>
+          <button type="button" className="btn btn-danger btn-sm" disabled={busy || dirty} onClick={() => void eraseProjectMemoryEditor()}>Erase entry and history</button>
+        </> : discarding ? <>
           <span>Discard unsaved memory changes?</span>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDiscarding(false)}>Keep editing</button>
           <button type="button" className="btn btn-danger btn-sm" onClick={() => useProjectMemoryEditor.setState({ editor: null, error: null })}>Discard changes</button>
         </> : <>
           {entry && <button type="button" className="btn btn-secondary btn-sm" disabled={busy || resolving || dirty} onClick={() => void archiveProjectMemoryEditor()}>{archived ? 'Restore entry' : 'Archive entry'}</button>}
+          {entry && <button type="button" className="btn btn-danger btn-sm" disabled={busy || resolving || dirty} onClick={() => setErasing(true)}>Erase…</button>}
           <span className="memory-editor-status">{busy ? 'Saving…' : resolving ? 'Loading latest…' : dirty ? 'Unsaved draft' : entry ? 'Saved revision' : 'New entry'}</span>
           <button type="button" className="btn btn-secondary btn-sm" disabled={busy || resolving} onClick={close}>Close</button>
           {!archived && <button type="button" className="btn btn-primary btn-sm" disabled={busy || resolving || !draft.title.trim() || !draft.content.trim() || (!!entry && !dirty)} onClick={() => void saveProjectMemoryEditor()}>Save memory</button>}

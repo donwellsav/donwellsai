@@ -33,7 +33,7 @@ export function ProjectMemoryStorage({ onChanged }: { onChanged: () => void }) {
     {status?.backend === 'json' && <p>Upgrade to SQLite with a verified backup of the current JSON store.</p>}
     {status?.backend === 'preparing' && <p>An upgrade is unfinished. Resume it or return to the preserved JSON source.</p>}
     {status?.backend === 'reversing' && <p>Return to JSON is unfinished. Resume to preserve all writes made after the upgrade.</p>}
-    {status?.backend === 'sqlite' && <p>Return to JSON exports current records and revisions first. The SQLite database and original backup are retained.</p>}
+    {status?.backend === 'sqlite' && <p>Return to JSON exports current records, retained revisions and erasure references. The SQLite database and original backup are retained. Schema 2 requires an updated app; older backups may still contain erased text.</p>}
     {status?.backend === 'aborting' && <p>Recovery is unfinished. Continue restoring the preserved JSON source.</p>}
     {status?.error && <p className="memory-error" role="alert">{status.error}</p>}
     {status?.backupPath && <p className="memory-storage-path">Backup · {status.backupBytes?.toLocaleString()} bytes<br />{status.backupPath}</p>}

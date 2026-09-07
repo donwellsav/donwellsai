@@ -3,6 +3,8 @@ import {
   PROJECT_MEMORY_DEFAULT_RESULT_LIMIT,
   PROJECT_MEMORY_MAX_HISTORY_REVISIONS,
   parseProjectMemoryArchiveRequest,
+  parseProjectMemoryEraseRequest,
+  type ProjectMemoryEraseRequest,
   parseProjectMemoryCreateRequest,
   parseProjectMemoryEntry,
   parseProjectMemoryGetRequest,
@@ -168,6 +170,15 @@ export class ProjectMemoryService implements ProjectMemoryApi {
     })
     this.notifyChanged(project)
     return updated
+  }
+
+  async projectMemoryErase(value: ProjectMemoryEraseRequest) {
+    const request = parseProjectMemoryEraseRequest(value)
+    const project = await this.projectFor(request.workspacePath)
+    const current = this.store.get(project.projectKey, request.id)
+    const erased = this.store.erase(project, request.id, request.expectedRevision, this.nextTimestamp(current.updatedAt))
+    this.notifyChanged(project)
+    return erased
   }
 
   private async projectFor(workspacePath: string): Promise<ProjectMemoryProject> {

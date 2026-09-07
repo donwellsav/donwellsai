@@ -21,6 +21,7 @@ const api: IpcApi = {
   projectMemoryUpdate: (request) => ipcRenderer.invoke('projectMemoryUpdate', request),
   projectMemoryHistory: (request) => ipcRenderer.invoke('projectMemoryHistory', request),
   projectMemoryArchive: (request) => ipcRenderer.invoke('projectMemoryArchive', request),
+  projectMemoryErase: (request) => ipcRenderer.invoke('projectMemoryErase', request),
   editorRecoveryList: () => ipcRenderer.invoke('editorRecoveryList'),
   editorRecoveryGet: (target) => ipcRenderer.invoke('editorRecoveryGet', target),
   editorRecoveryCheckpoint: (request) => ipcRenderer.invoke('editorRecoveryCheckpoint', request),

@@ -23,13 +23,24 @@ export const useProjectMemoryEditor = create<MemoryEditorState>((set) => ({
   refresh: () => set((state) => ({ generation: state.generation + 1 }))
 }))
 
-export function openProjectMemoryEditor(workspacePath: string, entry: ProjectMemoryEntry | null = null): void {
-  if (useProjectMemoryEditor.getState().editor) return
-  const draft: MemoryDraft = {
+export function draftFromEntry(entry: ProjectMemoryEntry | null): MemoryDraft {
+  return {
     kind: entry?.kind ?? 'convention', title: entry?.title ?? '', content: entry?.content ?? '',
     tags: entry?.tags.join(', ') ?? '', sourceRef: entry?.provenance.sourceRef ?? ''
   }
+}
+
+export function openProjectMemoryEditor(workspacePath: string, entry: ProjectMemoryEntry | null = null): void {
+  if (useProjectMemoryEditor.getState().editor) return
+  const draft = draftFromEntry(entry)
   useProjectMemoryEditor.setState({ editor: { workspacePath, entry, draft, original: draft }, error: null })
+}
+
+export function resolveProjectMemoryEditor(editor: MemoryEditor, latest: ProjectMemoryEntry, retainDraft: boolean): void {
+  const state = useProjectMemoryEditor.getState()
+  if (state.editor !== editor || state.busy || latest.id !== editor.entry?.id || latest.revision < editor.entry.revision || (retainDraft && latest.archivedAt)) return
+  const original = draftFromEntry(latest)
+  useProjectMemoryEditor.setState({ editor: { ...editor, entry: latest, draft: retainDraft ? editor.draft : original, original }, error: null })
 }
 
 export function memoryDraftIsDirty(editor: MemoryEditor | null): boolean {
@@ -84,4 +95,16 @@ export async function archiveProjectMemoryEditor(): Promise<void> {
   } finally {
     useProjectMemoryEditor.setState({ busy: false })
   }
+}
+
+
+export async function eraseProjectMemoryEditor(): Promise<void> {
+  const { editor, busy } = useProjectMemoryEditor.getState()
+  if (!editor?.entry || busy || memoryDraftIsDirty(editor)) return
+  useProjectMemoryEditor.setState({ busy: true, error: null })
+  try {
+    await window.donwells.projectMemoryErase({ workspacePath: editor.workspacePath, id: editor.entry.id, expectedRevision: editor.entry.revision })
+    if (useProjectMemoryEditor.getState().editor === editor) useProjectMemoryEditor.setState({ editor: null })
+  } catch (error) { useProjectMemoryEditor.setState({ error: String(error) }) }
+  finally { useProjectMemoryEditor.setState({ busy: false }) }
 }

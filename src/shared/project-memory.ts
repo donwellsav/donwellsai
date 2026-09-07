@@ -1,4 +1,4 @@
-export const PROJECT_MEMORY_SCHEMA_VERSION = 1 as const
+export const PROJECT_MEMORY_SCHEMA_VERSION = 2 as const
 export const PROJECT_MEMORY_KINDS = ['fact', 'decision', 'convention', 'procedure', 'gotcha'] as const
 export const PROJECT_MEMORY_MAX_ENTRIES = 10_000
 export const PROJECT_MEMORY_MAX_ENTRIES_PER_PROJECT = 2_500
@@ -62,7 +62,11 @@ export type StoredProjectMemoryEntry = {
   history: ProjectMemoryRevision[]
 }
 
+export type ProjectMemoryErasure = { id: string; revision: number; erasedAt: string }
+export type ProjectMemoryEraseRequest = { workspacePath: string; id: string; expectedRevision: number }
+
 export type ProjectMemoryProjectDocument = ProjectMemoryProject & {
+  erased?: ProjectMemoryErasure[]
   entries: StoredProjectMemoryEntry[]
 }
 
@@ -135,6 +139,7 @@ export type ProjectMemoryArchiveRequest = {
 }
 
 export interface ProjectMemoryApi {
+  projectMemoryErase(request: ProjectMemoryEraseRequest): Promise<ProjectMemoryErasure>
   projectMemoryList(request: ProjectMemoryListRequest): Promise<ProjectMemoryListResult>
   projectMemoryGet(request: ProjectMemoryGetRequest): Promise<ProjectMemoryEntry>
   projectMemoryCreate(request: ProjectMemoryCreateRequest): Promise<ProjectMemoryEntry>
@@ -412,7 +417,7 @@ export function parseStoredProjectMemoryEntry(value: unknown, label = 'stored en
 export function parseProjectMemoryDocument(value: unknown): ProjectMemoryDocument {
   const input = record(value, 'project memory document')
   keys(input, ['schemaVersion', 'projects'], [], 'project memory document')
-  if (input.schemaVersion !== PROJECT_MEMORY_SCHEMA_VERSION) {
+  if (input.schemaVersion !== 1 && input.schemaVersion !== PROJECT_MEMORY_SCHEMA_VERSION) {
     throw new Error(`Unsupported project memory schema version: ${String(input.schemaVersion)}`)
   }
   if (!Array.isArray(input.projects)) throw new Error('project memory document.projects must be an array')
@@ -421,7 +426,7 @@ export function parseProjectMemoryDocument(value: unknown): ProjectMemoryDocumen
   let entryCount = 0
   const projects = input.projects.map((candidate, projectIndex) => {
     const projectInput = record(candidate, `project memory document.projects[${projectIndex}]`)
-    keys(projectInput, ['projectKey', 'projectPath', 'entries'], [], `project memory document.projects[${projectIndex}]`)
+    keys(projectInput, ['projectKey', 'projectPath', 'entries'], input.schemaVersion === 2 ? ['erased'] : [], `project memory document.projects[${projectIndex}]`)
     const project = parseProjectMemoryProject({
       projectKey: projectInput.projectKey,
       projectPath: projectInput.projectPath
@@ -438,8 +443,18 @@ export function parseProjectMemoryDocument(value: unknown): ProjectMemoryDocumen
       entryIds.add(parsed.current.id)
       return parsed
     })
-    entryCount += entries.length
-    return { ...project, entries }
+    const erased = projectInput.erased ?? []
+    if (!Array.isArray(erased) || erased.length > PROJECT_MEMORY_MAX_ENTRIES) throw new Error('Invalid erased memory references')
+    const tombstones = erased.map(candidate => {
+      const value = record(candidate, 'erased memory reference')
+      keys(value, ['id', 'revision', 'erasedAt'], [], 'erased memory reference')
+      const id = parseProjectMemoryIdentifier(value.id)
+      if (entryIds.has(id)) throw new Error(`Duplicate memory or erased ID: ${id}`)
+      entryIds.add(id)
+      return { id, revision: positiveInteger(value.revision, 'erased revision'), erasedAt: timestamp(value.erasedAt, 'erasedAt') }
+    })
+    entryCount += entries.length + tombstones.length
+    return { ...project, entries, ...(tombstones.length ? { erased: tombstones } : {}) }
   })
   if (entryCount > PROJECT_MEMORY_MAX_ENTRIES) {
     throw new Error(`Project memory document exceeds ${PROJECT_MEMORY_MAX_ENTRIES} entries`)
@@ -534,4 +549,11 @@ export function parseProjectMemoryArchiveRequest(value: unknown): ProjectMemoryA
     archived: boolean(input.archived, 'archived'),
     attribution: parseProjectMemoryAttributionInput(input.attribution)
   }
+}
+
+
+export function parseProjectMemoryEraseRequest(value: unknown): ProjectMemoryEraseRequest {
+  const input = record(value, 'project memory erase request')
+  keys(input, ['workspacePath', 'id', 'expectedRevision'], [], 'project memory erase request')
+  return { workspacePath: parseProjectMemoryWorkspacePath(input.workspacePath), id: parseProjectMemoryIdentifier(input.id), expectedRevision: positiveInteger(input.expectedRevision, 'expectedRevision') }
 }
