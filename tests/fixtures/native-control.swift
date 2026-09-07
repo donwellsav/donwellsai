@@ -20,7 +20,8 @@ final class Fixture: NSObject, NSApplicationDelegate {
             windows.append(window)
         }
         NSApp.activate(ignoringOtherApps: true)
-        Timer.scheduledTimer(withTimeInterval: 180, repeats: false) { _ in NSApp.terminate(nil) }
+        installMouseMonitor()
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: false) { _ in NSApp.terminate(nil) }
     }
 
     @objc func record(_ sender: NSButton) {
@@ -29,6 +30,20 @@ final class Fixture: NSObject, NSApplicationDelegate {
         do { try JSONSerialization.data(withJSONObject: actions).write(to: receipt, options: .atomic) }
         catch { fputs("Receipt failed: \(error)\n", stderr); NSApp.terminate(nil) }
         sender.title = "Recorded " + sender.identifier!.rawValue
+    }
+
+    // Diagnostic: record every left mouseDown delivered to a fixture window, with window-local coordinates.
+    func installMouseMonitor() {
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            if let self, let window = event.window {
+                let p = event.locationInWindow
+                self.actions.append(["target": "mouseDown", "window": window.title,
+                                     "x": String(format: "%.1f", p.x), "y": String(format: "%.1f", p.y),
+                                     "frontmostPid": String(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1)])
+                try? JSONSerialization.data(withJSONObject: self.actions).write(to: self.receipt, options: .atomic)
+            }
+            return event
+        }
     }
 }
 
