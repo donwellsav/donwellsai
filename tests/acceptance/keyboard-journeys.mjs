@@ -118,10 +118,11 @@ try{
  report.journeys.returnShip={restart:'Owned app graceful close and relaunch',terminalIdentitiesRetained:true,memoryOpenedByKeyboard:true,verificationRetained:true,artifactUnchanged:true,installedRelease:'Task 22'}
  if(values.pdf){
   await page.keyboard.press('Meta+p');await page.locator('.palette-input').waitFor();await page.keyboard.press('Meta+a');await page.keyboard.insertText('sample.pdf');await page.getByRole('option',{name:/sample.pdf/}).waitFor();await page.keyboard.press('Enter');await page.locator('.palette-input').waitFor({state:'detached'})
-  const pdf=page.getByRole('region',{name:'PDF preview: sample.pdf'});await pdf.waitFor();await pdf.getByText('donwells.ai page 1',{exact:true}).waitFor()
-  assert(await pdf.locator('canvas').first().evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}))
+  const pdf=page.getByRole('region',{name:'PDF preview: sample.pdf'});await pdf.waitFor()
+  const assertRenderedPage=async number=>{const surface=pdf.locator(`.media-pdf-page[data-page-number="${number}"]`);await surface.getByText('Rendering page…',{exact:true}).waitFor({state:'detached'});assert.equal(await surface.getByRole('alert').count(),0,`PDF page ${number} reported a render error`);assert(await surface.locator(`canvas[aria-label="PDF page ${number}"]`).evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}),`PDF page ${number} canvas has no rendered pixels`)}
+  await pdf.getByText('donwells.ai page 1',{exact:true}).waitFor();await assertRenderedPage(1)
   await activate(pdf.getByRole('button',{name:'Next page',exact:true}));await pdf.getByText('donwells.ai page 2',{exact:true}).waitFor()
-  assert(await pdf.locator('canvas[aria-label="PDF page 2"]').evaluate(c=>{const {data}=c.getContext('2d').getImageData(0,0,c.width,c.height);for(let i=0;i<data.length;i+=4)if(data[i+3]>0&&data[i]<180&&data[i+1]<180&&data[i+2]<180)return true;return false}))
+  await assertRenderedPage(2)
   report.pdf={renderedCanvas:true,textLayer:true,secondPage:true,nodeCanvasRequired:false}
  }
  report.mouseEvents=await page.evaluate(()=>globalThis.keyboardMouseEvents);assert.equal(report.mouseEvents,0)

@@ -6,7 +6,7 @@
 - `tests/helpers/package-evidence.mjs`: shared deterministic external-resource file-set/content identity and exact directory check.
 - `tests/helpers/smoke-processes.mjs`: shared strict clean-shutdown receipt predicate.
 - `tests/acceptance/workspace-baseline.mjs`: records external-resource identity before and after the run and fails if it changes.
-- `tests/acceptance/keyboard-journeys.mjs`: defers `verified:true` until workflow, source, artifact, shutdown and daemon cleanup checks finish; preserves `result.json` when cleanup/identity checks throw; checks page-two pixels.
+- `tests/acceptance/keyboard-journeys.mjs`: defers `verified:true` until workflow, source, artifact, shutdown and daemon cleanup checks finish; preserves `result.json` when cleanup/identity checks throw; waits for each PDF page render to finish, rejects page errors and checks both canvases for pixels.
 - `tests/acceptance/terminal-recovery.mjs`: verifies actual hidden/shown window state and an input-produced redraw from the same TUI PID.
 - `tests/workspace-baseline.test.ts`: regression coverage for stale files, symlinks, external identity changes and invalid shutdown receipts.
 
@@ -15,6 +15,7 @@
 - `node --check` passed for all changed `.mjs` files.
 - `pnpm exec vitest run tests/workspace-baseline.test.ts` passed: 3 tests.
 - `pnpm run package:check` passed: 187 production dependency notices verified, static package checks passed.
+- Review follow-up: keyboard runner syntax and `tests/workspace-baseline.test.ts` passed after adding render completion/error gates to both PDF pages.
 
 ## Limits
 
