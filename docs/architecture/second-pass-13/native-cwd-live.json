@@ -1,0 +1,68 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-history-YRDDh4",
+  "project": "/private/tmp/donwells-strengthen-27-native/project",
+  "checks": [
+    "Kimi native state identity and version survive exact resume recipe",
+    "Actual native histories retain exact cwd/native IDs, supported resume metadata and bounded transcript paging",
+    "DuckDB and SQLite agree on actual validated native activity in the selected actual project",
+    "Actual Sessions panel runs selected DuckDB analysis"
+  ],
+  "histories": [
+    {
+      "agent": "hermes",
+      "nativeId": "hermes:20260906_140945_efd5e4",
+      "cwd": "/private/tmp/donwells-strengthen-27-native/project",
+      "sourceFormat": "Hermes state.db",
+      "sourceVersion": "hermes-state-db",
+      "role": "primary",
+      "resume": {
+        "executable": "hermes",
+        "args": [
+          "--tui",
+          "--resume",
+          "20260906_140945_efd5e4"
+        ]
+      },
+      "paged": true
+    },
+    {
+      "agent": "kimi",
+      "nativeId": "kimi:wd_donwells-native-agents-ruk4ti_238ef3886e8f:main:session_8231090d-b0e3-4084-be6a-9fc6119170c4",
+      "cwd": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-RuK4TI",
+      "sourceFormat": "Kimi wire.jsonl",
+      "sourceVersion": "kimi-wire+state-v2",
+      "role": "primary",
+      "resume": {
+        "executable": "kimi",
+        "args": [
+          "--session",
+          "session_8231090d-b0e3-4084-be6a-9fc6119170c4"
+        ]
+      },
+      "paged": true
+    }
+  ],
+  "analytics": [
+    {
+      "path": "/private/tmp/donwells-strengthen-27-native/project",
+      "sessions": 1,
+      "engine": "duckdb",
+      "sourceGeneration": "fd32b5a52312945740a0b2422f1e7e2f697621e7a85d8bab7efb8c765433f405",
+      "sourceCount": 1
+    },
+    {
+      "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-RuK4TI",
+      "sessions": 1,
+      "engine": "duckdb",
+      "sourceGeneration": "0226d780e08bd63a0d29f112750b92001a9202bcf50fd7dbb3eba9f7deb8eb0a",
+      "sourceCount": 1
+    }
+  ],
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

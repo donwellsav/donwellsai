@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { createReadStream, type Dirent } from 'node:fs'
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { dirname, extname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionHistorySource, SessionHistoryAnalytics, SessionAnalyticsOptions, SessionAnalyticsProgress, SessionHistoryPage } from '@shared/project-session-history'
 import { aggregateSessionHistory, duckdbSessionHistory } from './project-analytics'
@@ -11,16 +11,17 @@ import { spawnProcess } from '@shared/child-process/run-process'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import type { ProjectSearchHit, ProjectToolScope } from '@shared/project-tools'
 
-export const SESSION_HISTORY_VERSION = 'agentsview-0.42.0'
-const BINARY_SHA256 = '7bfa30b671bd0aa497b18cf639f95c9f2499a70a14ed03c704f4d15f9b61bd88'
+export const SESSION_HISTORY_VERSION = 'agentsview-0.42.0-donwells-cwd3'
+export const SESSION_HISTORY_BINARY_SHA256 = '1c9365fd70b3bca35ff1997dfb1fcebc06bb0804d95d9a6401af9583a53af05a'
 export const SESSION_HISTORY_CAPABILITIES = {
   omp: 'AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact source resume',
   'deepseek-harness': 'AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact UUID resume',
-  hermes: 'AgentsView 0.42.0 state.db parser; project from native cwd; parent/helper identity preserved; exact native-ID resume',
-  kimi: 'AgentsView 0.42.0 wire-v2 parser; project from native cwd; parent/helper identity preserved; exact native-ID resume'
+  hermes: 'AgentsView 0.42.0 + Donwells cwd3 patch; native state.db cwd attribution and aggregate freshness; parent/helper identity preserved; exact native-ID resume',
+  kimi: 'AgentsView 0.42.0 + Donwells cwd3 patch; explicit workspace roots and validated native state.json identity/cwd with wire fallback; parent/helper identity preserved; exact native-ID resume'
 }
 
 type Row = Record<string, unknown>
+type SourceFingerprint = { size:string; mtime:string }
 type HistoryOptions = { analyticsPython?: string; binary: string; cache: string; roots: { omp: string[]; 'deepseek-harness': string[]; hermes?: string[]; kimi?: string[] } }
 const supportedAgents = ['omp', 'deepseek-harness', 'hermes', 'kimi']
 const helperSession = (row: Row) => Boolean(typeof row.parent_session_id === 'string' && row.parent_session_id || /helper|subagent/i.test(`${row.relationship_type ?? ''} ${row.session_kind ?? ''}`))
@@ -68,7 +69,7 @@ export class ProjectSessionHistory {
   private async rebuild(path: string, scope: ProjectToolScope, directory: string) {
     const hash = createHash('sha256')
     for await (const chunk of createReadStream(this.options.binary)) hash.update(chunk)
-    if (hash.digest('hex') !== BINARY_SHA256) throw new Error('Session history requires the admitted AgentsView 0.42.0 binary')
+    if (hash.digest('hex') !== SESSION_HISTORY_BINARY_SHA256) throw new Error('Session history requires the admitted AgentsView 0.42.0 Donwells cwd3 binary')
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const roots = async (values: string[]) => Promise.all(values.map(value => realpath(value)))
     const prefixes = new Set([resolve(path), scope.checkoutPath, scope.projectPath])
@@ -128,7 +129,7 @@ export class ProjectSessionHistory {
       } finally { db.close() }
       await this.assertScope(path, scope)
       const indexedAt = new Date().toISOString()
-      await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, indexedAt, indexKey: scope.indexKey }), { mode: 0o600 })
+      await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, binarySha256: SESSION_HISTORY_BINARY_SHA256, indexedAt, indexKey: scope.indexKey }), { mode: 0o600 })
       return { indexedAt, capabilities: SESSION_HISTORY_CAPABILITIES }
     } finally {
       if (this.children.has(child)) {
@@ -142,17 +143,35 @@ export class ProjectSessionHistory {
     const { scope, directory } = await this.bound(path)
     if (this.queue.has(scope.indexKey)) throw new Error('Session indexing is running')
     const receipt: unknown = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
-    if (!isObject(receipt) || receipt.version !== SESSION_HISTORY_VERSION || receipt.indexKey !== scope.indexKey || typeof receipt.indexedAt !== 'string') throw new Error('Session history must be indexed for this parser version')
+    if (!isObject(receipt) || receipt.version !== SESSION_HISTORY_VERSION || receipt.binarySha256 !== SESSION_HISTORY_BINARY_SHA256 || receipt.indexKey !== scope.indexKey || typeof receipt.indexedAt !== 'string') throw new Error('Session history must be indexed for this parser version')
     return { scope, directory, indexedAt: receipt.indexedAt }
   }
 
-  private async current(row: Row, scope: ProjectToolScope): Promise<boolean> {
+  private async sourceFingerprint(row:Row):Promise<SourceFingerprint|null>{
+    const file = await lstat(String(row.file_path), { bigint: true })
+    if (!file.isFile()) return null
+    let size=file.size,mtime=file.mtimeNs
+    if (row.agent === 'hermes' && String(row.file_path).endsWith('state.db')) {
+      let wal:Awaited<ReturnType<typeof lstat>>|null=null
+      try{wal=await lstat(String(row.file_path)+'-wal',{bigint:true})}catch(error){if(!isObject(error)||error.code!=='ENOENT')throw error}
+      if(wal?.isFile()&&wal.size>0n){size+=wal.size;if(wal.mtimeNs>mtime)mtime=wal.mtimeNs}
+      const sessions=join(dirname(String(row.file_path)),'sessions');let entries:Dirent[]
+      try{entries=await readdir(sessions,{withFileTypes:true})}catch(error){if(!isObject(error)||error.code!=='ENOENT')throw error;entries=[]}
+      if(entries.length>100_000)return null
+      for(const entry of entries){if(!entry.isFile()||!(extname(entry.name)==='.jsonl'||entry.name.startsWith('session_')&&extname(entry.name)==='.json'))continue;const item=await lstat(join(sessions,entry.name),{bigint:true}).catch(()=>null);if(!item?.isFile())return null;size+=item.size;if(item.mtimeNs>mtime)mtime=item.mtimeNs}
+    }
+    return {size:size.toString(),mtime:mtime.toString()}
+  }
+
+  private async current(row: Row, scope: ProjectToolScope, fingerprints?:Map<string,Promise<SourceFingerprint|null>>): Promise<boolean> {
     if (typeof row.cwd !== 'string' || typeof row.file_path !== 'string' || !supportedAgents.includes(String(row.agent))) return false
     try {
       const sourceScope = await this.resolveScope(row.cwd)
       if (sourceScope.projectKey !== scope.projectKey) return false
-      const file = await lstat(row.file_path, { bigint: true })
-      return file.isFile() && file.size.toString() === String(row.file_size) && file.mtimeNs.toString() === String(row.source_mtime)
+      const key=`${row.agent}\0${row.file_path}`;let pending=fingerprints?.get(key)
+      if(!pending){pending=this.sourceFingerprint(row);fingerprints?.set(key,pending)}
+      const fingerprint=await pending
+      return fingerprint?.size === String(row.file_size) && fingerprint.mtime === String(row.source_mtime)
     } catch { return false }
   }
 
@@ -172,10 +191,10 @@ export class ProjectSessionHistory {
     } catch (error) { this.searches.delete(scope.indexKey); this.cancelledSearchRequests.delete(requestId); throw error }
     finally { db.close() }
     try {
-      const hits: ProjectSearchHit[] = []
+      const hits: ProjectSearchHit[] = [],fingerprints=new Map<string,Promise<SourceFingerprint|null>>()
       for (const row of rows.slice(0, 100)) {
         operation.controller.signal.throwIfAborted()
-        if (!await this.current(row, scope)) continue
+        if (!await this.current(row, scope, fingerprints)) continue
         hits.push({ source: 'session', id: `session:${scope.indexKey}:${encodeURIComponent(String(row.id))}:${row.ordinal}`, title: `${row.agent}${helperSession(row) ? ' helper' : ''} · ${String(row.title).slice(0, 160)}`, excerpt: String(row.excerpt), path: null, line: Number(row.ordinal) + 1, revision: String(row.transcript_revision), indexedAt, stale: false })
       }
       await this.assertScope(path, scope)
@@ -251,7 +270,7 @@ export class ProjectSessionHistory {
       const version = db.prepare('PRAGMA data_version').get()!.data_version
       db.exec('BEGIN')
       let reading = true
-      const selected: Row[] = []
+      const selected: Row[] = [],fingerprints=new Map<string,Promise<SourceFingerprint|null>>()
       let truncated = false, cursor: string | null = null
       do {
         job.controller.signal.throwIfAborted()
@@ -259,7 +278,7 @@ export class ProjectSessionHistory {
         for (const row of rows.slice(0, 1000)) {
           job.controller.signal.throwIfAborted()
           job.progress.scanned++
-          if (await this.current(row, scope)) { selected.push(row); job.progress.validated++ }
+          if (await this.current(row, scope, fingerprints)) { selected.push(row); job.progress.validated++ }
           if (selected.length > 10000 || job.progress.scanned > 100000) throw new Error('Analytics source limit reached; narrow indexed session roots')
         }
         truncated = rows.length > 1000
@@ -267,9 +286,10 @@ export class ProjectSessionHistory {
       } while (engine === 'duckdb' && cursor !== null)
       const revalidate = async () => {
         job.controller.signal.throwIfAborted()
+        const currentFingerprints=new Map<string,Promise<SourceFingerprint|null>>()
         for (const row of selected) {
           job.controller.signal.throwIfAborted()
-          if (!await this.current(row, scope)) throw new Error('Native session changed during analytics. Refresh session history.')
+          if (!await this.current(row, scope, currentFingerprints)) throw new Error('Native session changed during analytics. Refresh session history.')
         }
         await this.assertScope(path, scope)
         if ((await this.archive(path)).indexedAt !== indexedAt || db!.prepare('PRAGMA data_version').get()!.data_version !== version) throw new Error('History index changed during analytics; refresh before using these results')

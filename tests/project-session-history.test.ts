@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, stat, rm, rename, realpath, readFile } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from '../src/main/project-session-history'
+import { ProjectSessionHistory, SESSION_HISTORY_BINARY_SHA256, SESSION_HISTORY_VERSION } from '../src/main/project-session-history'
 import { resolveProjectToolScope } from '../src/main/project-tools'
 
 const fixtures: string[] = []
@@ -18,7 +18,7 @@ async function fixture() {
   })
   const scope = await resolveScope(project), directory = join(root, 'cache', scope.indexKey, SESSION_HISTORY_VERSION)
   await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, indexKey: scope.indexKey, indexedAt: '2026-09-06T00:00:00Z' }))
+  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, binarySha256: SESSION_HISTORY_BINARY_SHA256, indexKey: scope.indexKey, indexedAt: '2026-09-06T00:00:00Z' }))
   const source = join(root, 'session.jsonl'); await writeFile(source, 'native source')
   const file = await stat(source, { bigint: true })
   const db = new DatabaseSync(join(directory, 'sessions.db'))
@@ -51,15 +51,32 @@ it('preserves native identity and blocks helper resume', async () => {
   const insert = db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)')
   insert.run('hermes:primary','hermes',f.project,f.source,Number(file.size),file.mtimeNs,'1',null,null,'Hermes primary','native-hermes','state-db-v23',null,'','')
   insert.run('kimi:helper','kimi',f.project,f.source,Number(file.size),file.mtimeNs,'1',null,null,'Kimi helper','native-kimi','wire-v2','kimi:parent','subagent','helper')
-  for (const id of ['hermes:primary','kimi:helper']) db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run(id, 'nativeidentity canary', 'assistant')
+  insert.run('kimi:wd_project_hash:main:session_8231090d-b0e3-4084-be6a-9fc6119170c4','kimi',f.project,f.source,Number(file.size),file.mtimeNs,'1',null,null,'Kimi primary','session_8231090d-b0e3-4084-be6a-9fc6119170c4','kimi-wire+state-v2',null,'','')
+  for (const id of ['hermes:primary','kimi:helper','kimi:wd_project_hash:main:session_8231090d-b0e3-4084-be6a-9fc6119170c4']) db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run(id, 'nativeidentity canary', 'assistant')
   db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')"); db.close()
   const hits = (await f.service.search(f.project, 'nativeidentity')).hits
   expect(hits.map(hit => hit.title)).toEqual(expect.arrayContaining([expect.stringContaining('hermes ·'), expect.stringContaining('kimi helper ·')]))
   const hermes = await f.service.get(f.project, hits.find(hit => hit.title.startsWith('hermes'))!.id)
   expect(hermes).toMatchObject({ sourceFormat: 'Hermes state.db', sourceVersion: 'state-db-v23', projectAttribution: 'cwd', parentNativeId: null, role: 'primary', resume: { executable: 'hermes', args: ['--tui', '--resume', 'native-hermes'] } })
-  const helper = await f.service.get(f.project, hits.find(hit => hit.title.startsWith('kimi'))!.id)
+  const helper = await f.service.get(f.project, hits.find(hit => hit.title.includes('Kimi helper'))!.id)
   expect(helper).toMatchObject({ sourceFormat: 'Kimi wire.jsonl', sourceVersion: 'wire-v2', parentNativeId: 'kimi:parent', role: 'helper', resume: null })
+  const kimi = await f.service.get(f.project, hits.find(hit => hit.title.includes('Kimi primary'))!.id)
+  expect(kimi).toMatchObject({ nativeId:'kimi:wd_project_hash:main:session_8231090d-b0e3-4084-be6a-9fc6119170c4',sourceVersion:'kimi-wire+state-v2',resume:{executable:'kimi',args:['--session','session_8231090d-b0e3-4084-be6a-9fc6119170c4']} })
   await expect(f.service.get(f.project, hermes.id, { fromOrdinal: -1 })).rejects.toThrow('Invalid session page')
+})
+
+it('checks Hermes archive freshness using state, WAL, and transcript metadata', async () => {
+  const f=await fixture(),profile=join(f.root,'hermes'),state=join(profile,'state.db'),sessions=join(profile,'sessions')
+  await mkdir(sessions,{recursive:true});await writeFile(state,'db');await writeFile(state+'-wal','wal');await writeFile(join(sessions,'native.jsonl'),'transcript')
+  const parts=await Promise.all([state,state+'-wal',join(sessions,'native.jsonl')].map(path=>stat(path,{bigint:true})))
+  const size=parts.reduce((total,item)=>total+item.size,0n),mtime=parts.reduce((latest,item)=>item.mtimeNs>latest?item.mtimeNs:latest,0n)
+  const db=new DatabaseSync(join(f.directory,'sessions.db'))
+  db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)').run('hermes:archive','hermes',f.project,state,Number(size),mtime.toString(),'1',null,null,'Hermes archive','native','state-db-v23',null,'','')
+  db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run('hermes:archive','archivefreshness canary','assistant')
+  db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");db.close()
+  expect((await f.service.search(f.project,'archivefreshness')).hits).toHaveLength(1)
+  await writeFile(join(sessions,'native.jsonl'),'changed transcript')
+  expect((await f.service.search(f.project,'archivefreshness')).hits).toEqual([])
 })
 
 it('rejects changed/deleted native sources and changed parser receipts', async () => {

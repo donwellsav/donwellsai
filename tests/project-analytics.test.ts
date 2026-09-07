@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from '../src/main/project-session-history'
+import { ProjectSessionHistory, SESSION_HISTORY_BINARY_SHA256, SESSION_HISTORY_VERSION } from '../src/main/project-session-history'
 import { resolveProjectToolScope } from '../src/main/project-tools'
 
 it.each(['sqlite', ...(process.env.DONWELLS_DUCKDB_PYTHON ? ['duckdb'] : [])] as const)('aggregates only current project records through %s, retains missing cost coverage and never writes the archive', async engine => {
@@ -16,7 +16,7 @@ it.each(['sqlite', ...(process.env.DONWELLS_DUCKDB_PYTHON ? ['duckdb'] : [])] as
   })
   const scope = await resolveScope(project), directory = join(root, 'cache', scope.indexKey, SESSION_HISTORY_VERSION)
   await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, indexKey: scope.indexKey, indexedAt: '2026-09-07T00:00:00Z' }))
+  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, binarySha256: SESSION_HISTORY_BINARY_SHA256, indexKey: scope.indexKey, indexedAt: '2026-09-07T00:00:00Z' }))
   const source = join(root, 'native.jsonl'); await writeFile(source, 'original source')
   const file = await stat(source, { bigint: true }), path = join(directory, 'sessions.db')
   const db = new DatabaseSync(path)
@@ -65,7 +65,7 @@ it.skipIf(!process.env.DONWELLS_DUCKDB_PYTHON)('pages beyond 1000 sources and ca
   }
   const scope = await resolveScope(project), directory = join(root, 'cache', scope.indexKey, SESSION_HISTORY_VERSION)
   await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, indexKey: scope.indexKey, indexedAt: '2026-09-07T00:00:00Z' }))
+  await writeFile(join(directory, 'receipt.json'), JSON.stringify({ version: SESSION_HISTORY_VERSION, binarySha256: SESSION_HISTORY_BINARY_SHA256, indexKey: scope.indexKey, indexedAt: '2026-09-07T00:00:00Z' }))
   const source = join(root, 'source.jsonl'); await writeFile(source, 'source')
   const file = await stat(source, { bigint: true }), db = new DatabaseSync(join(directory, 'sessions.db'))
   db.exec('CREATE TABLE sessions(id TEXT PRIMARY KEY,agent TEXT,cwd TEXT,file_path TEXT,file_size INTEGER,file_mtime INTEGER,started_at TEXT,deleted_at TEXT,source_missing_at TEXT,total_output_tokens INTEGER,has_total_output_tokens INTEGER,peak_context_tokens INTEGER,has_peak_context_tokens INTEGER); CREATE TABLE usage_events(session_id TEXT,occurred_at TEXT,cost_status TEXT,cost_source TEXT,cost_microdollars INTEGER)')
