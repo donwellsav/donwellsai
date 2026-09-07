@@ -2,6 +2,13 @@
 
 Updated 2026-09-07. The user requested this handoff to a **different application, model and agent harness** to conserve nearly depleted usage. Do not rely on access to this conversation, its subagents, or its tools. The handoff is a pause, not project completion. When the user supplies START-NEXT-SESSION.txt, that authorizes resuming implementation.
 
+## Launch in a different application/harness
+
+1. Open the new application and select/open `/Users/muzikfirst/Documents/donwellsai/terminal-foundation` as its local project. If using a terminal agent, `cd` to that directory before launching its normal CLI; provider-specific flags are intentionally not guessed.
+2. Select your desired model and create a fresh coding session with local file/shell access. This does not require importing the old chat or reconnecting Codex subagents.
+3. Paste the complete contents of `START-NEXT-SESSION.txt` as the first message. The agent should read this handoff and the named plan before changes, then resume16.
+4. If the new app cannot access local files, attach this handoff, the master plan and its three companion implementation documents, and provide a checkout of the same branch. A text-only model without workspace/tool access cannot carry out the implementation itself.
+
 ## Workspace and product
 
 Actual Git root: `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`
