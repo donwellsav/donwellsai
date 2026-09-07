@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { symlinkSync, existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { connect } from 'node:net'
+import { once } from 'node:events'
+import { localRuntimePaths } from '../src/main/local-runtime'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { RunningAgent } from '../src/shared/agent-runtime'
 import type { AttentionInboxEntry } from '../src/shared/attention-inbox'
@@ -313,3 +316,58 @@ it('runs explicit executable arguments literally through a real PTY', async () =
   await client.dismissAgent(started.run.sessionId)
   await daemon.stopIfIdle()
 })
+
+it('drops only paused output readers and reply readers while the PTY and healthy client survive', async () => {
+  const { daemon, userDataDir, workspacePath } = await disposableDaemon()
+  let outputBytes = 0, tail = ''
+  const healthy = daemonClient(userDataDir, { data: (_id, data) => { outputBytes += Buffer.byteLength(data); tail = (tail + data).slice(-1024) }, exit: () => {}, title: () => {} })
+  await healthy.list()
+  const paused = async () => {
+    const socket = connect(localRuntimePaths(userDataDir, 'terminal').socketPath)
+    await once(socket, 'connect')
+    const hello = once(socket, 'data')
+    socket.write(JSON.stringify({ id: 'hello', op: 'hello', authToken: 'fixture-daemon-token' }) + '\n')
+    expect(JSON.parse(String((await hello)[0])).ok).toBe(true)
+    socket.on('error', () => {}) // A bounded server disconnect may surface as ECONNRESET.
+    socket.pause()
+    return socket
+  }
+  const slowOutput = await paused()
+  let job: Awaited<ReturnType<DaemonClient['openJob']>> | undefined
+  try {
+    const code = "let n=0; const timer=setInterval(()=>{process.stdout.write('x'.repeat(65536));if(++n===512){clearInterval(timer);process.stdout.write('PRESSURE_DONE:'+process.pid+'\\n')}},2);process.stdin.on('data',()=>process.stdout.write('SAME_OWNER:'+process.pid+'\\n'))"
+    job = await healthy.openJob(workspacePath, `${quoteShell(process.execPath)} -e ${quoteShell(code)}`)
+    await waitFor(() => tail.includes('PRESSURE_DONE'), 15000)
+    const pid = /PRESSURE_DONE:(\d+)/.exec(tail)?.[1]
+    expect(pid).toBeTruthy()
+    expect(outputBytes).toBeGreaterThan(32 * 1024 * 1024)
+    // Resume only after pressure: a disconnected peer must observe EOF, not catch up indefinitely.
+    let outputClosed = false
+    slowOutput.on('close', () => { outputClosed = true }); slowOutput.resume()
+    await waitFor(() => outputClosed)
+    expect((await healthy.list()).find(session => session.id === job!.id)).toMatchObject({ id: job.id, createdAt: job.createdAt, exited: false })
+    const replay = await healthy.attach(job.id)
+    expect(replay.scrollback).toContain('PRESSURE_DONE'); expect(replay.truncated).toBe(true)
+    const slowReplies = await paused()
+    try {
+      let replyClosed = false
+      slowReplies.on('close', () => { replyClosed = true })
+      slowReplies.write(Array.from({ length: 64 }, (_, n) => JSON.stringify({ id: `attach-${n}`, op: 'session.attach', sessionId: job!.id }) + '\n').join(''))
+      await delay(250); slowReplies.resume()
+      await waitFor(() => replyClosed)
+      expect((await healthy.attach(job.id)).session.id).toBe(job.id)
+    } finally { slowReplies.destroy() }
+    const reconnected = daemonClient(userDataDir, { data: () => {}, exit: () => {}, title: () => {} })
+    const attached = await reconnected.attach(job.id)
+    expect(attached.session).toMatchObject({ id: job.id, createdAt: job.createdAt, exited: false })
+    expect(attached.scrollback).toContain('PRESSURE_DONE')
+    await reconnected.writeAcknowledged(job.id, 'still one owner\n')
+    await waitFor(() => tail.includes(`SAME_OWNER:${pid}`))
+    expect((await reconnected.list()).filter(session => session.id === job!.id)).toHaveLength(1)
+  } finally {
+    slowOutput.destroy()
+    if (job) await healthy.close(job.id)
+    expect(await daemon.stopIfIdle()).toBe(true)
+    daemons.splice(daemons.indexOf(daemon), 1)
+  }
+}, 25000)

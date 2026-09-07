@@ -58,6 +58,7 @@ export const DAEMON_CAPABILITIES = [
   ATTENTION_INBOX_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
+const MAX_CLIENT_QUEUED_BYTES = 8 * 1024 * 1024
 const MAX_AGENT_COMMAND_BYTES = 16 * 1024
 const MAX_HOOK_EVENTS_PER_MINUTE = 120
 
@@ -273,11 +274,20 @@ export class TerminalDaemon {
     this.broadcast({ event: 'agent', run: cloneRun(run) })
   }
 
-  private broadcast(frame: Record<string, unknown>): void {
-    const line = `${JSON.stringify(frame)}\n`
-    for (const client of this.clients) {
-      if (!client.destroyed) client.write(line)
+  private send(socket: Socket, frame: Buffer): void {
+    if (socket.destroyed) return
+    // ponytail: bound each client's queue, not PTY production. 8 MiB accommodates an escaped
+    // 512 KiB terminal snapshot or 2 MiB ACP replay; a lagging reader must reconnect/reattach.
+    if (socket.writableLength + frame.byteLength > MAX_CLIENT_QUEUED_BYTES) {
+      socket.destroy(new Error('terminal daemon client output queue exceeded limit'))
+      return
     }
+    socket.write(frame)
+  }
+
+  private broadcast(frame: Record<string, unknown>): void {
+    const line = Buffer.from(`${JSON.stringify(frame)}\n`)
+    for (const client of this.clients) this.send(client, line)
   }
 
   private authenticateHook(message: Record<string, unknown>): HookClientBinding | undefined {
@@ -351,7 +361,7 @@ export class TerminalDaemon {
     result: Record<string, unknown>
   ): void {
     const id = String(idValue ?? '')
-    if (id && !socket.destroyed) socket.write(`${JSON.stringify({ id, ok, ...result })}\n`)
+    if (id) this.send(socket, Buffer.from(`${JSON.stringify({ id, ok, ...result })}\n`))
   }
 
   private handleHookOp(
