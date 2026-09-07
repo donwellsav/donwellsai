@@ -1,0 +1,9 @@
+{
+  "checks": [
+    "Language start blocked while unsaved tool configuration exists; read-only status preserves draft"
+  ],
+  "limitations": [
+    "No remote connection, guest policy, endpoint invocation or package qualification is claimed."
+  ],
+  "error": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert((await panel.locator('#project-tool-code-graph').innerText()).includes('setup incomplete'))\n\n    at file:///private/tmp/donwells-task19-management.mjs:30:3"
+}

@@ -1,12 +1,14 @@
 {
   "checks": [
-    "Language start blocked while unsaved tool configuration exists; read-only status preserves draft",
+    "App repaired the selected installed runtime, started its admitted owner, then disabled and stopped it",
     "SSH and Lume discovery reports stored state and routes to existing environment controls",
     "Canonical facts read through actual project memory owner without starting service"
   ],
   "limitations": [
     "No remote connection, guest policy, endpoint invocation or package qualification is claimed."
   ],
+  "missingPathStatus": "Code graph · stopped",
+  "priorReceipt": "/tmp/donwells-task19-management-initial.json",
   "environmentStatus": "No SSH pairing. No registered Lume guest. Recorded state only; use environment controls to verify or reconnect the owner.\n\nRefresh owner statusOpen configuration and controls",
   "passed": true
 }

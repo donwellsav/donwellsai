@@ -75,9 +75,12 @@ export class ProjectEnvironments {
   }
   async remove(workspacePath: string, id: string, generation: number): Promise<void> {
     const record = await this.require(workspacePath, id, generation)
-    if (record.state !== 'paused' || this.requests.has(id)) throw new Error('Pause and finish environment requests before removing its binding')
+    if (record.state !== 'paused') throw new Error('Pause and finish environment requests before removing its binding')
     this.removing.add(id)
     try {
+      const deadline = Date.now() + 1000
+      while (this.requests.has(id) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+      if (this.requests.has(id)) throw new Error('Finish pending environment requests before removing its binding')
       const sessions = await this.call(record, 'terminal.list', {}, randomUUID(), undefined, true) as Array<{ exited: boolean }>
       if (!Array.isArray(sessions) || sessions.some(session => session.exited !== true)) throw new Error('Stop remote terminals before removing this binding')
       if (this.db(db => db.prepare("SELECT 1 FROM memory_requests WHERE environment_id=? AND state='accepted' LIMIT 1").get(id))) throw new Error('Wait for the pending memory operation before removing this binding')

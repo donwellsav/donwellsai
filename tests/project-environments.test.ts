@@ -300,16 +300,18 @@ it('removes only idle paused SSH bindings, retains trust and blocks stale IDs af
   await expect(owner.remove(project, 'remove-guest', 1)).rejects.toThrow('Stop remote terminals')
   expect(await owner.list(project)).toHaveLength(1)
   const trust = readFileSync(owner.trustFile('remove-guest'), 'utf8')
-  let release!: () => void
-  transport.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve([]) }))
+  let releasePending!: () => void
+  transport.mockImplementationOnce(() => new Promise(resolve => { releasePending = () => resolve([]) }))
+  const pending = owner.request(project, 'remove-guest', 1, 'terminal.list', {}, 'pending-observation')
+  await vi.waitFor(() => expect(releasePending).toBeTypeOf('function'))
+  transport.mockResolvedValueOnce([])
   const removing = owner.remove(project, 'remove-guest', 1)
-  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
-  await expect(owner.request(project, 'remove-guest', 1, 'terminal.open', {}, 'during-remove')).rejects.toThrow('removal')
-  release(); await removing
+  await expect(owner.request(project, 'remove-guest', 1, 'terminal.list', {}, 'during-remove')).rejects.toThrow(/removed|removal/)
+  releasePending(); await pending; await removing
   expect(await owner.list(project)).toEqual([])
   expect(readFileSync(owner.trustFile('remove-guest'), 'utf8')).toBe(trust)
   const reloaded = new ProjectEnvironments(profile, scope, transport)
   await expect(reloaded.configure(project, 'remove-guest', config)).rejects.toThrow('removed')
   await expect(reloaded.request(project, 'remove-guest', 1, 'terminal.open', {}, 'stale')).rejects.toThrow('mismatch')
-  expect(transport.mock.calls).toHaveLength(3)
+  expect(transport.mock.calls).toHaveLength(4)
 })
