@@ -136,3 +136,23 @@ it.skipIf(!process.env.DONWELLS_HISTORY_BINARY)('indexes a real native OMP sessi
     } finally { await partial.close() }
   } finally { await service.close() }
 }, 150000)
+
+it('resumes DSH only from its native archive home and keeps the original UUID', async () => {
+  const f = await fixture(), nativeId = '06cecd53-2501-44cf-b70d-7d522af8dfaf'
+  const home = join(f.root, 'custom-dsh'), directory = join(home, 'sessions', 'checkout', `session-${nativeId}`)
+  await mkdir(directory, { recursive: true })
+  const source = join(directory, 'session.jsonl.zstd')
+  await writeFile(source, 'native archive')
+  const file = await stat(source, { bigint: true }), db = new DatabaseSync(join(f.directory, 'sessions.db'))
+  const id = `deepseek-harness:session-${nativeId}`
+  db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)').run(id, 'deepseek-harness', f.project, source, Number(file.size), file.mtimeNs, '1', null, null, 'DSH primary', nativeId, 'dsh-v1', null, '', '')
+  db.prepare('INSERT INTO messages(session_id,ordinal,content,is_system,role) VALUES(?,0,?,0,?)').run(id, 'nativehome canary', 'assistant')
+  db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+  const hit = (await f.service.search(f.project, 'nativehome')).hits[0]!
+  expect((await f.service.get(f.project, hit.id)).resume).toEqual({ executable: 'dsh', args: ['--profile', 'tui', '--resume', nativeId], dshHome: home })
+  const imported = join(f.root, 'imported.jsonl.zstd')
+  await rename(source, imported)
+  db.prepare('UPDATE sessions SET file_path=? WHERE id=?').run(imported, id)
+  db.close()
+  expect((await f.service.get(f.project, hit.id)).resume).toBeNull()
+})

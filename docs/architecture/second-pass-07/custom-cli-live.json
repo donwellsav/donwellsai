@@ -1,0 +1,32 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-dsh-custom-GrhQju",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-YE8thT",
+  "priorDshEvidence": "/tmp/donwells-dsh-custom-ui.json",
+  "checks": [
+    "Custom executable and separate argv launched from chooser; observed process output only, no inferred model/tools capability"
+  ],
+  "custom": {
+    "sessionId": "47aa60d7-ba10-4eb7-80c0-567ebc8586fd",
+    "launch": {
+      "executable": "/bin/sh",
+      "args": [
+        "-c",
+        "printf 'CUSTOM_CLI_PROCESS_ONLY\\n'; read -r line"
+      ]
+    },
+    "hook": {
+      "support": "unavailable",
+      "events": [],
+      "reason": "No documented provider hook adapter matched this exact command.",
+      "connected": false
+    },
+    "presetId": null
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

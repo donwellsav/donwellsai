@@ -123,6 +123,7 @@ export function createAgentLaunchPlan(options: {
     : { command: appendArguments(options.command, args, platform) }
   const env: NodeJS.ProcessEnv = {
     ...(options.launch?.hermesHome ? { HERMES_HOME: options.launch.hermesHome } : {}),
+    ...(options.launch?.dshHome ? { DSH_HOME: options.launch.dshHome } : {}),
     [AGENT_HOOK_ENV.socket]: options.binding.socketPath,
     [AGENT_HOOK_ENV.runId]: options.binding.runId,
     [AGENT_HOOK_ENV.sessionId]: options.binding.sessionId,

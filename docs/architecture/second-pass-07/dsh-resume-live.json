@@ -1,0 +1,47 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-dsh-custom-GrhQju",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-native-agents-YE8thT",
+  "source": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/trial-home/sessions/--private-var-folders-ly-4j6lsfds4n3g0_xcjrwjf4b40000gn-T-donwells-native-agents-YE8thT--/session-1638af6d-e698-40d2-83a2-efc5959a3dd9/session.jsonl.zstd",
+  "nativeId": "1638af6d-e698-40d2-83a2-efc5959a3dd9",
+  "checks": [
+    "History search and Open native conversation restore original DSH UUID/content using product-carried home; no prompt"
+  ],
+  "index": {
+    "indexedAt": "2026-09-07T16:54:48.056Z",
+    "capabilities": {
+      "omp": "AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact source resume",
+      "deepseek-harness": "AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact UUID resume",
+      "hermes": "AgentsView 0.42.0 + Donwells cwd3 patch; native state.db cwd attribution and aggregate freshness; parent/helper identity preserved; exact native-ID resume",
+      "kimi": "AgentsView 0.42.0 + Donwells cwd3 patch; explicit workspace roots and validated native state.json identity/cwd with wire fallback; parent/helper identity preserved; exact native-ID resume"
+    }
+  },
+  "resumed": {
+    "sessionId": "8173ff40-76f4-4845-87e0-a4b2e1e77e1d",
+    "launch": {
+      "executable": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/node_modules/.bin/dsh",
+      "args": [
+        "--profile",
+        "tui",
+        "--resume",
+        "1638af6d-e698-40d2-83a2-efc5959a3dd9"
+      ],
+      "dshHome": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/dsh-tui-candidates/tomowang-matched-pnpm/trial-home"
+    },
+    "nativeId": "1638af6d-e698-40d2-83a2-efc5959a3dd9",
+    "marker": "memory-7d72879c-cbb4-436b-8a52-ac58ec3aa171",
+    "visibleBytes": 4844
+  },
+  "error": "TypeError: Cannot read properties of undefined (reading 'support')",
+  "cleanupErrors": [
+    "Error: page.evaluate: Error: Error invoking remote method 'agentStop': Error: unknown agent session",
+    "Error: page.evaluate: TypeError: s.runningAgents.some is not a function\n    at eval (eval at evaluate (:311:30), <anonymous>:1:141)\n    at UtilityScript.evaluate (<anonymous>:313:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)"
+  ],
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": false,
+  "recoveredDaemonCleanup": true,
+  "scope": "DSH native history resume only; original custom runner failed after launch on a wrong result field. See separate custom continuation for that route."
+}

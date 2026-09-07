@@ -135,3 +135,15 @@ it('preserves a native Hermes archive home without changing HOME or per-run cred
   for(const bad of [{...launch,executable:'kimi'},{...launch,hermesHome:'relative'},{...launch,hermesHome:'/owned/../other'},{...launch,hermesHome:'/owned\nother'}])expect(()=>parseAgentExecutable(bad)).toThrow('Hermes profile home')
   plan.cleanup()
 })
+
+it('preserves a native DSH archive home without changing HOME or per-run credentials',()=>{
+  const launch=parseAgentExecutable({executable:'/tools/dsh',args:['--profile','tui','--resume','native-id'],dshHome:'/owned/custom-dsh'})
+  const plan=createAgentLaunchPlan({command:'dsh',launch,provider:provider('deepseek-harness'),binding,emitterCommand:['node','emit'],runtimeDir:runtimeDirectory(),inheritedEnv:{HOME:'/user',DSH_HOME:'/wrong'}})
+  expect(plan.launch).toEqual(launch)
+  expect(plan.env.DSH_HOME).toBe('/owned/custom-dsh')
+  expect(plan.env.HOME).toBeUndefined()
+  expect(plan.env[AGENT_HOOK_ENV.token]).toBe(binding.token)
+  expect(parseAgentExecutable(JSON.parse(JSON.stringify(plan.launch)))).toEqual(launch)
+  for(const bad of [{...launch,executable:'kimi'},{...launch,dshHome:'relative'},{...launch,dshHome:'/owned/../other'},{...launch,dshHome:'/owned\nother'}])expect(()=>parseAgentExecutable(bad)).toThrow('DSH profile home')
+  plan.cleanup()
+})

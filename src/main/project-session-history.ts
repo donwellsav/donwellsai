@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createReadStream, type Dirent } from 'node:fs'
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { dirname, extname, join, resolve } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionHistorySource, SessionHistoryAnalytics, SessionAnalyticsOptions, SessionAnalyticsProgress, SessionHistoryPage } from '@shared/project-session-history'
 import { aggregateSessionHistory, duckdbSessionHistory } from './project-analytics'
@@ -232,11 +232,18 @@ export class ProjectSessionHistory {
     if (!row || !await this.current(row, scope)) throw new Error('Original session is missing, changed, or outside this project. Refresh session history.')
     await this.assertScope(path, scope)
     const dshId = /^deepseek-harness:session-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(nativeId)?.[1]
+    const dshSource = String(row.file_path)
+    // Native DSH stores sessions at <home>/sessions/<checkout>/session-<id>/session.jsonl.zstd.
+    // An arbitrary imported archive remains readable but cannot imply a runnable profile home.
+    const dshHome = dshId && basename(dshSource) === 'session.jsonl.zstd' &&
+      basename(dirname(dshSource)) === `session-${dshId}` &&
+      basename(dirname(dirname(dirname(dshSource)))) === 'sessions'
+      ? dirname(dirname(dirname(dirname(dshSource)))) : null
     const role = helperSession(row) ? 'helper' : 'primary'
     const sourceSessionId = typeof row.source_session_id === 'string' && row.source_session_id ? row.source_session_id : null
     const resume = role === 'helper' ? null
       : row.agent === 'omp' ? { executable: 'omp', args: ['--resume', String(row.file_path)] }
-      : row.agent === 'deepseek-harness' && dshId ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId] }
+      : row.agent === 'deepseek-harness' && dshId && dshHome ? { executable: 'dsh', args: ['--profile', 'tui', '--resume', dshId], dshHome }
       : row.agent === 'hermes' && sourceSessionId ? {
         executable: 'hermes',
         args: ['--tui', '--resume', sourceSessionId],
