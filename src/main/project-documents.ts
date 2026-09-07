@@ -71,6 +71,7 @@ export function createDocumentDefinition(config: { program: string; worker: stri
       status: { tool: 'status', readOnly: true, parameters: {}, targets: () => ({}) },
       index: { tool: 'index', readOnly: false, parameters: {}, targets: () => ({}) },
       progress: { tool: 'status', readOnly: true, requiresRunning: true, parameters: {}, targets: () => ({}) },
+      cancel: { tool: 'cancel', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
       pause: { tool: 'pause', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
       resume: { tool: 'resume', readOnly: false, requiresRunning: true, parameters: {}, targets: () => ({}) },
       query: { tool: 'query', readOnly: true, parameters: { query: value => text(value) }, targets: () => ({}) },

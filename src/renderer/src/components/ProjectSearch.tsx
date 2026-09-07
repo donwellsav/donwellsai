@@ -151,10 +151,10 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         if (tools.find(tool => tool.id === 'documents')?.status !== 'ready') { setIndexing(false); setDocumentPaused(false); timer = setTimeout(() => void poll(), 2000); return }
         const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'progress', {}))
         if (cancelled) return
-        setIndexing(['reading', 'indexing', 'paused', 'pausing'].includes(String(value.phase)))
+        setIndexing(['reading', 'indexing', 'paused', 'pausing', 'publishing', 'cancelling'].includes(String(value.phase)))
         setDocumentPaused(value.phase === 'paused' || value.phase === 'pausing')
-        setDocumentStatus(`Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models`)
-        if (value.phase === 'ready' || value.phase === 'failed') {
+        setDocumentStatus(`Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models · publication ${String(value.publicationState ?? 'unknown')}${isObject(value.publication) ? ` · ${Number(value.publication.reusedChunks)} reused chunks · ${Number(value.publication.embeddedChunks)} embedded · table version ${Number(value.publication.tableVersion)}` : ''}`)
+        if (['ready', 'failed', 'cancelled', 'publication-uncertain'].includes(String(value.phase))) {
           setIndexing(false)
           if (value.error) setError(String(value.error))
           else if (value.job && value.job !== lastFinishedJob) { lastFinishedJob = value.job; setRefresh(value => value + 1) }
@@ -183,7 +183,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       if (hit.source === 'document') {
         const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'get', { id: hit.id, fromLine: hit.line ?? 1, maxLines: 120 }))
         if (typeof value.content !== 'string' || typeof value.path !== 'string' || typeof value.root !== 'string') throw new Error('Invalid document source')
-        if (canOpen()) setDocument({ title: value.path, content: value.content, detail: `${value.root} · line ${hit.line ?? 1} · ${value.stale ? 'Source changed since indexing' : 'Current source'}${value.truncated ? ' · excerpt truncated' : ''}` })
+        if (canOpen()) setDocument({ title: value.path, content: value.content, detail: `${value.root} · line ${hit.line ?? 1} · ${value.stale || value.revision !== hit.revision ? 'Source changed since this search result; review current lines before relying on its excerpt' : 'Current source'}${value.truncated ? ' · excerpt truncated' : ''}` })
         return
       }
       if (!hit.path) return
@@ -216,7 +216,15 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         const value = documentValue(response)
         if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
       }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
-    }}>Index documents</button>}
+    }}>{hits.some(hit => hit.source === 'document' && hit.stale) ? 'Reindex changed document sources' : 'Index documents'}</button>}
+    {indexing && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
+      const path = workspacePath
+      void window.donwells.projectToolCall(path, 'documents', 'cancel', {}).then(response => {
+        if (useAppStore.getState().activeWorktreePath !== path) return
+        const value = documentValue(response)
+        setDocumentStatus(`Document index: ${String(value.phase)} · previous snapshot remains available`)
+      }).catch(error => setError(String(error)))
+    }}>Cancel rebuild</button>}
     {indexing && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolCall(path, 'documents', documentPaused ? 'resume' : 'pause', {}).then(response => {
@@ -230,7 +238,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       const path = workspacePath
       void window.donwells.projectToolStop(path, 'documents').then(() => {
         if (useAppStore.getState().activeWorktreePath !== path) return
-        setIndexing(false); setDocumentPaused(false); setDocumentStatus('Document service stopped · indexing cancelled · models released')
+        setIndexing(false); setDocumentPaused(false); setDocumentStatus('Document service stopped · models released · reopen to inspect the last committed snapshot')
       }).catch(error => setError(String(error)))
     }}>Stop document service</button>}
     {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}

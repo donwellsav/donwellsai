@@ -227,7 +227,7 @@ describe('project memory MCP protocol', () => {
           { name: 'code_graph_definitions' },
           { name: 'code_graph_imports' },
           { name: 'code_graph_source' },
-          ...['status', 'index', 'search', 'get', 'multi_get', 'pause'].map(action => ({ name: `documents_${action}` })),
+          ...['status', 'index', 'search', 'get', 'multi_get', 'cancel', 'pause'].map(action => ({ name: `documents_${action}` })),
           ...['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({name:`browser_test_${action}`})),
           ...['status','permissions','windows','attach','observe','screenshot','click','type','pixel_click','pixel_type','hotkey','stop'].map(action=>({name:`computer_${action}`}))
         ]
@@ -495,6 +495,8 @@ it('pins code tools to the MCP checkout and preserves native graph errors and fr
   } })
   await initialize(session, 1)
   const call = (name: string, args: Record<string, unknown> = {}) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
+  await call('documents_cancel')
+  expect(calls.at(-1)).toEqual({ method: 'tool.call', params: { workspacePath: primaryWorkspace, id: 'documents', operation: 'cancel', arguments: {} } })
   expect(toolValue(await call('code_search', { query: 'needle', maxResults: 10 }))).toMatchObject({ hits: [] })
   expect(calls.at(-1)).toEqual({ method: 'file.searchContent', params: { workspacePath: primaryWorkspace, query: 'needle', maxResults: 10, showHidden: false, includeIgnored: false } })
   expect(toolValue(await call('code_search', { query: 'console.log($A)', language: 'typescript' }))).toMatchObject({ hits: [] })

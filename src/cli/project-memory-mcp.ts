@@ -134,11 +134,11 @@ const CODE_MCP_TOOLS: readonly McpTool[] = [
   }))
 ]
 
-const DOCUMENT_MCP_TOOLS: readonly McpTool[] = (['status', 'index', 'search', 'get', 'multi_get', 'pause'] as const).map(action => ({
+const DOCUMENT_MCP_TOOLS: readonly McpTool[] = (['status', 'index', 'search', 'get', 'multi_get', 'cancel', 'pause'] as const).map(action => ({
   name: `documents_${action}`, title: `Project documents: ${action}`,
-  description: ({ status: 'Inspect optional document retrieval availability and active indexing progress. A paused service stays paused.', index: 'Start indexing this checkout and explicitly selected shared references. Only derived indexes change. Poll documents_status; documents_pause cancels and releases models. Inspect uncertain outcomes before retrying.', search: 'Search scoped local project documents. Preserve lexical/hybrid mode, citation IDs and stale markers; index matches are not durable memory facts.', get: 'Read current source lines using a scoped citation ID. Stale results must not be described as current indexed evidence.', multi_get: 'Read up to five scoped citation IDs. Source references cannot grant access to another project or an unselected root.', pause: 'Stop this checkout document service, cancel indexing and release its models. Source documents and durable memory remain intact.' })[action],
+  description: ({ cancel: 'Cancel this checkout rebuild while retaining the last committed index and running retrieval service. Publication already in progress must settle; inspect documents_status.', status: 'Inspect optional document retrieval availability and active indexing progress. A paused service stays paused.', index: 'Start indexing this checkout and explicitly selected shared references. Only derived indexes change. Poll documents_status; documents_cancel retains the last committed index, while documents_pause releases models. Inspect uncertain outcomes before retrying.', search: 'Search scoped local project documents. Preserve lexical/hybrid mode, citation IDs and stale markers; index matches are not durable memory facts.', get: 'Read current source lines using a scoped citation ID. Stale results must not be described as current indexed evidence.', multi_get: 'Read up to five scoped citation IDs. Source references cannot grant access to another project or an unselected root.', pause: 'Stop this checkout document service, cancel indexing and release its models. Source documents and durable memory remain intact.' })[action],
   inputSchema: { type: 'object', additionalProperties: false, properties: action === 'search' ? { query: { type: 'string', minLength: 1, maxLength: 1000 } } : action === 'get' ? { id: { type: 'string', maxLength: 8192 }, fromLine: { type: 'integer', minimum: 1, maximum: 1000000 }, maxLines: { type: 'integer', minimum: 1, maximum: 400 } } : action === 'multi_get' ? { ids: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string', maxLength: 8192 } } } : {}, required: action === 'search' ? ['query'] : action === 'get' ? ['id'] : action === 'multi_get' ? ['ids'] : [] },
-  annotations: { readOnlyHint: action !== 'index' && action !== 'pause', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
+  annotations: { readOnlyHint: action !== 'index' && action !== 'pause' && action !== 'cancel', destructiveHint: false, idempotentHint: action !== 'index', openWorldHint: false }
 }))
 
 const BROWSER_MCP_TOOLS: readonly McpTool[] = ['status','open','snapshot','click','type','screenshot','console','network','layout','trace_start','trace_stop','stop'].map(action => ({
@@ -620,6 +620,7 @@ export class ProjectMemoryMcpSession {
         allowedKeys(input, [], 'document pause arguments')
         await this.invoke('tool.stop', { workspacePath: this.workspacePath, id: 'documents' })
         return { paused: true }
+      case 'documents_cancel':
       case 'documents_index':
       case 'documents_search':
       case 'documents_get':

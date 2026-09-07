@@ -1,0 +1,150 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project",
+  "checks": [
+    "Actual hybrid paraphrase result opens current source lines in the app",
+    "Changing one source embeds one chunk and reuses the unchanged chunk",
+    "Cancel before publication retains the prior searchable snapshot and service"
+  ],
+  "initial": {
+    "phase": "ready",
+    "job": "80c88b2f-2e4f-4a66-97a9-744a094e1170",
+    "completed": 2,
+    "total": 2,
+    "skipped": 0,
+    "error": null,
+    "publication": {
+      "documents": 2,
+      "chunks": 2,
+      "reusedChunks": 0,
+      "embeddedChunks": 2,
+      "indexedAt": "2026-09-07T13:33:17.252Z",
+      "generation": "2026-09-07T13:33:17.252Z",
+      "tableVersion": 3,
+      "sourceFingerprint": "1d7d7e3bba2be15b722af5e7d10d0c0b6894232825ff7c7a3ad50eaec29afb4a",
+      "embeddingMs": 8386.510999999999,
+      "indexMs": 13.158374999999069,
+      "mode": "hybrid"
+    },
+    "publicationState": "published",
+    "requestedMode": "auto",
+    "mode": "hybrid",
+    "modelBytes": 4918813408,
+    "roots": [
+      {
+        "collection": "419532c198074252d90445814c7d48b7bc7186059976aa300d9b6d79f812c233",
+        "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project",
+        "shared": false
+      }
+    ],
+    "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+  },
+  "paraphrase": {
+    "requestedMode": "auto",
+    "mode": "hybrid",
+    "modelError": null,
+    "hits": [
+      {
+        "source": "document",
+        "id": "document:8c5ae6ba2bf80c2806a20c5895fc8818e338ef30ddb4e6601f476d9f74a60202:419532c198074252d90445814c7d48b7bc7186059976aa300d9b6d79f812c233%2Fmemory.md",
+        "title": "memory.md",
+        "path": "memory.md",
+        "line": 1,
+        "excerpt": "memory.md\n# Storage decision\nThe team persists shared facts in SQLite so decisions survive application restarts.\n",
+        "revision": "sha256:e2fe7370460172e830b9dfef38ca206594d56b410b5a9bed88952233ae741952",
+        "sourceFingerprint": "sha256:e2fe7370460172e830b9dfef38ca206594d56b410b5a9bed88952233ae741952",
+        "generation": "2026-09-07T13:33:17.252Z",
+        "indexedAt": "2026-09-07T13:33:17.252Z",
+        "stale": false,
+        "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project"
+      },
+      {
+        "source": "document",
+        "id": "document:8c5ae6ba2bf80c2806a20c5895fc8818e338ef30ddb4e6601f476d9f74a60202:419532c198074252d90445814c7d48b7bc7186059976aa300d9b6d79f812c233%2Fother.md",
+        "title": "other.md",
+        "path": "other.md",
+        "line": 1,
+        "excerpt": "other.md\n# UI decision\nTerminals occupy the main workspace with tools in side panels.\n",
+        "revision": "sha256:90e8b8267dbaef388b27dc3a8372028ce01c88a2d9302af07c7305cc86ac5966",
+        "sourceFingerprint": "sha256:90e8b8267dbaef388b27dc3a8372028ce01c88a2d9302af07c7305cc86ac5966",
+        "generation": "2026-09-07T13:33:17.252Z",
+        "indexedAt": "2026-09-07T13:33:17.252Z",
+        "stale": false,
+        "root": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project"
+      }
+    ]
+  },
+  "incremental": {
+    "phase": "ready",
+    "job": "38b51a26-b897-4925-918a-d4e15fb56a71",
+    "completed": 1,
+    "total": 1,
+    "skipped": 0,
+    "error": null,
+    "publication": {
+      "documents": 2,
+      "chunks": 2,
+      "reusedChunks": 1,
+      "embeddedChunks": 1,
+      "indexedAt": "2026-09-07T13:33:28.393Z",
+      "generation": "2026-09-07T13:33:28.393Z",
+      "tableVersion": 4,
+      "sourceFingerprint": "ee4e77f0ca3e22d3e708f5e3068e7c68fb025dd3659b9d026fa3758bc0e73084",
+      "embeddingMs": 57.43883300000016,
+      "indexMs": 13.271957999999358,
+      "mode": "hybrid"
+    },
+    "publicationState": "published",
+    "requestedMode": "auto",
+    "mode": "hybrid",
+    "modelBytes": 4918813408,
+    "roots": [
+      {
+        "collection": "419532c198074252d90445814c7d48b7bc7186059976aa300d9b6d79f812c233",
+        "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project",
+        "shared": false
+      }
+    ],
+    "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+  },
+  "cancelled": {
+    "phase": "cancelled",
+    "job": "6a34ca8d-1583-4757-ae91-5f756921ae39",
+    "completed": 0,
+    "total": 2,
+    "skipped": 0,
+    "error": "Error: Index rebuild cancelled before publication",
+    "publication": {
+      "documents": 2,
+      "chunks": 2,
+      "reusedChunks": 1,
+      "embeddedChunks": 1,
+      "indexedAt": "2026-09-07T13:33:28.393Z",
+      "generation": "2026-09-07T13:33:28.393Z",
+      "tableVersion": 4,
+      "sourceFingerprint": "ee4e77f0ca3e22d3e708f5e3068e7c68fb025dd3659b9d026fa3758bc0e73084",
+      "embeddingMs": 57.43883300000016,
+      "indexMs": 13.271957999999358,
+      "mode": "hybrid"
+    },
+    "publicationState": "not-published",
+    "requestedMode": "auto",
+    "mode": "hybrid",
+    "modelBytes": 4918813408,
+    "roots": [
+      {
+        "collection": "419532c198074252d90445814c7d48b7bc7186059976aa300d9b6d79f812c233",
+        "path": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-eleven-cSvSsp/project",
+        "shared": false
+      }
+    ],
+    "modelSharing": "One model instance per active checkout service; stopping the service releases it."
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

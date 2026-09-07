@@ -29,9 +29,13 @@ async function main() {
   let closed = false
   let paused: ReturnType<typeof Promise.withResolvers<void>> | null = null
   let pauseAcknowledged = false
+  let cancelled = false
+  let publication: Awaited<ReturnType<typeof index.replaceAll>> | null = null
   const checkpoint = async () => {
+    if (cancelled) throw new Error('Index rebuild cancelled before publication')
     while (paused) { pauseAcknowledged = true; await paused.promise }
     pauseAcknowledged = false
+    if (cancelled) throw new Error('Index rebuild cancelled before publication')
   }
   let state: { phase: string; job: string | null; completed: number; total: number; skipped: number; error: string | null } = { phase: 'idle', job: null, completed: 0, total: 0, skipped: 0, error: null }
   const rootFor = async (collection: string) => {
@@ -55,8 +59,10 @@ async function main() {
     const lines = file.content.split('\n'), content = lines.slice(fromLine - 1, fromLine - 1 + maxLines).join('\n')
     return { id, path: file.path, root: root.path, fromLine, content: content.slice(0, 50000), truncated: content.length > 50000 || lines.length > fromLine - 1 + maxLines, revision: file.revision, indexedAt: indexed.indexedAt, stale: file.revision !== indexed.revision }
   }
-  const status = () => ({ ...state, requestedMode: config.retrievalMode ?? 'auto', phase: paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
+  const status = () => ({ ...state, publication, publicationState: state.phase === 'publication-uncertain' ? 'unknown' : state.phase === 'publishing' ? 'publishing' : state.phase === 'ready' ? 'published' : 'not-published', requestedMode: config.retrievalMode ?? 'auto', phase: cancelled && ['reading', 'indexing'].includes(state.phase) ? 'cancelling' : paused ? (pauseAcknowledged ? 'paused' : 'pausing') : state.phase, mode: config.embeddingModel && config.rerankingModel ? 'hybrid' : 'lexical', modelBytes: config.modelBytes, roots: config.roots, modelSharing: 'One model instance per active checkout service; stopping the service releases it.' })
   const rebuild = async () => {
+    const replacements: Array<{ collection: string; documents: IndexedDocument[] }> = []
+    let totalBytes = 0
     for (const selected of config.roots) {
       await checkpoint()
       const root = await rootFor(selected.collection)
@@ -73,14 +79,15 @@ async function main() {
         try {
           const file = await files.readFile(root.path, path)
           if (file.binary || file.truncated || !file.revision) state.skipped++
-          else { bytes += file.bytes; documents.push({ path, content: file.content, revision: file.revision }) }
+          else { bytes += file.bytes; totalBytes += file.bytes; documents.push({ path, content: file.content, revision: file.revision }) }
         } catch { state.skipped++ }
-        if (bytes > 64 * 1024 * 1024) throw new Error('Document root exceeds 64 MiB; choose a smaller root')
+        if (bytes > 64 * 1024 * 1024 || totalBytes > 64 * 1024 * 1024) throw new Error('Selected document roots exceed the 64 MiB transaction limit; choose smaller roots')
         state.completed++
       }
-      state.phase = 'indexing'
-      await index.replace(root.collection, documents, (completed, total) => { state.completed = completed; state.total = total }, checkpoint)
+      replacements.push({ collection: root.collection, documents })
     }
+    state.phase = 'indexing'
+    publication = await index.replaceAll(replacements, (completed, total) => { state.completed = completed; state.total = total }, checkpoint, () => { state.phase = 'publishing' })
     state.phase = 'ready'
   }
   const response = (value: unknown) => {
@@ -90,11 +97,19 @@ async function main() {
   }
   const server = new McpServer({ name: 'donwells-documents', version: '1' })
   server.registerTool('status', { description: 'Document index progress, model resources and selected roots.', inputSchema: z.object({}).strict() }, async () => response(status()))
-  server.registerTool('index', { description: 'Start rebuilding selected derived indexes; poll status, or stop this service to cancel.', inputSchema: z.object({}).strict() }, async () => {
-    if (state.phase === 'reading' || state.phase === 'indexing') throw new Error('Document indexing is already running')
+  server.registerTool('index', { description: 'Prepare selected roots and publish one atomic index snapshot; poll status or cancel before publication.', inputSchema: z.object({}).strict() }, async () => {
+    if (['reading', 'indexing', 'publishing'].includes(state.phase)) throw new Error('Document indexing is already running')
+    cancelled = false
     state = { phase: 'reading', job: randomUUID(), completed: 0, total: 0, skipped: 0, error: null }
-    void rebuild().catch(error => { state.phase = 'failed'; state.error = String(error).slice(0, 300) }).finally(() => { const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve() })
+    void rebuild().catch(error => { state.phase = state.phase === 'publishing' ? 'publication-uncertain' : cancelled ? 'cancelled' : 'failed'; state.error = String(error).slice(0, 300) }).finally(() => { const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve() })
     return response(status())
+  })
+  server.registerTool('cancel', { description: 'Cancel prepared changes before atomic publication; the service and previous index remain available.', inputSchema: z.object({}).strict() }, async () => {
+    if (state.phase === 'publishing') throw new Error('Publication is already committing; wait for its result before stopping the service')
+    if (state.phase !== 'reading' && state.phase !== 'indexing') throw new Error('No document rebuild to cancel')
+    cancelled = true
+    const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve()
+    return response({ ...status(), phase: 'cancelling' })
   })
   server.registerTool('pause', { description: 'Pause at the next file or embedding batch boundary; models remain loaded.', inputSchema: z.object({}).strict() }, async () => {
     if (state.phase !== 'reading' && state.phase !== 'indexing') throw new Error('No document indexing job to pause')
@@ -111,7 +126,7 @@ async function main() {
       const id = idFor(hit.collection, hit.path)
       try {
         const current = await source(id)
-        hits.push({ source: 'document', id, title: basename(hit.path), path: hit.path, line: hit.line, excerpt: hit.text.slice(0, 4096), revision: hit.revision, indexedAt: hit.indexedAt, stale: current.file.revision !== hit.revision, root: current.root.path })
+        hits.push({ source: 'document', id, title: basename(hit.path), path: hit.path, line: hit.line, excerpt: hit.text.slice(0, 4096), revision: hit.revision, sourceFingerprint: hit.revision, generation: hit.indexedAt, indexedAt: hit.indexedAt, stale: current.file.revision !== hit.revision, root: current.root.path })
       } catch { /* A disappeared or inaccessible source is not a resolvable citation. */ }
     }
     return response({ requestedMode: config.retrievalMode ?? 'auto', mode: result.mode, modelError: result.modelError, hits })

@@ -191,3 +191,38 @@ it.skipIf(!process.env.DONWELLS_DOCUMENT_EMBEDDING_MODEL || !process.env.DONWELL
   } finally { await tools.close(); evidence.ownedServicesClosed = true; await rm(root, { recursive: true, force: true }) }
   if (process.env.DONWELLS_DOCUMENT_SERVICE_EVIDENCE) await writeFile(process.env.DONWELLS_DOCUMENT_SERVICE_EVIDENCE, JSON.stringify(evidence, null, 2) + '\n', { flag: 'wx' })
 }, 120000)
+
+
+it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKAGE)('publishes selected roots in one native commit and preserves all old roots when preparation is cancelled', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'donwells-atomic-documents-'))
+  const a = 'a'.repeat(64), shared = 'c'.repeat(64)
+  const config = { qmdPackage: process.env.DONWELLS_QMD_PACKAGE!, lancePackage: process.env.DONWELLS_LANCE_PACKAGE!, database: root, collections: [a, shared], retrievalMode: 'lexical' as const }
+  const index = await openProjectDocumentIndex(config)
+  const observer = await openProjectDocumentIndex(config)
+  try {
+    const previous = await index.replaceAll([
+      { collection: a, documents: [{ path: 'old.md', content: 'oldorchard', revision: 'one' }] },
+      { collection: shared, documents: [{ path: 'shared.md', content: 'oldreference', revision: 'one' }] }
+    ])
+    const roots = [{ collection: a, documents: [{ path: 'new.md', content: 'neworchard', revision: 'two' }] }, { collection: shared, documents: [] }]
+    let checkpoints = 0, published = false
+    await expect(index.replaceAll(roots, undefined, async () => {
+      if (++checkpoints === 2) {
+        expect((await observer.search('oldorchard')).hits).toHaveLength(1)
+        expect((await observer.search('oldreference')).hits).toHaveLength(1)
+        throw new Error('Cancelled before publication')
+      }
+    }, () => { published = true })).rejects.toThrow('Cancelled')
+    expect(published).toBe(false)
+    expect((await observer.search('oldorchard')).hits).toHaveLength(1)
+    expect((await observer.search('oldreference')).hits).toHaveLength(1)
+    const next = await index.replaceAll(roots)
+    expect(next.tableVersion).toBe(previous.tableVersion + 1)
+    expect(next.sourceFingerprint).not.toBe(previous.sourceFingerprint)
+    expect(next.embeddedChunks).toBe(0)
+    expect((await observer.search('oldorchard')).hits).toHaveLength(0)
+    expect((await observer.search('oldreference')).hits).toHaveLength(0)
+    expect((await observer.search('neworchard')).hits).toHaveLength(1)
+    expect(await observer.get(a, 'old.md')).toBeNull()
+  } finally { await index.close(); await observer.close(); await rm(root, { recursive: true, force: true }) }
+}, 30000)

@@ -53,26 +53,30 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
     return 'collection = ' + sql(collection)
   }
   let indexing = false
-  return {
-    async replace(collection: string, documents: IndexedDocument[], progress: (completed: number, total: number) => void = () => {}, checkpoint: () => Promise<void> = async () => {}) {
-      const where = collectionFilter(collection)
+  const replaceAll = async (roots: Array<{ collection: string; documents: IndexedDocument[] }>, progress: (completed: number, total: number) => void = () => {}, checkpoint: () => Promise<void> = async () => {}, publishing: () => void = () => {}) => {
+      if (!roots.length || new Set(roots.map(root => root.collection)).size !== roots.length) throw new Error('Invalid document replacement roots')
+      roots.forEach(root => collectionFilter(root.collection))
+      const where = 'collection IN (' + roots.map(root => sql(root.collection)).join(',') + ')'
       if (indexing) throw new Error('Document indexing is already running')
-      // ponytail: materialize at most 64 MiB/20k chunks per root; use native streaming ingestion if larger roots are required.
-      if (documents.length > 10000 || documents.reduce((bytes, doc) => bytes + Buffer.byteLength(doc.content), 0) > 64 * 1024 * 1024) throw new Error('Document root exceeds index size limit; select a smaller root')
+      // ponytail: materialize at most 64 MiB/20k chunks per transaction; upgrade to native Arrow streaming for larger selected roots.
+      if (roots.some(({ documents }) => documents.length > 10000 || documents.reduce((bytes, doc) => bytes + Buffer.byteLength(doc.content), 0) > 64 * 1024 * 1024)) throw new Error('Document root exceeds index size limit; select a smaller root')
+      if (roots.reduce((total, root) => total + root.documents.reduce((bytes, doc) => bytes + Buffer.byteLength(doc.content), 0), 0) > 64 * 1024 * 1024) throw new Error('Selected document roots exceed the 64 MiB transaction limit; select smaller roots')
       indexing = true
       try {
         await table.checkoutLatest()
         const previous: Chunk[] = await table.query().where(where).limit(20001).toArray()
-        if (previous.length > 20000) throw new Error('Existing document index exceeds chunk limit')
+        if (previous.length > 20000) throw new Error('Selected document roots exceed the 20000 chunk transaction limit; select smaller roots')
         const cache = new Map(previous.filter(row => row.embedded).map(row => [row.hash, Array.from(row.vector)]))
         const rows: Chunk[] = [], indexedAt = new Date().toISOString()
-        for (const doc of documents) {
+        for (const { collection, documents } of roots) {
+          for (const doc of documents) {
           await checkpoint()
           for (const chunk of await chunkDocumentAsync(doc.content, undefined, undefined, undefined, doc.path, 'auto')) {
             const text = doc.path + '\n' + chunk.text, hash = createHash('sha256').update(text).digest('hex'), cached = cache.get(hash)
             rows.push({ collection, path: doc.path, text, hash, revision: doc.revision, indexedAt, pos: chunk.pos, line: doc.content.slice(0, chunk.pos).split('\n').length, embedded: Boolean(cached), vector: cached ?? Array(2560).fill(0) })
-            if (rows.length > 20000) throw new Error('Document root exceeds chunk limit')
+            if (rows.length > 20000) throw new Error('Selected document roots exceed the 20000 chunk transaction limit; select smaller roots')
           }
+        }
         }
         const missing = rows.filter(row => !row.embedded)
         progress(0, missing.length)
@@ -87,10 +91,19 @@ export async function openProjectDocumentIndex(config: DocumentIndexConfiguratio
         }
         const embeddingMs = performance.now() - embeddingStart, indexStart = performance.now()
         await checkpoint()
-        if (rows.length) await table.mergeInsert(['collection', 'path', 'pos']).whenMatchedUpdateAll().whenNotMatchedInsertAll().whenNotMatchedBySourceDelete({ where }).execute(rows)
-        else await table.delete(where)
-        return { documents: documents.length, chunks: rows.length, indexedAt, embeddingMs, indexMs: performance.now() - indexStart, mode: llm ? 'hybrid' : 'lexical' }
+        publishing()
+        // One native transaction publishes every selected root together, including deletions.
+        const committed = rows.length
+          ? await table.mergeInsert(['collection', 'path', 'pos']).whenMatchedUpdateAll().whenNotMatchedInsertAll().whenNotMatchedBySourceDelete({ where }).execute(rows)
+          : await table.delete(where)
+        const sourceFingerprint = createHash('sha256').update(JSON.stringify(roots.flatMap(root => root.documents.map(doc => [root.collection, doc.path, doc.revision])).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))).digest('hex')
+        return { documents: roots.reduce((n, root) => n + root.documents.length, 0), chunks: rows.length, reusedChunks: rows.length - missing.length, embeddedChunks: llm ? missing.length : 0, indexedAt, generation: indexedAt, tableVersion: committed.version, sourceFingerprint, embeddingMs, indexMs: performance.now() - indexStart, mode: llm ? 'hybrid' : 'lexical' }
       } finally { indexing = false }
+    }
+  return {
+    replaceAll,
+    replace(collection: string, documents: IndexedDocument[], progress?: (completed: number, total: number) => void, checkpoint?: () => Promise<void>) {
+      return replaceAll([{ collection, documents }], progress, checkpoint)
     },
     async search(query: string, limit = 5) {
       if (typeof query !== 'string' || !query.trim() || query.length > 1000 || query.includes('\0') || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid document query')
