@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ProjectEnvironments } from '../src/main/project-environments'
@@ -74,7 +74,7 @@ it('keeps a real daemon terminal across endpoint reconnects without replaying or
   const mapping = { version: 1 as const, environmentId: 'guest', generation: 1, projectId: 'remote-project', root: project, stateDirectory }
   const daemon = new TerminalDaemon({ userDataDir: stateDirectory, authToken: 'remote-fixture-token' })
   const makeClient = () => new DaemonClient(stateDirectory, { data() {}, exit() {}, title() {}, agent() {}, agentDismissed() {} }, join(root, 'unused.js'))
-  let client = makeClient(), sessionId = ''
+  let client = makeClient(), sessionId = '', agentSessionId = ''
   const request = (method: ProjectRemoteRequest['method'], requestId: string, params: Record<string, unknown> = {}): ProjectRemoteRequest => ({ version: 1, environmentId: 'guest', generation: 1, projectId: 'remote-project', remoteRoot: project, method, requestId, params })
   await daemon.start()
   try {
@@ -95,7 +95,13 @@ it('keeps a real daemon terminal across endpoint reconnects without replaying or
     expect(observed).toMatchObject({ session: { id: sessionId }, nextInputSequence: 1 })
     await expect(server.dispatch(request('terminal.stop', 'wrong', { sessionId: 'someone-else' }))).rejects.toThrow('not owned')
     expect(await server.dispatch(request('terminal.stop', 'stop', { sessionId }))).toMatchObject({ state: 'completed' })
-  } finally { if (sessionId) await client.close(sessionId).catch(() => {}); client.disconnect(); expect(await daemon.stopIfIdle()).toBe(true) }
+    const harmlessAgent = join(root, 'opencode'); copyFileSync('/bin/cat', harmlessAgent); chmodSync(harmlessAgent, 0o700)
+    const agent = await client.startAgent(project, 'opencode', 'opencode', { executable: harmlessAgent, args: [] }); agentSessionId = agent.session.id
+    const stopped = await server.dispatch(request('terminal.stop', 'stop-agent', { sessionId: agentSessionId })) as ProjectRemoteOperation
+    expect(stopped).toMatchObject({ state: 'completed', result: { sessionId: agentSessionId, workspacePath: project, liveness: 'exited' } })
+    expect((await client.listAgents()).find(run => run.sessionId === agentSessionId)?.liveness).toBe('exited')
+    await client.dismissAgent(agentSessionId); agentSessionId = ''
+  } finally { if (agentSessionId) await client.stopAgent(agentSessionId).catch(() => {}); if (sessionId) await client.close(sessionId).catch(() => {}); client.disconnect(); expect(await daemon.stopIfIdle()).toBe(true) }
 })
 
 it('records an uncertain input and blocks later bytes after dispatch failure', async () => {

@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { parseDiffFromFile } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
-import type { ProjectEnvironment, LumeEnvironment, LumeEnvironmentConfig, SshEnvironmentConfig, EnvironmentResultReview, EnvironmentMemoryState, ProjectRemoteMethod } from '@shared/project-environment'
+import type { ProjectEnvironment, LumeEnvironment, LumeEnvironmentConfig, SshEnvironmentConfig, EnvironmentResultReview, EnvironmentMemoryState, ProjectRemoteMethod, ProjectRemoteOperation } from '@shared/project-environment'
 import type { TerminalSession } from '@shared/types'
 import { useAppStore } from '../store'
 import { terminalThemeOf } from '../terminal-themes'
@@ -120,7 +120,7 @@ export function ProjectEnvironmentPanel({ workspacePath, active }: { workspacePa
         <button disabled={busy || environment.state !== 'ready'} onClick={() => void run(async () => { const result = await request('agent.start') as { state: string; result?: { session: TerminalSession }; error?: string }; if (result.state !== 'completed') throw new Error(result.error ?? 'Agent start is uncertain'); await loadSessions(); setSessionId(result.result!.session.id) })}>OpenCode terminal</button>
         <button disabled={busy || environment.state !== 'ready'} onClick={() => void run(async () => { const result = await request('terminal.open', { cols: 100, rows: 30 }) as { state: string; result?: TerminalSession; error?: string }; if (result.state !== 'completed') throw new Error(result.error ?? 'Terminal start is uncertain'); await loadSessions(); setSessionId(result.result!.id) })}>New shell</button>
         <button disabled={busy} onClick={() => void run(async () => { await loadSessions(); setTerminalGeneration(value => value + 1) })}>Reconnect terminals</button>
-        {sessionId && <button onClick={() => void request('terminal.stop', { sessionId }).then(loadSessions).catch(failure => setError(String(failure)))}>Stop selected terminal</button>}
+        {sessionId && <button disabled={busy} onClick={() => void run(async () => { const result = await request('terminal.stop', { sessionId }) as ProjectRemoteOperation; if (result.state !== 'completed') throw new Error(result.error ?? `Stop outcome is ${result.state}; inspect operation ${result.requestId} before retrying.`); await loadSessions() })}>Stop selected terminal</button>}
       </div>
       {sessions.length > 0 && <select aria-label="Remote terminal" value={sessionId} onChange={event => setSessionId(event.target.value)}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title || item.id}{item.exited ? ' · stopped' : ''}</option>)}</select>}
       <details><summary>Remove SSH pairing</summary><p>Pauses new work and disconnects shared memory, then verifies that all remote terminals are stopped. An unreachable target cannot be removed. Remote files, keys and saved results stay intact. This pairing ID cannot be reused.</p><button disabled={busy} onClick={() => void run(() => window.donwells.environmentRemove(workspacePath, environment.id, environment.generation))}>Remove inactive SSH pairing</button></details>

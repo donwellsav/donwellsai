@@ -12,7 +12,7 @@ import { projectEnvironmentId, remoteMutation, type ProjectRemoteRequest, type P
 import type { DaemonClient } from './daemon-client'
 
 export type RemoteProjectMapping = { version: 1; environmentId: string; generation: number; projectId: string; root: string; stateDirectory: string; opencodeExecutable?: string }
-type RemoteDaemon = Pick<DaemonClient, 'open' | 'list' | 'attach' | 'resize' | 'close' | 'writeAcknowledged'> & Partial<Pick<DaemonClient, 'startAgent' | 'authenticateAgent'>>
+type RemoteDaemon = Pick<DaemonClient, 'open' | 'list' | 'attach' | 'resize' | 'close' | 'writeAcknowledged'> & Partial<Pick<DaemonClient, 'startAgent' | 'authenticateAgent' | 'listAgents' | 'stopAgent'>>
 const dimension = (value: unknown): number => { if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 1000) throw new Error('Invalid terminal dimensions'); return Number(value) }
 
 /** Mapping and parent directories are administrator-owned, outside the editable checkout. */
@@ -152,7 +152,16 @@ export class ProjectRemoteServer {
       else if (request.method === 'terminal.open') result = await this.daemon.open(m.root, Number(p.cols), Number(p.rows))
       else if (request.method === 'terminal.write') { await this.daemon.writeAcknowledged(sessionId!, String(p.data)); result = { sequence: p.sequence } }
       else if (request.method === 'terminal.resize') await this.daemon.resize(sessionId!, Number(p.cols), Number(p.rows))
-      else await this.daemon.close(sessionId!)
+      else {
+        const agent = this.daemon.listAgents && (await this.daemon.listAgents()).find(run => run.sessionId === sessionId && run.workspacePath === m.root)
+        if (!agent) await this.daemon.close(sessionId!)
+        else {
+          if (!this.daemon.stopAgent) throw new Error('Remote agent stop is unavailable')
+          const stopped = await this.daemon.stopAgent(sessionId!)
+          if (stopped.sessionId !== sessionId || stopped.workspacePath !== m.root || stopped.liveness !== 'exited') throw new Error('Remote agent stop was not verified')
+          result = stopped
+        }
+      }
       record.state = 'completed'; record.result = result ?? {}
     } catch (error) { record.state = 'uncertain'; record.error = String(error).slice(0, 1024) }
     this.db(db => db.prepare('UPDATE requests SET record=? WHERE id=?').run(JSON.stringify(record), request.requestId))
