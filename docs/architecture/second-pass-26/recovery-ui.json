@@ -1,0 +1,33 @@
+{
+  "profile": "/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-profile-bQE2PD",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-project-UNm10O",
+  "port": 19326,
+  "checks": [
+    "Initial native load failure exposes Retry; Retry attaches existing daemon session and clears error",
+    "Visible fallback changes renderer and accepts input on the same retained session with previous output"
+  ],
+  "before": [
+    {
+      "id": "1b9f93eb-157e-48ef-9fd8-0a49d21d3118",
+      "worktreePath": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-project-UNm10O",
+      "title": "donwells-recovery-project-UNm10O",
+      "createdAt": "2026-09-07T12:16:07.114Z",
+      "exited": false
+    }
+  ],
+  "after": [
+    {
+      "id": "1b9f93eb-157e-48ef-9fd8-0a49d21d3118",
+      "worktreePath": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-recovery-project-UNm10O",
+      "title": "donwells-recovery-project-UNm10O",
+      "createdAt": "2026-09-07T12:16:07.114Z",
+      "exited": false
+    }
+  ],
+  "passed": true,
+  "appPid": 38212,
+  "limitations": [
+    "Public terminal-list contains no OS PID; identity claim is session ID plus retained output.",
+    "Injected IPC failure with actual Retry/fallback UI; no physical native input qualification."
+  ]
+}

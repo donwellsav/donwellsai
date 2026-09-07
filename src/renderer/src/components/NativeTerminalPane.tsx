@@ -19,7 +19,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
   const call = (request: Omit<NativeTerminalRequest, 'sessionId' | 'instance'>) => window.donwells.nativeTerminal({ ...request, sessionId, instance: instance.current } as NativeTerminalRequest)
   const reconnect = async () => {
     setConnecting(true)
-    try { const result = await call({ op: 'reattach' }); setTruncated(result.truncated === true); setError(null) }
+    try { const result = await call({ op: 'create' }); setReady(true); setTruncated(result.truncated === true); setError(null) }
     catch (cause) { setError(String(cause)) }
     finally { setConnecting(false) }
   }
@@ -83,7 +83,8 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
 
   return <div className={'terminal-host-wrap ' + (isActive ? '' : 'terminal-hidden')}>
     {error && <div className="terminal-replay-warning" role="alert"><strong>Native terminal unavailable</strong><p>{error}</p>
-      {ready && <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnect()}>{connecting ? 'Reattaching…' : 'Reattach terminal'}</button>}
+      <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnect()}>{connecting ? 'Reattaching…' : 'Retry connection'}</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().setSettings({ terminalRenderer: 'xterm' }).then(result => { if (!result.ok) setError(result.error) })}>Use xterm for existing sessions</button>
       <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('terminal')}>Terminal settings</button>
     </div>}
     {!error && truncated && <div className="terminal-replay-warning" role="alert"><strong>Terminal history is incomplete</strong><p>{message || 'Retained output was shortened. Request a redraw from the same running process.'}</p>

@@ -59,8 +59,10 @@ export class NativeTerminals {
     if (!this.window.isDestroyed()) this.window.webContents.send('native-terminal:event', { sessionId: entry.sessionId, instance: entry.instance, ...extra })
   }
   private disconnected(entry: Entry, error: string) {
+    if (this.entries.get(entry.sessionId) !== entry) return
     entry.connected = false; entry.generation++
-    this.call(entry, 'connected', { value: false })
+    try { this.call(entry, 'connected', { value: false }) }
+    catch (cause) { error += ` Native surface: ${String(cause)}` }
     this.publish(entry, { error })
   }
   data(sessionId: string, data: string, sequence?: number) { this.stream.emitData(sessionId, data, sequence) }
@@ -73,7 +75,9 @@ export class NativeTerminals {
   configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: nativeTerminalConfiguration(this.settings()), shortcuts: this.shortcuts() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
-    this.call(entry, 'destroy'); this.entries.delete(entry.sessionId)
+    this.entries.delete(entry.sessionId)
+    try { this.call(entry, 'destroy') }
+    catch (error) { console.error('Native terminal surface cleanup failed:', error) }
   }
   private clear() { for (const entry of this.entries.values()) this.dispose(entry) }
   private event(json: string) {
