@@ -31,3 +31,5 @@ and immediate post-ack renderer-reload proof is owned by the root task and is
 not claimed by these checks. Task 08 remains open for its full owner/crash matrix.
 
 Actual Electron result: `layout-live.json` verifies repeated activation creates one shell, late startup retains browser focus, and immediate renderer reload after acknowledged browser saving restores the same terminal and browser. Clean app/daemon shutdown. Full08 ACP write/cancel/crash coverage remains open.
+
+Current source app lifecycle was then observed directly through app/window/OS-exit events. Explicit workspace flush took25/20ms; quit completed exit0 in407/410ms with and without a live shell. The same shell identity and four native-authored fact revisions survived GUI restart. `quit-reconnect-live.json` records both cycles and idle daemon cleanup. A first runner initialization error used unavailable require in the Electron evaluation context; it was corrected before lifecycle observation. This establishes current quit behavior, not the cause of an older packaged-helper timeout. Owner loss during an uncertain ACP operation remains a separate08 clause.

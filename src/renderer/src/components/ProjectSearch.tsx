@@ -37,6 +37,10 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const source = useAppStore(state => state.contentSearch.source ?? 'all')
   const setSource = (source: SearchSource) => useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, source } }))
   const [indexing, setIndexing] = useState(false)
+  const [documentReady, setDocumentReady] = useState(false)
+  const [documentAvailable, setDocumentAvailable] = useState(false)
+  const [sourceControlsOpen, setSourceControlsOpen] = useState(graphOpen)
+  useEffect(() => { if (graphOpen) setSourceControlsOpen(true) }, [graphOpen])
   const [documentPaused, setDocumentPaused] = useState(false)
   const [documentStatus, setDocumentStatus] = useState('')
   const [historyIndexing, setHistoryIndexing] = useState(false)
@@ -152,19 +156,21 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   }, [workspacePath, query, hidden, ignored, refresh, active, source, historyAvailable])
   useEffect(() => {
     if (!active || (source !== 'all' && source !== 'document')) return
-    setIndexing(false); setDocumentPaused(false); setDocumentStatus('')
+    setIndexing(false); setDocumentReady(false); setDocumentAvailable(false); setDocumentPaused(false); setDocumentStatus('')
     let lastFinishedJob: unknown
     let cancelled = false, timer: ReturnType<typeof setTimeout>
     const poll = async () => {
       try {
         const tools = await window.donwells.projectToolsList(workspacePath)
         if (cancelled) return
-        if (tools.find(tool => tool.id === 'documents')?.status !== 'ready') { setIndexing(false); setDocumentPaused(false); timer = setTimeout(() => void poll(), 2000); return }
+        const tool = tools.find(tool => tool.id === 'documents')
+        setDocumentAvailable(Boolean(tool)); setDocumentReady(tool?.status === 'ready')
+        if (tool?.status !== 'ready') { setIndexing(false); setDocumentPaused(false); timer = setTimeout(() => void poll(), 2000); return }
         const value = documentValue(await window.donwells.projectToolCall(workspacePath, 'documents', 'progress', {}))
         if (cancelled) return
         setIndexing(['reading', 'indexing', 'paused', 'pausing', 'publishing', 'cancelling'].includes(String(value.phase)))
         setDocumentPaused(value.phase === 'paused' || value.phase === 'pausing')
-        setDocumentStatus(`Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models · publication ${String(value.publicationState ?? 'unknown')}${isObject(value.publication) ? ` · ${Number(value.publication.reusedChunks)} reused chunks · ${Number(value.publication.embeddedChunks)} embedded · table version ${Number(value.publication.tableVersion)}` : ''}`)
+        setDocumentStatus(value.phase === 'idle' && !value.publication ? 'Document index open · no rebuild started this session' : `Document index: ${String(value.phase)} · ${Number(value.completed)} / ${Number(value.total)} · ${Math.round(Number(value.modelBytes) / 1048576)} MiB models · publication ${String(value.publicationState ?? 'unknown')}${isObject(value.publication) ? ` · ${Number(value.publication.reusedChunks)} reused chunks · ${Number(value.publication.embeddedChunks)} embedded · table version ${Number(value.publication.tableVersion)}` : ''}`)
         if (['ready', 'failed', 'cancelled', 'publication-uncertain'].includes(String(value.phase))) {
           setIndexing(false)
           if (value.error) setError(String(value.error))
@@ -211,23 +217,14 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   }
   const ordered = (Object.keys(sources) as SearchSource[]).flatMap(kind => hits.filter(hit => hit.source === kind))
   return <section className="project-search" aria-label="Project search">
-    <details className="project-graph-disclosure" open={graphOpen} onToggle={event => { const open = event.currentTarget.open; useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: open } })) }}><summary>Code graph · callers</summary><ProjectGraph key={workspacePath} workspacePath={workspacePath} active={active && graphOpen} /></details>
     <form onSubmit={event => { event.preventDefault(); stop(); setRefresh(value => value + 1) }}>
       <div className="project-search-sources" role="group" aria-label="Search sources">{(Object.entries(sources) as [SearchSource, string][]).map(([kind, label]) => <button key={kind} type="button" aria-pressed={source === kind} onClick={() => { if (source !== kind) { stop(); setSource(kind) } }}>{label}</button>)}</div>
       <label htmlFor={inputId}>Search text</label>
       <div className="project-search-input"><input ref={inputRef} id={inputId} type="search" value={query} maxLength={1000} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus() } }} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
       {(source === 'all' || source === 'file' || source === 'code') && <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>}
     </form>
-    <div className="project-search-status"><span role="status">{status}</span>{running && <button onClick={stop}>Stop</button>}</div>
-    <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>
-    {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
-    {(source === 'all' || source === 'document') && <button className="btn btn-secondary btn-sm" type="button" disabled={indexing} onClick={() => {
-      const path = workspacePath
-      void window.donwells.projectToolCall(path, 'documents', 'index', {}).then(response => {
-        const value = documentValue(response)
-        if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
-      }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
-    }}>{hits.some(hit => hit.source === 'document' && hit.stale) ? 'Reindex changed document sources' : 'Index documents'}</button>}
+    <div className="project-search-status"><span role="status">{status}{query.trim() && ` · ${ordered.length} matches`}</span>{running && <button onClick={stop}>Stop</button>}</div>
+    <div className="project-search-notes">{source !== 'all' && notes[source] && <p>{notes[source]}</p>}</div>
     {indexing && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolCall(path, 'documents', 'cancel', {}).then(response => {
@@ -245,11 +242,28 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         setDocumentStatus(`Document index: ${String(value.phase)} · models remain loaded`)
       }).catch(error => setError(String(error)))
     }}>{documentPaused ? 'Resume document indexing' : 'Pause document indexing'}</button>}
-    {(source === 'all' || source === 'document') && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
+    {(indexing || historyIndexing) && <p className="project-search-job" role="status">{indexing ? documentStatus : 'Indexing selected native sessions…'}</p>}
+    <details className="project-search-source-controls" open={sourceControlsOpen} onToggle={event => {
+      const open = event.currentTarget.open
+      setSourceControlsOpen(open)
+      if (!open) useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: false } }))
+    }}><summary>Source controls</summary>
+    {source === 'all' && <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>}
+    <details className="project-graph-disclosure" open={graphOpen} onToggle={event => { const open = event.currentTarget.open; useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: open } })) }}><summary>Code graph · callers</summary><ProjectGraph key={workspacePath} workspacePath={workspacePath} active={active && sourceControlsOpen && graphOpen} /></details>
+    {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
+    {(source === 'all' || source === 'document') && documentAvailable && <button className="btn btn-secondary btn-sm" type="button" disabled={indexing} onClick={() => {
+      const path = workspacePath
+      void window.donwells.projectToolCall(path, 'documents', 'index', {}).then(response => {
+        const value = documentValue(response)
+        if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
+      }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
+    }}>{hits.some(hit => hit.source === 'document' && hit.stale) ? 'Reindex changed document sources' : 'Index documents'}</button>}
+    {(source === 'all' || source === 'document') && !documentAvailable && <button type="button" className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('agents')}>Configure documents</button>}
+    {(source === 'all' || source === 'document') && documentReady && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolStop(path, 'documents').then(() => {
         if (useAppStore.getState().activeWorktreePath !== path) return
-        setIndexing(false); setDocumentPaused(false); setDocumentStatus('Document service stopped · models released · reopen to inspect the last committed snapshot')
+        setIndexing(false); setDocumentReady(false); setDocumentPaused(false); setDocumentStatus('Document service stopped · models released · reopen to inspect the last committed snapshot')
       }).catch(error => setError(String(error)))
     }}>Stop document service</button>}
     {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}
@@ -262,6 +276,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       }).catch(error => { if (generation === openGeneration.current) setError(String(error)) }).finally(() => setHistoryIndexing(false))
     }}>{historyIndexing ? 'Indexing selected sessions…' : 'Index sessions'}</button>}
     {active && source === 'session' && historyAvailable && <ProjectAnalytics key={workspacePath} workspacePath={workspacePath} />}
+    </details>
     {error && <p className="project-search-error" role="alert">{error}</p>}
     <ol ref={resultsRef} className="project-search-results" aria-label="Content matches" onKeyDown={event => {
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return

@@ -1,4 +1,4 @@
-.project-search { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 14px 12px 0; gap: 12px; }
+.project-search { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 12px 12px 0; gap: 8px; overflow: auto; }
 .project-search form > label { display: block; font-size: 12px; margin-bottom: 8px; }
 .project-search-input { display: flex; gap: 5px; }
 .project-search-input input { min-width: 0; flex: 1; background: var(--background); color: var(--foreground); border: 1px solid var(--input); padding: 8px; border-radius: 3px; }
@@ -7,12 +7,12 @@
 .project-search-options label { display: flex; align-items: center; gap: 5px; }
 .project-search-status { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 24px; font-size: 11px; color: var(--muted-fg); }
 .project-search-error { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: var(--foreground); }
-.project-search-results { list-style: none; margin: 0 -12px; padding: 0; overflow: auto; min-height: 0; }
+.project-search-results { flex: 1 0 96px; list-style: none; margin: 0 -12px; padding: 0; overflow: auto; min-height: 96px; }
 .project-search-results button { display: block; width: 100%; padding: 11px 12px; text-align: left; border-top: 1px solid var(--border); }
 .project-search-results button:hover { background: var(--accent); }
-.project-search-path { display: block; font-size: 11px; overflow-wrap: anywhere; color: var(--muted-fg); margin-bottom: 5px; }
+.project-search-path { display: block; font-size: 12px; overflow-wrap: anywhere; color: var(--muted-fg); margin-bottom: 5px; }
 .project-search-path b { font-weight: 500; color: var(--foreground); }
-.project-search-results code { display: block; font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-search-results code { display: block; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .project-search button:focus-visible, .project-search input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .project-graph-disclosure { flex-shrink: 0; max-height: 60%; overflow: auto; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 .project-graph-disclosure summary { cursor: pointer; font-size: 12px; padding: 4px 0; }
@@ -26,12 +26,12 @@
 .project-graph li span { flex: 1; color: var(--muted-fg); }
 .project-graph-disclosure summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-.project-search-sources { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 12px; }
+.project-search-sources { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
 .project-search-sources button { padding: 5px 7px; border-radius: 3px; font-size: 11px; color: var(--muted-fg); }
 .project-search-sources button[aria-pressed="true"] { background: var(--accent); color: var(--foreground); }
-.project-search-notes { flex-shrink: 0; font-size: 11px; color: var(--muted-fg); }
+.project-search-notes { display: flex; flex-wrap: wrap; gap: 2px 12px; flex-shrink: 0; font-size: 11px; color: var(--muted-fg); }
 .project-search-notes p { margin: 3px 0; }
-.project-search-kind { display: block; font-size: 10px; color: var(--muted-fg); margin-bottom: 5px; }
+.project-search-kind { display: block; font-size: 11px; color: var(--muted-fg); margin-bottom: 5px; }
 .project-search-document { overflow: auto; max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; }
 .project-analytics-table { overflow-x: auto; margin-block: 8px; }
 .project-analytics-table table { border-collapse: collapse; width: 100%; font-size: 12px; }
@@ -60,3 +60,14 @@
 .project-analytics-table th, .project-analytics-table td { padding: 8px; white-space: nowrap; font-size: 11px; line-height: 1.6; }
 .project-analytics-table thead th { white-space: normal; font-weight: 500; color: var(--muted-fg); }
 .project-analytics select:focus-visible, .project-analytics-table:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.project-search > form, .project-search-status, .project-search-job { flex-shrink: 0; }
+.project-search-source-controls { flex: 0 1 auto; min-height: 28px; max-height: 40%; overflow: auto; font-size: 12px; }
+.project-search-source-controls > summary { padding-block: 6px; cursor: pointer; color: var(--muted-fg); }
+.project-search-source-controls > button { margin: 6px 6px 6px 0; }
+.project-search-source-controls p, .project-search-job { margin: 6px 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.project-search-source-controls summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.project-search-source-controls .project-graph-disclosure { max-height: none; }
+.project-search-source-controls .project-analytics { max-height: none; }
+
+.project-search-notes:empty { display: none; }
