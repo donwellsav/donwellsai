@@ -71,3 +71,14 @@ it('resizes the current docking boundary and rejects missing or invalid boundari
   expect(resizeWorkspaceSplit(layout, 20, 50)).toBeNull()
   expect(resizeWorkspaceSplit(layout, 0, NaN)).toBeNull()
 })
+
+it('retains the environment module identity through hide, restore and movement alongside local terminals', () => {
+  const module = { key: 'environments:/project', kind: 'environments' }, all = [...panes, module]
+  const initial = restoreWorkspaceLayout(undefined, all).layout
+  const hidden = restoreWorkspaceLayout({ ...initial, hidden: [module.key] }, all).layout
+  expect(hidden.hidden).toContain(module.key)
+  const restored = restoreWorkspaceLayout({ ...hidden, hidden: [] }, all).layout
+  expect(ids(restored).filter(id => id === module.key)).toHaveLength(1)
+  const model = Model.fromJson(restored.model)
+  expect((model.getNodeById(module.key) as TabNode).getName()).toBe('Project environments')
+})

@@ -1,4 +1,3 @@
-import { ProjectEnvironmentPanel } from './ProjectEnvironmentPanel'
 import { ProjectKitSettings } from './settings/ProjectKitSettings'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
@@ -442,7 +441,7 @@ export function SettingsModal({ open }: { open: boolean }) {
           if (!path) return
           if (route === 'search') useAppStore.setState({ contentSearch: { ...state.contentSearch, source: 'session' } })
           state.openWorkspaceModule(path, route); setOpen(false)
-        }} /><ProjectEnvironmentPanel /><SkillsManager /></>}
+        }} /><SkillsManager /></>}
         {target === 'advanced' && <><ProjectKitSettings /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
       </>
     )

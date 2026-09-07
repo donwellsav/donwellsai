@@ -1,0 +1,559 @@
+{
+  "scope": "Remote environment becomes a retained workspace module with side controls; not completion of all Task21 physical/integrated clauses",
+  "before": {
+    "phase": "before",
+    "workspace": "/private/tmp/donwells-task24-linux-app-profile/project",
+    "environment": "plan24-linux",
+    "prompts": 0,
+    "session": {
+      "id": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+      "worktreePath": "/home/dwtrial/donwells-plan24-project",
+      "title": "dwtrial@4e23c53b5bef: ~/donwells-plan24-project",
+      "createdAt": "2026-09-07T17:53:12.336Z",
+      "exited": false
+    },
+    "before": {
+      "session": {
+        "id": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+        "worktreePath": "/home/dwtrial/donwells-plan24-project",
+        "title": "dwtrial@4e23c53b5bef: ~/donwells-plan24-project",
+        "createdAt": "2026-09-07T17:53:12.336Z",
+        "exited": false
+      },
+      "scrollback": "\u001b[?2004h\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ ",
+      "truncated": false,
+      "sequence": 2,
+      "nextInputSequence": 0
+    },
+    "geometry": {
+      "terminal": {
+        "x": 333,
+        "y": 467.625,
+        "width": 790,
+        "height": 340,
+        "top": 467.625,
+        "right": 1123,
+        "bottom": 807.625,
+        "left": 333
+      },
+      "module": {
+        "x": 333,
+        "y": 67.71875,
+        "width": 790,
+        "height": 864.90625,
+        "top": 67.71875,
+        "right": 1123,
+        "bottom": 932.625,
+        "left": 333
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    "complete": true
+  },
+  "after": {
+    "phase": "after",
+    "workspace": "/private/tmp/donwells-task24-linux-app-profile/project",
+    "environment": "plan24-linux",
+    "prompts": 0,
+    "session": {
+      "id": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+      "worktreePath": "/home/dwtrial/donwells-plan24-project",
+      "title": "dwtrial@4e23c53b5bef: ~/donwells-plan24-project",
+      "createdAt": "2026-09-07T17:53:12.336Z",
+      "exited": false
+    },
+    "before": {
+      "session": {
+        "id": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+        "worktreePath": "/home/dwtrial/donwells-plan24-project",
+        "title": "dwtrial@4e23c53b5bef: ~/donwells-plan24-project",
+        "createdAt": "2026-09-07T17:53:12.336Z",
+        "exited": false
+      },
+      "scrollback": "\u001b[?2004h\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ ",
+      "truncated": false,
+      "sequence": 3,
+      "nextInputSequence": 0
+    },
+    "geometry": {
+      "terminal": {
+        "x": 524,
+        "y": 31,
+        "width": 688,
+        "height": 737,
+        "top": 31,
+        "right": 1212,
+        "bottom": 768,
+        "left": 524
+      },
+      "module": {
+        "x": 224,
+        "y": 31,
+        "width": 988,
+        "height": 737,
+        "top": 31,
+        "right": 1212,
+        "bottom": 768,
+        "left": 224
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 768
+      }
+    },
+    "after": {
+      "session": {
+        "id": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+        "worktreePath": "/home/dwtrial/donwells-plan24-project",
+        "title": "dwtrial@4e23c53b5bef: ~/donwells-plan24-project",
+        "createdAt": "2026-09-07T17:53:12.336Z",
+        "exited": false
+      },
+      "scrollback": "\u001b[?2004h\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ \r\u001b[K\u001b]0;dwtrial@4e23c53b5bef: ~/donwells-plan24-project\u0007\u001b[01;32mdwtrial@4e23c53b5bef\u001b[00m:\u001b[01;34m~/donwells-plan24-project\u001b[00m$ ",
+      "truncated": false,
+      "sequence": 4,
+      "nextInputSequence": 0
+    },
+    "complete": true
+  },
+  "owner": {
+    "profile": "/private/tmp/donwells-task24-linux-app-profile",
+    "workspace": "/private/tmp/donwells-task24-linux-app-profile/project",
+    "environment": "plan24-linux",
+    "openIntent": "d32995c3-e22d-4618-b669-01f27b44899c",
+    "sessionId": "5e4f5632-15cc-4147-92e9-1d6255b827d2",
+    "shutdown": {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    "daemonStopped": true,
+    "before": {
+      "complete": true,
+      "output": "{\"evidence\":\"/tmp/donwells-task21-environment-evidence-1\",\"complete\":true,\"error\":null}\n"
+    },
+    "after": {
+      "complete": true,
+      "output": "{\"evidence\":\"/tmp/donwells-task21-environment-evidence-1\",\"complete\":true,\"error\":null}\n"
+    },
+    "nativeFocus": {
+      "project": "/private/tmp/donwells-task24-linux-app-profile/project",
+      "scope": "One native cat agent; exact owner selection and keyboard focus via Agent sessions Open terminal",
+      "sessionId": "5bb1fdc6-f5a9-4402-9667-f62c2db18e23",
+      "worktreePath": "/private/tmp/donwells-task24-linux-app-profile/project",
+      "focus": {
+        "documentHasFocus": true,
+        "activePane": "term:5bb1fdc6-f5a9-4402-9667-f62c2db18e23",
+        "runsClosed": true,
+        "exactTextareaFocused": true
+      },
+      "passed": true,
+      "catStoppedAndDismissed": true
+    },
+    "stopIntent": "2b84dd30-fccc-402c-98c2-b0440400fc6c",
+    "remoteStopped": true
+  },
+  "finalTheme": {
+    "profile": "/private/tmp/donwells-task24-linux-app-profile",
+    "workspace": "/private/tmp/donwells-task24-linux-app-profile/project",
+    "environment": "plan24-linux",
+    "openIntent": "76796961-5861-4825-91c6-f47585528ada",
+    "sessionId": "63a5fc03-b3dc-4186-9f7f-7452b87297b1",
+    "renders": {
+      "dark-1280": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "module": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 988,
+            "height": 769,
+            "top": 31,
+            "right": 1212,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "controls": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 300,
+            "height": 769,
+            "top": 31,
+            "right": 524,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225) rgba(255, 255, 255, 0.07) rgb(232, 229, 225) rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "terminal": {
+          "rect": {
+            "x": 524,
+            "y": 31,
+            "width": 688,
+            "height": 769,
+            "top": 31,
+            "right": 1212,
+            "bottom": 800,
+            "left": 524
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "select": {
+          "rect": {
+            "x": 236,
+            "y": 245,
+            "width": 275,
+            "height": 33.5,
+            "top": 245,
+            "right": 511,
+            "bottom": 278.5,
+            "left": 236
+          },
+          "background": "rgb(32, 32, 39)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgba(255, 255, 255, 0.07)",
+          "fontSize": "12px"
+        },
+        "button": {
+          "rect": {
+            "x": 236,
+            "y": 341.5,
+            "width": 134.078125,
+            "height": 35,
+            "top": 341.5,
+            "right": 370.078125,
+            "bottom": 376.5,
+            "left": 236
+          },
+          "background": "rgb(38, 38, 38)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgba(255, 255, 255, 0.07)",
+          "fontSize": "14px"
+        },
+        "semanticTokens": {
+          "--background": "#16161d",
+          "--foreground": "#e8e5e1",
+          "--muted-fg": "#b5b2bd",
+          "--card": "#202027",
+          "--secondary": "#262626",
+          "--border": "rgb(255 255 255 / 0.07)"
+        }
+      },
+      "light-1280": {
+        "theme": "light",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "module": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 988,
+            "height": 769,
+            "top": 31,
+            "right": 1212,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "controls": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 300,
+            "height": 769,
+            "top": 31,
+            "right": 524,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10) rgb(229, 229, 229) rgb(10, 10, 10) rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "terminal": {
+          "rect": {
+            "x": 524,
+            "y": 31,
+            "width": 688,
+            "height": 769,
+            "top": 31,
+            "right": 1212,
+            "bottom": 800,
+            "left": 524
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "select": {
+          "rect": {
+            "x": 236,
+            "y": 245,
+            "width": 275,
+            "height": 33.5,
+            "top": 245,
+            "right": 511,
+            "bottom": 278.5,
+            "left": 236
+          },
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(229, 229, 229)",
+          "fontSize": "12px"
+        },
+        "button": {
+          "rect": {
+            "x": 236,
+            "y": 716,
+            "width": 172.6484375,
+            "height": 32,
+            "top": 716,
+            "right": 408.6484375,
+            "bottom": 748,
+            "left": 236
+          },
+          "background": "rgb(245, 245, 245)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(229, 229, 229)",
+          "fontSize": "14px"
+        },
+        "semanticTokens": {
+          "--background": "#ffffff",
+          "--foreground": "#0a0a0a",
+          "--muted-fg": "#737373",
+          "--card": "#ffffff",
+          "--secondary": "#f5f5f5",
+          "--border": "#e5e5e5"
+        }
+      },
+      "dark-760": {
+        "theme": "dark",
+        "viewport": {
+          "width": 760,
+          "height": 800
+        },
+        "module": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 468,
+            "height": 769,
+            "top": 31,
+            "right": 692,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "controls": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 300,
+            "height": 769,
+            "top": 31,
+            "right": 524,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225) rgba(255, 255, 255, 0.07) rgb(232, 229, 225) rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "terminal": {
+          "rect": {
+            "x": 524,
+            "y": 31,
+            "width": 168,
+            "height": 769,
+            "top": 31,
+            "right": 692,
+            "bottom": 800,
+            "left": 524
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgb(232, 229, 225)",
+          "fontSize": "14px"
+        },
+        "select": {
+          "rect": {
+            "x": 236,
+            "y": 245,
+            "width": 275,
+            "height": 33.5,
+            "top": 245,
+            "right": 511,
+            "bottom": 278.5,
+            "left": 236
+          },
+          "background": "rgb(32, 32, 39)",
+          "color": "rgb(232, 229, 225)",
+          "border": "rgba(255, 255, 255, 0.07)",
+          "fontSize": "12px"
+        },
+        "button": {
+          "rect": {
+            "x": 236,
+            "y": 716,
+            "width": 172.6484375,
+            "height": 32,
+            "top": 716,
+            "right": 408.6484375,
+            "bottom": 748,
+            "left": 236
+          },
+          "background": "rgb(245, 245, 245)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgba(255, 255, 255, 0.07)",
+          "fontSize": "14px"
+        },
+        "semanticTokens": {
+          "--background": "#16161d",
+          "--foreground": "#e8e5e1",
+          "--muted-fg": "#b5b2bd",
+          "--card": "#202027",
+          "--secondary": "#262626",
+          "--border": "rgb(255 255 255 / 0.07)"
+        }
+      },
+      "light-760": {
+        "theme": "light",
+        "viewport": {
+          "width": 760,
+          "height": 800
+        },
+        "module": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 468,
+            "height": 769,
+            "top": 31,
+            "right": 692,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "controls": {
+          "rect": {
+            "x": 224,
+            "y": 31,
+            "width": 300,
+            "height": 769,
+            "top": 31,
+            "right": 524,
+            "bottom": 800,
+            "left": 224
+          },
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10) rgb(229, 229, 229) rgb(10, 10, 10) rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "terminal": {
+          "rect": {
+            "x": 524,
+            "y": 31,
+            "width": 168,
+            "height": 769,
+            "top": 31,
+            "right": 692,
+            "bottom": 800,
+            "left": 524
+          },
+          "background": "rgb(22, 22, 29)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(10, 10, 10)",
+          "fontSize": "14px"
+        },
+        "select": {
+          "rect": {
+            "x": 236,
+            "y": 245,
+            "width": 275,
+            "height": 33.5,
+            "top": 245,
+            "right": 511,
+            "bottom": 278.5,
+            "left": 236
+          },
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(229, 229, 229)",
+          "fontSize": "12px"
+        },
+        "button": {
+          "rect": {
+            "x": 236,
+            "y": 716,
+            "width": 172.6484375,
+            "height": 32,
+            "top": 716,
+            "right": 408.6484375,
+            "bottom": 748,
+            "left": 236
+          },
+          "background": "rgb(245, 245, 245)",
+          "color": "rgb(10, 10, 10)",
+          "border": "rgb(229, 229, 229)",
+          "fontSize": "14px"
+        },
+        "semanticTokens": {
+          "--background": "#ffffff",
+          "--foreground": "#0a0a0a",
+          "--muted-fg": "#737373",
+          "--card": "#ffffff",
+          "--secondary": "#f5f5f5",
+          "--border": "#e5e5e5"
+        }
+      }
+    },
+    "zeroInput": true,
+    "complete": true,
+    "stopIntent": "dd6e82d8-a445-41d1-bbdc-94ef9d4eb693",
+    "remoteStopped": true,
+    "shutdown": {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    "daemonStopped": true
+  },
+  "renderReview": "Original fixed-height Settings terminal was 340px. Current terminal fills module height; controls collapse to40px and themes use existing semantic tokens. At760px window width the expanded controls leave a narrow terminal; collapse controls for terminal work. Whole-shell narrow/physical ergonomics remain Task21."
+}

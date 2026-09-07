@@ -174,7 +174,7 @@ function parseKit(bytes: Buffer): Kit {
   if (!Array.isArray(kit.payload.layout.panes) || kit.payload.layout.panes.length > 64) throw new Error('Project kit panel limit exceeded')
   const panes = kit.payload.layout.panes.map(value => {
     exact(value, ['key', 'kind'])
-    if (typeof value.key !== 'string' || !/^kit-pane-\d+$/.test(value.key) || !['terminal','explorer','git-status','browser','memory','recovery','search','computer'].includes(String(value.kind))) throw new Error('Invalid portable panel')
+    if (typeof value.key !== 'string' || !/^kit-pane-\d+$/.test(value.key) || !['terminal','explorer','git-status','browser','memory','recovery','search','computer','environments'].includes(String(value.kind))) throw new Error('Invalid portable panel')
     return value as PortablePane
   })
   if (new Set(panes.map(value => value.key)).size !== panes.length) throw new Error('Duplicate portable panels')

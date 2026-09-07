@@ -49,7 +49,7 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer'
+export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'
 export type Pane = {
   key: string
   kind: PaneKind
@@ -299,7 +299,7 @@ type AppState = {
   saveDocking(worktreePath: string, layout: WorkspaceLayout): Promise<void>
   arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
   hidePaneView(worktreePath: string, key: string): void
-  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search' | 'computer'): void
+  openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'): void
   requestClosePane(worktreePath: string, key: string): void
   confirmClosePane(): Promise<void>
   cancelClosePane(): void

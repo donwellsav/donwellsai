@@ -1,3 +1,4 @@
+import { ProjectEnvironmentPanel } from './ProjectEnvironmentPanel'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Actions, DockLocation, Layout, Model, TabNode, TabSetNode, type Action } from 'flexlayout-react'
@@ -45,6 +46,7 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
           : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
           : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
+          : pane.kind === 'environments' ? <ProjectEnvironmentPanel workspacePath={worktreePath} active={visible} />
           : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
           : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} />
           : pane.kind === 'browser' ? <p style={{ padding: 16 }}>Set a preview URL from Layout in the side toolbar.</p> : null}

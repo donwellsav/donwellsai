@@ -5,7 +5,7 @@ import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { useAppStore } from '../../store'
 import { ProjectMemoryConnection } from '../ProjectMemoryConnection'
 
-export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'memory' | 'search') => void } = {}) {
+export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'memory' | 'search' | 'environments') => void } = {}) {
   const workspacePath = useAppStore(state => state.activeWorktreePath)
   const [role, setRole] = useState('')
   const [ownerStatus, setOwnerStatus] = useState('Not checked')
@@ -67,7 +67,7 @@ export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'mem
   }
   useEffect(() => { roleOperation.current++; setRole(''); setOwnerStatus('Not checked') }, [workspacePath])
   const openRole = (route: string) => {
-    if (route === 'environment') { document.querySelector('[aria-label="Project environments"]')?.scrollIntoView({ block: 'start' }); return }
+    if (route === 'environment') { onNavigate?.('environments'); return }
     if (route === 'memory' || route === 'search') onNavigate?.(route)
   }
   const run = async (action: () => Promise<unknown>) => {

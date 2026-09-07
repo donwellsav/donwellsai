@@ -277,7 +277,7 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>

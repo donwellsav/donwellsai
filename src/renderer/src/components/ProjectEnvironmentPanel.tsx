@@ -1,3 +1,4 @@
+import './project-environment.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -8,7 +9,10 @@ import type { TerminalSession } from '@shared/types'
 import { useAppStore } from '../store'
 import { terminalThemeOf } from '../terminal-themes'
 
-function EnvironmentTerminal({ workspacePath, environment, sessionId, onError }: { workspacePath: string; environment: ProjectEnvironment; sessionId: string; onError: (message: string) => void }) {
+function EnvironmentTerminal({ workspacePath, environment, sessionId, active, onError }: { active: boolean; workspacePath: string; environment: ProjectEnvironment; sessionId: string; onError: (message: string) => void }) {
+  const activeRef = useRef(active); activeRef.current = active
+  const resume = useRef<(() => void) | null>(null)
+  useEffect(() => { resume.current?.() }, [active])
   const host = useRef<HTMLDivElement>(null), error = useRef(onError); error.current = onError
   useEffect(() => {
     if (!host.current) return
@@ -18,7 +22,7 @@ function EnvironmentTerminal({ workspacePath, environment, sessionId, onError }:
     let disposed = false, observing = false, writing = false, input = '', sequence: number | null = null, previous = '', blocked = false
     const request = (method: ProjectRemoteMethod, params: Record<string, unknown>, requestId = crypto.randomUUID()) => window.donwells.environmentRequest(workspacePath, environment.id, environment.generation, method, params, requestId)
     const observe = async () => {
-      if (disposed || observing || document.visibilityState !== 'visible') return
+      if (disposed || observing || !activeRef.current || document.visibilityState !== 'visible') return
       observing = true
       try {
         const state = await request('terminal.observe', { sessionId }) as { scrollback: string; nextInputSequence: number; session: TerminalSession }
@@ -27,12 +31,12 @@ function EnvironmentTerminal({ workspacePath, environment, sessionId, onError }:
         else { terminal.reset(); terminal.write(state.scrollback) }
         previous = state.scrollback
         if (sequence === null) sequence = state.nextInputSequence
-        terminal.options.disableStdin = blocked || state.session.exited || environment.state !== 'ready'
+        terminal.options.disableStdin = !activeRef.current || blocked || state.session.exited || environment.state !== 'ready'
       } catch (failure) { if (!disposed) { blocked = true; terminal.options.disableStdin = true; error.current(String(failure)) } }
       finally { observing = false }
     }
     const flush = async () => {
-      if (writing || blocked || sequence === null || !input || disposed) return
+      if (!activeRef.current || writing || blocked || sequence === null || !input || disposed) return
       const data = input; input = ''; writing = true
       const requestId = crypto.randomUUID()
       try {
@@ -42,17 +46,18 @@ function EnvironmentTerminal({ workspacePath, environment, sessionId, onError }:
       } catch (failure) { if (disposed) return; blocked = true; terminal.options.disableStdin = true; error.current(`Input stopped. Operation ${requestId}: ${String(failure)}. Reconnect to inspect; input was not retried.`) }
       finally { writing = false }
     }
-    const data = terminal.onData(value => { if (blocked) return; if (new TextEncoder().encode(input + value).length > 65536) { error.current('Terminal input queue reached 64 KiB. The new paste was not queued.'); return } input += value })
+    const data = terminal.onData(value => { if (!activeRef.current || blocked) return; if (new TextEncoder().encode(input + value).length > 65536) { error.current('Terminal input queue reached 64 KiB. The new paste was not queued.'); return } input += value })
     const inputTimer = setInterval(() => void flush(), 75), poll = setInterval(() => void observe(), 1000)
-    const resize = new ResizeObserver(() => { if (disposed) return; fit.fit(); void request('terminal.resize', { sessionId, cols: terminal.cols, rows: terminal.rows }).catch(failure => error.current(String(failure))) })
-    resize.observe(host.current); void observe()
-    return () => { disposed = true; clearInterval(inputTimer); clearInterval(poll); resize.disconnect(); data.dispose(); terminal.dispose() }
+    const fitTerminal = () => { if (disposed || !activeRef.current || !host.current?.clientWidth || !host.current.clientHeight) return; fit.fit(); void request('terminal.resize', { sessionId, cols: terminal.cols, rows: terminal.rows }).catch(failure => { if (!disposed) error.current(String(failure)) }) }
+    const resize = new ResizeObserver(fitTerminal)
+    resume.current = () => { terminal.options.disableStdin = true; if (activeRef.current) { fitTerminal(); void observe() } }
+    resize.observe(host.current); resume.current()
+    return () => { disposed = true; resume.current = null; clearInterval(inputTimer); clearInterval(poll); resize.disconnect(); data.dispose(); terminal.dispose() }
   }, [workspacePath, environment.id, environment.generation, environment.state, sessionId])
-  return <div ref={host} style={{ height: 340, minWidth: 0, background: '#16161d' }} aria-label="Remote project terminal" />
+  return <div ref={host} className="environment-terminal" aria-label="Remote project terminal" />
 }
 
-export function ProjectEnvironmentPanel() {
-  const workspacePath = useAppStore(state => state.activeWorktreePath)
+export function ProjectEnvironmentPanel({ workspacePath, active }: { workspacePath: string; active: boolean }) {
   const [environments, setEnvironments] = useState<ProjectEnvironment[]>([]), [selectedId, setSelectedId] = useState('')
   const [sessions, setSessions] = useState<TerminalSession[]>([]), [sessionId, setSessionId] = useState(''), [terminalGeneration, setTerminalGeneration] = useState(0)
   const [memory, setMemory] = useState<EnvironmentMemoryState>({ state: 'disconnected' })
@@ -90,10 +95,11 @@ export function ProjectEnvironmentPanel() {
   }
   const diff = useMemo(() => review?.files.map(file => ({ file, metadata: file.received === undefined || file.baseContent === null && file.received === null ? null : parseDiffFromFile(file.baseContent === null ? null : { name: file.path, contents: file.baseContent }, file.received === null ? null : { name: file.path, contents: file.received!.content }, undefined, true) })) ?? [], [review])
   if (!workspacePath) return <p>Select a project to configure an environment.</p>
-  return <section className="project-tool-settings" aria-label="Project environments" aria-busy={busy}>
+  return <section className="project-environment-module" aria-label="Project environments" aria-busy={busy}>
+    <details className="environment-controls" open><summary>Environment controls</summary><div className="environment-control-content">
     <h3>Project environments</h3>
     <LumeEnvironmentSection key={workspacePath} workspacePath={workspacePath} />
-    <p>Run terminal agents in a paired macOS guest. Closing this panel leaves remote work running.</p>
+    <p>Run terminal agents in a paired environment. Closing this panel leaves remote work running.</p>
     <details><summary>Pair an SSH environment</summary>
       <form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; void run(() => configure(form)) }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
@@ -117,7 +123,6 @@ export function ProjectEnvironmentPanel() {
         {sessionId && <button onClick={() => void request('terminal.stop', { sessionId }).then(loadSessions).catch(failure => setError(String(failure)))}>Stop selected terminal</button>}
       </div>
       {sessions.length > 0 && <select aria-label="Remote terminal" value={sessionId} onChange={event => setSessionId(event.target.value)}>{sessions.map(item => <option key={item.id} value={item.id}>{item.title || item.id}{item.exited ? ' · stopped' : ''}</option>)}</select>}
-      {sessionId && <EnvironmentTerminal key={terminalGeneration} workspacePath={workspacePath} environment={environment} sessionId={sessionId} onError={setError} />}
       <details><summary>Remove SSH pairing</summary><p>Pauses new work and disconnects shared memory, then verifies that all remote terminals are stopped. An unreachable target cannot be removed. Remote files, keys and saved results stay intact. This pairing ID cannot be reused.</p><button disabled={busy} onClick={() => void run(() => window.donwells.environmentRemove(workspacePath, environment.id, environment.generation))}>Remove inactive SSH pairing</button></details>
       <details><summary>Source snapshot and reviewed results</summary>
         <label>Relative text file paths, one per line<textarea value={paths} onChange={event => setPaths(event.target.value)} rows={4} style={{ width: '100%' }} /></label>
@@ -132,6 +137,8 @@ export function ProjectEnvironmentPanel() {
       </details>
     </>}
     {error && <p role="alert" style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
+    </div></details>
+    <div className="environment-terminal-area">{environment && sessionId ? <EnvironmentTerminal key={terminalGeneration} workspacePath={workspacePath} environment={environment} sessionId={sessionId} active={active} onError={setError} /> : <p className="empty-note">Choose an environment and connect to a terminal. Remote work continues when this view is hidden.</p>}</div>
   </section>
 }
 
