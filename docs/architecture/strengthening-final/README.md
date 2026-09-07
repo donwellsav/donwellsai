@@ -13,3 +13,5 @@ Runtime source: `557b577`. The final 0.4.0 macOS arm64 DMG includes the Task 23 
 Full suite: 483 passed, 12 existing optional skips; typecheck passes. All final acceptance applications, agents, derived history service and owned terminal daemons shut down cleanly. Earlier Task 22 receipts separately cover the unchanged browser/control/offline tools and four-agent memory matrix; they are not relabeled as reruns of this final artifact.
 
 Tasks 01 and 03–28 have strengthening evidence and dispositions. Task 02 remains skipped by user instruction. Evaluation outcomes are not feature admissions: richer memory engines, VM/remote integration, framework migration and an in-app ACP control mode remain unadmitted for the reasons recorded in their task decisions. The native terminal integrations, shared memory and existing supported tools remain the production path.
+
+For the consolidated rejected, deferred and untested options, see [experiment decisions and unfinished qualification](../experiment-decisions.md).
