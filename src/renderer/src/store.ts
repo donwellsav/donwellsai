@@ -289,14 +289,14 @@ type AppState = {
   removeWorktree(worktreePath: string, force?: boolean): Promise<{ ok: true } | { ok: false; error: string }>
   setDeleteTarget(path: string | null): void
   openProjectTaskTool(worktreePath: string, tool: 'lazygit' | 'backlog'): Promise<void>
-  openTerminal(worktreePath: string): Promise<TerminalSession | null>
+  openTerminal(worktreePath: string, background?: boolean): Promise<TerminalSession | null>
   closeTerminal(worktreePath: string, sessionId: string): Promise<boolean>
   writeTerminal(sessionId: string, data: string): void
   interruptTerminal(sessionId: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
   closePane(worktreePath: string, key: string): Promise<boolean>
-  saveDocking(worktreePath: string, layout: WorkspaceLayout): void
+  saveDocking(worktreePath: string, layout: WorkspaceLayout): Promise<void>
   arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
   hidePaneView(worktreePath: string, key: string): void
   openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search' | 'computer'): void
@@ -326,7 +326,7 @@ type AppState = {
   openDiff(worktreePath: string, relPath: string, comparison?: DiffComparison): void
   /** Switch an open editor pane to another file (tab switch semantics). */
   retargetPreview(worktreePath: string, paneKey: string, relPath: string): Promise<void>
-  openBrowser(worktreePath: string, url: string): void
+  openBrowser(worktreePath: string, url: string): Promise<void>
   noteBrowserNavigation(worktreePath: string, url: string): void
   writePreview(worktreePath: string, relPath: string, content: string): Promise<FileContent>
   /** Acknowledgements never advance the external-write epoch. */
@@ -512,6 +512,8 @@ function activateTerminalSession(state: AppState, session: TerminalSession): Par
     error: null
   }
 }
+
+const pendingInitialTerminals = new Set<string>()
 
 export const useAppStore = create<AppState>((set, get) => ({
   repos: [],
@@ -775,11 +777,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     persistSessionSoon()
   },
 
-  async openTerminal(worktreePath: string) {
+  async openTerminal(worktreePath: string, background = false) {
     try {
       const session = await window.donwells.openTerminal(worktreePath)
-      set((state) => activateTerminalSession(state, session))
-      persistSessionSoon()
+      set((state) => {
+        const activated = activateTerminalSession(state, session)
+        if (!background) return activated
+        // A first-visit shell must not undo navigation made while its IPC was pending.
+        return { ...activated, activeWorktreePath: state.activeWorktreePath,
+          activePane: state.activePane[worktreePath] ? state.activePane : activated.activePane }
+      })
+      await flushWorkspaceSession()
       return session
     } catch (error) {
       set({ error: 'Terminal open failed: ' + String(error) })
@@ -919,7 +927,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveDocking(worktreePath, layout) {
     set(state => ({ docking: { ...state.docking, [worktreePath]: layout } }))
-    persistSessionSoon()
+    return persistSessionSoon()
   },
 
   arrangeWorkspace(worktreePath, preset) {
@@ -1053,7 +1061,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { layouts: { ...current.layouts, [worktreePath]: next } }
     })
     get().selectTerminal(worktreePath, session.id)
-    persistSessionSoon()
+    await flushWorkspaceSession()
     return session
   },
   selectTerminal(worktreePath: string, sessionId: string) {
@@ -1620,7 +1628,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { panes, layouts, activePane: { ...s.activePane, [worktreePath]: key } }
     })
-    persistSessionSoon()
+    return persistSessionSoon()
   },
 
   ackPreviewSave(worktreePath: string, relPath: string, saved: FileContent, sourceEpoch: number) {
@@ -1985,7 +1993,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       void get().refreshExplorer(path)
       // upstream activation-terminal-prep: every worktree gets a shell ready on first visit.
       const hasTerminal = (get().panes[path] ?? []).some((p) => p.kind === 'terminal')
-      if (!hasTerminal) void get().openTerminal(path)
+      if (!hasTerminal && !pendingInitialTerminals.has(path)) {
+        pendingInitialTerminals.add(path)
+        void get().openTerminal(path, true).finally(() => pendingInitialTerminals.delete(path))
+      }
     }
     persistSessionSoon()
   },
@@ -2083,11 +2094,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 }))
 
 type WorkspaceSession = NonNullable<PersistedState['workspaceSession']>
-let persistTimer: ReturnType<typeof setTimeout> | null = null
-let persistWrite: Promise<void> = Promise.resolve()
+let persistWriting = false
+let pendingSave: { promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void } | null = null
 
-async function saveWorkspaceSnapshot(): Promise<void> {
-  await ensureNavigationHistoryInitialized(async () => (await window.donwells.getWorkspaceSession())?.navigationHistory)
+function workspaceSnapshot(): WorkspaceSession {
   const s = useAppStore.getState()
   if (s.initializationError) throw new Error('Workspace state was not loaded; the saved session has not been overwritten.')
   const repos: WorkspaceSession['repos'] = {}
@@ -2111,22 +2121,43 @@ async function saveWorkspaceSnapshot(): Promise<void> {
     fileSearchMru: Object.fromEntries(Object.entries(s.fileSearchMru).filter(([path]) => worktreePaths.has(path))),
     ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth }
   }
-  persistWrite = persistWrite.catch(() => {}).then(() => window.donwells.saveWorkspaceSession(snapshot))
-  return persistWrite
+  return snapshot
 }
 
-export function persistSessionSoon(): void {
-  if (persistTimer) clearTimeout(persistTimer)
-  persistTimer = setTimeout(() => {
-    persistTimer = null
-    void saveWorkspaceSnapshot().catch((error) => useAppStore.getState().setError(`Workspace save failed: ${String(error)}`))
-  }, 400)
+async function drainWorkspaceSaves(): Promise<void> {
+  persistWriting = true
+  while (pendingSave) {
+    try {
+      // Initialization precedes capture, so older async navigation reads cannot
+      // enqueue an older snapshot after a newer save.
+      await ensureNavigationHistoryInitialized(async () => (await window.donwells.getWorkspaceSession())?.navigationHistory)
+    } catch (error) {
+      const failed = pendingSave; pendingSave = null; failed.reject(error)
+      continue
+    }
+    const batch = pendingSave; pendingSave = null
+    try { await window.donwells.saveWorkspaceSession(workspaceSnapshot()); batch.resolve() }
+    catch (error) { batch.reject(error) }
+  }
+  persistWriting = false
+}
+
+/** One write in flight and one latest pending snapshot; no timed durability gap. */
+export function persistSessionSoon(): Promise<void> {
+  if (!pendingSave) {
+    let resolve!: () => void, reject!: (error: unknown) => void
+    const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+    pendingSave = { promise, resolve, reject }
+    // Attach to the returned promise itself: fire-and-forget UI callers remain handled.
+    void promise.catch((error) => useAppStore.getState().setError(`Workspace save failed: ${String(error)}`))
+  }
+  const saved = pendingSave.promise
+  if (!persistWriting) void drainWorkspaceSaves()
+  return saved
 }
 
 export function flushWorkspaceSession(): Promise<void> {
-  if (persistTimer) clearTimeout(persistTimer)
-  persistTimer = null
-  return saveWorkspaceSnapshot()
+  return persistSessionSoon()
 }
 
 // Dev/E2E seam (upstream's own convention, REBUILD_SPEC §9): window.__store exposes

@@ -275,3 +275,56 @@ it('retains an Explorer operation draft across move and hide without sharing it 
   useAppStore.getState().setExplorerEntryDialog(gitRoot, null)
   expect(useAppStore.getState().explorer[gitRoot]?.entryDialog).toBeNull()
 })
+
+it('coalesces repeated first-visit shell requests and preserves browser focus when the shell arrives', async () => {
+  seed([folderProject()])
+  let release!: (session: unknown) => void
+  openTerminal.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+  const state = useAppStore.getState()
+  state.setActiveWorktree(folderRoot)
+  state.setActiveWorktree(folderRoot)
+  expect(openTerminal).toHaveBeenCalledTimes(1)
+  await state.openBrowser(folderRoot, 'http://localhost:3000')
+  release({ id: 'automatic-shell', worktreePath: folderRoot, title: 'zsh', createdAt: '', exited: false })
+  await vi.waitFor(() => expect(useAppStore.getState().terminals['automatic-shell']).toBeDefined())
+  expect(useAppStore.getState().panes[folderRoot].filter(pane => pane.kind === 'terminal')).toHaveLength(1)
+  expect(useAppStore.getState().activePane[folderRoot]).toBe('browser:tab')
+})
+
+it('does not acknowledge a new browser location until its durable save resolves and exposes save failure', async () => {
+  seed([folderProject()])
+  let release!: () => void
+  const save = vi.fn((_snapshot: unknown) => new Promise<void>(resolve => { release = resolve }))
+  window.donwells.saveWorkspaceSession = save
+  let acknowledged = false
+  const opened = useAppStore.getState().openBrowser(folderRoot, 'http://localhost:8765').then(() => { acknowledged = true })
+  await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  expect(acknowledged).toBe(false)
+  expect(save.mock.calls[0]?.[0]).toMatchObject({ repos: { 'folder-project': { panes: { [folderRoot]: [{ kind: 'browser', url: 'http://localhost:8765' }] } } } })
+  release(); await opened
+  expect(acknowledged).toBe(true)
+  window.donwells.saveWorkspaceSession = vi.fn(async () => { throw new Error('disk full') })
+  await expect(useAppStore.getState().openBrowser(folderRoot, 'http://localhost:9000')).rejects.toThrow('disk full')
+  expect(useAppStore.getState().error).toContain('Workspace save failed')
+  window.donwells.saveWorkspaceSession = vi.fn(async () => {})
+})
+
+it('coalesces edits behind an in-flight save into one latest snapshot without acknowledging them early', async () => {
+  seed([folderProject()])
+  const releases: (() => void)[] = []
+  const save = vi.fn((_snapshot: unknown) => new Promise<void>(resolve => { releases.push(resolve) }))
+  window.donwells.saveWorkspaceSession = save
+  const first = useAppStore.getState().openBrowser(folderRoot, 'http://localhost:8000')
+  await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  let pendingAcknowledged = false
+  const pending = Array.from({ length: 20 }, (_, index) => useAppStore.getState().openBrowser(folderRoot, `http://localhost:${8001 + index}`))
+  void Promise.all(pending).then(() => { pendingAcknowledged = true })
+  expect(save).toHaveBeenCalledTimes(1)
+  releases[0](); await first
+  await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+  expect(pendingAcknowledged).toBe(false)
+  expect(save.mock.calls[1][0]).toMatchObject({ repos: { 'folder-project': { panes: { [folderRoot]: [{ kind: 'browser', url: 'http://localhost:8020' }] } } } })
+  releases[1](); await Promise.all(pending)
+  expect(save).toHaveBeenCalledTimes(2)
+  window.donwells.saveWorkspaceSession = vi.fn(async () => {})
+})
