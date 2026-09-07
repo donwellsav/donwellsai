@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "sourceMode": false,
+  "executable": "/private/tmp/donwells-task22-installed-5172c81/donwells.app/Contents/MacOS/donwells",
+  "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+  "profile": "/private/tmp/donwells-module-palette-before-2/profile",
+  "project": "/private/tmp/donwells-module-palette-before-2/project",
+  "expectedPaneKey": "environments:/private/tmp/donwells-module-palette-before-2/project",
+  "renderedOptionsBeforeAssertion": [],
+  "error": "Error: page.evaluate: TypeError: Cannot read properties of undefined (reading 'repo')\n    at eval (eval at evaluate (:311:30), <anonymous>:3:74)\n    at UtilityScript.evaluate (<anonymous>:313:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)",
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

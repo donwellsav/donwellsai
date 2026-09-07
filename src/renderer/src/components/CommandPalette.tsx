@@ -18,7 +18,8 @@ import {
 import { focusRetainedAgentSession } from '../navigation-controller'
 import { pathBasename } from '../workspace-navigation'
 import { fuzzyMatch } from '../fuzzy'
-import { useAppStore, type Pane } from '../store'
+import { useAppStore } from '../store'
+import { workspacePaneLabel } from '../workspace-layout'
 import { ModalDialog } from './ModalDialog'
 
 export type PaletteItem = {
@@ -46,14 +47,6 @@ function Highlighted({ label, hits }: { label: string; hits: number[] }): ReactN
   if (hits.length === 0) return label
   const positions = new Set(hits)
   return [...label].map((character, index) => positions.has(index) ? <mark key={index}>{character}</mark> : character)
-}
-
-function paneLabel(pane: Pane): string {
-  if (pane.label) return pane.label
-  if (pane.kind === 'preview' || pane.kind === 'diff') return pathBasename(pane.file ?? 'File')
-  if (pane.kind === 'browser') return pane.url?.replace(/^https?:\/\//, '').split('/')[0] ?? 'Browser'
-  if (pane.kind === 'terminal') return 'Terminal'
-  return pane.kind === 'explorer' ? 'Explorer' : 'Source Control'
 }
 
 function itemOrder(left: PaletteItem, right: PaletteItem): number {
@@ -363,9 +356,9 @@ export function CommandPalette({ open }: { open: boolean }) {
     for (const workspace of workspaces) {
       for (const pane of panes[workspace.workspacePath] ?? []) {
         if (pane.sessionId && agentSessionIds.has(pane.sessionId)) continue
-        if (pane.kind === 'explorer' || pane.kind === 'git-status') continue
-        const title = paneLabel(pane)
-        const label = `${pane.kind === 'terminal' ? 'Terminal' : pane.kind === 'preview' ? 'Open file' : pane.kind === 'browser' ? 'Browser' : 'Diff'} · ${title}`
+        const title = workspacePaneLabel(pane)
+        const prefix = pane.kind === 'preview' ? 'Open file' : pane.kind === 'browser' ? 'Browser' : pane.kind === 'diff' ? 'Diff' : undefined
+        const label = prefix ? `${prefix} · ${title}` : title
         const match = fuzzyMatch(`${label} ${workspace.workspaceLabel} ${pane.file ?? ''} ${pane.url ?? ''}`, normalizedQuery)
         if (!match) continue
         add({
