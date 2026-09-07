@@ -8,7 +8,11 @@
   gap: 12px;
   color: var(--foreground);
   font-size: 13px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
+
+.project-memory-panel > * { flex-shrink: 0; }
 
 .memory-panel-heading {
   display: flex;
@@ -73,8 +77,7 @@
 .memory-entry-list {
   min-height: 0;
   margin: 0 -4px;
-  flex: 1 1 auto;
-  overflow: auto;
+  flex: 0 0 auto;
 }
 
 .memory-entry-row {
@@ -289,7 +292,10 @@
   .memory-panel-actions,
   .memory-panel-filters { flex-wrap: wrap; }
 }
-:is(.memory-storage, .handoff-panel) { flex: 0 0 auto; max-height: 45%; overflow: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+:is(.memory-storage, .handoff-panel) { flex: 0 0 auto; min-width: 0; overflow-wrap: anywhere; border-top: 1px solid var(--border); padding-top: 10px; }
+.memory-storage label { display: block; }
+.memory-storage .input { width: 100%; min-width: 0; box-sizing: border-box; }
+.memory-storage button { max-width: 100%; white-space: normal; }
 :is(.memory-storage, .handoff-panel) summary { cursor: pointer; padding: 4px 0; }
 :is(.memory-storage, .handoff-panel) p { font-size: 12px; line-height: 1.5; color: var(--muted-fg); }
 .memory-storage-actions { display: flex; flex-wrap: wrap; gap: 6px; }

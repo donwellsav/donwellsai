@@ -12,6 +12,7 @@ import { ProjectHandoffStore } from '../src/main/project-handoff'
 import { resolveProjectToolScope } from '../src/main/project-tools'
 import { migrateProjectMemory } from '../src/main/project-memory-migration'
 import { parseCliArguments } from '../src/cli/arguments'
+import { APP_WORKFLOW_FILES } from '../src/shared/project-creation'
 import { WorktreeFiles } from '../src/main/worktree-files'
 
 vi.mock('node:fs', async original => {
@@ -134,6 +135,7 @@ it('fails a selected artifact write before activation and reports unsupported to
 it('routes CLI kit arguments through the existing validated catalog', () => {
   expect(parseCliArguments(['project-kit-export', '--params', '{"workspacePath":"/project","outputPath":"/output.json","artifacts":"docs/plan.md\\nbacklog/tasks/task-1.md"}']).params).toEqual({ workspacePath: '/project', outputPath: '/output.json', artifacts: 'docs/plan.md\nbacklog/tasks/task-1.md' })
   expect(parseCliArguments(['project-kit-import', '/kit.json', '/new-project', 'a'.repeat(64), 'b'.repeat(64)]).command?.method).toBe('project.kit.import')
+  expect(parseCliArguments(['project-kit-export', '/project', '/output.json', '--include-learned']).params.includeLearned).toBe(true)
 })
 
 it('cleans a partially written export when flushing fails before publication', async () => {
@@ -225,7 +227,10 @@ it('round-trips learned facts, canonical source mappings and explicit workflow f
   const knowledge={hindsight:{transferSchemaRevision:'e'.repeat(40),exportedAt:new Date().toISOString(),model:'local-model',sources:[{kind:'memory',id:f.first.id,revision:2,projectKey:f.scope.projectKey,sourceTime:null,documentId}],documents:[{id:documentId,original_text:'Source text',retain_params:{credential:'secret-value'},tags:[],chunks:[{chunk_index:0,chunk_text:'Source text'}],facts:[{text:'Learned relationship',fact_type:'world',metadata:{credential:'secret-value'},chunk_index:0,entities:['Project'],causal_relations:[]}]}]},temporal:[{kind:'memory',id:f.first.id,revision:2}],settings:{documentRetrievalMode:'hybrid',hindsightModel:'local-model'}}
   await mkdir(join(f.source,'donwells-import')); await writeFile(join(f.source,'donwells-import/knowledge.json'),JSON.stringify(knowledge))
   await mkdir(join(f.source,'.github/workflows'),{recursive:true});await writeFile(join(f.source,'.github/workflows/check.yml'),'name: check\non: workflow_dispatch\n')
-  const exported=await f.kit.projectKitExport(f.source,f.output,['.github/workflows/check.yml'])
+  const workflowPath='.agents/skills/app-workflow/SKILL.md'
+  await mkdir(join(f.source,'.agents/skills/app-workflow'),{recursive:true});await writeFile(join(f.source,workflowPath),APP_WORKFLOW_FILES[workflowPath])
+  for(const rejected of ['.agents/skills/other/SKILL.md','.agents/skills/app-workflow/.env','.agents/skills/app-workflow/../secrets'])await expect(f.kit.projectKitExport(f.source,f.output,[rejected])).rejects.toThrow('relative, non-secret')
+  const exported=await f.kit.projectKitExport(f.source,f.output,['.github/workflows/check.yml',workflowPath])
   expect(exported).toMatchObject({schemaVersion:3,learnedFacts:1,temporalSources:1})
   expect(await readFile(f.output,'utf8')).not.toContain('secret-value')
   const destination=join(f.root,'learned-restored'), imported=await f.kit.projectKitImport(f.output,destination,exported.sha256,exported.sourceProjectKey)
@@ -236,6 +241,7 @@ it('round-trips learned facts, canonical source mappings and explicit workflow f
   expect(restored.hindsight.documents[0].facts[0].text).toBe('Learned relationship')
   expect(restored.hindsight.documents[0].facts[0].metadata).toEqual({})
   expect(await readFile(join(destination,'.github/workflows/check.yml'),'utf8')).toContain('workflow_dispatch')
+  expect(await readFile(join(destination,workflowPath),'utf8')).toBe(APP_WORKFLOW_FILES[workflowPath])
   const again=join(f.root,'again.json');await f.kit.projectKitExport(destination,again,[])
   const roundTrip=JSON.parse(await readFile(again,'utf8'))
   expect(roundTrip.payload.knowledge.hindsight.documents).toEqual(restored.hindsight.documents)

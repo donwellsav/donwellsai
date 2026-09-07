@@ -8,5 +8,5 @@
     "LICENSE.md": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9"
   },
   "patchSha256": "7c81dcf8ff0042115cc47b79177eae5bd18b968530441af9435580a83a19357a",
-  "qualification": "Patch application only. Build, signing, guest clipboard and no-listener proof pending."
+  "qualification": "Patched source built and ad-hoc signed for virtualization; binary SHA256 a8b739a9d5a9bd7d0d7865de0f983a6b47e9bd2785e851ff0f05558ae667cc5a. CLI help verified. Guest clipboard and no-listener runtime proof pending Mac unlock."
 }

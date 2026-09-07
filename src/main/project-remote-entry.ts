@@ -36,7 +36,9 @@ export async function runProjectRemoteStdio(mappingPath: string): Promise<void> 
   } finally { client.disconnect() }
 }
 
-if (require.main === module) {
+if (require.main === module && process.argv[2] === '--help') {
+  process.stdout.write('Usage: project-remote-entry --mapping /administrator/owned/project.json\nRestricted SSH stdio endpoint. Requires donwells-project-v1 forced command; no global app RPC.\n')
+} else if (require.main === module) {
   if (process.argv[2] !== '--mapping' || process.argv.length !== 4) throw new Error('Usage: project-remote-entry --mapping /administrator/owned/project.json')
   void runProjectRemoteStdio(process.argv[3]).catch(error => { console.error(String(error)); process.exitCode = 1 })
 }

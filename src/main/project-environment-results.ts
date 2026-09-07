@@ -7,7 +7,7 @@ import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { projectEnvironmentId, type EnvironmentResultReview } from '@shared/project-environment'
 import type { GitWorktrees } from './git'
 import type { ProjectEnvironments } from './project-environments'
-import { artifactPath } from './project-export'
+import { artifactPath } from '@shared/project-export'
 import { ensureEnvironmentArtifactParents } from './environment-artifact-files'
 
 const revision = (text: string) => 'sha256:' + createHash('sha256').update(text).digest('hex')

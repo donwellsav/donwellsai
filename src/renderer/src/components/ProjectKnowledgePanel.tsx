@@ -48,6 +48,7 @@ export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string
     <summary>Learned knowledge · Hindsight</summary>
     <p className="memory-guidance">Select reviewed project sources, then retain them explicitly. Recall and reflection use the selected local service. Learned answers remain separate from authored memory.</p>
     {report && <>
+      <details><summary>Service configuration</summary>
       <label><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Enable local Hindsight</label>
       <label>Service origin<input className="input" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
       <label>Server model (configured externally)<input className="input" value={model} onChange={event => setModel(event.target.value)} placeholder="Exact model configured on your service" /></label><p className="memory-guidance">This records your server configuration; Hindsight’s API does not expose or verify its model identity.</p>
@@ -57,8 +58,14 @@ export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string
         await inspect()
       })}>Save configuration and stop services</button>
       <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(inspect)}>Refresh saved configuration</button>
+      </details>
       <p role="status">{busy ? 'Knowledge operation running…' : status ? `${status.phase} · ${status.stale ? 'sources need reconciliation' : 'sources current'} · ${status.pendingCleanup} generations awaiting cleanup` : 'No retained generation'}</p>
       <label>Find sources / ask a question<input className="input" value={query} maxLength={2000} onChange={event => setQuery(event.target.value)} /></label>
+      <button className="btn btn-secondary btn-sm" disabled={busy || !query.trim()} onClick={() => void run(async () => setAnswer(await window.donwells.projectKnowledgeRecall(workspacePath, query.trim())))}>Recall</button>
+      <button className="btn btn-secondary btn-sm" disabled={busy || !query.trim()} onClick={() => void run(async () => setAnswer(await window.donwells.projectKnowledgeReflect(workspacePath, query.trim())))}>Reflect · uses model</button>
+      <button className="btn btn-secondary btn-sm" onClick={() => void window.donwells.projectKnowledgeStop(workspacePath).then(async () => { setStatus(await window.donwells.projectKnowledgeStatus(workspacePath)); setAnswer(null) }).catch(cause => setError(String(cause)))}>Stop knowledge work</button>
+      <p className="memory-guidance">Stop cancels this workspace's requests; your external service stays running. Reconcile resumes work and retries acknowledged cleanup.</p>
+      <details><summary>Reviewed source selection · {sources.length}</summary>
       <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(review)}>Review matching memories and handoffs</button>
       {candidates.map(source => {
         const selected = sources.find(item => item.kind === source.kind && item.id === source.id)
@@ -71,14 +78,12 @@ export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string
       <p>{sources.length} selected sources. Search lists at most 50 matching memories and 50 open handoffs.</p>
       {sources.map(source => <div key={source.kind + source.id}>{source.kind} · {source.id} · r{source.revision} <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setSources(current => current.filter(item => item !== source))}>Remove</button></div>)}
       <button className="btn btn-secondary btn-sm" disabled={busy || !report.configuration.hindsight?.enabled} onClick={() => void run(async () => setStatus(await window.donwells.projectKnowledgeReconcile(workspacePath, sources)))}>Reconcile selected sources · uses model</button>
-      <button className="btn btn-secondary btn-sm" disabled={busy || !query.trim()} onClick={() => void run(async () => setAnswer(await window.donwells.projectKnowledgeRecall(workspacePath, query.trim())))}>Recall</button>
-      <button className="btn btn-secondary btn-sm" disabled={busy || !query.trim()} onClick={() => void run(async () => setAnswer(await window.donwells.projectKnowledgeReflect(workspacePath, query.trim())))}>Reflect · uses model</button>
-      <button className="btn btn-secondary btn-sm" onClick={() => void window.donwells.projectKnowledgeStop(workspacePath).then(async () => { setStatus(await window.donwells.projectKnowledgeStatus(workspacePath)); setAnswer(null) }).catch(cause => setError(String(cause)))}>Stop knowledge work</button>
-      <p className="memory-guidance">Stop cancels this workspace's requests; your external service stays running. Reconcile resumes work and retries acknowledged cleanup.</p>
+      </details>
     </>}
     {error && <p className="memory-error" role="alert">{error}</p>}
     {answer && <section aria-label="Learned answers">
       <p>Learned · {answer.model} · {answer.omitted} results omitted for missing provenance or result limits</p>
+      {!answer.items.length && <p>No learned results for these sources.</p>}
       {answer.items.map((item, index) => <article key={index}>
         <p style={{ whiteSpace: 'pre-wrap' }}>{item.text}</p>
         {item.sources.map((source, i) => <button key={i} className="btn btn-secondary btn-sm" onClick={() => void (async () => {

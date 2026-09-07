@@ -30,3 +30,8 @@ export type ProjectKitApi = {
   projectKitImport(archivePath: string, destinationPath: string, expectedSha256: string, sourceProjectKey: string): Promise<{ repo: Repo; report: ProjectKitReport }>
   projectKitReport(workspacePath: string): Promise<ProjectKitReport | null>
 }
+
+export function artifactPath(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 1024 || !value || /[\\\x00-\x1f\x7f:]/.test(value) || value.split('/').some(part => !part || part === '..' || part.startsWith('.')) || /(?:^|\/)(?:node_modules|credentials?|secrets?|cookies?|auth|env|environment)(?:[./]|$)/i.test(value) || /\.(?:pem|key|p12|pfx|sqlite|db)$/i.test(value)) throw new Error('Select a relative, non-secret text artifact path')
+  return value
+}

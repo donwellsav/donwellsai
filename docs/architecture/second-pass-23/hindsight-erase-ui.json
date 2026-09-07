@@ -1,0 +1,38 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/project",
+  "archive": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/ui-kit-1788795805887.json",
+  "destination": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/ui-restored-1788795805887",
+  "checks": [
+    "Actual learned UI recalls preserved source-revision2 facts after app restart",
+    "Canonical erase withdraws displayed learned answer; actual UI empty reconciliation acknowledges bank deletion and recall has no results"
+  ],
+  "answer": "Learned · Ornith-1.5-35B-A3B-MLX-8bit · 0 results omitted for missing provenance or result limits\n\nAurora now permits two retries before displaying a connection error | Involving: Donwells reviewed project knowledge\n\nmemory 7398b0fd-d6f2-4793-ba7d-483c459eeffc · r2Review as new memory draft",
+  "layout": {
+    "width": 341,
+    "scrollWidth": 341,
+    "scrollTop": 434.5
+  },
+  "erased": {
+    "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+    "revision": 2,
+    "erasedAt": "2026-09-07T15:43:26.895Z"
+  },
+  "cleaned": {
+    "enabled": true,
+    "phase": "querying",
+    "generation": "donwells-9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9-a666fd67-ab38-41b7-a6b0-f7264d8c1531",
+    "sources": [],
+    "stale": false,
+    "pendingCleanup": 0,
+    "error": null,
+    "model": "Ornith-1.5-35B-A3B-MLX-8bit"
+  },
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

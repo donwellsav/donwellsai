@@ -1,0 +1,96 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/project",
+  "archive": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/ui-kit-1788795300455.json",
+  "destination": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/ui-restored-1788795300455",
+  "checks": [
+    "Actual settings UI explicitly exports native learned facts and reviewed workflow files, previews then restores into a new project with remapped identities",
+    "Actual learned UI recalls preserved source-revision2 facts after app restart"
+  ],
+  "restored": {
+    "schemaVersion": 3,
+    "learnedFacts": 1,
+    "temporalSources": 0,
+    "portableSettings": {
+      "hindsightModel": "Ornith-1.5-35B-A3B-MLX-8bit"
+    },
+    "erasedMemories": 0,
+    "archiveId": "a3126f95-b61d-4394-bf12-35ee7f8b27ab",
+    "sourceProjectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+    "sourceName": "project",
+    "sha256": "36d72c4b50d9eec0486775dd0e448ebfcaf073406d43434824857e01e15cbc01",
+    "memories": 1,
+    "revisions": 1,
+    "handoffs": 0,
+    "artifacts": [
+      "SPEC.md",
+      "TASKS.md",
+      ".agents/skills/app-workflow/SKILL.md"
+    ],
+    "tools": [
+      {
+        "id": "history",
+        "version": "AgentsView 0.42.0",
+        "configured": true,
+        "enabled": true
+      },
+      {
+        "id": "backlog",
+        "version": "Backlog.md 1.51.0",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "code-graph",
+        "version": "0.10.8",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "documents",
+        "version": "QMD 2.8.3 / LanceDB 0.38.0",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "browser-testing",
+        "version": "MCP 0.0.80 / core 1.63.0-alpha-2026-08-31",
+        "configured": false,
+        "enabled": true
+      },
+      {
+        "id": "computer-control",
+        "version": "Cua Driver 0.23.2",
+        "configured": false,
+        "enabled": true
+      }
+    ],
+    "warnings": [
+      "Learned snapshots restore as historical readable documents. After configuring Hindsight, use Reconnect learned facts to import them with fresh embeddings. Select native task/workflow files as text artifacts. SSH/VM pairing is omitted and must be recreated on the destination.",
+      "Machine-absolute source references are omitted; safe source IDs and relative references survive. Arbitrary learned metadata and retention options are omitted; canonical source mappings are preserved separately.",
+      "Imported evidence and handoffs are historical; verify against this checkout before reuse.",
+      "Code, document and native session indexes must be rebuilt. No derived caches are included.",
+      "Tool executables, models, reference roots, agent sessions and credentials require local setup. All project tools start disabled."
+    ],
+    "identityMapping": [
+      {
+        "kind": "memory",
+        "id": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+        "originalProjectKey": "9a49860603fd00c84977a95fb374eb24331bef8a954a34bbba444bef7617c4f9",
+        "originalId": "7398b0fd-d6f2-4793-ba7d-483c459eeffc",
+        "targetId": "4d0b5b39360575b9b7aef4875c38ac0dbceb736960bf5a05b1adbea53247b54c"
+      }
+    ],
+    "projectPath": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-knowledge-live-LqYgBB/ui-restored-1788795300455",
+    "projectKey": "871877b91807fa102455163aa438d2ee1aa4370034b4c2b22d21341dfcd7ff26",
+    "restoredAt": "2026-09-07T15:35:02.536Z"
+  },
+  "answer": "Learned · Ornith-1.5-35B-A3B-MLX-8bit · 0 results omitted for missing provenance or result limits\n\nAurora now permits two retries before displaying a connection error | Involving: Donwells reviewed project knowledge\n\nmemory 7398b0fd-d6f2-4793-ba7d-483c459eeffc · r2Review as new memory draft",
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}

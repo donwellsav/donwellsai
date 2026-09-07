@@ -1,6 +1,6 @@
 import { lstat, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
-import { artifactPath } from './project-export'
+import { artifactPath } from '@shared/project-export'
 import type { WorktreeFiles } from './worktree-files'
 
 /** Both directions use the existing exclusive file creation boundary; no archive extraction or script execution. */

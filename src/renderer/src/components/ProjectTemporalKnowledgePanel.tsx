@@ -56,6 +56,7 @@ export function ProjectTemporalKnowledgePanel({ workspacePath }: { workspacePath
     {reviewedRevision && <section aria-label="Cited canonical revision"><strong>{reviewedRevision.title} · r{reviewedRevision.revision}</strong><p style={{ whiteSpace: 'pre-wrap' }}>{reviewedRevision.content}</p><p>{reviewedRevision.updatedAt}</p><button className="btn btn-secondary btn-sm" onClick={() => setReviewedRevision(null)}>Close source</button></section>}
     {error && <p role="alert" className="memory-error">{error}</p>}
     {answer && <section aria-label="Learned temporal relationships"><p>Learned · {answer.mode} · {answer.asOf} · {answer.omitted} unsupported or limited results omitted</p>
+      {!answer.relationships.length && <p>No relationships found for this time and source selection.</p>}
       {answer.relationships.map(row => <article key={row.id}><p>{row.text}</p><p>Inferred validity: {row.validAt ?? 'unknown'} → {row.invalidAt ?? 'open'}</p>
         {row.sources.map((source, i) => <button className="btn btn-secondary btn-sm" key={i} onClick={() => void window.donwells.projectMemoryHistory({ workspacePath, id: source.id, limit: 33 }).then(history => { const revision = history.revisions.find(item => item.revision === source.revision); if (!revision) throw new Error('Cited revision is no longer retained.'); setReviewedRevision(revision) }).catch(cause => setError(String(cause)))}>{source.id} · source r{source.revision} · {source.sourceTime}</button>)}
       </article>)}

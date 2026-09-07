@@ -1,3 +1,5 @@
+import { artifactPath } from '@shared/project-export'
+export { artifactPath } from '@shared/project-export'
 import transferDecoder from './project-kit-transfer.py?raw'
 import { parseKnowledgeSelections } from '@shared/project-knowledge'
 import type { ProjectKitKnowledge } from '@shared/project-export'
@@ -10,7 +12,7 @@ import { parseProjectMemoryDocument, parseProjectMemoryIdentifier, type ProjectM
 import { parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
 import { INTEGRATED_PROJECT_TOOLS } from '@shared/project-doctor'
 import { redactDesignCaptureSecrets } from '@shared/design-capture'
-import { validateProjectName } from '@shared/project-creation'
+import { APP_WORKFLOW_FILES, validateProjectName } from '@shared/project-creation'
 import type { ProjectKitApi, ProjectKitPreview, ProjectKitReference, ProjectKitReport } from '@shared/project-export'
 import type { PersistedState, Repo } from '@shared/types'
 import { restoreWorkspaceLayout } from '../renderer/src/workspace-layout'
@@ -43,11 +45,8 @@ const version2Sections = [...baseSections, 'references'] as const
 const sections = [...version2Sections, 'knowledge'] as const
 const warnings = ['Learned snapshots restore as historical readable documents. After configuring Hindsight, use Reconnect learned facts to import them with fresh embeddings. Select native task/workflow files as text artifacts. SSH/VM pairing is omitted and must be recreated on the destination.', 'Machine-absolute source references are omitted; safe source IDs and relative references survive. Arbitrary learned metadata and retention options are omitted; canonical source mappings are preserved separately.', 'Imported evidence and handoffs are historical; verify against this checkout before reuse.', 'Code, document and native session indexes must be rebuilt. No derived caches are included.', 'Tool executables, models, reference roots, agent sessions and credentials require local setup. All project tools start disabled.']
 
-export function artifactPath(value: unknown): string {
-  if (typeof value !== 'string' || value.length > 1024 || !value || /[\\\x00-\x1f\x7f:]/.test(value) || value.split('/').some(part => !part || part === '..' || part.startsWith('.')) || /(?:^|\/)(?:node_modules|credentials?|secrets?|cookies?|auth|env|environment)(?:[./]|$)/i.test(value) || /\.(?:pem|key|p12|pfx|sqlite|db)$/i.test(value)) throw new Error('Select a relative, non-secret text artifact path')
-  return value
-}
 function kitArtifactPath(value: unknown): string {
+  if(typeof value==='string'&&Object.hasOwn(APP_WORKFLOW_FILES,value))return value
   if(typeof value==='string'&&/^\.github\/workflows\/[^/]+\.ya?ml$/.test(value)){artifactPath(value.slice(1));return value}
   if(typeof value==='string'&&/^\.backlog\/(?:config\.yml|tasks\/[^/]+\.md)$/.test(value)){artifactPath(value.slice(1));return value}
   return artifactPath(value)

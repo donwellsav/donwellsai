@@ -488,7 +488,7 @@ export class RuntimeRpcServer {
         return this.deps.handoffs.receive(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
       case 'handoff.acknowledge':
         return this.deps.handoffs.acknowledge(binding => this.deps.terminals.authenticateAgent(binding), params['credential'] as AgentSessionCredential, str('workspacePath'), str('id'), Number(params['expectedRevision']))
-      case 'project.kit.export': return this.deps.projectKit!.projectKitExport(str('workspacePath'), str('outputPath'), (params['artifacts'] as string | undefined)?.split('\n').filter(Boolean) ?? [])
+      case 'project.kit.export': return this.deps.projectKit!.projectKitExport(str('workspacePath'), str('outputPath'), (params['artifacts'] as string | undefined)?.split('\n').filter(Boolean) ?? [], { includeLearned: params.includeLearned === true })
       case 'project.kit.preview': return this.deps.projectKit!.projectKitPreview(str('archivePath'))
       case 'project.kit.import': return this.deps.projectKit!.projectKitImport(str('archivePath'), str('destinationPath'), str('expectedSha256'), str('sourceProjectKey'))
       case 'project.kit.report': return this.deps.projectKit!.projectKitReport(str('workspacePath'))
