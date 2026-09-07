@@ -1,3 +1,5 @@
+> **Historical plan — superseded for execution.** Use [the rebuilt 01–26 plan](2026-09-07-rebuilt-01-26-plan.md). Approval gates and Tasks27–29 below are historical; the replacement preserves their capabilities under01–26. Current mode is planning at the user’s request.
+
 # donwells.ai Product Improvement Implementation Plan
 
 > **For agentic workers:** APPROVED FOR CONTINUOUS EXECUTION by the user: “execute plan work without stopping.” Read the execution contract below. Execute the scoped tasks in the approved dependency order; no subagents without explicit permission. Steps use checkbox syntax for tracking.
