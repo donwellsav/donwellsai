@@ -1,10 +1,36 @@
-Resume implementation of donwells.ai from its cross-harness handoff.
+Resume implementation of donwells.ai using the complete cross-application handoff.
 
-Working directory: /Users/muzikfirst/Documents/donwellsai/terminal-foundation
-Read HANDOFF.md first, then applicable AGENTS.md and the master plan it names. You do not have the previous conversation; those files contain the authority, full checklist, current source/evidence, historical cleanup receipts, current uncertainties and the interactive resume procedure.
+Existing checkout:
+/Users/muzikfirst/Documents/donwellsai/terminal-foundation
 
-This prompt lifts the handoff pause and authorizes resuming the existing plan. Start with unfinished Task16: inspect the documented runner synchronization/fixture-cleanup gaps, correct the smallest owning issue if needed, then complete the screenshot-control UI workflow. The request fix is committed; native delivery remains unproven. Then finish the remaining ready work in24,26,21 and22, preserving every acceptance clause. Skip only02. Do not restart completed work, create another plan, roll back changes, or mark tasks complete from tests alone.
+Private transfer package:
+/Users/muzikfirst/Documents/donwellsai/handoff-2026-09-07
 
-Use existing code and strong reusable components; research only pending choices. Commit locally as you work. After each completed task show the entire01–26 checklist, current position, commit and actual product evidence, then continue without a routine approval stop. Be economical with model calls, builds and retries. If stuck, record the exact blocker and move to independent ready work instead of looping.
+This message authorizes resuming implementation. You are a new model/agent/harness; do not assume the old conversation, tools or subagents are available.
 
-Do not push, publish, open PRs, replace my installed app or use paid/exhausted providers. Preserve user apps/data and task resources. Do not assume temporary scripts or other harness tools are available: inspect before using them. Ask only for genuinely missing information that prevents safe progress. Begin by checking the actual Git root/status and reading the handoff; report actual HEAD/local changes/current remaining clause briefly, then execute, not merely acknowledge this prompt. Reading the handoff for an audit alone does not authorize implementation; this resume prompt does.
+Read docs/handoff/README.md, CURRENT-STATE.md, AUDIT-AND-CORRECTIONS.md and OPERATIONS-AND-RECOVERY.md. Read the master plan at docs/superpowers/plans/2026-09-07-rebuilt-01-26-plan.md and the relevant sections of its three companion specifications. SESSION-ARCHIVE.md and AGENTS-AND-PROVENANCE.md explain how to trace actual conversation, tool calls/results and worker actions in the external package. Search the records selectively; do not load the whole archive into context or execute old commands blindly.
+
+Verify the actual Git root, branch, HEAD and local changes. Preserve newer work. The expected branch is workspace/terminal-foundation; do not reset to an old handoff hash. The source recovery bundle is for a new destination if the checkout is unavailable, not a reason to replace this checkout.
+
+Build the product specified by the plan: a terminal-first workspace for building applications with interchangeable native CLI/TUI agents, concurrent/switchable agents on one project, canonical shared project knowledge, retained development modules, recoverable local/remote work and a coherent ergonomic #16161D GUI. Complete the actual capabilities, not a validation campaign.
+
+The recorded open tasks are16,21,22,24,26. Only02 is skipped. Other checkmarks are historical delivery records, not unconditional proof. Reuse qualifying existing work; reopen a specific clause when current source or an integration defect warrants it. Reorder ready tasks when useful without dropping requirements. Do not restart everything or write another plan.
+
+Start by reading the complete16 requirements and tracing current code/evidence. Briefly state the unfinished user-visible capability and next implementation step, then execute. Important corrections:
+- Local native-agent computer-control MCP operations already exist; reuse them.
+- The current remote protocol/panel lacks the required scoped guest-control route. This is implementation work, not just missing proof.
+- The screenshot runner is partial and has synchronization/cleanup gaps. A successful fixture click alone cannot finish16.
+- The retained-VM rename was an untried suggestion that conflicts with existing admission/deployment wording. Reconcile lifecycle, ownership and recovery before selecting a route.
+- Task24 includes actual Lume and SSH work, disconnect/reconnect and reviewed result return. Current remote result reading is limited to complete non-executable text; inspect any mismatch with required artifacts.
+- Task26 requires the integrated native host workflow, not merely pointer selection. A prior coordinate diagnosis was inconclusive.
+- Task21 is full GUI integration and ergonomic improvement. Task22 requires the final current-source installed application and representative workflow/update/recovery, not the old candidate.
+
+Before each task, inspect existing research and source, then refresh the unresolved component decision using current primary GitHub sources. Select stronger suitable components, including justified replacements, with data/recovery/license preservation. Avoid broad repeated surveys, speculative abstractions, duplicate owners and rewrites of sound code.
+
+Implement through actual app/agent/runtime entry points. Run focused regression checks and the required real user-flow evidence. Tests and prototypes do not replace product delivery. Commit coherent changes locally. After each completed task, update the existing master/delivery record and show the entire01–26 checklist, current position, commit, product outcome, proof and limitations. Then continue without a routine approval stop.
+
+Conserve usage without cutting requirements. A retry needs a changed hypothesis or correction; never repeat an unchanged failed attempt or replay an uncertain write. Record the exact failure and next route in existing records. If a prerequisite is unavailable, continue independent ready work rather than looping. Do not stop because a commit was made, a test failed or routine design feedback would be useful.
+
+Verify specific machine-local tools, source/native build freshness, permissions and process ownership before use. Preserve active user apps/VMs. Use configured local providers when available; the previous successful model was omlx/Ornith-1.5-35B-A3B-MLX-8bit. Do not assume current availability or use paid/exhausted providers. Do not push, open PRs, publish, destroy user data or replace the installed app without explicit authorization.
+
+Continue until every unskipped requirement is delivered, I pause/cancel, or every remaining useful action depends on documented external blockers. Do not claim work continues after a final response. Keep concise durable notes in the existing handoff/plan records for future recovery; do not create duplicate handoff packages unless requested.

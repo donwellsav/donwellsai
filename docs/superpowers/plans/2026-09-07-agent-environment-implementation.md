@@ -2,7 +2,9 @@
 
 Planning specification, 2026-09-07. Implements the rebuilt plan's 07/08/10/16/24 capabilities. This document proposes changes; it does not claim they are implemented or qualified. Preserve existing native TUI sessions and user configuration. Ordering below follows interface dependencies and may change without dropping outcomes.
 
-## Current implementation and decisions
+## Original planning baseline and decisions
+
+The baseline and proposed interfaces below describe the state when this document was written, not the handoff state. Later implementation records and current source supersede old claims that ACP or remote terminals are unimplemented. Requirements remain binding; see `../../handoff/CURRENT-STATE.md` for the handoff location.
 
 | Boundary inspected | Existing behavior | Implementation decision |
 | --- | --- | --- |
