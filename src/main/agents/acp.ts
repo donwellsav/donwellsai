@@ -32,6 +32,7 @@ export class AcpAgent {
   private readonly permissions = new Map<string, { request: RequestPermissionRequest; resolve: (response: RequestPermissionResponse) => void }>()
   private readonly updates: Array<{ sequence: number; notification: SessionNotification; bytes: number }> = []
   private sequence = 0
+  private promptStartSequence = 0
   private updateBytes = 0
   private pending?: Promise<PromptResponse>
   private stopping?: Promise<void>
@@ -126,11 +127,26 @@ export class AcpAgent {
     this.updates.push({ sequence: ++this.sequence, notification, bytes })
     this.updateBytes += bytes
     while (this.updateBytes > 2 * 1024 * 1024 || this.updates.length > 2048) this.updateBytes -= this.updates.shift()!.bytes
+    for (const permission of this.permissions.values()) this.reviewPermission(permission.request)
+    this.snapshot.permissions = [...this.permissions].map(([id, { request }]) => ({ id, request }))
     this.options.onChange(this.get())
+  }
+
+  private reviewPermission(request: RequestPermissionRequest): void {
+    // OpenCode permission metadata can be empty while its matching tool update carries the actual input.
+    // Reuse the bounded protocol replay, scoped to this prompt and tool identity; options and permission IDs stay untouched.
+    for (const { sequence, notification } of this.updates) {
+      if (sequence <= this.promptStartSequence || notification.sessionId !== request.sessionId) continue
+      const update = notification.update
+      if ((update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') || update.toolCallId !== request.toolCall.toolCallId) continue
+      const { sessionUpdate: _type, ...fields } = update
+      request.toolCall = { ...request.toolCall, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) }
+    }
   }
 
   private permission(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
     if (request.sessionId !== this.snapshot.protocolSessionId || !this.pending || this.stopping || !['working', 'permission'].includes(this.snapshot.state) || this.permissions.size >= 8 || Buffer.byteLength(JSON.stringify(request)) > 64 * 1024) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
+    this.reviewPermission(request)
     return new Promise(resolve => {
       this.permissions.set(randomUUID(), { request, resolve })
       this.setState('permission')
@@ -155,6 +171,7 @@ export class AcpAgent {
   prompt(text: string): Promise<PromptResponse> {
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > 64 * 1024) return Promise.reject(new Error('ACP prompt must contain 1–65536 bytes'))
     if (this.snapshot.state !== 'ready' || this.pending || this.stopping) return Promise.reject(new Error('ACP session is not ready for another prompt'))
+    this.promptStartSequence = this.sequence
     this.setState('working')
     const pending = this.connection.prompt({ sessionId: this.snapshot.protocolSessionId!, prompt: [{ type: 'text', text }] })
     this.pending = pending

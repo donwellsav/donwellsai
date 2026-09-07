@@ -1,0 +1,77 @@
+{
+  "adapter": "OpenCode 1.18.18",
+  "model": "Ornith-1.5-35B-A3B-MLX-8bit",
+  "observedPermission": [],
+  "sameCallUpdates": [
+    {
+      "sequence": 9,
+      "notification": {
+        "sessionId": "ses_f833c2098ffeY1iD1tEEKXA33K",
+        "update": {
+          "toolCallId": "call_058baf77",
+          "title": "donwells-project-memory_project_verification_run",
+          "kind": "other",
+          "status": "pending",
+          "locations": [],
+          "rawInput": {},
+          "sessionUpdate": "tool_call"
+        }
+      }
+    },
+    {
+      "sequence": 10,
+      "notification": {
+        "sessionId": "ses_f833c2098ffeY1iD1tEEKXA33K",
+        "update": {
+          "toolCallId": "call_058baf77",
+          "kind": "other",
+          "status": "in_progress",
+          "title": "donwells-project-memory_project_verification_run",
+          "locations": [],
+          "rawInput": {
+            "command": "",
+            "outputs": [
+              "dist/acp.txt"
+            ],
+            "script": "verify"
+          },
+          "sessionUpdate": "tool_call_update"
+        }
+      }
+    },
+    {
+      "sequence": 11,
+      "notification": {
+        "sessionId": "ses_f833c2098ffeY1iD1tEEKXA33K",
+        "update": {
+          "toolCallId": "call_058baf77",
+          "kind": "other",
+          "status": "failed",
+          "title": "donwells-project-memory_project_verification_run",
+          "content": [
+            {
+              "content": {
+                "text": "{\"ok\":false,\"error\":\"verification arguments contains unknown field: command\"}",
+                "type": "text"
+              },
+              "type": "content"
+            }
+          ],
+          "locations": [],
+          "rawInput": {
+            "command": "",
+            "outputs": [
+              "dist/acp.txt"
+            ],
+            "script": "verify"
+          },
+          "rawOutput": {
+            "error": "{\"ok\":false,\"error\":\"verification arguments contains unknown field: command\"}"
+          },
+          "sessionUpdate": "tool_call_update"
+        }
+      }
+    }
+  ],
+  "scope": "Actual permission review now includes arguments from the same protocol session and tool call. The model also supplied an unsupported empty command field; that independent tool validation outcome is not qualified here."
+}

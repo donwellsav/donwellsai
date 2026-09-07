@@ -27,13 +27,18 @@ if(m.method==='session/new'||m.method==='session/load'){writeFileSync('setup.jso
 if(m.method==='session/prompt'){pending=m.id;appendFileSync('prompts.txt','turn\\n');const text=m.params.prompt[0].text;
 if(text==='wait')return;
 if(text==='overflow'){process.stdout.write('x'.repeat(1024*1024+1));return}
+if(text==='permission-details'){
+const update=(sessionId,toolCallId,rawInput)=>send({method:'session/update',params:{sessionId,update:{sessionUpdate:'tool_call_update',toolCallId,rawInput,title:'Run reviewed verifier'}}});
+update('protocol-session','write',{script:'first'});permission='permission-'+(++turn);
+send({id:permission,method:'session/request_permission',params:{sessionId:'protocol-session',toolCall:{toolCallId:'write',title:'Run reviewed verifier',rawInput:{}},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'deny',name:'Deny',kind:'reject_once'}]}});
+setTimeout(()=>{update('protocol-session','write',{script:'verify',outputs:['dist/acp.txt']});update('wrong-session','write',{script:'foreign'});update('protocol-session','other-call',{script:'other'});},30);return}
 if(text==='permission'){permission='permission-'+(++turn);send({id:permission,method:'session/request_permission',params:{sessionId:'protocol-session',toolCall:{toolCallId:'write',title:'Write chosen output'},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'deny',name:'Deny',kind:'reject_once'}]}});return}
 send({method:'session/update',params:{sessionId:'protocol-session',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ready'}}}});send({id:pending,result:{stopReason:'end_turn'}});pending=null}
 if(m.method==='session/cancel'&&pending){send({id:pending,result:{stopReason:'cancelled'}});pending=null}
 if(m.id===permission&&m.result){if(m.result.outcome.optionId==='allow')appendFileSync('writes.txt','write\\n');if(pending)send({id:pending,result:{stopReason:'end_turn'}});pending=null}
 });process.stdin.on('end',()=>process.exit(0));`)
-  const start = async (args: string[] = [], loadSessionId?: string) => {
-    const owner = await AcpAgent.start({ workspacePath: root, launch: { executable: process.execPath, args: [path, ...args] }, env: { ...process.env, DONWELLS_DAEMON_TOKEN: 'must-not-leak', DONWELLS_AGENT_HOOK_TOKEN: 'other-owner', ELECTRON_RUN_AS_NODE: '1' }, mcpServers: [{ name: 'project-memory', command: 'fixture-mcp', args: ['--workspace', root], env: [] }], loadSessionId, onChange: () => {} })
+  const start = async (args: string[] = [], loadSessionId?: string, onChange: (snapshot: ReturnType<AcpAgent['get']>) => void = () => {}) => {
+    const owner = await AcpAgent.start({ workspacePath: root, launch: { executable: process.execPath, args: [path, ...args] }, env: { ...process.env, DONWELLS_DAEMON_TOKEN: 'must-not-leak', DONWELLS_AGENT_HOOK_TOKEN: 'other-owner', ELECTRON_RUN_AS_NODE: '1' }, mcpServers: [{ name: 'project-memory', command: 'fixture-mcp', args: ['--workspace', root], env: [] }], loadSessionId, onChange })
     owners.push(owner)
     return owner
   }
@@ -234,4 +239,23 @@ it('switches daemon owners only after verified exit and preserves the exact prot
     client.disconnect()
     expect(await daemon.stopIfIdle()).toBe(true)
   }
+})
+
+it('shows matching current-turn tool input before and after permission without changing the offered decision', async () => {
+  const changes: ReturnType<AcpAgent['get']>[] = []
+  const { start } = fixture(), owner = await start([], undefined, snapshot => changes.push(snapshot))
+  const pending = owner.prompt('permission-details')
+  await until(() => JSON.stringify(owner.get().permissions[0]?.request.toolCall.rawInput)?.includes('dist/acp.txt') ?? false)
+  const initial = changes.flatMap(snapshot => snapshot.permissions).find(permission => JSON.stringify(permission.request.toolCall.rawInput) === JSON.stringify({ script: 'first' }))!
+  expect(initial).toBeDefined()
+  const reviewed = owner.get().permissions[0]!
+  expect(reviewed.id).toBe(initial.id)
+  expect(reviewed.request.options).toEqual(initial.request.options)
+  expect(reviewed.request.sessionId).toBe(initial.request.sessionId)
+  expect(reviewed.request.toolCall.rawInput).toEqual({ script: 'verify', outputs: ['dist/acp.txt'] })
+  owner.answerPermission(reviewed.id, 'deny'); await pending
+  const next = owner.prompt('permission')
+  await until(() => owner.get().permissions.length === 1)
+  expect(owner.get().permissions[0]!.request.toolCall.rawInput).toBeUndefined()
+  owner.answerPermission(owner.get().permissions[0]!.id, 'deny'); await next
 })
