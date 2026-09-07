@@ -2,7 +2,7 @@
 
 Source: [Original detailed implementation plan](2026-09-06-terminal-workspace.md).
 
-Current position: **Final installed-package verification active.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. The latest production changes still require installed-package verification. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Strengthening pass and final installed-package verification complete.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. [Final installed verification](../../architecture/strengthening-final/README.md) covers the latest production changes. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 Execution: follow the numbered tasks subject to their stated dependencies. Task 27 must run after Task 13 and before Task 21; Task 28 follows Task 22. Complete every step, verification and review requirement before marking a task complete. Record evidence and unresolved failures with the owning task. Do not advance on a passing test alone.
 

@@ -1,0 +1,50 @@
+{
+  "source": {
+    "commit": "557b577eba1bc9b56ffab38da69818fb73dfd5f8",
+    "dirty": true,
+    "contentHash": "9485f0185f996cbf8c376a8283cb43cc97129623b7b82bd21463dee5f8ef14b5"
+  },
+  "artifactSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+  "previousSha256": "8bf52f0bb5caad4aacde20a6dbbbf1a2813f3ff67540c5e22d1f3b6c7a00dec4",
+  "profile": "/private/tmp/donwells-final-update02-profile",
+  "project": "/private/tmp/donwells-final-update02-profile/fixture",
+  "versions": [
+    "0.3.0",
+    "0.4.0",
+    "0.3.0",
+    "0.4.0"
+  ],
+  "shutdowns": [
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "continuity": {
+    "sqliteRevision": 3,
+    "terminalIds": [
+      "ef6b1773-f425-49df-925f-0c25b97dd940"
+    ],
+    "sourceUnchanged": true,
+    "migrationBackupUnchanged": true,
+    "exportsBeforeUpdateAndRollback": true
+  },
+  "verified": true,
+  "idleDaemonStopped": true
+}

@@ -1,20 +1,22 @@
 import assert from 'node:assert/strict'
 import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,realpathSync} from 'node:fs'
-import {join,resolve} from 'node:path'
+import {join,resolve,dirname} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {parseArgs} from 'node:util'
 import {execFileSync} from 'node:child_process'
 import {cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
 import {sourceIdentity,hash} from './workspace-baseline.mjs'
-const {values}=parseArgs({options:{root:{type:'string'},playwright:{type:'string'},evidence:{type:'string'}}})
+const {values}=parseArgs({options:{app:{type:'string'},root:{type:'string'},playwright:{type:'string'},evidence:{type:'string'}}})
 assert(values.root&&values.playwright&&values.evidence,'--root --playwright --evidence required; run after build')
 const root=realpathSync(values.root), evidence=resolve(values.evidence)
 mkdirSync(evidence,{recursive:true})
 const profile=mkdtempSync('/tmp/donwells25-language-live-')
 const projects=['a','b'].map(name=>{const path=join(profile,name);mkdirSync(path);return realpathSync(path)})
-const executable=join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+const installed=values.app?{app:realpathSync(values.app),resources:resolve(dirname(realpathSync(values.app)),'../Resources')}:null
+if(installed)assert(installed.app.endsWith('.app/Contents/MacOS/donwells'),'--app must be a packaged donwells executable')
+const executable=installed?.app??join(root,'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
 const {_electron}=await import(pathToFileURL(resolve(values.playwright)))
-const {callRuntime}=await import(pathToFileURL(join(root,'dist-cli/cli/rpc-client.js')))
+const {callRuntime}=await import(pathToFileURL(join(installed?.resources??root,'dist-cli/cli/rpc-client.js')))
 const invoke=async(method,params={})=>{const reply=await callRuntime(method,params,profile,30000);assert(reply.ok,reply.error);return reply.result}
 for(const project of projects){
  writeFileSync(join(project,'globals.ts'),project===projects[0]?'const shared: string = 42;\n':'const shared: number = 1;\n')
@@ -25,7 +27,7 @@ for(const project of projects){
  writeFileSync(join(project,'package.json'),JSON.stringify({scripts:{typecheck:`node '${tsc}' --noEmit`}}))
  for(const args of [['init','-b','main'],['config','user.name','Fixture'],['config','user.email','fixture@example.test'],['add','.'],['commit','-m','Language fixture']])execFileSync('git',args,{cwd:project,stdio:'ignore'})
 }
-const report={profile,source:sourceIdentity(),buildMainSha256:hash(readFileSync(join(root,'out/main/index.js'))),packaged:false,checks:[],errors:[]}
+const report={profile,source:sourceIdentity(),buildMainSha256:hash(readFileSync(join(root,'out/main/index.js'))),packaged:!!installed,...(installed?{artifactSha256:hash(readFileSync(join(installed.resources,'app.asar')))}:{}),checks:[],errors:[]}
 let app,page
 const open=async(project,file)=>{
  await page.evaluate(async({project,file})=>{const store=window.__store.getState();store.setActiveWorktree(project);await store.openPreview(project,file)}, {project,file})
@@ -35,7 +37,7 @@ const markers=()=>page.evaluate(()=>window.monaco.editor.getModelMarkers({}).map
 const waitRun=async id=>{for(let i=0;i<150;i++){const row=(await invoke('verification.list',{workspacePath:projects[0]})).find(r=>r.runId===id);if(row&&row.sourceState!=='running')return row;await delay(100)}throw Error('Typecheck did not finish')}
 try{
  const env={...process.env,DONWELLS_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.ELECTRON_RENDERER_URL;delete env.DONWELLS_SMOKE
- app=await _electron.launch({executablePath:executable,args:[root],env});page=await app.firstWindow()
+ app=await _electron.launch({executablePath:executable,args:installed?[]:[root],env});page=await app.firstWindow()
  page.on('pageerror',error=>report.errors.push(error.message))
  await page.waitForFunction(()=>!!window.__store)
  await invoke('settings.set',{theme:'dark',editorAutoSaveMode:'manual'})

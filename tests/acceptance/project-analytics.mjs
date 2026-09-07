@@ -3,21 +3,22 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
-import { sourceIdentity, hash } from './workspace-baseline.mjs'
+import { sourceIdentity, hash, validateOptions } from './workspace-baseline.mjs'
 import { closeOwnedSmokeApp, cleanupOwnedSmokeDaemon } from '../helpers/smoke-processes.mjs'
-const { values } = parseArgs({ options: Object.fromEntries(['profile', 'evidence', 'playwright', 'project', 'history', 'history-root'].map(key => [key, { type: 'string' }])) })
+const { values } = parseArgs({ options: Object.fromEntries(['app', 'profile', 'evidence', 'playwright', 'project', 'history', 'history-root'].map(key => [key, { type: 'string' }])) })
 for (const key of ['profile', 'evidence', 'playwright', 'project', 'history', 'history-root']) assert(values[key])
 const profile = resolve(values.profile), evidence = resolve(values.evidence), project = resolve(values.project), root = resolve(import.meta.dirname, '../..')
+const installed = values.app ? validateOptions(values) : null
 mkdirSync(profile); mkdirSync(evidence)
 const { _electron } = await import(pathToFileURL(resolve(values.playwright)))
-const { callRuntime } = await import(pathToFileURL(join(root, 'dist-cli/cli/rpc-client.js')))
+const { callRuntime } = await import(pathToFileURL(join(installed?.resources ?? root, 'dist-cli/cli/rpc-client.js')))
 const invoke = async (method, params = {}) => { const result = await callRuntime(method, params, profile, 150000); assert(result.ok, result.error); return result.result }
 const env = { ...process.env, DONWELLS_USER_DATA: profile, DONWELLS_HISTORY_BINARY: resolve(values.history), DONWELLS_HISTORY_ROOTS: JSON.stringify({ omp: [resolve(values['history-root'])] }) }
 for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'DONWELLS_SMOKE']) delete env[key]
-const report = { source: sourceIdentity(), builtMainSha256: hash(readFileSync(join(root, 'out/main/index.js'))), qualification: 'Built Electron checkout; not a packaged-release claim' }
+const report = { source: sourceIdentity(), builtMainSha256: hash(readFileSync(join(root, 'out/main/index.js'))), qualification: installed ? 'Installed packaged app' : 'Built Electron checkout; not a packaged-release claim', ...(installed ? {artifactSha256: hash(readFileSync(join(installed.resources, 'app.asar')))} : {}) }
 let app
 try {
-  app = await _electron.launch({ executablePath: join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [root], env })
+  app = await _electron.launch({ executablePath: installed?.app ?? join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: installed ? [] : [root], env })
   const page = await app.firstWindow()
   await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
   await invoke('repo.add', { dir: project })

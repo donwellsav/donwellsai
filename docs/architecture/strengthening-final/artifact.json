@@ -1,0 +1,20 @@
+{
+  "runtimeSourceCommit": "557b577",
+  "version": "0.4.0",
+  "app": "/tmp/donwells-final-install/donwells.app",
+  "dmg": "/Users/muzikfirst/Documents/donwellsai/terminal-foundation/dist/donwells-0.4.0-mac-arm64.dmg",
+  "dmgBytes": 187397544,
+  "dmgSha256": "dc47d1d5d8e586f2c454b4a26efd9e239eae68283cbade89db07a871d0aa6400",
+  "asarSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+  "executableSha256": "0a13ef4459205ae71b55319ea12ee2d7e4acaad4666b2abadc7fb37d63e9f338",
+  "signature": "--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (Renderer).app\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (Renderer).app\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper.app\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (GPU).app\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper.app\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (GPU).app\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (Plugin).app\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/donwells.ai Helper (Plugin).app\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/ReactiveObjC.framework/Versions/Current/.\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Squirrel.framework/Versions/Current/.\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/ReactiveObjC.framework/Versions/Current/.\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Mantle.framework/Versions/Current/.\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Squirrel.framework/Versions/Current/.\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Mantle.framework/Versions/Current/.\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.\n--prepared:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/Helpers/chrome_crashpad_handler\n--validated:/private/tmp/donwells-final-install/donwells.app/Contents/Frameworks/Electron Framework.framework/Versions/Current/.\n/tmp/donwells-final-install/donwells.app: valid on disk\n/tmp/donwells-final-install/donwells.app: satisfies its Designated Requirement\n",
+  "shippedByteCheck": "187 installed production dependency notices verified.\nPackage identity, native unpacking, CLI, icons, and notices are ready.\n720 application files and 34 external resources match the current build.\n",
+  "notarized": false,
+  "fullTests": {
+    "passed": 483,
+    "skipped": 12
+  },
+  "typecheck": "passed",
+  "packageBuild": "passed",
+  "dmgVerification": "passed"
+}

@@ -714,7 +714,7 @@ A materially better terminal/framework candidate must improve a documented bottl
 
 ## Execution status
 
-Current position: **Final installed-package verification active.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. The latest production changes still require installed-package verification. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
+Current position: **Strengthening pass and final installed-package verification complete.** Tasks 01, 03–28 are strengthened. Task 02 remains skipped. [Final installed verification](../../architecture/strengthening-final/README.md) covers the latest production changes. Use local oMLX Ornith-1.5-35B-A3B-MLX-8bit for native-agent qualification while Kimi hosted usage is unavailable.
 
 [Full execution checklist](2026-09-06-terminal-workspace-todo.md). After completing each task, show all 28 statuses and evidence before advancing. Task 27 precedes Task 21.
 

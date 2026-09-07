@@ -1,0 +1,42 @@
+{
+  "source": {
+    "commit": "557b577eba1bc9b56ffab38da69818fb73dfd5f8",
+    "dirty": true,
+    "contentHash": "9485f0185f996cbf8c376a8283cb43cc97129623b7b82bd21463dee5f8ef14b5"
+  },
+  "artifactSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+  "previousSha256": "7765d83e2c5590309454a4c72963d0934c61ae0d952fca4a26a5559f9d283e10",
+  "profile": "/private/tmp/donwells-final-update-profile",
+  "project": "/private/tmp/donwells-final-update-profile/fixture",
+  "versions": [
+    "0.4.0",
+    "0.4.0",
+    "0.4.0",
+    "0.4.0"
+  ],
+  "shutdowns": [
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "forcedTermination": false,
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "error": "AssertionError [ERR_ASSERTION]: Expected \"actual\" to be strictly unequal to:\n\n'0.4.0'\n    at file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/acceptance/installed-update.mjs:36:9\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+  "idleDaemonStopped": true,
+  "verified": false
+}

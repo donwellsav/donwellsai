@@ -1,0 +1,37 @@
+{
+  "source": {
+    "commit": "557b577eba1bc9b56ffab38da69818fb73dfd5f8",
+    "dirty": true,
+    "contentHash": "9485f0185f996cbf8c376a8283cb43cc97129623b7b82bd21463dee5f8ef14b5"
+  },
+  "builtMainSha256": "da690e21525c47295a1d5ff17327d28e56605e3b04737ff1945c58199eaf4fd3",
+  "qualification": "Installed packaged app",
+  "artifactSha256": "e210d15b5d688c633b651d93971d542b294d5f330c94e0cfae7c0ba8d0f27e49",
+  "analytics": {
+    "days": [
+      {
+        "day": "2026-09-04",
+        "agent": "omp",
+        "sessions": 2,
+        "outputTokens": 37001,
+        "tokenSessions": 2,
+        "peakContext": 86020,
+        "contextSessions": 2
+      }
+    ],
+    "costs": [],
+    "indexedAt": "2026-09-07T07:47:14.967Z",
+    "sessions": 2,
+    "excluded": 0,
+    "truncated": false
+  },
+  "smallWindowPanelContained": true,
+  "keyboardDisclosureAndRefresh": true,
+  "complete": true,
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonStopped": true
+}
