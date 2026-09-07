@@ -1,0 +1,222 @@
+{
+  "profile": "/tmp/donwells25-language-live-e9d6ww",
+  "source": {
+    "commit": "177295b36b1710139c55af45b60f31b88d7b8308",
+    "dirty": true,
+    "contentHash": "d2c75bf1243e6b6de63707370d0b2f5b4918d7ca6158b8fbea513be5639a7bd4"
+  },
+  "buildMainSha256": "2b5ea99f8ce4a49e94a833d5ab686a676a16c615ae12a03baa08607a68a51c12",
+  "packaged": false,
+  "typescriptSource": "/Users/muzikfirst/Documents/donwellsai/research/tool-trials/qmd-2.8.3/node_modules/typescript",
+  "checks": [
+    "same global identifier in two checkouts is isolated",
+    "project-local TypeScript5.9.3 uses incompatible strict-null tsconfigs in two isolated processes",
+    "project tsserver definition action opens an unopened file",
+    "project references editor action navigates to main.ts; actual server receipt identifies caller",
+    "explicit tsserver restart preserves unsaved text without writing disk",
+    "worker termination and restart preserve model and undo; diagnostics return",
+    "missing worker reports a recoverable error and restart restores checks",
+    "native project TypeScript command fails then passes after editor save",
+    "reviewed workflow contents and created exact versioned files in a 1100x720 window"
+  ],
+  "errors": [
+    "acceptance missing worker\n\nError: acceptance missing worker",
+    "acceptance missing worker\n\nError: acceptance missing worker"
+  ],
+  "languageOwners": [
+    {
+      "state": "ready",
+      "generation": 1,
+      "version": "5.9.3",
+      "pid": 45837,
+      "documents": 1,
+      "detail": "TypeScript 5.9.3 · project configuration"
+    },
+    {
+      "state": "ready",
+      "generation": 2,
+      "version": "5.9.3",
+      "pid": 45969,
+      "documents": 1,
+      "detail": "TypeScript 5.9.3 · project configuration"
+    }
+  ],
+  "isolatedMarkers": [
+    {
+      "path": "/private/tmp/donwells25-language-live-e9d6ww/a/globals.ts",
+      "code": "2322",
+      "message": "Type 'number' is not assignable to type 'string'.",
+      "source": "TypeScript · project"
+    }
+  ],
+  "references": {
+    "generation": 1,
+    "version": 1,
+    "references": [
+      {
+        "path": "defs.ts",
+        "start": {
+          "line": 1,
+          "column": 17
+        },
+        "end": {
+          "line": 1,
+          "column": 22
+        }
+      },
+      {
+        "path": "main.ts",
+        "start": {
+          "line": 1,
+          "column": 10
+        },
+        "end": {
+          "line": 1,
+          "column": 15
+        }
+      },
+      {
+        "path": "main.ts",
+        "start": {
+          "line": 2,
+          "column": 1
+        },
+        "end": {
+          "line": 2,
+          "column": 6
+        }
+      }
+    ]
+  },
+  "missingWorkerError": "Language tools failed: Error: acceptance missing worker. Use “Restart TypeScript / JavaScript tools” in the editor command menu.",
+  "failedTypecheck": {
+    "runId": "93b5681b-0cee-4099-b912-6da15da83e75",
+    "task": {
+      "id": "e70dda1c-954b-41eb-a4c1-ea4abcf36d00",
+      "verificationSetup": {
+        "outputs": [],
+        "origin": {
+          "kind": "unattributed"
+        }
+      },
+      "target": {
+        "kind": "local",
+        "root": "/private/tmp/donwells25-language-live-e9d6ww/a",
+        "label": "a"
+      },
+      "command": "'/Users/muzikfirst/.npm-global/bin/npm' 'run' 'typecheck'",
+      "status": "failed",
+      "sessionId": "35308244-3eb9-4f8a-840b-c1fee07c5a27",
+      "startedAt": "2026-09-07T15:27:19.099Z",
+      "finishedAt": "2026-09-07T15:27:19.984Z",
+      "exitCode": 2,
+      "error": "Command exited with code 2",
+      "output": "\r\n> typecheck\r\n> node '/private/tmp/donwells25-language-live-e9d6ww/a/node_modules/typescript/bin/tsc' --noEmit\r\n\r\nglobals.ts(1,7): error TS2322: Type 'number' is not assignable to type 'string'.\r\nnullable.ts(1,14): error TS2322: Type 'null' is not assignable to type 'string'.\r\n⠙",
+      "verification": {
+        "origin": {
+          "kind": "unattributed"
+        },
+        "outputs": [],
+        "before": {
+          "sourceRevision": "75e3127ac429b46f11b35f70e6b16805d46212e9",
+          "contentFingerprint": "sha256:a3ef4d109cd8e2887d34346340e6f2197b11f553da0d852cb121d8fec06fd630",
+          "changedFiles": [
+            "main.ts"
+          ]
+        },
+        "after": {
+          "sourceRevision": "75e3127ac429b46f11b35f70e6b16805d46212e9",
+          "contentFingerprint": "sha256:a3ef4d109cd8e2887d34346340e6f2197b11f553da0d852cb121d8fec06fd630",
+          "changedFiles": [
+            "main.ts"
+          ]
+        },
+        "startedAt": "2026-09-07T15:27:19.100Z",
+        "finishedAt": "2026-09-07T15:27:19.983Z",
+        "environment": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "hostNode": "24.19.0",
+          "hostElectron": "44.1.1"
+        },
+        "toolVersions": {
+          "node": "v24.16.0",
+          "npm": "11.16.0"
+        },
+        "artifacts": []
+      }
+    },
+    "sourceState": "current",
+    "artifacts": []
+  },
+  "passedTypecheck": {
+    "runId": "3e932fc8-d6aa-44e3-9f37-293ee53c2cb5",
+    "task": {
+      "id": "6629c4be-48a7-4ed7-960c-418598fd200b",
+      "verificationSetup": {
+        "outputs": [],
+        "origin": {
+          "kind": "unattributed"
+        }
+      },
+      "target": {
+        "kind": "local",
+        "root": "/private/tmp/donwells25-language-live-e9d6ww/a",
+        "label": "a"
+      },
+      "command": "'/Users/muzikfirst/.npm-global/bin/npm' 'run' 'typecheck'",
+      "status": "succeeded",
+      "sessionId": "1e08e2fe-2c37-433e-b970-ec7600315854",
+      "startedAt": "2026-09-07T15:27:20.306Z",
+      "finishedAt": "2026-09-07T15:27:21.099Z",
+      "exitCode": 0,
+      "output": "\r\n> typecheck\r\n> node '/private/tmp/donwells25-language-live-e9d6ww/a/node_modules/typescript/bin/tsc' --noEmit\r\n\r\n⠙",
+      "verification": {
+        "origin": {
+          "kind": "unattributed"
+        },
+        "outputs": [],
+        "before": {
+          "sourceRevision": "75e3127ac429b46f11b35f70e6b16805d46212e9",
+          "contentFingerprint": "sha256:e045d1cd4cf21c9015f48daf691ebf1a5153af50c03dbff62c1df2b8af689b07",
+          "changedFiles": [
+            "globals.ts",
+            "main.ts",
+            "nullable.ts"
+          ]
+        },
+        "after": {
+          "sourceRevision": "75e3127ac429b46f11b35f70e6b16805d46212e9",
+          "contentFingerprint": "sha256:e045d1cd4cf21c9015f48daf691ebf1a5153af50c03dbff62c1df2b8af689b07",
+          "changedFiles": [
+            "globals.ts",
+            "main.ts",
+            "nullable.ts"
+          ]
+        },
+        "startedAt": "2026-09-07T15:27:20.307Z",
+        "finishedAt": "2026-09-07T15:27:21.099Z",
+        "environment": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "hostNode": "24.19.0",
+          "hostElectron": "44.1.1"
+        },
+        "toolVersions": {
+          "node": "v24.16.0",
+          "npm": "11.16.0"
+        },
+        "artifacts": []
+      }
+    },
+    "sourceState": "current",
+    "artifacts": []
+  },
+  "verified": true,
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonStopped": true
+}
