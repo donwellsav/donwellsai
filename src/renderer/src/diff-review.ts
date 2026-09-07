@@ -6,32 +6,12 @@ import {
   type DiffReviewSnapshotSide,
   type DiffReviewSide
 } from '@shared/diff-review'
-import type { AppSettings, DiffComparison, GitStatusEntry } from '@shared/types'
+import type { AppSettings } from '@shared/types'
 
 export type DiffSource = { path: string; contents: string | null }
 export type DiffSources = { before: DiffSource; after: DiffSource }
 
-function statusIsRename(code: GitStatusEntry['index']): boolean {
-  return code === 'R' || code === 'C'
-}
-
-/** Preserve Git's old pathname only for comparisons whose left side predates that rename. */
-export function diffSourcePaths(
-  filePath: string,
-  comparison: DiffComparison,
-  entry?: GitStatusEntry
-): { beforePath: string; afterPath: string } {
-  const originalPath = entry?.originalPath
-  let beforePath = filePath
-  if (originalPath) {
-    if (comparison === 'staged' && statusIsRename(entry.index)) beforePath = originalPath
-    if (comparison === 'unstaged' && statusIsRename(entry.workingTree)) beforePath = originalPath
-    if (comparison === 'working' && (statusIsRename(entry.index) || statusIsRename(entry.workingTree))) {
-      beforePath = originalPath
-    }
-  }
-  return { beforePath, afterPath: filePath }
-}
+export { diffSourcePaths } from '@shared/diff-review'
 
 export function reviewSideFromPierre(side: SelectedLineRange['side']): DiffReviewSide {
   if (side === 'deletions') return 'before'

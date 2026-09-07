@@ -1,3 +1,5 @@
+import { createDiffReviewSnapshot, diffReviewNoteIsCurrent, diffSourcePaths, splitDiffReviewLines, type DiffReviewNote } from '@shared/diff-review'
+import { DiffReviewStore } from './diff-review-store'
 import { isDeepStrictEqual } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import type { HandoffMemoryStatus, ProjectHandoffApi, ProjectHandoffDraft, ProjectHandoffStatus } from '@shared/project-handoff'
@@ -10,7 +12,7 @@ import type { DaemonClient } from './daemon-client'
 import { closeSync, lstatSync, mkdirSync, openSync, writeFileSync, readFileSync, fsyncSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { parseHandoffMemorySources, parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
+import { parseHandoffMemorySources, parseHandoffReviewSelections, parseProjectHandoff, type ProjectHandoff } from '@shared/project-handoff'
 import { parseProjectMemoryIdentifier } from '@shared/project-memory'
 import { ProjectMemoryStore } from './project-memory-store'
 
@@ -160,7 +162,7 @@ export class ProjectHandoffStore {
 /** Desktop authority boundary. Native delivery and external MCP claims require separate binding. */
 export class ProjectHandoffService implements ProjectHandoffApi {
   private readonly store: ProjectHandoffStore
-  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'>, private readonly agents: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession'>>, private readonly deliver?: AgentDeliveryApi['agentDeliver']) {
+  constructor(private readonly userDataDir: string, private readonly resolveScope: (path: string) => Promise<ProjectToolScope>, private readonly git: Pick<GitWorktrees, 'handoffSource'> & Partial<Pick<GitWorktrees, 'status' | 'readFileAtRef' | 'readFile'>>, private readonly agents: Pick<AgentRuntime, 'list'> & Partial<Pick<AgentRuntime, 'findAcpSession'>>, private readonly deliver?: AgentDeliveryApi['agentDeliver']) {
     this.store = new ProjectHandoffStore(userDataDir)
   }
 
@@ -226,17 +228,51 @@ export class ProjectHandoffService implements ProjectHandoffApi {
     return target
   }
 
+  private async captureReviews(workspacePath: string, input: ProjectHandoffDraft['reviewSelections']): Promise<DiffReviewNote[]> {
+    if (input === undefined) return []
+    const refs = parseHandoffReviewSelections(input, workspacePath)
+    if (!refs.length) return []
+    const { status, readFileAtRef, readFile } = this.git
+    if (!status || !readFileAtRef || !readFile) throw new Error('Diff snapshot reader unavailable')
+    const entries = (await status.call(this.git, workspacePath)).entries ?? []
+    const store = new DiffReviewStore(this.userDataDir), captured: DiffReviewNote[] = []
+    for (const ref of refs) {
+      const note = store.list({ workspacePath, filePath: ref.filePath, comparison: ref.comparison }).find(note => note.id === ref.id)
+      if (!note || note.revision !== ref.revision) throw new Error('Selected diff review changed or was removed; review it again')
+      const { beforePath, afterPath } = diffSourcePaths(ref.filePath, ref.comparison, entries.find(entry => entry.path === ref.filePath))
+      const before = (await readFileAtRef.call(this.git, workspacePath, beforePath, ref.comparison === 'unstaged' ? '' : 'HEAD')).content
+      let after: string | null
+      if (ref.comparison === 'staged') after = (await readFileAtRef.call(this.git, workspacePath, afterPath, '')).content
+      else {
+        try { const file = await readFile.call(this.git, workspacePath, afterPath); if (file.binary || file.truncated || !file.revision) throw new Error('Selected diff requires complete stable text'); after = file.content }
+        catch (error) { if (String(error).includes(`No such file: ${afterPath}`)) after = null; else throw error }
+      }
+      const snapshot = await createDiffReviewSnapshot({ path: beforePath, contents: before }, { path: afterPath, contents: after })
+      if (!diffReviewNoteIsCurrent(note, snapshot)) throw new Error('Selected diff source changed; review its current lines')
+      const lines = splitDiffReviewLines((note.anchor.side === 'before' ? before : after) ?? '')
+      if (note.anchor.context.some(line => lines[line.lineNumber - 1] !== line.text)) throw new Error('Selected review context does not match its source')
+      captured.push(note)
+    }
+    // Re-read the canonical file after asynchronous Git reads; another review can update in that interval.
+    const fresh = new DiffReviewStore(this.userDataDir)
+    if (captured.some(note => !isDeepStrictEqual(fresh.list(note.target).find(value => value.id === note.id), note))) throw new Error('Selected diff review changed during capture')
+    return captured
+  }
+
   async projectHandoffCreate(workspacePath: string, draft: ProjectHandoffDraft): Promise<ProjectHandoff> {
     const fields = ['taskId', 'fromSessionId', 'toAgent', 'goal', 'summary', 'openQuestions', 'nextSteps', 'evidenceIds']
-    if (!draft || typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(field => !fields.includes(field) && field !== 'memorySources') || fields.some(field => !Object.hasOwn(draft, field))) throw new Error('Invalid handoff draft fields')
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(field => !fields.includes(field) && field !== 'memorySources' && field !== 'reviewSelections') || fields.some(field => !Object.hasOwn(draft, field))) throw new Error('Invalid handoff draft fields')
     const memorySources = draft.memorySources === undefined ? undefined : parseHandoffMemorySources(draft.memorySources)
     const scope = await this.resolveScope(workspacePath)
     const source = await this.session(scope, draft.fromSessionId, false)
     if (source.checkoutPath !== scope.checkoutPath) throw new Error('Select the source session checkout before saving its handoff')
     const snapshot = await this.git.handoffSource(scope.checkoutPath)
+    const reviewEvidence = await this.captureReviews(scope.checkoutPath, draft.reviewSelections)
+    if (reviewEvidence.length && (await this.git.handoffSource(scope.checkoutPath)).contentFingerprint !== snapshot.contentFingerprint) throw new Error('Source changed while capturing selected diff')
     await this.assertScope(scope)
     if (this.memorySources(scope.projectKey, memorySources).some(ref => ref.state !== 'current')) throw new Error('Referenced memory changed, was archived, or is unavailable; review current facts before saving')
-    return this.store.create(parseProjectHandoff({ ...draft, ...snapshot, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null }))
+    const { reviewSelections: _reviewSelections, ...fieldsToStore } = draft
+    return this.store.create(parseProjectHandoff({ ...fieldsToStore, ...(reviewEvidence.length ? { reviewEvidence } : {}), ...snapshot, id: randomUUID(), projectKey: scope.projectKey, checkoutPath: scope.checkoutPath, state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null }))
   }
 
   async projectHandoffAccept(workspacePath: string, id: string, expectedRevision: number, sessionId: string, idempotencyKey: string): Promise<ProjectHandoff> {

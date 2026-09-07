@@ -1,3 +1,4 @@
+import { parseDiffReviewNote, parseDiffReviewTarget, type DiffReviewNote } from './diff-review'
 import { type ProjectMemoryEntry, parseProjectMemoryIdentifier, parseProjectMemoryWorkspacePath } from './project-memory'
 
 export type ProjectHandoff = {
@@ -8,6 +9,7 @@ export type ProjectHandoff = {
   toAgent: string | null
   checkoutPath: string
   sourceRevision: string | null
+  sourceBasis?: 'folder-files'
   contentFingerprint: string
   goal: string
   summary: string
@@ -15,6 +17,7 @@ export type ProjectHandoff = {
   nextSteps: string[]
   changedFiles: string[]
   evidenceIds: string[]
+  reviewEvidence?: DiffReviewNote[]
   memorySources?: Array<{ id: string; revision: number }>
   state: 'open' | 'accepted' | 'superseded'
   delivery: 'not-sent' | 'confirmed' | 'uncertain'
@@ -27,7 +30,7 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid handoff')
   const input = value as Record<string, unknown>
   const names = ['id', 'projectKey', 'taskId', 'fromSessionId', 'toAgent', 'checkoutPath', 'sourceRevision', 'contentFingerprint', 'goal', 'summary', 'openQuestions', 'nextSteps', 'changedFiles', 'evidenceIds', 'state', 'delivery', 'revision', 'acceptedBySessionId']
-  if (Object.keys(input).some(name => !names.includes(name) && name !== 'memorySources' && name !== 'dispatch') || names.some(name => !Object.hasOwn(input, name))) throw new Error('Invalid handoff fields')
+  if (Object.keys(input).some(name => !names.includes(name) && name !== 'memorySources' && name !== 'dispatch' && name !== 'reviewEvidence' && name !== 'sourceBasis') || names.some(name => !Object.hasOwn(input, name))) throw new Error('Invalid handoff fields')
   const text = (name: string, max: number): string => {
     const v = input[name]
     if (typeof v !== 'string' || !v.trim() || v.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v)) throw new Error(`Invalid handoff ${name}`)
@@ -53,6 +56,7 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   if ((state === 'open' && acceptedBySessionId !== null) || (state === 'accepted' && acceptedBySessionId === null) || (delivery !== 'not-sent' && acceptedBySessionId === null)) throw new Error('Inconsistent handoff acceptance')
   const changedFiles = list('changedFiles')
   if (changedFiles.some(path => path.startsWith('/') || path.includes('\\') || path.split('/').some(part => part === '..' || part === '.' || !part) || /^[a-z]:/i.test(path))) throw new Error('Handoff files must be checkout-relative paths')
+  if (input.sourceBasis !== undefined && input.sourceBasis !== 'folder-files') throw new Error('Invalid handoff source basis')
   const memorySources = input.memorySources === undefined ? undefined : parseHandoffMemorySources(input.memorySources)
   let dispatch: ProjectHandoff['dispatch']
   if (input.dispatch !== undefined) {
@@ -63,8 +67,10 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
   const result: ProjectHandoff = {
     id: parseProjectMemoryIdentifier(input.id), projectKey, taskId: nullableId('taskId'),
     fromSessionId: parseProjectMemoryIdentifier(input.fromSessionId), toAgent: nullableId('toAgent'),
+    ...(input.sourceBasis === undefined ? {} : { sourceBasis: input.sourceBasis }),
     checkoutPath: parseProjectMemoryWorkspacePath(input.checkoutPath), sourceRevision, contentFingerprint,
     goal: text('goal', 8000), summary: text('summary', 24000), openQuestions: list('openQuestions'), nextSteps: list('nextSteps'), changedFiles,
+    ...(input.reviewEvidence === undefined ? {} : { reviewEvidence: parseHandoffReviewEvidence(input.reviewEvidence) }),
     ...(memorySources === undefined ? {} : { memorySources }),
     ...(dispatch === undefined ? {} : { dispatch }),
     evidenceIds: list('evidenceIds').map(id => parseProjectMemoryIdentifier(id)), state, delivery, revision: Number(input.revision), acceptedBySessionId
@@ -74,7 +80,7 @@ export function parseProjectHandoff(value: unknown): ProjectHandoff {
 }
 
 
-export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds' | 'memorySources'>
+export type ProjectHandoffDraft = Pick<ProjectHandoff, 'taskId' | 'fromSessionId' | 'toAgent' | 'goal' | 'summary' | 'openQuestions' | 'nextSteps' | 'evidenceIds' | 'memorySources'> & { reviewSelections?: HandoffReviewSelection[] }
 export type HandoffMemoryStatus = { id: string; revision: number; state: 'current' | 'changed' | 'archived' | 'unavailable'; current?: ProjectMemoryEntry }
 export type ProjectHandoffStatus = { handoff: ProjectHandoff; stale: boolean; sourceError?: string; memorySources?: HandoffMemoryStatus[] }
 
@@ -97,4 +103,25 @@ export interface ProjectHandoffApi {
   projectHandoffDispatch(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff>
   projectHandoffAccept(workspacePath: string, id: string, expectedRevision: number, sessionId: string, idempotencyKey: string): Promise<ProjectHandoff>
   projectHandoffSupersede(workspacePath: string, id: string, expectedRevision: number): Promise<ProjectHandoff>
+}
+
+
+export type HandoffReviewSelection = { id: string; revision: number; filePath: string; comparison: DiffReviewNote['target']['comparison'] }
+export function parseHandoffReviewSelections(value: unknown, workspacePath: string): HandoffReviewSelection[] {
+ if (!Array.isArray(value) || value.length > 10) throw new Error('Attach at most 10 reviewed diff selections')
+ const seen = new Set<string>()
+ return value.map(ref => {
+  if (!ref || typeof ref !== 'object' || Array.isArray(ref) || Object.keys(ref).length !== 4) throw new Error('Invalid reviewed diff selection')
+  const id = parseProjectMemoryIdentifier(ref.id)
+  if (seen.has(id) || !Number.isSafeInteger(ref.revision) || ref.revision < 1) throw new Error('Invalid or duplicate reviewed diff revision')
+  seen.add(id)
+  const target = parseDiffReviewTarget({ workspacePath, filePath: ref.filePath, comparison: ref.comparison })
+  return { id, revision: ref.revision, filePath: target.filePath, comparison: target.comparison }
+ })
+}
+function parseHandoffReviewEvidence(value: unknown): DiffReviewNote[] {
+ if (!Array.isArray(value) || value.length > 10) throw new Error('Attach at most 10 reviewed diff selections')
+ const notes = value.map(note => parseDiffReviewNote(note))
+ if (new Set(notes.map(note => note.id)).size !== notes.length) throw new Error('Duplicate captured review evidence')
+ return notes
 }

@@ -1,3 +1,4 @@
+import { opendir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
@@ -37,7 +38,7 @@ import { retireWorktreeName, takenNames, uniquifyWorktreeName } from './worktree
 import { idFromPath } from './store'
 import { fenceMainWorktree, isOrphanWorktree, moveToTrash, witnessPathExists } from './worktree-trash'
 import { pruneLineage, recordLineage } from '@shared/worktree-lineage'
-import { PREVIEW_BYTE_LIMIT, WorktreeFiles } from './worktree-files'
+import { PREVIEW_BYTE_LIMIT, WorktreeFiles, isWorkspaceIgnoredEntry } from './worktree-files'
 import type { BinaryPreviewRequest, BinaryPreviewPayload } from '@shared/media-preview'
 import { readBinaryPreview } from './binary-preview'
 import { searchProjectCode, type ProjectCodeSearchRequest } from './project-code-search'
@@ -424,8 +425,39 @@ export class GitWorktrees {
     }
   }
 
-  async handoffSource(worktreePath: string): Promise<{ sourceRevision: string | null; contentFingerprint: string; changedFiles: string[] }> {
-    const root = await requireGitWorktree(this.store, worktreePath)
+  async handoffSource(worktreePath: string): Promise<{ sourceRevision: string | null; contentFingerprint: string; changedFiles: string[]; sourceBasis?: 'folder-files' }> {
+    const workspace = await resolveWorkspacePath(this.store, worktreePath)
+    const root = workspace.path
+    if (workspace.kind === 'folder') {
+      const capture = async () => {
+        const pending = [''], entries: Array<[string, string]> = []
+        const deadline = Date.now() + 15_000
+        let scanned = 0, bytes = 0
+        while (pending.length) {
+          const prefix = pending.pop()!, directory = await this.files.resolveDirectory(root, prefix)
+          for await (const entry of await opendir(directory)) {
+            if (++scanned > MAX_FILE_SEARCH_CANDIDATES || Date.now() > deadline) throw new GitError('Folder source capture exceeds its entry or time bound')
+            if (isWorkspaceIgnoredEntry(entry.name)) continue
+            const path = prefix ? prefix + '/' + entry.name : entry.name
+            // ponytail: existing visible-file policy excludes dependency/metadata roots; larger captures need a qualified streaming source index.
+            if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) throw new GitError('Folder source capture cannot include links or special files: ' + path)
+            if (entry.isDirectory()) { entries.push([path, 'directory']); pending.push(path) }
+            else {
+              const size = lstatSync(join(root, path)).size
+              if ((bytes += size) > 32 * 1024 * 1024) throw new GitError('Folder source capture exceeds 32 MiB')
+              const revision = await this.files.sourceRevision(root, path)
+              if (lstatSync(join(root, path)).size !== size || Date.now() > deadline) throw new GitError('Folder source changed or exceeded its time bound')
+              entries.push([path, revision])
+            }
+          }
+        }
+        entries.sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)
+        return { sourceRevision: null, sourceBasis: 'folder-files' as const, changedFiles: [], contentFingerprint: `sha256:${createHash('sha256').update(JSON.stringify(entries)).digest('hex')}` }
+      }
+      const before = await capture(), after = await capture()
+      if (before.contentFingerprint !== after.contentFingerprint) throw new GitError('Folder source changed during capture; try again after edits finish')
+      return after
+    }
     const capture = async () => {
       const [raw, index, diff] = await Promise.all([
         runWorktree(root, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { raw: true }),

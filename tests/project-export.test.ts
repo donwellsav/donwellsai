@@ -1,3 +1,4 @@
+import { createDiffReviewSnapshot, createDiffReviewAnchor } from '../src/shared/diff-review'
 import * as fs from 'node:fs'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
@@ -33,7 +34,8 @@ async function fixture() {
   const first = await memory.projectMemoryCreate(request)
   await memory.projectMemoryUpdate({ ...request, id: first.id, expectedRevision: 1, content: 'KIT_CANARY_TWO password=secret-value' })
   const handoffs = new ProjectHandoffStore(profile)
-  handoffs.create({ id: 'handoff-one', projectKey: scope.projectKey, taskId: null, fromSessionId: 'old-session', toAgent: 'hermes', checkoutPath: source, sourceRevision: null, contentFingerprint: 'sha256:' + 'a'.repeat(64), goal: 'Continue task', summary: 'password=secret-value', openQuestions: [], nextSteps: ['Recall KIT_CANARY_TWO'], changedFiles: [], evidenceIds: [], state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null })
+  const captured = { id: 'captured-diff', target: { workspacePath: source, filePath: 'task.md', comparison: 'working' as const }, snapshot: await createDiffReviewSnapshot({ path: 'task.md', contents: 'before\n' }, { path: 'task.md', contents: 'selected excerpt\n' }), anchor: createDiffReviewAnchor('after',1,1,'selected excerpt\n'), body: 'Reviewed selected change', revision: 1, createdAt: '2026-09-07T00:00:00.000Z', updatedAt: '2026-09-07T00:00:00.000Z' }
+  handoffs.create({ reviewEvidence: [captured], id: 'handoff-one', projectKey: scope.projectKey, taskId: null, fromSessionId: 'old-session', toAgent: 'hermes', checkoutPath: source, sourceRevision: null, contentFingerprint: 'sha256:' + 'a'.repeat(64), goal: 'Continue task', summary: 'password=secret-value', openQuestions: [], nextSteps: ['Recall KIT_CANARY_TWO'], changedFiles: [], evidenceIds: [], state: 'open', delivery: 'not-sent', revision: 1, acceptedBySessionId: null })
   store.setWorkspaceSession({ activeRepoId: id, repos: { [id]: { panes: { [source]: [{ key: 'term:old-session', kind: 'terminal', sessionId: 'old-session', label: 'password=secret-value' }, { key: 'browser', kind: 'browser', url: 'https://user:secret-value@example.org' }] }, activePane: {}, activeTerminal: {}, terminalOrder: {}, layouts: {}, activeWorktreePath: source } } })
   await writeFile(join(source, 'task.md'), 'Task receipt KIT_ARTIFACT password=secret-value')
   const doctor = { configuration: async () => ({ disabled: [], referenceRoots: ['/secret-value'], codeGraphBinary: '/secret-value/native' }) }
@@ -67,6 +69,7 @@ it.each(['json', 'sqlite'])('restores %s memory with history, stale handoffs, di
   expect((await restored.projectMemoryHistory({ workspacePath: destination, id: found.entries[0].id })).revisions.map(value => value.content)).toEqual(['KIT_CANARY_TWO password=[redacted]', 'KIT_CANARY_ONE'])
   const handoffs = new ProjectHandoffStore(targetProfile).list(imported.report.projectKey)
   expect(handoffs[0].dispatch).toBeUndefined()
+  expect(handoffs[0].reviewEvidence?.[0]).toMatchObject({ id: 'captured-diff', target: { workspacePath: destination, filePath: 'task.md' }, anchor: { context: [{ lineNumber: 1, text: 'selected excerpt\n' }] }, body: 'Reviewed selected change', revision: 1 })
   expect(handoffs[0]).toMatchObject({ state: 'superseded', delivery: 'not-sent', checkoutPath: destination, contentFingerprint: 'sha256:' + '0'.repeat(64) })
   expect(await readFile(join(destination, 'task.md'), 'utf8')).toContain('KIT_ARTIFACT password=[redacted]')
   const config = JSON.parse(await readFile(join(targetProfile, 'project-tools/configuration', imported.report.projectKey, 'tools.json'), 'utf8'))

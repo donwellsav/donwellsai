@@ -1,6 +1,6 @@
 import type { ParallelTaskStatus, VerificationEntry } from './operational-runs'
 import type { AgentAttachmentDraft } from './agent-delivery'
-import type { DiffComparison } from './types'
+import type { DiffComparison, GitStatusEntry } from './types'
 
 export const DIFF_REVIEW_SCHEMA_VERSION = 1 as const
 export const DIFF_REVIEW_BODY_MAX_LENGTH = 16_000
@@ -533,4 +533,26 @@ export function formatDiffReviewAttachment(
     title: `Diff review · ${basename}`,
     text: lines.join('\n').trimEnd()
   }
+}
+
+function statusIsRename(code: GitStatusEntry['index']): boolean {
+  return code === 'R' || code === 'C'
+}
+
+/** Preserve Git's old pathname only for comparisons whose left side predates that rename. */
+export function diffSourcePaths(
+  filePath: string,
+  comparison: DiffComparison,
+  entry?: GitStatusEntry
+): { beforePath: string; afterPath: string } {
+  const originalPath = entry?.originalPath
+  let beforePath = filePath
+  if (originalPath) {
+    if (comparison === 'staged' && statusIsRename(entry.index)) beforePath = originalPath
+    if (comparison === 'unstaged' && statusIsRename(entry.workingTree)) beforePath = originalPath
+    if (comparison === 'working' && (statusIsRename(entry.index) || statusIsRename(entry.workingTree))) {
+      beforePath = originalPath
+    }
+  }
+  return { beforePath, afterPath: filePath }
 }

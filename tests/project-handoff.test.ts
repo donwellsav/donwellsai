@@ -229,3 +229,34 @@ it.each(['native', 'acp'] as const)('dispatches reviewed %s instructions once wh
   expect(writes + prompts).toBe(2)
   expect(mode === 'native' ? prompts : writes).toBe(0)
 })
+
+it('captures canonical selected diff lines immutably and rejects changed or forged selections', async () => {
+  const { root } = setup()
+  const { DiffReviewStore } = await import('../src/main/diff-review-store')
+  const { createDiffReviewSnapshot, createDiffReviewAnchor } = await import('../src/shared/diff-review')
+  const reviews = new DiffReviewStore(root), before = 'before\n', after = 'selected line\n'
+  const note = reviews.create({ id: 'selected-note', target: { workspacePath: '/project', filePath: 'src/main.ts', comparison: 'working' }, snapshot: await createDiffReviewSnapshot({ path: 'src/main.ts', contents: before }, { path: 'src/main.ts', contents: after }), anchor: createDiffReviewAnchor('after', 1, 1, after), body: 'Continue from this reviewed change', revision: 1, createdAt: '2026-09-07T00:00:00.000Z', updatedAt: '2026-09-07T00:00:00.000Z' })
+  let current = after, fingerprint = record.contentFingerprint
+  const scope = { projectKey: record.projectKey, projectPath: '/project', checkoutPath: '/project', indexKey: 'checkout' }
+  const receiver = { sessionId: 'receiver', workspacePath: '/project', liveness: 'live' } as RunningAgent
+  const service = new ProjectHandoffService(root, async () => scope, {
+    handoffSource: async () => ({ sourceRevision: record.sourceRevision, contentFingerprint: fingerprint, changedFiles: record.changedFiles }),
+    status: async () => ({ entries: [] }) as any,
+    readFileAtRef: async () => ({ content: before }), readFile: async () => ({ path: 'src/main.ts', content: current, truncated: false, bytes: current.length, revision: 'sha256:fixture' })
+  }, { list: async () => [receiver, { ...receiver, sessionId: record.fromSessionId }] })
+  const { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds } = record
+  const draft = { taskId, fromSessionId, toAgent, goal, summary, openQuestions, nextSteps, evidenceIds, reviewSelections: [{ id: note.id, revision: 1, filePath: note.target.filePath, comparison: note.target.comparison }] }
+  const saved = await service.projectHandoffCreate('/project', draft)
+  expect(saved.reviewEvidence).toEqual([note])
+  reviews.update('/project',note.id,1,'Later review text','2026-09-07T01:00:00.000Z')
+  expect((await service.projectHandoffGet('/project',saved.id)).handoff.reviewEvidence).toEqual([note])
+  await expect(service.projectHandoffCreate('/project',draft)).rejects.toThrow('changed or was removed')
+  await service.projectHandoffAccept('/project',saved.id,1,'receiver','claim')
+  const received = await service.receive(async () => receiver, { runId: 'run', sessionId: 'receiver', token: 'fixture' }, '/project', saved.id,2)
+  expect(received.reviewEvidence?.[0].anchor.context).toEqual([{ lineNumber: 1, text: 'selected line\n' }])
+  expect(received.reviewEvidence?.[0].snapshot).toEqual(note.snapshot)
+  current = 'changed source\n';fingerprint = 'sha256:'+'f'.repeat(64)
+  expect((await service.projectHandoffGet('/project',saved.id)).stale).toBe(true)
+  await expect(service.projectHandoffCreate('/project',{...draft,reviewSelections:[{...draft.reviewSelections[0],revision:2}]})).rejects.toThrow('source changed')
+  expect(() => parseProjectHandoff({...saved,reviewEvidence:Array(11).fill(note)})).toThrow('at most 10')
+})

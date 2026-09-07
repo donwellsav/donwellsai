@@ -12,6 +12,9 @@ const IMAGE_BYTE_LIMIT = 8 * 1024 * 1024
 const NO_FOLLOW = constants.O_NOFOLLOW ?? 0
 const REVISION_PATTERN = /^sha256:[a-f0-9]{64}$/
 
+/** Existing folder visibility policy; authored dotfiles remain visible when showHidden is enabled. */
+export function isWorkspaceIgnoredEntry(name: string): boolean { return name === '.git' || name === 'node_modules' || name === '.DS_Store' }
+
 const BINARY_SCAN_CHUNK_BYTES = 64 * 1024
 
 type Utf8ValidationState = {
@@ -470,7 +473,7 @@ export class WorktreeFiles {
       for await (const entry of handle) {
         if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) continue
         if (!request.showHidden && entry.name.startsWith('.')) continue
-        if (!request.includeIgnored && (entry.name === '.git' || entry.name === 'node_modules' || entry.name === '.DS_Store')) continue
+        if (!request.includeIgnored && isWorkspaceIgnoredEntry(entry.name)) continue
         if (entries.length >= MAX_DIRECTORY_ENTRIES) {
           truncated = true
           break
@@ -506,7 +509,7 @@ export class WorktreeFiles {
         for await (const entry of handle) {
           if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) continue
           if (!request.showHidden && entry.name.startsWith('.')) continue
-          if (!request.includeIgnored && (entry.name === '.git' || entry.name === 'node_modules' || entry.name === '.DS_Store')) continue
+          if (!request.includeIgnored && isWorkspaceIgnoredEntry(entry.name)) continue
           const relPath = directoryPath ? posix.join(directoryPath, entry.name) : entry.name
           if (entry.isDirectory()) directories.push(relPath)
           else candidates.push({ path: relPath, name: entry.name, type: 'file' })

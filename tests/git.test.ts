@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -302,6 +302,24 @@ describe('GitWorktrees folder and history workflows', () => {
       .resolves.toMatchObject({ entries: [{ path: 'notes.txt', name: 'notes.txt', type: 'file' }], truncated: false })
     const search = await git.searchWorkspaceFiles(folder, { query: 'notes', showHidden: false, includeIgnored: false })
     expect(search.matches[0]?.entry.path).toBe('notes.txt')
+    const initial = await git.handoffSource(folder)
+    expect(initial).toMatchObject({ sourceRevision: null, changedFiles: [] })
+    expect(await git.handoffSource(folder)).toEqual(initial)
+    writeFileSync(join(folder, 'notes.txt'), 'changed folder content')
+    expect((await git.handoffSource(folder)).contentFingerprint).not.toBe(initial.contentFingerprint)
+    const changed = await git.handoffSource(folder)
+    writeFileSync(join(folder, '.hidden'), 'also part of the source')
+    expect((await git.handoffSource(folder)).contentFingerprint).not.toBe(changed.contentFingerprint)
+    symlinkSync(join(folder, 'notes.txt'), join(folder, 'link'))
+    await expect(git.handoffSource(folder)).rejects.toThrow('links or special files')
+    unlinkSync(join(folder, 'link'))
+    mkdirSync(join(folder,'node_modules'));symlinkSync(join(folder,'notes.txt'),join(folder,'node_modules','ignored-dependency'))
+    const scoped = await git.handoffSource(folder)
+    expect(scoped.sourceBasis).toBe('folder-files')
+    for (let index = 0; index < 250; index++) writeFileSync(join(folder, `bounded-${index}`), '')
+    await expect(git.handoffSource(folder)).resolves.toMatchObject({sourceBasis:'folder-files'})
+    for (let index = 0; index < 5; index++) writeFileSync(join(folder,`large-${index}`),Buffer.alloc(7 * 1024 * 1024))
+    await expect(git.handoffSource(folder)).rejects.toThrow('exceeds 32 MiB')
     await expect(git.stage(folder, ['file.txt'])).rejects.toThrow('Git actions are unavailable for folder workspace')
     await expect(git.createWorktree(folder, { name: 'feature' })).rejects.toThrow('Git actions are unavailable for folder workspace')
   })

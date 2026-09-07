@@ -1,3 +1,4 @@
+import type { DiffReviewNote } from '@shared/diff-review'
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectHandoff, ProjectHandoffStatus } from '@shared/project-handoff'
 import type { AcpAgentSnapshot } from '@shared/agent-runtime'
@@ -28,6 +29,10 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const [memoryResults, setMemoryResults] = useState<ProjectMemoryEntry[]>([])
   const [memoryTotal, setMemoryTotal] = useState(0)
   const [reviewedMemory, setReviewedMemory] = useState<ProjectMemoryEntry[]>([])
+  const [reviewPath, setReviewPath] = useState('')
+  const [comparison, setComparison] = useState<DiffReviewNote['target']['comparison']>('working')
+  const [reviewResults, setReviewResults] = useState<DiffReviewNote[]>([])
+  const [selectedReviews, setSelectedReviews] = useState<DiffReviewNote[]>([])
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [exportPath, setExportPath] = useState('')
@@ -75,6 +80,7 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       <p>From {selected.handoff.fromSessionId} · Revision {selected.handoff.revision}</p>
       <p title={selected.handoff.contentFingerprint}>Source {selected.handoff.sourceRevision?.slice(0, 12) ?? 'uncommitted'}</p>
       <p className="memory-storage-path">{selected.handoff.checkoutPath}</p>
+      {selected.handoff.sourceBasis === 'folder-files' && <p>Folder snapshot includes authored files and hidden files. Dependency folders (node_modules), Git metadata and .DS_Store are excluded; .gitignore patterns are not applied.</p>}
       <details><summary>Changed files · {selected.handoff.changedFiles.length}</summary>
         <ul>{selected.handoff.changedFiles.map(path => <li key={path}>{path}</li>)}</ul>
       </details>
@@ -86,13 +92,22 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
           {ref.current && <><p>Current revision {ref.current.revision}</p><pre>{ref.current.content}</pre></>}
         </div>)}
       </details>}
+      {!!selected.handoff.reviewEvidence?.length && <details open><summary>Captured diff selections · {selected.handoff.reviewEvidence.length}</summary>
+        {selected.handoff.reviewEvidence.map(note => <div key={note.id}>
+          <strong>{note.target.filePath} · {note.target.comparison} · {note.anchor.side} lines {note.anchor.startLine}–{note.anchor.endLine} · review revision {note.revision}</strong>
+          <p>{note.body}</p><pre>{note.anchor.context.map(line => `${line.lineNumber}: ${line.text}`).join('\n')}</pre>
+          <p className="memory-storage-path">Review {note.id} · captured {note.updatedAt}</p>
+          <p className="memory-storage-path">Before: {note.snapshot.before.kind === 'content' ? note.snapshot.before.sha256 : 'absent'} · After: {note.snapshot.after.kind === 'content' ? note.snapshot.after.sha256 : 'absent'}</p>
+        </div>)}
+      </details>}
       {selected.stale && <p role="status">Source changed or is unavailable. Review and save a fresh handoff. {selected.sourceError}</p>}
-      <button className="btn btn-secondary btn-sm" disabled={busy || !!goal.trim() || !!summary.trim() || !!questions.trim() || !!steps.trim() || reviewedMemory.length > 0 || selected.handoff.checkoutPath !== workspacePath} onClick={() => {
+      <button className="btn btn-secondary btn-sm" disabled={busy || !!goal.trim() || !!summary.trim() || !!questions.trim() || !!steps.trim() || reviewedMemory.length > 0 || selectedReviews.length > 0 || selected.handoff.checkoutPath !== workspacePath} onClick={() => {
         setSource(selected.handoff.fromSessionId); setGoal(selected.handoff.goal); setSummary(selected.handoff.summary)
         setQuestions(selected.handoff.openQuestions.join('\n')); setSteps(selected.handoff.nextSteps.join('\n'))
         setReviewedMemory([])
         setMemoryResults((selected.memorySources ?? []).flatMap(ref => ref.current && !ref.current.archivedAt ? [ref.current] : []))
         setMemoryTotal(selected.memorySources?.length ?? 0)
+        setReviewResults(selected.handoff.reviewEvidence ?? []); setSelectedReviews([])
       }}>Copy to fresh draft for review</button>
       <p className="memory-caption">Refresh a handoff in its source checkout with an empty draft. Review and attach current facts again before saving.</p>
       <p>Instructions: {selected.handoff.dispatch?.state ?? 'not submitted'}. Receiver receipt: {selected.handoff.delivery}. Acceptance reserves the work.</p>
@@ -127,9 +142,9 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
       })}>Supersede handoff</button>}
     </section>}
     <form aria-label="Save agent handoff" onSubmit={event => { event.preventDefault(); void operate(async () => {
-      const handoff = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal, summary, openQuestions: lines(questions), nextSteps: lines(steps), evidenceIds: [], memorySources: reviewedMemory.map(({ id, revision }) => ({ id, revision })) })
+      const handoff = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal, summary, openQuestions: lines(questions), nextSteps: lines(steps), evidenceIds: [], reviewSelections: selectedReviews.map(note => ({ id: note.id, revision: note.revision, filePath: note.target.filePath, comparison: note.target.comparison })), memorySources: reviewedMemory.map(({ id, revision }) => ({ id, revision })) })
       setSelected(await window.donwells.projectHandoffGet(workspacePath, handoff.id))
-      setGoal(''); setSummary(''); setQuestions(''); setSteps(''); setReviewedMemory([])
+      setGoal(''); setSummary(''); setQuestions(''); setSteps(''); setReviewedMemory([]); setSelectedReviews([])
     }) }}>
       <strong>Save a handoff</strong>
       <fieldset disabled={busy}>
@@ -154,6 +169,19 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
             <button type="button" className="btn btn-secondary btn-sm" disabled={reviewedMemory.length >= 50 && !reviewedMemory.some(ref => ref.id === fact.id)} onClick={() => setReviewedMemory(current => [...current.filter(ref => ref.id !== fact.id), fact])}>Attach reviewed revision</button>
           </details>)}
           {reviewedMemory.map(fact => <p key={fact.id}>{fact.title} · Revision {fact.revision} <button type="button" className="btn btn-secondary btn-sm" onClick={() => setReviewedMemory(current => current.filter(ref => ref.id !== fact.id))}>Remove reference</button></p>)}
+        </details>
+        <details><summary>Attach reviewed diff selections · {selectedReviews.length} / 10</summary>
+          <p>Choose a file and load its saved review notes. Selected lines and their source hashes are captured with this handoff.</p>
+          <label>Diff file<input className="input" value={reviewPath} onChange={event => setReviewPath(event.target.value)} placeholder="src/example.ts" /></label>
+          <label>Diff comparison<select className="input" aria-label="Diff comparison" value={comparison} onChange={event => setComparison(event.target.value as typeof comparison)}>
+            <option value="working">Working tree vs HEAD</option><option value="staged">Staged vs HEAD</option><option value="unstaged">Working tree vs staged</option>
+          </select></label>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!reviewPath.trim()} onClick={() => void operate(async () => { setReviewResults((await window.donwells.diffReviewList({ workspacePath, filePath: reviewPath.trim(), comparison })).notes) })}>Load diff reviews</button>
+          {reviewResults.map(note => <details key={note.id}><summary>{note.target.filePath} · {note.anchor.side} lines {note.anchor.startLine}–{note.anchor.endLine} · revision {note.revision}</summary>
+            <p>{note.body}</p><pre>{note.anchor.context.map(line => `${line.lineNumber}: ${line.text}`).join('\n')}</pre>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={selectedReviews.length >= 10 && !selectedReviews.some(value => value.id === note.id)} onClick={() => setSelectedReviews(current => [...current.filter(value => value.id !== note.id), note])}>Attach selected diff</button>
+          </details>)}
+          {selectedReviews.map(note => <p key={note.id}>{note.target.filePath} · lines {note.anchor.startLine}–{note.anchor.endLine} · review revision {note.revision} <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedReviews(current => current.filter(value => value.id !== note.id))}>Remove diff selection</button></p>)}
         </details>
         <button className="btn btn-primary btn-sm" disabled={!source || !goal.trim() || !summary.trim()}>Save handoff for review</button>
       </fieldset>
