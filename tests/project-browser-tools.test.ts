@@ -27,9 +27,9 @@ it.skipIf(!packagePath||!browser)('uses a single native context, expires refs, r
  let targetReads=0
  const definition=createBrowserToolDefinition({...options,cache:join(root,'cache'),target:()=>++targetReads===1?{...target,url:target.url+'before-setup'}:target})
  const tools=new ProjectTools(async path=>{if(path!==project)throw new Error('foreign');return {path,projectPath:path}},[definition],30000)
- const call=async(operation:string,args:Record<string,unknown>={})=>{const result=await tools.call(project,'browser-testing',operation,args) as {isError?:boolean;content:Array<{text:string}>;structuredContent:{id:string;revision:number;artifacts:unknown[]}};expect(result.isError,JSON.stringify(result)).not.toBe(true);return result}
+ const call=async(operation:string,args:Record<string,unknown>={})=>{const result=await tools.call(project,'browser-testing',operation,args) as {isError?:boolean;content:Array<{text:string}>;structuredContent:{id:string;revision:number;previewOrigin:string;currentUrl:string|null;artifacts:unknown[]}};expect(result.isError,JSON.stringify(result)).not.toBe(true);return result}
  try{
-  const opened=await call('navigate'), text=opened.content.map(p=>p.text).join('\n'), input=/textbox "Name"[^\n]*?\[ref=([^\]]+)\]/.exec(text)?.[1];expect(input,text).toBeTruthy();expect(text).not.toContain('before-setup')
+  const opened=await call('navigate'), text=opened.content.map(p=>p.text).join('\n'), input=/textbox "Name"[^\n]*?\[ref=([^\]]+)\]/.exec(text)?.[1];expect(input,text).toBeTruthy();expect(text).not.toContain('before-setup');expect(opened.structuredContent).toMatchObject({previewOrigin:new URL(target.url).origin,currentUrl:target.url})
   const typed=await call('type',{target:input,revision:opened.structuredContent.revision,text:'SAVED_15'})
   expect(typed.structuredContent.id).toBe(opened.structuredContent.id)
   const beforeClear=await call('snapshot'), clearRef=/textbox "Name"[^\n]*?\[ref=([^\]]+)\]/.exec(beforeClear.content.map(p=>p.text).join('\n'))?.[1]

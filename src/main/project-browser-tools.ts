@@ -43,7 +43,7 @@ export function createBrowserToolDefinition(options: Options): ProjectToolDefini
       if(binding(scope)!==item) throw new Error('Browser target changed during operation; inspect before retrying')
       if(!isObject(result) || !Array.isArray(result.content)) throw new Error('Malformed browser result')
       const parts=result.content.filter(part=>isObject(part)&&part.type==='text').map(part=>String(part.text))
-      const native=parts.join('\n')
+      const native=parts.join('\n').slice(0,256*1024)
       const pageUrl=/^- Page URL: (.+)$/m.exec(native)?.[1]
       if(pageUrl && new URL(pageUrl).origin!==new URL(item.url).origin) throw new Error('Managed browser left the selected preview origin. Stop and inspect this context.')
       const artifacts: Array<{path:string;sha256:string}> = []
@@ -58,9 +58,10 @@ export function createBrowserToolDefinition(options: Options): ProjectToolDefini
         artifacts.push({path,sha256:await digest(path)})
         if(/\.(yml|yaml|md|txt)$/.test(path) && file.size<256*1024) parts.push(await readFile(path,'utf8'))
       }
-      if(['navigate','snapshot','click','type'].includes(operation) && !result.isError) for(const match of parts.join('\n').matchAll(/\[ref=([^\]]+)\]/g)) item.refs.add(match[1]!)
-      const context={id:item.id,workspacePath:scope.checkoutPath,previewId:item.previewId,previewUrl:item.url,mode:'managed isolated browser',outcome:result.isError && ['navigate','click','type','traceStart','traceStop'].includes(operation)?'uncertain; inspect before retrying':'observed',revision:item.revision,artifacts,untrusted:true}
-      return {...result,structuredContent:context,content:[{type:'text',text:JSON.stringify(context)},...parts.map(text=>({type:'text',text}))]}
+      const output = parts.join('\n').slice(0,256*1024)
+      if(['navigate','snapshot','click','type'].includes(operation) && !result.isError) for(const match of output.matchAll(/\[ref=([^\]]+)\]/g)) item.refs.add(match[1]!)
+      const context={id:item.id,workspacePath:scope.checkoutPath,previewId:item.previewId,previewOrigin:new URL(item.url).origin,previewUrl:item.url,currentUrl:pageUrl??null,mode:'managed isolated browser',outcome:result.isError && ['navigate','click','type','traceStart','traceStop'].includes(operation)?'uncertain; inspect before retrying':'observed',revision:item.revision,artifacts,untrusted:true}
+      return {...result,structuredContent:context,content:[{type:'text',text:JSON.stringify(context)},{type:'text',text:output}]}
     } catch(error) { item.refs.clear();throw error } finally {item.busy=false}
   }
   return {

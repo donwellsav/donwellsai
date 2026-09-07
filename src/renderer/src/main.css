@@ -1996,3 +1996,9 @@ dialog::backdrop { background: var(--backdrop); }
 .project-tool-settings label { font-size: 12px; }
 .project-tool-settings small { display: block; color: var(--muted-fg); margin-top: 4px; }
 .project-tool-settings pre { background: var(--background); padding: 12px; font-size: 11px; line-height: 1.6; }
+
+.browser-testing-dialog.modal { width: min(760px, calc(100vw - 2rem)); gap: 10px; }
+.browser-testing-dialog > * { flex-shrink: 0; }
+.browser-testing-dialog p { margin: 0; font-size: 12px; }
+.browser-testing-dialog .project-search-document { min-height: 120px; max-height: 32vh; }
+.browser-testing-dialog code { overflow-wrap: anywhere; }

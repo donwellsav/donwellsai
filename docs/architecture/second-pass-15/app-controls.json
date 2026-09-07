@@ -1,0 +1,16 @@
+{
+  "profile": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-ui-8pYlEs",
+  "project": "/private/var/folders/ly/4j6lsfds4n3g0_xcjrwjf4b40000gn/T/donwells-browser-ui-8pYlEs/project",
+  "url": "http://127.0.0.1:50907/",
+  "checks": [
+    "Visible testing controls inspect native refs, type and click within identified project context",
+    "Visible Stop clears managed context while retaining preview"
+  ],
+  "passed": true,
+  "appCleanup": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "daemonCleanup": true
+}
