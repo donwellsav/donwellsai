@@ -1,10 +1,12 @@
 Resume implementation of donwells.ai using the complete cross-application handoff.
 
 Existing checkout:
-/Users/muzikfirst/Documents/donwellsai/terminal-foundation
+/Users/muzikfirst/Documents/donwellsai
 
 Repo-local handoff data:
-/Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07
+/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07
+
+Folder rules: /Users/muzikfirst/Documents/donwellsai is the one app repository; workingfolder/ is for scratch/staging/handoff data; research/ is for research repositories and trials; trash/ is for superseded files. Do not create another checkout/worktree.
 
 We are staying on this same machine and using this existing checkout in a different app. No clone, extraction or restore is needed. The handoff data folder is Git-ignored but present locally; use explicit paths or scoped --no-ignore searches if your tools hide it. Active source and docs/handoff take precedence over recovery copies inside that folder.
 

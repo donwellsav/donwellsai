@@ -8,3 +8,13 @@ resources/native/
 
 # Local cross-app handoff: transcripts, evidence and recovery binaries.
 /handoff-2026-09-07/
+
+# User-designated local workspace areas.
+/workingfolder/
+/research/
+/trash/
+/other/
+# Old checkout directories retained only until live owners can be closed.
+/donwellsai/
+/terminal-foundation/
+/plan-restart/

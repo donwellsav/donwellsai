@@ -8,7 +8,7 @@ Editor, files, changes, browser, knowledge, resources and environments are movab
 
 ## State at transfer
 
-- Source root and branch: `/Users/muzikfirst/Documents/donwellsai/terminal-foundation`, `workspace/terminal-foundation`.
+- Source root and branch: `/Users/muzikfirst/Documents/donwellsai`, `workspace/terminal-foundation`.
 - Last product change:71fc082 (point request payload fix). c89e541 adds Lume Show desktop; e8ecff0 corrects global module labels. These are partial increments.
 - 2c6f020 was the last handoff-audit commit before this package. This package adds a later documentation/exporter commit. Do not reset to old hashes.
 - Implementation is paused by the user for transfer. No product builds, model calls or VM/desktop trials were run during handoff review/export.
@@ -66,7 +66,7 @@ Current `ProjectRemoteMethod` exposes terminal/memory/source/result operations b
 
 The remote `result.read` implementation accepts complete non-executable text and rejects binary/truncated files. Compare that boundary with the actual required artifact workflow; do not imply arbitrary binary/package import is already supported.
 
-Retained task guest exists under the parent research directory (see Operations). Prior suggestion to rename it into private storage is UNTRIED and conflicts with the registration wording and new-clone deployment notes. Reconcile requirements and ownership before selecting preparation, explicit adoption or cloning; do not bypass policy by path manipulation. No user VM may be appropriated.
+Retained task guest exists under research/ in the app repository (see Operations). Prior suggestion to rename it into private storage is UNTRIED and conflicts with the registration wording and new-clone deployment notes. Reconcile requirements and ownership before selecting preparation, explicit adoption or cloning; do not bypass policy by path manipulation. No user VM may be appropriated.
 
 ## Task26 — integrated host/native terminal
 
@@ -91,3 +91,9 @@ Report exact source commit/artifact hash and signing/notarization truth, verify 
 ## Completion and continuation
 
 The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Skip only02.
+
+## User-corrected folder layout
+
+The one app repository is now `/Users/muzikfirst/Documents/donwellsai`, with independent Git metadata and the current tracked implementation preserved. Use `workingfolder/` for scratch/staging and the handoff archive, `research/` for research, and `trash/` for superseded files. Do not create another app worktree.
+
+At consolidation, the old `plan-restart` checkout had uncommitted changes and the original `donwellsai` checkout had untracked planning documents. They were preserved in place; status and patch records are in `workingfolder/repo-consolidation/`. Old checkout folders remain temporarily because live processes still reference them, including a daemon using the normal user profile. Do not delete or move them until those owners are safely resolved. Root code/history no longer depend on their Git metadata. The old ZIP/checksum were moved into `trash/2026-09-07-layout-cleanup/`.

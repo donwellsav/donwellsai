@@ -2,19 +2,19 @@
 
 ## New application/session on this Mac
 
-Open `/Users/muzikfirst/Documents/donwellsai/terminal-foundation` as the local project. In a CLI, change to that directory before starting the harness's normal executable. Select the desired model in the new application; no provider-specific flags are guessed. Paste `START-NEXT-SESSION.txt` (also in chat). A text-only session cannot perform local implementation or macOS qualification.
+Open `/Users/muzikfirst/Documents/donwellsai` as the local project. In a CLI, change to that directory before starting the harness's normal executable. Select the desired model in the new application; no provider-specific flags are guessed. Paste `START-NEXT-SESSION.txt` (also in chat). A text-only session cannot perform local implementation or macOS qualification.
 
 Initial read-only commands:
 
 ```sh
-cd /Users/muzikfirst/Documents/donwellsai/terminal-foundation
+cd /Users/muzikfirst/Documents/donwellsai
 git rev-parse --show-toplevel
 git branch --show-current
 git status --short
 git log -7 --oneline
 ```
 
-The root uses a Git worktree `.git` file, not an ordinary `.git` directory. Use Git commands to resolve owners/paths. Do not move or reset the checkout or overwrite newer edits. Runtime assets in the parent research folder are outside the nested repository.
+The app repository is /Users/muzikfirst/Documents/donwellsai with its own .git directory. Use workingfolder/ for staging, scratch work and the local handoff archive; research/ for research and third-party trials; trash/ for superseded files. Do not create another app checkout or worktree. Historical paths in transcripts refer to the old layout and must be mapped through this note.
 
 ## Tool and build prerequisites
 
@@ -95,8 +95,8 @@ It is not final. Recorded signing is ad hoc Electron executable only, no Develop
 The repo-local handoff package contains repository.bundle with the reachable history of workspace/terminal-foundation. Verify the package hash manifest and Git bundle before use. Clone into a NEW empty destination, never over this checkout:
 
 ```sh
-git bundle verify /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/repository.bundle
-git clone -b workspace/terminal-foundation /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/repository.bundle /path/to/NEW-donwells-checkout
+git bundle verify /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/repository.bundle
+git clone -b workspace/terminal-foundation /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/repository.bundle /path/to/NEW-donwells-checkout
 ```
 
 Bundle recovery restores tracked source, plans and committed evidence, not node_modules, VM disks, models, private credentials, OS permissions or arbitrary /tmp files. Selected ephemeral evidence is separately inventoried; missing dependencies need existing pinned setup procedures. Consult package-manifest.json rather than assuming everything machine-local was copied.

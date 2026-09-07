@@ -1,7 +1,7 @@
 # Complete available session record: coverage and retrieval
 
 Root thread: `01a0741e-cbae-7b92-9b05-b2299f723c9a`, begun2026-09-05. Archive path:
-`/Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/session-archive`.
+`/Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/session-archive`.
 
 ## Files
 
@@ -30,7 +30,7 @@ Search action-index.jsonl for task name, commit, filename or command; use thread
 Example (read-only):
 
 ```sh
-rg -n '71fc082|computer-control-ui|project-lume' /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/session-archive/action-index.jsonl
+rg -n '71fc082|computer-control-ui|project-lume' /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/session-archive/action-index.jsonl
 ```
 
 For exact records use Python JSON loading line by line and filter source_ordinal. Use small slices rather than loading hundreds of megabytes into model context. AGENTS-AND-PROVENANCE.md identifies the owning worker histories and disputed conclusions.
@@ -40,9 +40,9 @@ For exact records use Python JSON loading line by line and filter source_ordinal
 A reusable exporter is committed at `scripts/export-session-handoff.py`. It opens the Codex thread registry read-only, follows recorded child edges, preserves visible records and writes only its own marked export destination. It does not launch agents, replay commands, alter original logs or contact a service.
 
 ```sh
-cd /Users/muzikfirst/Documents/donwellsai/terminal-foundation
+cd /Users/muzikfirst/Documents/donwellsai
 python3 scripts/export-session-handoff.py --self-test
-python3 scripts/export-session-handoff.py --thread 01a0741e-cbae-7b92-9b05-b2299f723c9a --output /Users/muzikfirst/Documents/donwellsai/terminal-foundation/handoff-2026-09-07/session-archive
+python3 scripts/export-session-handoff.py --thread 01a0741e-cbae-7b92-9b05-b2299f723c9a --output /Users/muzikfirst/Documents/donwellsai/workingfolder/handoff-2026-09-07/session-archive
 ```
 
 Refreshing changes export hashes. Update the outer package manifest/archive if distributing that refreshed version; do not claim the old ZIP includes new records. On a different machine without the original Codex registry/logs, use the included snapshot and its explicit cutoff; the refresh command cannot recreate unavailable history.
