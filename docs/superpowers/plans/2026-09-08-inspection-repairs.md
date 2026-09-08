@@ -29,14 +29,14 @@ Baseline: build/typecheck pass; 563 tests pass, 1 fails, 15 skip. The failed CLI
 | Order | Repair | Depends on | Status |
 |---|---|---|---|
 | 1 | Restore project language tools with installed TypeScript | None | Implemented; 7 focused checks; desktop diagnostic, definition, references, edit and restart pass |
-| 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks; root/direct-file desktop launches and metadata pass; preview pending |
-| 3 | Reproduce and repair terminal replay geometry | 2 | Implemented; 15 focused checks, full suite and native desktop restart/resize pass; final package pending |
-| 4 | Make terminal settings truthful and functional | 2; recheck 3 | Implemented; 11 focused checks; native spacing and copy-on-select visually verified; Xterm package check pending |
+| 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks; root/direct-file/preview desktop launches, terminal input and metadata pass |
+| 3 | Reproduce and repair terminal replay geometry | 2 | Implemented; source desktop restart/resize passes; packaged renderer switch exposed stale resize callbacks, corrected in 207361e; final visual retest blocked by locked Mac |
+| 4 | Make terminal settings truthful and functional | 2; recheck 3 | Implemented; 11 focused checks; native spacing/copy-on-select and packaged Xterm weight/spacing visually verified; final replay qualification remains under task 3 |
 | 5 | Repair parallel-run CLI argument compatibility | None | Implemented; all 9 CLI checks and typecheck pass |
 | 6 | Honor Git ignores in Explorer and file search | None | Complete; 19 Git checks; Explorer ignored toggle verified in desktop; search already honored rules |
 | 7 | Preserve credentials on corruption/write failure | None | Implemented; synthetic corruption and atomic failure checks pass; typecheck passes |
-| 8 | Reconcile launch, handoff and release documentation | 1–7 | Current continuation and signing claims corrected; final release identity pending |
-| 9 | Build and qualify the matching local release | 1–8 | [ ] |
+| 8 | Reconcile launch, handoff and release documentation | 1–7 | Current continuation, signing claims and candidate identity documented; final desktop acceptance remains open |
+| 9 | Build and qualify the matching local release | 1–8 | Candidate built and package/DMG/shipped CLI checks pass; final desktop qualification pending manual Mac unlock |
 
 After each row: update this table and report the complete nine-row checklist, local commit, user-visible result, focused check, visual proof and remaining limitations. Commit completion alone is not a stop condition during an authorized execution run.
 
@@ -260,3 +260,15 @@ All tests must pass apart from explicitly reviewed environment skips; do not ret
 - CUA Explorer: `dist`, `dist-cli`, `out` hidden with Ignored off and visible with it on. Filename search found the ignored test file when opted in.
 - Replay geometry is recorded by the new daemon. Old daemon histories lack original resize information; their legacy replay remains best effort without terminating their processes. Existing truncated-history handling remains. This repair does not claim reconstruction of information an older daemon never retained.
 - The Git-ignore defect was in `GitWorktrees.listFiles` filesystem fallback. Existing Git-aware filename search already respected rules; no second ignore engine was added.
+
+## Current release candidate and remaining acceptance
+
+- Runtime source commit: `207361e3670c7465d4c19255109f09468f84675d`. Later checklist-only commits do not change the packaged runtime.
+- Candidate: [donwells-0.5.0-mac-arm64.dmg](/Users/muzikfirst/Documents/donwellsai/donwellsai/dist/donwells-0.5.0-mac-arm64.dmg).
+- SHA-256: `7c849a96169f0e7dd179f59566442f26541196cfa33bc75c3a5133fa65d457df`.
+- Final source suite: 569 passed, 15 skipped, zero failures. Build and typecheck passed. DMG verification passed; mounted bundle matched 720 application files and 138 external resources, with 188 production dependency notices checked. Critical hashes match the unpacked and copied candidate.
+- Shipped CLI checks passed for bare/wrapped/explicit input, options, duplicate rejection, project memory read and revision-guarded file save. A stale revision preserved the external edit; the current revision saved successfully. These are shipped API checks, not a completed visual editor acceptance run.
+- Signing remains ad hoc/linker-signed, with no Developer ID, sealed resources or notarization claim. No installation, push or publication occurred.
+- The first packaged renderer-switch check exposed a transient native 50x13 resize callback that damaged retained output. Commit `207361e` rejects callbacks that do not match current native geometry and flushes native bounds layout. Five focused native checks pass. **Its final visual renderer-switch/restart check has not passed yet:** the Mac locked before the retest and requires manual unlock.
+- Remaining desktop work: repeat native/Xterm switching, narrow/wide replay, restart with the same PID and fresh input; finish the packaged language/editor workflow and redraw-capable TUI check. Then clean up the final candidate-owned app and daemon. The isolated candidate is left available for this continuation; its profile is `/tmp/donwells-release-profile-0908`.
+- Full machine-readable hashes and verification details: `../workingfolder/inspection-2026-09-08/release-evidence.json`; shipped checks: `shipped-cli-checks.json` in that directory. Earlier source and candidate observations do not substitute for the outstanding final visual check.
