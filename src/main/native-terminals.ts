@@ -1,3 +1,4 @@
+import { appResourcesRoot } from './app-resources'
 import { resolveAppShortcuts } from '@shared/app-commands'
 import { app, shell, type BrowserWindow } from 'electron'
 import { createRequire } from 'node:module'
@@ -16,7 +17,7 @@ let receive: ((json: string) => void) | undefined
 function native(): Binding {
   if (process.platform !== 'darwin') throw new Error('Native Ghostty is available on macOS. Choose xterm in Terminal settings on this platform.')
   if (!binding) {
-    const path = app.isPackaged ? join(process.resourcesPath, 'native/ghostty.node') : join(app.getAppPath(), 'resources/native/ghostty.node')
+    const path = join(appResourcesRoot(), app.isPackaged ? 'native/ghostty.node' : 'resources/native/ghostty.node')
     process.env.GHOSTTY_RESOURCE_BUNDLE = join(dirname(path), 'GhosttyKit_GhosttyTerminal.bundle')
     binding = createRequire(__filename)(path) as Binding
     binding.listen(json => receive?.(json))

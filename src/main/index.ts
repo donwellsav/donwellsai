@@ -1,3 +1,4 @@
+import { appResourcesRoot } from './app-resources'
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
@@ -211,7 +212,7 @@ function runtimeMetadata(): AppMeta {
     userDataDir: app.getPath('userData'),
     memoryMcp: {
       command: process.execPath,
-      args: [join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'cli', 'donwells.mjs')],
+      args: [join(appResourcesRoot(), 'cli', 'donwells.mjs')],
       env: { ELECTRON_RUN_AS_NODE: '1' }
     }
   }
@@ -220,7 +221,7 @@ function runtimeMetadata(): AppMeta {
 function registerIpc(): void {
   ipcMain.handle('agentConfigureMemory', async (_e, workspacePath: string, provider: string, launchArgs?: string[], replacement?: { action: 'preview' } | { action: 'apply'; revision: string }) => configureAgentMemory({
     files: git, workspacePath: await resolveRegisteredWorkspace(workspacePath), provider, launchArgs, replacement, userDataDir: app.getPath('userData'), executable: process.execPath,
-    cliPath: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'cli', 'donwells.mjs')
+    cliPath: join(appResourcesRoot(), 'cli', 'donwells.mjs')
   }))
   ipcMain.handle('meta', runtimeMetadata)
   const editorRecovery = new EditorRecoveryService(app.getPath('userData'), { resolveWorkspace: resolveRegisteredWorkspace })

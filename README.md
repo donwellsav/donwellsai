@@ -66,4 +66,4 @@ pnpm test         # vitest
 pnpm typecheck    # main, renderer, and CLI
 ```
 
-Debug build: `pnpm build` then `npx electron --remote-debugging-port=9334 out/main/index.js` (userData lives in `~/Library/Application Support/donwells.ai`).
+Debug build: `pnpm build` then `pnpm exec electron --remote-debugging-port=9334 .` (direct `out/main/index.js` launches resolve the same resources) (userData lives in `~/Library/Application Support/donwells.ai`).

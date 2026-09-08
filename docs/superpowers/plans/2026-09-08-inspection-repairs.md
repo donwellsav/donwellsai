@@ -29,7 +29,7 @@ Baseline: build/typecheck pass; 563 tests pass, 1 fails, 15 skip. The failed CLI
 | Order | Repair | Depends on | Status |
 |---|---|---|---|
 | 1 | Restore project language tools with installed TypeScript | None | Implemented; 7 focused checks pass; desktop qualification pending |
-| 2 | Fix development resource roots for all callers | None | [ ] |
+| 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks and typecheck pass; desktop qualification pending |
 | 3 | Reproduce and repair terminal replay geometry | 2 | [ ] |
 | 4 | Make terminal settings truthful and functional | 2; recheck 3 | [ ] |
 | 5 | Repair parallel-run CLI argument compatibility | None | [ ] |
