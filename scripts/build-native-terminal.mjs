@@ -31,6 +31,10 @@ if (!['arm64', 'x64'].includes(process.arch)) throw new Error(`Unsupported nativ
 const target = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-macos.13.0`
 const coreOutput = join(directory, '.build/core-no-intl', target)
 cpSync(join(directory, 'replay-grid.patch'), join(vendor, 'Patches/ghostty/0099-donwells-replay-grid.patch'))
+// Restore upstream patch context before its idempotence checks; the builder reapplies our final patch.
+let replayPatched = false
+try { execFileSync('git', ['apply', '--reverse', '--check', join(directory, 'replay-grid.patch')], { cwd: core, stdio: 'ignore' }); replayPatched = true } catch {}
+if (replayPatched) run('git', ['apply', '--reverse', join(directory, 'replay-grid.patch')], core)
 // Use upstream's external-I/O patch stack, but never its gettext-linked prebuilt binary.
 execFileSync('./Script/build-ghostty.sh', [core, target, coreOutput], {
   cwd: vendor, stdio: 'inherit', env: { ...process.env, ZIG_BUILD_EXTRA_ARGS: '-Di18n=false' },
