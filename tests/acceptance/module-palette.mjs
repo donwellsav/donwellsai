@@ -34,7 +34,7 @@ const report = {
   executableSha256: sha256(executable),
   profile,
   project,
-  expectedPaneKey: `environments:${project}`,
+  expectedPaneKey: `memory:${project}`,
   renderedOptionsBeforeAssertion: []
 }
 let app, child, page
@@ -50,11 +50,11 @@ try {
     const state = window.__store.getState()
     state.setActiveRepo(state.repos.find(repo => repo.repo.path === path).repo.id)
     state.setActiveWorktree(path)
-    state.openWorkspaceModule(path, 'environments')
+    state.openWorkspaceModule(path, 'memory')
     return { activePane: window.__store.getState().activePane[path], panes: window.__store.getState().panes[path].map(pane => ({ key: pane.key, kind: pane.kind })) }
   }, project)
   assert.equal(opened.activePane, report.expectedPaneKey)
-  assert(opened.panes.some(pane => pane.key === report.expectedPaneKey && pane.kind === 'environments'))
+  assert(opened.panes.some(pane => pane.key === report.expectedPaneKey && pane.kind === 'memory'))
 
   await page.keyboard.press('Meta+p')
   const palette = page.locator('.palette-dialog')
@@ -62,19 +62,65 @@ try {
   await palette.getByRole('button', { name: 'Everywhere', exact: true }).click()
   const options = palette.getByRole('option')
   report.renderedOptionsBeforeAssertion = await options.allTextContents()
-  assert(!report.renderedOptionsBeforeAssertion.some(label => /Diff\s*·?\s*Source Control/i.test(label)), 'Environment module is mislabeled as Diff · Source Control')
-  assert(report.renderedOptionsBeforeAssertion.some(label => /Project environments/i.test(label)), 'Project environments is absent from the palette')
+  assert(!report.renderedOptionsBeforeAssertion.some(label => /Diff\s*·?\s*Source Control/i.test(label)), 'Memory module is mislabeled as Diff · Source Control')
+  assert(report.renderedOptionsBeforeAssertion.some(label => /Project memory/i.test(label)), 'Project memory is absent from the palette')
 
   const input = palette.getByRole('combobox')
-  await input.fill('environment')
-  const environmentOption = palette.getByRole('option').filter({ hasText: 'Project environments' })
-  await environmentOption.waitFor()
-  assert.equal(await environmentOption.count(), 1, 'Environment search must identify exactly one retained module pane')
-  report.filteredOption = await environmentOption.innerText()
-  await environmentOption.click()
+  await input.fill('memory')
+  const memoryOption = palette.getByRole('option').filter({ hasText: 'Project memory' })
+  await memoryOption.waitFor()
+  assert.equal(await memoryOption.count(), 1, 'Memory search must identify exactly one retained module pane')
+  report.filteredOption = await memoryOption.innerText()
+  await memoryOption.click()
   await palette.waitFor({ state: 'detached' })
   report.activePaneAfterSelection = await page.evaluate(path => window.__store.getState().activePane[path], project)
   assert.equal(report.activePaneAfterSelection, report.expectedPaneKey)
+
+  // Persisted-layout compatibility proof: a retired 'environments' pane in the saved session must restore as a closable removal note.
+  const retiredPaneKey = `environments:${project}`
+  await page.waitForFunction(async path => {
+    const session = await window.donwells.getWorkspaceSession()
+    const state = window.__store.getState().activeRepoId
+    return Boolean(session?.repos?.[state]?.panes?.[path]?.some(pane => pane.kind === 'memory'))
+  }, project)
+
+  // Inject while the app is closed so no renderer snapshot can overwrite the edit.
+  report.relaunchShutdown = await closeOwnedSmokeApp(app, child)
+  app = null
+  assert(cleanSmokeAppShutdown(report.relaunchShutdown), 'Relaunch shutdown was not clean')
+  const dataFile = join(profile, 'donwells-data.json')
+  const data = JSON.parse(readFileSync(dataFile, 'utf8'))
+  const repoId = data.workspaceSession.activeRepoId
+  const panes = data.workspaceSession.repos[repoId].panes[project]
+  const source = panes.find(pane => pane.kind === 'memory')
+  assert(source, 'Memory pane must persist before injection')
+  panes.push({ ...source, key: retiredPaneKey, kind: 'environments' })
+  writeFileSync(dataFile, JSON.stringify(data, null, 2) + '\n', 'utf8')
+  report.injectedRetiredPane = { repoId, panes: panes.map(pane => pane.key) }
+
+  app = await _electron.launch({ executablePath: executable, args: values.source ? [root] : [], env, timeout: 30000 })
+  child = app.process()
+  page = await app.firstWindow()
+  page.setDefaultTimeout(10000)
+  await page.getByRole('navigation', { name: 'Workspace tools' }).waitFor()
+  await page.waitForFunction(path => window.__store.getState().repos.some(repo => repo.repo.path === path), project)
+  await page.evaluate(path => {
+    const state = window.__store.getState()
+    state.setActiveRepo(state.repos.find(repo => repo.repo.path === path).repo.id)
+    state.setActiveWorktree(path)
+  }, project)
+  const retiredTab = page.locator('.flexlayout__tab_button').filter({ hasText: 'Project environments' })
+  await retiredTab.waitFor()
+  assert.equal(await retiredTab.count(), 1, 'Restored environments pane must render exactly one retained tab')
+  await retiredTab.click()
+  const retiredPane = page.locator('[data-pane-kind="environments"]')
+  const note = retiredPane.locator('.empty-note')
+  await note.getByText('Project environments were removed from Donwells. This view can be closed.', { exact: true }).waitFor()
+  report.environmentsRestore = { paneKey: retiredPaneKey, emptyNote: await note.innerText() }
+  await page.screenshot({ path: join(evidence, 'environments-restored.png') })
+  await note.getByRole('button', { name: 'Close this view', exact: true }).click()
+  await page.waitForFunction(() => !document.querySelector('[data-pane-kind="environments"]'))
+  report.environmentsRestore.closedViaButton = true
   report.passed = true
 } catch (error) {
   report.error = String(error)

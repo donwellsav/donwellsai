@@ -12,7 +12,6 @@
 .workspace-dock .flexlayout__tab { background: var(--background); }
 .workspace-dock .flexlayout__tab_button { padding: 5px 10px; }
 .workspace-dock .flexlayout__tabset { border: 0; border-radius: 0; }
-.workspace-dock .pane-title-bar { background: var(--card); border-bottom: 1px solid var(--border); font-size: 10px; }
 .workspace-hidden-views { position: relative; }
 .workspace-hidden-views summary { padding: 6px; cursor: pointer; }
 .workspace-hidden-views > div { position: absolute; right: 0; top: 100%; z-index: 50; width: 180px; background: var(--popover); border: 1px solid var(--input); padding: 4px; }

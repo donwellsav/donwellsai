@@ -38,7 +38,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **18 — Coordinate parallel work and Git** — Delivered: overlap owner/changes/handoff routes and deliberate UI merge resolution proven; retained native tools and shared/isolated intent evidence.
 - [x] **19 — Make every integrated tool discoverable and manageable** — Delivered: catalog/configuration routes, actual missing-runtime repair and disable, scoped resource controls, native remote stop and inactive pairing retirement.
 - [x] **20 — Make projects portable and recoverable** — Delivered: learned/workflow/temporal restore, canonical provenance, actual collision resolution, credential omission and explicit SSH re-pairing.
-- [ ] **21 — Finish the integrated GUI and remove daily-use friction** — Active: populated search density/zoom improvements; integrated and physical journeys remain.
+- [ ] **21 — Finish the integrated GUI and remove daily-use friction** — Substantially delivered 2026-09-08 ([increment record](architecture/second-pass-21/integration-2026-09-08.md)): ranked friction profile; fixes for the retired-environments pane, focus dead-ends and hidden-window polling; dead CSS removed; keyboard/palette/accessibility suites green on the current package. Remaining: 21F physical-desktop input qualification only.
 - [ ] **22 — Deliver the finished installable application** — Partial: installed5172c81 candidate native workflow and three-class profile recovery passed; final artifact awaits integrated GUI/physical qualification.
 - [x] **23 — Integrate analytics and richer project memory** — Delivered: DuckDB activity, Hindsight recall/reflection and Graphiti dated relations; reviewed native-agent sources, correction/erase, portable restoration and interrupted projection recovery.
 - [ ] **24 — REMOVED — Integrate isolated desktops and remote work** — Removed by explicit user decision 2026-09-08. All SSH/Lume/remote-control code, the environments panel and install/bundle scripts were deleted from the source tree; the app is local-only with per-project scoping plus permission prompts as the safety model. See the Task 24 plan card.
@@ -68,9 +68,9 @@ Electron/native Ghostty with daemon-owned PTYs is the established direction, re-
 
 ## Task21 — finish the actual GUI
 
-Existing increments include terminal shell/module retention, search density/font scaling, remote environment module height/side controls, and distinct module labels. Remote terminals remain local to the Environment panel, not automatically integrated in the local Sessions rail.
+Increments include terminal shell/module retention, search density/font scaling, distinct module labels, and the 2026-09-08 integration pass ([record](architecture/second-pass-21/integration-2026-09-08.md)): ranked friction profile, retired-pane empty state with live restore proof, focus dead-end fixes, hidden-window poll gating, dead-CSS removal, and green keyboard/palette/accessibility suites on the current package. Earlier remote-environment module notes are superseded by24's removal.
 
-Complete real populated multi-agent coding, knowledge/history, editor/browser/control, remote/Lume and interrupted work. Profile and fix concrete focus/latency/background-contention/density problems. Consolidate duplicated controls and superseded GUI paths after replacement workflows work. Qualify narrow/wide/font scaling and keyboard/pointer interactions; show before/after product outcomes. Retain #16161D and terminal space. A mockup, passing old tests or a renamed panel does not finish21.
+Remaining: 21F's physical native keyboard/pointer/selection/Metal qualification — blocked on operator consent to drive the active desktop; a two-minute manual check closes it. Otherwise 21 is done; 22 owns the final package.
 
 ## Task22 — final current-source installed app
 

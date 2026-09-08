@@ -47,6 +47,11 @@ function WorkspacePane({ worktreePath, paneKey, visible }: { worktreePath: strin
           : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
           : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
           : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} />
+          : pane.kind === 'environments' ? <div className="empty-note" role="status">
+            <strong>Project environments removed</strong>
+            <p>Project environments were removed from Donwells. This view can be closed.</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().hidePaneView(worktreePath, pane.key)}>Close this view</button>
+          </div>
           : pane.kind === 'browser' ? <p style={{ padding: 16 }}>Set a preview URL from Layout in the side toolbar.</p> : null}
       </div>}
   </div>

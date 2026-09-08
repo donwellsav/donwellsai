@@ -98,7 +98,7 @@ function selectTab(commandId: AppCommandId): boolean {
     (pane) => pane.kind === 'terminal' || pane.kind === 'preview' || pane.kind === 'browser' || pane.kind === 'diff'
   )
   const pane = tabs[index]
-  if (pane) { state.setActivePane(worktreePath, pane.key); focusPaneTarget() }
+  if (pane) { state.setActivePane(worktreePath, pane.key); void focusPaneTarget() }
   return true
 }
 
@@ -182,7 +182,7 @@ export function dispatchAppCommand(action: string): void {
       const worktreePath = state.activeWorktreePath
       if (worktreePath) {
         state.focusRelativePane(worktreePath, command.id === 'focus-next-pane' ? 1 : -1)
-        focusPaneTarget()
+        void focusPaneTarget()
       }
       break
     }

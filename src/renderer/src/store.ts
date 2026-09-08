@@ -1773,7 +1773,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         runningAgents: { ...state.runningAgents, [sessionId]: run }
       }))
       persistSessionSoon()
-      if (typeof document !== 'undefined') focusPaneTarget()
+      if (typeof document !== 'undefined') void focusPaneTarget()
       return true
     } catch (error) {
       set({ error: 'Could not open agent terminal: ' + String(error) })
@@ -1877,7 +1877,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRunsOpen(open: boolean) {
     const wasOpen = get().runsOpen
     set({ runsOpen: open })
-    if (wasOpen && !open && typeof document !== 'undefined') focusPaneTarget()
+    if (wasOpen && !open && typeof document !== 'undefined') void focusPaneTarget()
   },
 
   setSidebarOpen(open: boolean) {
@@ -1889,7 +1889,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (open && !wasOpen) { get().setRightSidebarTab(get().rightSidebarTab); return }
     set({ rightSidebarOpen: open })
     if (wasOpen && !open && typeof document !== 'undefined') requestAnimationFrame(() => {
-      if (!get().rightSidebarOpen) focusPaneTarget()
+      if (!get().rightSidebarOpen) void focusPaneTarget()
     })
   },
 

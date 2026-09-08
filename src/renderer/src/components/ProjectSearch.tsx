@@ -160,6 +160,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     let lastFinishedJob: unknown
     let cancelled = false, timer: ReturnType<typeof setTimeout>
     const poll = async () => {
+      if (window.document.hidden) { timer = setTimeout(() => void poll(), 2000); return }
       try {
         const tools = await window.donwells.projectToolsList(workspacePath)
         if (cancelled) return

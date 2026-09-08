@@ -89,12 +89,19 @@ export function App() {
   // Live status polling: every statusPollMs refresh worktree statuses for the active repo.
   useEffect(() => {
     if (settings.statusPollMs <= 0) return
-    const timer = window.setInterval(() => {
+    const tick = () => {
+      if (document.hidden) return
       const st = useAppStore.getState()
       void st.refreshStatuses()
       if (st.activeWorktreePath) void st.refreshScan(st.activeWorktreePath)
-    }, settings.statusPollMs)
-    return () => window.clearInterval(timer)
+    }
+    const timer = window.setInterval(tick, settings.statusPollMs)
+    const onVisible = () => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [settings.statusPollMs])
 
   useEffect(() => installAppShortcuts(), [])
@@ -129,7 +136,7 @@ export function App() {
   return (
     <div className="app-layout">
       <WorkspaceShell>
-        <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`}>
+        <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`} tabIndex={-1}>
           <Workbench />
           {!activeWorktreePath && <Landing />}
           <BrowserHosts />

@@ -90,6 +90,7 @@ try{
  const file=page.locator('.git-file-name').filter({hasText:'README.md'});await file.waitFor();await activate(file)
  await activate(page.getByRole('button',{name:/Review notes/}))
  const verification=page.getByRole('region',{name:'Verification evidence'});await verification.waitFor()
+ await activate(verification.locator('summary').filter({hasText:'Run verification'}))
  await activate(verification.getByRole('button',{name:'Run script',exact:true}))
  const verifyDeadline=Date.now()+20000;let verified
  while(!verified){verified=(await invoke('verification.list',{workspacePath:project})).find(r=>r.task.status==='succeeded');assert(Date.now()<verifyDeadline,'Keyboard verification did not succeed');if(!verified)await delay(100)}

@@ -107,21 +107,23 @@ function waitForStoreLoad(): Promise<void> {
   return promise
 }
 
-export function focusPaneTarget(target = activeNavigationTarget()): void {
-  if (!target) return
+export function focusPaneTarget(target = activeNavigationTarget()): Promise<boolean> {
+  if (!target) return Promise.resolve(false)
   const { rightSidebarOpen, rightSidebarTab } = useAppStore.getState()
+  const { promise, resolve } = Promise.withResolvers<boolean>()
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const state = useAppStore.getState()
-    if (state.runsOpen || state.settingsOpen || state.paletteOpen || document.querySelector('dialog[open]')) return
-    if (state.rightSidebarOpen !== rightSidebarOpen || state.rightSidebarTab !== rightSidebarTab) return
+    if (state.runsOpen || state.settingsOpen || state.paletteOpen || document.querySelector('dialog[open]')) { resolve(false); return }
+    if (state.rightSidebarOpen !== rightSidebarOpen || state.rightSidebarTab !== rightSidebarTab) { resolve(false); return }
     const current = activeNavigationTarget()
-    if (!current || !sameNavigationTarget(current, target)) return
+    if (!current || !sameNavigationTarget(current, target)) { resolve(false); return }
     if (target.kind === 'workspace') {
       document.querySelector<HTMLElement>('.workspace-stage')?.focus()
+      resolve(true)
       return
     }
     const pane = document.querySelector<HTMLElement>(`[data-pane-key="${CSS.escape(target.paneKey)}"]`)
-    if (!pane) return
+    if (!pane) { resolve(false); return }
     const selector = target.kind === 'terminal'
       ? '.native-terminal-host, .xterm-helper-textarea'
       : target.kind === 'browser'
@@ -129,7 +131,9 @@ export function focusPaneTarget(target = activeNavigationTarget()): void {
         : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], textarea'
     const focusable = pane.querySelector<HTMLElement>(selector)
     ;(focusable ?? pane).focus()
+    resolve(true)
   }))
+  return promise
 }
 
 async function applyNavigationTarget(target: NavigationTarget): Promise<boolean> {
@@ -147,7 +151,7 @@ async function applyNavigationTarget(target: NavigationTarget): Promise<boolean>
       useAppStore.getState().setActivePane(target.worktreePath, target.paneKey)
     }
     lastObserved = activeNavigationTarget()
-    focusPaneTarget(target)
+    await focusPaneTarget(target)
     return true
   } finally {
     traversalDepth -= 1
@@ -269,6 +273,6 @@ export async function focusRetainedAgentSession(sessionId: string): Promise<bool
   const focused = await useAppStore.getState().focusAgentSession(sessionId)
   if (!focused) return false
   const target = activeNavigationTarget()
-  if (target) focusPaneTarget(target)
+  if (target) await focusPaneTarget(target)
   return true
 }
