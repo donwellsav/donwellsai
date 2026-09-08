@@ -9,7 +9,7 @@ import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { terminalThemeOf } from '../renderer/src/terminal-themes'
 
-type Entry = { id: string; instance: string; sessionId: string; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number }
+type Entry = { id: string; instance: string; sessionId: string; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
 type Binding = { request(json: string, handle?: Buffer): string; listen(callback: (json: string) => void): void }
 let binding: Binding | undefined
 let receive: ((json: string) => void) | undefined
@@ -84,15 +84,25 @@ export class NativeTerminals {
     catch (error) { console.error('Native terminal surface cleanup failed:', error) }
   }
   private clear() { for (const entry of this.entries.values()) this.dispose(entry) }
+  private replay(entry: Entry) {
+    const snapshot = entry.snapshot
+    if (!snapshot || !entry.measured) return
+    this.call(entry, 'snapshot', { chunks: snapshot.replay ?? [{ data: snapshot.scrollback, cols: 100, rows: 30 }], cols: entry.cols, rows: entry.rows })
+    entry.snapshot = undefined
+    entry.stream.acceptSnapshot('', snapshot.sequence)
+    entry.connected = snapshot.session.exited !== true
+    this.call(entry, 'connected', { value: entry.connected })
+  }
   private event(json: string) {
     try {
       const event = JSON.parse(json)
       const entry = [...this.entries.values()].find(item => item.id === event.id)
       if (!entry || this.closed) return
       if (event.type === 'input' && entry.connected && typeof event.data === 'string') this.daemon.write(entry.sessionId, Buffer.from(event.data, 'base64').toString('utf8'))
-      if (event.type === 'resize' && Number.isInteger(event.cols) && Number.isInteger(event.rows) && event.cols > 0 && event.rows > 0) {
-        entry.cols = event.cols; entry.rows = event.rows
-        void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
+      if (event.type === 'resize' && entry.boundsReady && Number.isInteger(event.cols) && Number.isInteger(event.rows) && event.cols > 0 && event.rows > 0) {
+        entry.cols = event.cols; entry.rows = event.rows; entry.measured = true
+        this.replay(entry)
+        if (entry.connected) void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
       }
       if (event.type === 'shortcut' && Object.values(this.shortcuts()).includes(event.command)) {
         this.window.webContents.focus()
@@ -125,10 +135,9 @@ export class NativeTerminals {
       const result = await this.daemon.attach(entry.sessionId)
       if (this.entries.get(entry.sessionId) !== entry || entry.generation !== generation) throw new Error('Native terminal attachment changed')
       if (!result) throw new Error('The terminal service no longer retains this session')
-      this.call(entry, 'reset'); entry.stream.acceptSnapshot(result.scrollback, result.sequence)
-      entry.connected = result.session.exited !== true
-      this.call(entry, 'connected', { value: entry.connected })
-      return { connected: entry.connected, truncated: result.truncated !== false }
+      entry.snapshot = result
+      this.replay(entry)
+      return { connected: result.session.exited !== true, truncated: result.truncated !== false }
     }
     if (request.op === 'dispose') { this.dispose(entry); return {} }
     if (request.op === 'bounds') {
@@ -136,6 +145,7 @@ export class NativeTerminals {
       if (rect !== null && (!rect || ![rect.x,rect.y,rect.width,rect.height].every(Number.isFinite) || rect.width < 0 || rect.height < 0)) throw new Error('Invalid native terminal bounds')
       const [width,height] = this.window.getContentSize(), zoom = this.window.webContents.getZoomFactor()
       const x = rect ? Math.max(0,Math.round(rect.x*zoom)) : 0, y = rect ? Math.max(0,Math.round(rect.y*zoom)) : 0
+      if (rect && rect.width > 0 && rect.height > 0) entry.boundsReady = true
       const result = this.call(entry, 'bounds', rect ? { x,y,width:Math.max(0,Math.min(rect.width*zoom,width-x)),height:Math.max(0,Math.min(rect.height*zoom,height-y)) } : {})
       if (result.focused) this.window.webContents.focus()
       return {}

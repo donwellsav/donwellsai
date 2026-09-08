@@ -99,6 +99,7 @@ export class TerminalDaemon {
   private readonly paths: LocalRuntimePaths
   private readonly emitterCommand: readonly string[]
   private readonly scrollback = new Map<string, string>()
+  private readonly replay = new Map<string, Array<{ data: string; cols: number; rows: number }>>()
   private readonly truncated = new Set<string>()
   private readonly sequence = new Map<string, number>()
   private readonly clients = new Set<Socket>()
@@ -230,7 +231,26 @@ export class TerminalDaemon {
     if (data.length === 0) return
     const sequence = (this.sequence.get(sessionId) ?? 0) + 1
     this.sequence.set(sessionId, sequence)
-    const current = (this.scrollback.get(sessionId) ?? '') + data
+    let current = (this.scrollback.get(sessionId) ?? '') + data
+    const size = this.pty.dimensions(sessionId)
+    const replay = this.replay.get(sessionId) ?? []
+    if (size) {
+      const last = replay.at(-1)
+      if (last?.cols === size.cols && last.rows === size.rows) last.data += data
+      else replay.push({ ...size, data })
+      let excess = Math.max(0, current.length - SCROLLBACK_MAX)
+      while (replay.length && excess > 0) {
+        const first = replay[0]!
+        if (first.data.length <= excess) { excess -= first.data.length; replay.shift() }
+        else { first.data = first.data.slice(excess); excess = 0 }
+      }
+      if (replay.length > 4096) {
+        replay.splice(0, replay.length - 4096)
+        current = replay.map(chunk => chunk.data).join('')
+        this.truncated.add(sessionId)
+      }
+      this.replay.set(sessionId, replay)
+    }
     if (current.length > SCROLLBACK_MAX) this.truncated.add(sessionId)
     this.scrollback.set(
       sessionId,
@@ -263,7 +283,7 @@ export class TerminalDaemon {
     }
     if (this.pty.isRetained(sessionId)) return
     setTimeout(() => {
-      this.scrollback.delete(sessionId)
+      this.scrollback.delete(sessionId); this.replay.delete(sessionId)
       this.truncated.delete(sessionId)
       this.sequence.delete(sessionId)
     }, REAP_EXITED_MS).unref()
@@ -710,7 +730,7 @@ export class TerminalDaemon {
           this.agentsBySession.delete(sessionId)
           this.agentsByRun.delete(record.run.id)
           record.launchPlan.cleanup()
-          this.scrollback.delete(sessionId)
+          this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           this.broadcast({ event: 'agent-dismissed', sessionId })
@@ -739,7 +759,7 @@ export class TerminalDaemon {
             throw new Error('agent sessions require interrupt followed by dismiss after confirmed exit')
           }
           await this.pty.close(sessionId)
-          this.scrollback.delete(sessionId)
+          this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           reply(true, {})
@@ -755,9 +775,13 @@ export class TerminalDaemon {
             reply(false, { error: `unknown session: ${sessionId}` })
             break
           }
+          let offset = 0
           reply(true, {
             session,
             scrollback: this.scrollback.get(sessionId) ?? '',
+            replay: (this.replay.get(sessionId) ?? []).map(({ data, ...grid }) => {
+              const result = { ...grid, offset }; offset += data.length; return result
+            }),
             truncated: this.truncated.has(sessionId),
             sequence: this.sequence.get(sessionId) ?? 0
           })

@@ -24,9 +24,9 @@ beforeEach(() => {
 })
 
 function fixture() {
-  const contents = Object.assign(new EventEmitter(), { send: vi.fn() })
+  const contents = Object.assign(new EventEmitter(), { send: vi.fn(), getZoomFactor: () => 1 })
   const window = Object.assign(new EventEmitter(), {
-    webContents: contents, isDestroyed: () => false, getNativeWindowHandle: () => Buffer.alloc(8)
+    webContents: contents, isDestroyed: () => false, getNativeWindowHandle: () => Buffer.alloc(8), getContentSize: () => [1200, 800]
   })
   const daemon = {
     attach: vi.fn().mockResolvedValue({ session: { exited: false }, scrollback: 'retained', sequence: 1, truncated: false }),
@@ -54,6 +54,7 @@ it('ignores an old resize failure after a surface has been replaced', async () =
   await f.create()
   let reject!: (error: Error) => void
   f.daemon.resize.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
+  await f.terminals.request({ op: 'bounds', sessionId: 'session', instance: 'first', rect: { x: 0, y: 0, width: 1000, height: 700 } })
   native.emit(JSON.stringify({ id: 'session/first', type: 'resize', cols: 90, rows: 25 }))
   await f.create('session', 'second')
   const count = f.operations().length
@@ -62,6 +63,24 @@ it('ignores an old resize failure after a surface has been replaced', async () =
   await Promise.resolve()
   expect(f.operations()).toHaveLength(count)
   expect(f.contents.send).not.toHaveBeenCalled()
+  f.contents.emit('render-process-gone')
+})
+
+it('waits for viewport geometry and replays dimensioned history before queued live output', async () => {
+  const f = fixture()
+  const chunks = [{ data: 'old prompt', cols: 100, rows: 30 }, { data: 'wide prompt', cols: 140, rows: 40 }]
+  f.daemon.attach.mockResolvedValueOnce({ session: { exited: false }, scrollback: 'old promptwide prompt', sequence: 1, truncated: false, replay: chunks })
+  f.daemon.resize.mockResolvedValue({})
+  await f.create()
+  f.terminals.data('session', 'live', 2)
+  expect(f.operations().some(op => op.op === 'write' || op.op === 'snapshot')).toBe(false)
+  await f.terminals.request({ op: 'bounds', sessionId: 'session', instance: 'first', rect: { x: 0, y: 0, width: 1000, height: 700 } })
+  native.emit(JSON.stringify({ id: 'session/first', type: 'resize', cols: 120, rows: 35 }))
+  const output = f.operations().filter(op => op.op === 'write' || op.op === 'snapshot')
+  expect(output.map(op => op.op)).toEqual(['snapshot', 'write'])
+  expect(output[0]).toMatchObject({ chunks, cols: 120, rows: 35 })
+  expect(output[1].data).toBe('live')
+  expect(f.daemon.write).not.toHaveBeenCalled()
   f.contents.emit('render-process-gone')
 })
 

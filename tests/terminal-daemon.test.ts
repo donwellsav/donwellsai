@@ -195,8 +195,12 @@ describe('terminal daemon', () => {
     const attach = await c2.request('session.attach', { sessionId: session.id })
     const sb = String(attach['scrollback'] ?? '')
     expect(sb).toContain('DAEMON_MARKER_42')
+    const replay = attach['replay'] as Array<{ offset: number; cols: number; rows: number }>
+    expect(replay[0]?.offset).toBe(0)
+    expect(replay.every(chunk => chunk.cols === 80 && chunk.rows === 24)).toBe(true)
 
     // session still alive: write works from the new client
+    await c2.request('session.resize', { sessionId: session.id, cols: 110, rows: 35 })
     await c2.request('session.write', { sessionId: session.id, data: 'echo SECOND_MARKER\r' })
     const sawSecond = await new Promise<boolean>((resolve) => {
       const start = Date.now()
@@ -209,6 +213,9 @@ describe('terminal daemon', () => {
       check()
     })
     expect(sawSecond).toBe(true)
+    const resized = await c2.request('session.attach', { sessionId: session.id })
+    expect((resized['replay'] as typeof replay).some(chunk => chunk.cols === 110 && chunk.rows === 35 && String(resized['scrollback']).slice(chunk.offset).includes('SECOND_MARKER'))).toBe(true)
+    await c2.request('session.close', { sessionId: session.id })
     c2.close()
   }, 20000)
 

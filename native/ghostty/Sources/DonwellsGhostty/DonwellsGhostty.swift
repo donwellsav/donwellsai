@@ -152,6 +152,18 @@ private func emit(_ payload: [String: Any]) {
                     guard let data = req["data"] as? String else { return "{\"error\":\"Invalid terminal data\"}" }
                     surface.session.receive(data)
                 case "reset": surface.session.receive("\u{1b}c")
+                case "snapshot":
+                    guard let chunks = req["chunks"] as? [[String: Any]],
+                        let columns = req["cols"] as? UInt16, let rows = req["rows"] as? UInt16 else { return "{\"error\":\"Invalid replay grid\"}" }
+                    surface.session.waitForPendingOutput()
+                    var first = true
+                    for chunk in chunks {
+                        guard let data = chunk["data"] as? String, let cols = chunk["cols"] as? UInt16, let rows = chunk["rows"] as? UInt16,
+                            surface.session.replay((first ? "\u{1b}c" : "") + data, columns: cols, rows: rows) else { return "{\"error\":\"Replay surface is not ready\"}" }
+                        first = false
+                    }
+                    guard surface.session.replay(first ? "\u{1b}c" : "", columns: columns, rows: rows) else { return "{\"error\":\"Replay surface is not ready\"}" }
+                    surface.session.waitForPendingOutput()
                 case "connected": surface.connected = req["value"] as? Bool == true
                 case "focus": result["ok"] = surface.connected && surface.terminal.acquireProgrammaticFocus()
                 case "find": surface.find()

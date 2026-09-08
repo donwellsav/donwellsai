@@ -21,6 +21,7 @@ import {
   type AttentionInboxListResult
 } from '@shared/attention-inbox'
 import type { TerminalSession } from '@shared/types'
+import type { TerminalReplayChunk } from '@shared/terminal-stream'
 import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
@@ -558,22 +559,29 @@ export class DaemonClient {
     return this.request<DaemonJobResult>('job.result', { sessionId })
   }
 
-  async attach(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence: number; truncated: boolean }> {
+  async attach(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence: number; truncated: boolean; replay?: TerminalReplayChunk[] }> {
     await this.requireCapability(SEQUENCED_OUTPUT, 'reattaching a terminal')
     const response = await this.request<{
       session: TerminalSession
       scrollback: string
       sequence: number
       truncated?: boolean
+      replay?: Array<{ offset: number; cols: number; rows: number }>
     }>('session.attach', { sessionId })
     if (!Number.isSafeInteger(response.sequence) || response.sequence < 0) {
       throw new Error('terminal daemon returned an invalid sequenced snapshot')
     }
+    if (response.replay !== undefined && (!Array.isArray(response.replay) || response.replay.length > 4096
+      || response.replay.some((chunk, index, chunks) => !chunk || !Number.isSafeInteger(chunk.offset)
+        || (index === 0 ? chunk.offset !== 0 : chunk.offset <= chunks[index - 1]!.offset)
+        || chunk.offset >= response.scrollback.length || ![chunk.cols, chunk.rows].every(size => Number.isInteger(size) && size >= 2 && size <= 65535))
+      || (response.scrollback.length > 0 && response.replay.length === 0))) throw new Error('terminal daemon returned invalid replay geometry')
     return {
       session: response.session,
       scrollback: response.scrollback ?? '',
       truncated: response.truncated !== false,
-      sequence: response.sequence
+      sequence: response.sequence,
+      replay: response.replay?.map((chunk, index, chunks) => ({ cols: chunk.cols, rows: chunk.rows, data: response.scrollback.slice(chunk.offset, chunks[index + 1]?.offset) }))
     }
   }
 

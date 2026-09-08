@@ -1,4 +1,5 @@
 type Listener<T> = (payload: T) => void
+export type TerminalReplayChunk = { data: string; cols: number; rows: number }
 
 type DataListener = {
   callback: Listener<string>
@@ -134,4 +135,3 @@ export class TerminalBus {
     }
   }
 }
-

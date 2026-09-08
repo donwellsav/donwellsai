@@ -13,7 +13,7 @@
 ## Global constraints
 
 - Work in `/Users/muzikfirst/Documents/donwellsai/donwellsai`, currently clean `main` at `f95d4d7`. Recheck HEAD and changes before execution; preserve newer work. Do not recreate old checkouts.
-- This document is a plan, not evidence that any repair has been implemented. The user requested planning in this turn.
+- The user approved execution with “go”. The status table and evidence below distinguish implemented work from pending qualification.
 - No architecture rewrite, new framework, speculative cleanup, deletion of research/trash, remote-work resurrection, or compiler downgrade to hide incompatibility.
 - Preserve existing projects, profiles, secrets, PTY identities, unsaved work and terminal history. Use isolated profiles and disposable fixtures for mutations.
 - Use one desktop app at a time. Record and clean up only test-owned processes, windows and mounts. Do not submit model requests or use paid inference for these checks.
@@ -28,12 +28,12 @@ Baseline: build/typecheck pass; 563 tests pass, 1 fails, 15 skip. The failed CLI
 
 | Order | Repair | Depends on | Status |
 |---|---|---|---|
-| 1 | Restore project language tools with installed TypeScript | None | Implemented; 7 focused checks pass; desktop qualification pending |
-| 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks and typecheck pass; desktop qualification pending |
-| 3 | Reproduce and repair terminal replay geometry | 2 | [ ] |
-| 4 | Make terminal settings truthful and functional | 2; recheck 3 | Implemented; 11 focused checks and typecheck pass; desktop qualification pending |
+| 1 | Restore project language tools with installed TypeScript | None | Implemented; 7 focused checks; desktop diagnostic, definition, references, edit and restart pass |
+| 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks; root/direct-file desktop launches and metadata pass; preview pending |
+| 3 | Reproduce and repair terminal replay geometry | 2 | Implemented; 15 focused checks, full suite and native desktop restart/resize pass; final package pending |
+| 4 | Make terminal settings truthful and functional | 2; recheck 3 | Implemented; 11 focused checks; native spacing and copy-on-select visually verified; Xterm package check pending |
 | 5 | Repair parallel-run CLI argument compatibility | None | Implemented; all 9 CLI checks and typecheck pass |
-| 6 | Honor Git ignores in Explorer and file search | None | Implemented; 19 Git checks pass; search already honored rules; desktop qualification pending |
+| 6 | Honor Git ignores in Explorer and file search | None | Complete; 19 Git checks; Explorer ignored toggle verified in desktop; search already honored rules |
 | 7 | Preserve credentials on corruption/write failure | None | Implemented; synthetic corruption and atomic failure checks pass; typecheck passes |
 | 8 | Reconcile launch, handoff and release documentation | 1–7 | [ ] |
 | 9 | Build and qualify the matching local release | 1–8 | [ ] |
@@ -249,3 +249,14 @@ All tests must pass apart from explicitly reviewed environment skips; do not ret
 - [ ] No research/trash/user data was removed and no publish/install action occurred.
 
 **Scope intentionally excluded:** bundle-size optimization without a measured latency defect, splitting large files for size alone, unrelated UI redesign, external tool/model installation, and cleanup of pre-existing user/test daemons. Computer control's missing external driver is a setup prerequisite, not a reason to install it during these repairs.
+
+## Execution evidence — September 8
+
+- Local branch: `codex/inspection-repairs`. Focused commits: language `d24f753`, resource roots `4b97f5b`, settings `d85dbc6`, CLI `e0dea27`, credentials `646ba9b`, ignores `79bdb17`.
+- Full suite after replay changes: 569 pass, zero failures, 15 existing skips (92 files); build and all three typechecks pass. Logs: `../workingfolder/inspection-2026-09-08/repair-{build,typecheck,tests}.log` relative to the repository.
+- CUA desktop: project-root launch then direct-file restart, native markers REPLAY_ONE/TWO/THREE all show the same PID 21896. Files panel narrowed the terminal between markers. Restored prompts and history aligned; no shell restart or injected redraw command was used. Both owned source-test profiles and their daemons were cleaned up.
+- CUA editor: installed TypeScript 7 project error 2322 shown; project-definition action opened previously unopened `definition.ts`; next-project-reference returned to consumer; corrected buffer survived language restart. This fixture used auto-save, so unsaved persistence relies on the focused service test rather than this visual check.
+- CUA settings: native line height 1 → 1.5 visibly changed row spacing; copy-on-select copied `REPLAY_THREE pid=21896` into the disposable editor. Native numeric weight and approximate scrollback limits have visible explanations.
+- CUA Explorer: `dist`, `dist-cli`, `out` hidden with Ignored off and visible with it on. Filename search found the ignored test file when opted in.
+- Replay geometry is recorded by the new daemon. Old daemon histories lack original resize information; their legacy replay remains best effort without terminating their processes. Existing truncated-history handling remains. This repair does not claim reconstruction of information an older daemon never retained.
+- The Git-ignore defect was in `GitWorktrees.listFiles` filesystem fallback. Existing Git-aware filename search already respected rules; no second ignore engine was added.

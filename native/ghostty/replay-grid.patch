@@ -1,0 +1,45 @@
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1194,6 +1194,7 @@
+ GHOSTTY_API bool ghostty_surface_process_exited(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_write_buffer(ghostty_surface_t, const uint8_t*, uintptr_t);
+ GHOSTTY_API void ghostty_surface_write_buffer_replay(ghostty_surface_t, const uint8_t*, uintptr_t);
++GHOSTTY_API void ghostty_surface_replay_grid(ghostty_surface_t, const uint8_t*, uintptr_t, uint16_t, uint16_t);
+ GHOSTTY_API void ghostty_surface_process_exit(ghostty_surface_t, uint32_t, uint64_t);
+ GHOSTTY_API void ghostty_surface_refresh(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_draw(ghostty_surface_t);
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1936,6 +1936,11 @@
+         surface.core_surface.io.processOutputSuppressingResponses(ptr[0..len]);
+     }
+ 
++    // Reconstruct a retained stream at its original grid without resizing the host PTY.
++    export fn ghostty_surface_replay_grid(surface: *Surface, ptr: [*]const u8, len: usize, cols: u16, rows: u16) void {
++        surface.core_surface.io.processReplayGrid(ptr[0..len], cols, rows);
++    }
++
+     export fn ghostty_surface_process_exit(
+         surface: *Surface,
+         exit_code: u32,
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -683,6 +683,18 @@
+     self.processOutputLocked(buf);
+ }
+ 
++/// Replay dimensions and bytes share the parser lock; the visible surface keeps its pixel geometry.
++pub fn processReplayGrid(self: *Termio, buf: []const u8, cols: u16, rows: u16) void {
++    if (cols < 2 or rows < 2) return;
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    self.terminal.resize(self.alloc, .{ .cols = cols, .rows = rows, .cell_size_px = .{ .width = self.size.cell.width, .height = self.size.cell.height } }) catch return;
++    const previous = self.terminal_stream.handler.suppress_terminal_responses;
++    self.terminal_stream.handler.suppress_terminal_responses = true;
++    defer self.terminal_stream.handler.suppress_terminal_responses = previous;
++    self.processOutputLocked(buf);
++}
++
+ /// Process output from readdata but the lock is already held.
+ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+     // Schedule a render. We can call this first because we have the lock.

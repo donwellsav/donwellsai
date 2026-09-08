@@ -44,6 +44,7 @@ export function TerminalPane(props: Props) {
 
 function XtermPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const replaying = useRef(false)
   const fontSize = useAppStore((s) => s.settings.terminalFontSize)
   const fontFamily = useAppStore((s) => s.settings.terminalFontFamily)
   const fontWeight = useAppStore((s) => s.settings.terminalFontWeight)
@@ -166,8 +167,17 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         const result = await window.donwells.attachTerminal(sessionId)
         if (!mounted || generation !== attempt) return
         if (!result) throw new Error('Terminal session is no longer available.')
+        replaying.current = true
         t.reset()
-        subscription.acceptSnapshot(result.scrollback, result.sequence)
+        for (const chunk of result.replay ?? [{ data: result.scrollback, cols, rows }]) {
+          if (!mounted || generation !== attempt) return
+          t.resize(chunk.cols, chunk.rows)
+          await new Promise<void>(resolve => t.write(chunk.data, resolve))
+        }
+        if (!mounted || generation !== attempt) return
+        replaying.current = false
+        applyFit('replay')
+        subscription.acceptSnapshot('', result.sequence)
         setReplayWarning(result.truncated !== false)
         setRedrawMessage('')
         setConnectionError(null)
@@ -177,6 +187,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
           ? 'This session is no longer retained by the terminal service. Its previous screen is preserved here.'
           : error instanceof Error ? error.message : String(error))
       } finally {
+        replaying.current = false
         if (mounted && generation === attempt) setConnecting(false)
       }
     }
@@ -189,7 +200,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
     reconnectRef.current = attach
     void attach()
     t.onData((input) => {
-      useAppStore.getState().writeTerminal(sessionId, input)
+      if (!t.options.disableStdin) useAppStore.getState().writeTerminal(sessionId, input)
     })
 
     // Right-click opens an explicit action menu. Clipboard access only occurs
@@ -209,7 +220,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
      * and on window resize — every path idempotent.
      */
     const applyFit = (origin: string): void => {
-      if (!host.isConnected) return
+      if (!host.isConnected || replaying.current) return
       // display:none panes have no geometry; their show path re-fits.
       if (host.getBoundingClientRect().width === 0) return
       try {
@@ -289,7 +300,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       const host = hostRef.current
       const fit = fitRef.current
       const term = termRef.current
-      if (!host || !fit || !term) return
+      if (!host || !fit || !term || replaying.current) return
       if (host.getBoundingClientRect().width === 0) return
       try {
         fit.fit()
@@ -357,12 +368,11 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
     try {
       if (fontSize && term.options.fontSize !== fontSize) {
         term.options.fontSize = fontSize
-        fitRef.current?.fit()
       }
       term.options.fontFamily = fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace"
       term.options.fontWeight = fontWeight
       term.options.lineHeight = lineHeight
-      fitRef.current?.fit()
+      if (!replaying.current) fitRef.current?.fit()
       term.options.cursorStyle = cursorStyle === 'bar' || cursorStyle === 'underline' ? cursorStyle : 'block'
       term.options.cursorBlink = cursorBlink ?? true
       const theme = terminalThemeOf(terminalTheme)

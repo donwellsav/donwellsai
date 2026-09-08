@@ -76,6 +76,11 @@ export class PtyManager {
     return this.sessions.has(sessionId)
   }
 
+  dimensions(sessionId: string): { cols: number; rows: number } | undefined {
+    const proc = this.sessions.get(sessionId)?.proc
+    return proc ? { cols: proc.cols, rows: proc.rows } : undefined
+  }
+
   /** Process state known by this execution-host owner; unknown ids remain unverifiable. */
   liveness(sessionId: string): AgentLiveness {
     const session = this.sessions.get(sessionId)

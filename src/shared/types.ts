@@ -439,7 +439,7 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
   nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
   onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
-  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean } | null>
+  attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean; replay?: import('./terminal-stream').TerminalReplayChunk[] } | null>
   closeTerminal(sessionId: string): Promise<void>
   /** Live daemon-owned sessions (for reattach after app restart). */
   terminalSessions(): Promise<TerminalSession[]>

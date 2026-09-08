@@ -27,6 +27,50 @@ index 659fc21..f06f291 100644
      }
  
      static func configureEnvironment() {
+diff --git a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
+index 914a195..4e09bc7 100644
+--- a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
++++ b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
+@@ -185,6 +185,17 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
+         receive(data)
+     }
+ 
++    /// The host calls this only after the first viewport exists, and drains before resuming live output.
++    public func replay(_ data: String, columns: UInt16, rows: UInt16) -> Bool {
++        guard surfaceAccess.currentSurface != nil else { return false }
++        return surfaceAccess.enqueueWrite(Data(data.utf8), writer: { surface, bytes in
++            bytes.withUnsafeBytes { buffer in
++                let pointer = buffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
++                ghostty_surface_replay_grid(surface, pointer, UInt(buffer.count), columns, rows)
++            }
++        })
++    }
++
+     /// Inject input bytes directly into the host-side consumer.
+     ///
+     /// This bypasses `ghostty_surface_key` translation and is intended for
+diff --git a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSurfaceAccess.swift b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSurfaceAccess.swift
+index 8ad9fe9..abfb92f 100644
+--- a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSurfaceAccess.swift
++++ b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSurfaceAccess.swift
+@@ -106,7 +106,7 @@ final class InMemoryTerminalSurfaceAccess: @unchecked Sendable {
+     }
+ 
+     @discardableResult
+-    func enqueueWrite(_ data: Data) -> Bool {
++    func enqueueWrite(_ data: Data, writer: Write? = nil) -> Bool {
+         condition.lock()
+         guard surface != nil else {
+             pendingWrites.append(data)
+@@ -121,7 +121,7 @@ final class InMemoryTerminalSurfaceAccess: @unchecked Sendable {
+         condition.unlock()
+         outputQueue.async { [self] in
+             withSurface(generation: writeGeneration) { surface in
+-                write(surface, data)
++                (writer ?? write)(surface, data)
+             }
+         }
+         return true
 diff --git a/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift b/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
 index 2e0f822..3be6c43 100644
 --- a/Sources/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
