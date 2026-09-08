@@ -1,11 +1,32 @@
 import { afterEach, expect, it } from 'vitest'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { ProjectLanguageTools } from '../src/main/project-language-tools'
 
 const services: ProjectLanguageTools[] = []
 const roots: string[] = []
+
+it('uses the installed native TypeScript server for real diagnostics, definitions and edits', async () => {
+  const root = process.cwd()
+  await mkdir(join(root, 'out'), { recursive: true })
+  const fixture = await mkdtemp(join(root, 'out/language-check-'))
+  roots.push(fixture)
+  await writeFile(join(fixture, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true }, include: ['*.ts'] }))
+  await writeFile(join(fixture, 'value.ts'), 'export const projectValue = "wrong"\n')
+  const content = "import { projectValue } from './value'\nexport const result: number = projectValue\n"
+  await writeFile(join(fixture, 'main.ts'), content)
+  const service = new ProjectLanguageTools(async () => ({ checkoutPath: root, indexKey: root }))
+  services.push(service)
+  const input = { workspacePath: root, path: relative(root, join(fixture, 'main.ts')), version: 1, content }
+  expect((await service.diagnostics(input)).diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 2322 })]))
+  const column = content.split('\n')[1]!.lastIndexOf('projectValue') + 1
+  expect((await service.definition(input, 2, column)).definitions).toEqual(expect.arrayContaining([expect.objectContaining({ path: relative(root, join(fixture, 'value.ts')) })]))
+  expect((await service.references(input, 2, column)).references.length).toBeGreaterThan(1)
+  expect((await service.diagnostics({ ...input, version: 2, content: content.replace(': number', ': string') })).diagnostics).toEqual([])
+  const before = await service.inspect(root)
+  expect((await service.restart(root)).generation).toBeGreaterThan(before.generation)
+}, 30000)
 afterEach(async () => {
   await Promise.all(services.splice(0).map((service) => service.close()))
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -58,7 +79,7 @@ it('rejects files outside the checkout and reports a missing project tsserver', 
   services.push(service)
   await expect(service.open({ workspacePath: checkout, path: '../outside.ts', version: 1, content: '' })).rejects.toThrow('outside')
   await rm(join(checkout, 'node_modules/typescript/lib/tsserver.js'))
-  await expect(service.restart(checkout)).rejects.toThrow('unavailable')
+  await expect(service.restart(checkout)).rejects.toThrow('Installed TypeScript 5.9.3 has no available project language server')
 })
 
 it('isolates language servers and document versions between checkouts', async () => {

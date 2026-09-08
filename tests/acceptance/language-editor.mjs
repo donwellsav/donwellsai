@@ -3,6 +3,7 @@ import {cpSync,mkdirSync,mkdtempSync,readFileSync,writeFileSync,realpathSync} fr
 import {join,resolve,dirname} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {parseArgs} from 'node:util'
+import {createRequire} from 'node:module'
 import {execFileSync} from 'node:child_process'
 import {cleanupOwnedSmokeDaemon,closeOwnedSmokeApp,delay} from '../helpers/smoke-processes.mjs'
 import {sourceIdentity,hash} from './workspace-baseline.mjs'
@@ -11,7 +12,8 @@ assert(values.root&&values.playwright&&values.evidence,'--root --playwright --ev
 const root=realpathSync(values.root), evidence=resolve(values.evidence)
 mkdirSync(evidence,{recursive:true})
 const typescript=values.typescript?realpathSync(values.typescript):null
-if(typescript)assert.equal(JSON.parse(readFileSync(join(typescript,'package.json'),'utf8')).version,'5.9.3','--typescript must point to the admitted TypeScript5.9.3 package directory')
+const typescriptVersion=typescript?JSON.parse(readFileSync(join(typescript,'package.json'),'utf8')).version:null
+if(typescript)assert(typeof typescriptVersion==='string','--typescript must point to an installed TypeScript package')
 const profile=mkdtempSync('/tmp/donwells25-language-live-')
 const projects=['a','b'].map(name=>{const path=join(profile,name);mkdirSync(path);return realpathSync(path)})
 const installed=values.app?{app:realpathSync(values.app),resources:resolve(dirname(realpathSync(values.app)),'../Resources')}:null
@@ -21,7 +23,7 @@ const {_electron}=await import(pathToFileURL(resolve(values.playwright)))
 const {callRuntime}=await import(pathToFileURL(join(installed?.resources??root,'dist-cli/cli/rpc-client.js')))
 const invoke=async(method,params={})=>{const reply=await callRuntime(method,params,profile,30000);assert(reply.ok,reply.error);return reply.result}
 for(const project of projects){
- if(typescript){mkdirSync(join(project,'node_modules'));cpSync(typescript,join(project,'node_modules/typescript'),{recursive:true,dereference:true})}
+ if(typescript){mkdirSync(join(project,'node_modules'));cpSync(typescript,join(project,'node_modules/typescript'),{recursive:true,dereference:true});if(Number(typescriptVersion.split('.')[0])>=7){const name='@typescript/typescript-'+process.platform+'-'+process.arch;const source=dirname(createRequire(join(typescript,'package.json')).resolve(name+'/package.json'));cpSync(source,join(project,'node_modules',name),{recursive:true,dereference:true})}}
  writeFileSync(join(project,'.gitignore'),'node_modules/\n')
  writeFileSync(join(project,'nullable.ts'),'export const optional: string = null;\n')
  writeFileSync(join(project,'globals.ts'),project===projects[0]?'const shared: string = 42;\n':'const shared: number = 1;\n')
@@ -48,7 +50,7 @@ try{
  await invoke('settings.set',{theme:'dark',editorAutoSaveMode:'manual'})
  for(const project of projects){await invoke('repo.add',{dir:project});await page.evaluate(()=>window.__store.getState().refresh());await open(project,'globals.ts')}
  await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'&&m.code==='2322'),projects[0])
- if(typescript){report.languageOwners=await page.evaluate(async projects=>Promise.all(projects.map(p=>window.donwells.projectLanguageStatus(p))),projects);assert(report.languageOwners.every(owner=>owner.state==='ready'&&owner.version==='5.9.3'));assert.notEqual(report.languageOwners[0].pid,report.languageOwners[1].pid);await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'&&m.source==='TypeScript · project'),projects[0])}
+ if(typescript){report.languageOwners=await page.evaluate(async projects=>Promise.all(projects.map(p=>window.donwells.projectLanguageStatus(p))),projects);assert(report.languageOwners.every(owner=>owner.state==='ready'&&owner.version===typescriptVersion));assert.notEqual(report.languageOwners[0].pid,report.languageOwners[1].pid);await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'&&m.source==='TypeScript · project'),projects[0])}
  report.isolatedMarkers=await markers();assert(!report.isolatedMarkers.some(m=>m.path.startsWith(projects[1])))
  assert(!report.isolatedMarkers.some(m=>m.code==='2451'))
  report.checks.push('same global identifier in two checkouts is isolated')
@@ -56,14 +58,14 @@ try{
   for(const project of projects)await open(project,'nullable.ts')
   await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/nullable.ts'&&m.code==='2322'&&m.source==='TypeScript · project'),projects[0])
   const diagnostics=await page.evaluate(project=>window.donwells.projectLanguageDiagnostics({workspacePath:project,path:'nullable.ts',version:1,content:'export const optional: string = null;\n'}),projects[1]);assert.equal(diagnostics.diagnostics.length,0)
-  report.checks.push('project-local TypeScript5.9.3 uses incompatible strict-null tsconfigs in two isolated processes')
+  report.checks.push(`project-local TypeScript ${typescriptVersion} uses incompatible strict-null tsconfigs in two isolated processes`)
  }else await open(projects[0],'defs.ts')
  await open(projects[0],'main.ts')
  if(typescript)assert(await page.evaluate(project=>!window.monaco.editor.getModels().some(model=>model.uri.fsPath===project+'/defs.ts'),projects[0]),'definition target must be unopened')
  await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/main.ts'&&m.code==='2345'),projects[0])
  await page.evaluate(({project,native})=>{const e=window.monaco.editor.getEditors().find(e=>e.getModel()?.uri.fsPath===project+'/main.ts');e.focus();e.setPosition({lineNumber:2,column:2});return e.getAction(native?'donwells.projectDefinition':'editor.action.revealDefinition').run()},{project:projects[0],native:!!typescript})
  await page.waitForFunction(project=>window.__store.getState().activePane[project]==='preview:defs.ts',projects[0])
- report.checks.push(typescript?'project tsserver definition action opens an unopened file':'native TypeScript definition action opens target through workspace navigation')
+ report.checks.push(typescript?'project language definition action opens an unopened file':'native TypeScript definition action opens target through workspace navigation')
  if(typescript){
   for(let attempt=0;attempt<4;attempt++){await page.evaluate(project=>{const e=window.monaco.editor.getEditors().find(e=>e.getModel()?.uri.fsPath===project+'/defs.ts');e.setPosition({lineNumber:1,column:18});return e.getAction('donwells.projectReferences').run()},projects[0]);if(await page.evaluate(project=>window.__store.getState().activePane[project]==='preview:main.ts',projects[0]))break}
   await page.waitForFunction(project=>window.__store.getState().activePane[project]==='preview:main.ts',projects[0])
@@ -83,7 +85,7 @@ try{
  const worker=page.workers().find(w=>w.url().includes('typescript-worker'));assert(worker,'Actual isolated TypeScript worker missing')
  await worker.evaluate(()=>self.close())
  await page.evaluate(project=>window.monaco.editor.getEditors().find(e=>e.getModel()?.uri.fsPath===project+'/globals.ts').getAction('donwells.restartLanguageTools').run(),projects[0])
- if(typescript){const restarted=await page.evaluate(project=>window.donwells.projectLanguageStatus(project),projects[0]);assert(restarted.generation>previousLanguage.generation);assert.notEqual(restarted.pid,previousLanguage.pid);assert(readFileSync(join(projects[0],'globals.ts'),'utf8').includes('42'));await page.waitForFunction(project=>!window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'),projects[0]);report.checks.push('explicit tsserver restart preserves unsaved text without writing disk')}
+ if(typescript){const restarted=await page.evaluate(project=>window.donwells.projectLanguageStatus(project),projects[0]);assert(restarted.generation>previousLanguage.generation);assert.notEqual(restarted.pid,previousLanguage.pid);assert(readFileSync(join(projects[0],'globals.ts'),'utf8').includes('42'));await page.waitForFunction(project=>!window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'),projects[0]);report.checks.push('explicit language-server restart preserves unsaved text without writing disk')}
  await page.evaluate(project=>{const e=window.monaco.editor.getEditors().find(e=>e.getModel()?.uri.fsPath===project+'/globals.ts');assertSame();function assertSame(){if(e.getModel()!==window.__languageOriginalModel)throw Error('Model replaced')}return e.getModel().undo()},projects[0])
  await page.waitForFunction(project=>window.monaco.editor.getModelMarkers({}).some(m=>m.resource.fsPath===project+'/globals.ts'&&m.code==='2322'),projects[0])
  report.checks.push('worker termination and restart preserve model and undo; diagnostics return')

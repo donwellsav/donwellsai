@@ -10,7 +10,7 @@ export function attachProjectLanguageTools(monaco: typeof Monaco, model: Monaco.
   if (language !== 'typescript' && language !== 'javascript') return { restart: async () => undefined, definition: async () => undefined, references: async () => [], dispose: () => undefined }
   let active = true, generation = 0, timer: ReturnType<typeof setTimeout>, status: ProjectLanguageStatus | null = null
   const document = (): ProjectLanguageDocument => ({ workspacePath, path, version: model.getVersionId(), content: model.getValue() })
-  const fallback = (error: unknown) => { attached.delete(model.uri.toString()); monaco.editor.setModelMarkers(model, 'donwells-project-language', []); report(`Project language tools unavailable: ${plainErrorMessage(error)}. Open-file TypeScript tools remain active.`) }
+  const fallback = (error: unknown) => { attached.delete(model.uri.toString()); monaco.editor.setModelMarkers(model, 'donwells-project-language', []); report(`Project language tools unavailable: ${plainErrorMessage(error).replace(/[.\s]+$/, '')}. Open-file TypeScript tools remain active.`) }
   const validate = async () => {
     const request = ++generation, version = model.getVersionId()
     try {
