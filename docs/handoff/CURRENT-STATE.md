@@ -19,7 +19,7 @@ Editor, files, changes, browser, knowledge, resources and environments are movab
 Statuses below deliberately distinguish prior delivery from closure of this rebuilt contract. Planning itself closes no task.
 
 - [x] **01 — Consolidate the working foundation without rolling back** — Delivered; retained536e03b, ownership reconciled.
-- [ ] **02 — SKIPPED — original terminal/layout comparison** — SKIPPED by user.
+- [ ] **02 — Original terminal/layout comparison** — Reactivated by user 2026-09-08; pending. Informs26's host decision.
 - [x] **03 — Make engine choices usable per project** — Delivered for existing engines; saved/draft status and native connection entry refined.
 - [x] **04 — Own tools and resources by project** — Delivered for existing services; endpoint adapters extend it in23.
 - [x] **05 — Establish the terminal-centered workspace** — Delivered shell rebuild; final integration remains21.
@@ -33,7 +33,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **13 — Unify project knowledge and native session history** — Delivered: source-grouped navigation, native Hermes/Kimi resume, reviewed facts and actual slow-query cancellation/isolation demonstrated.
 - [x] **14 — Make browser previews part of the project** — Delivered scoped storage and existing view lifetime; final integration21.
 - [x] **15 — Let agents inspect and test project applications** — Delivered: guarded context controls, readable diagnostics and artifact references; retained native repair journey plus current app/browser proof.
-- [ ] **16 — Provide controlled desktop interaction** — Local half delivered 2026-09-07 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). Guest-scoped remote route implemented 2026-09-07 (commit 6a631cf): journaled computer.call/computer.stop, detached guest controller reusing the admitted driver definition, capability-gated hello, host-vs-guest panel identity. Remaining: physical guest qualification with24 (real Lume/SSH journey).
+- [ ] **16 — Provide controlled desktop interaction** — Local half delivered 2026-09-07 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). The guest-scoped remote route (6a631cf) was deleted 2026-09-08 with the removal of24; local control is unaffected. Remaining: none for the local product; 16 closes with26/21 integration.
 - [x] **17 — Connect code changes to working results** — Delivered: actual failing/fixed runs, source-linked review and stale rejection; native and ACP producer records; verified text artifacts open in the existing editor.
 - [x] **18 — Coordinate parallel work and Git** — Delivered: overlap owner/changes/handoff routes and deliberate UI merge resolution proven; retained native tools and shared/isolated intent evidence.
 - [x] **19 — Make every integrated tool discoverable and manageable** — Delivered: catalog/configuration routes, actual missing-runtime repair and disable, scoped resource controls, native remote stop and inactive pairing retirement.
@@ -41,7 +41,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [ ] **21 — Finish the integrated GUI and remove daily-use friction** — Active: populated search density/zoom improvements; integrated and physical journeys remain.
 - [ ] **22 — Deliver the finished installable application** — Partial: installed5172c81 candidate native workflow and three-class profile recovery passed; final artifact awaits integrated GUI/physical qualification.
 - [x] **23 — Integrate analytics and richer project memory** — Delivered: DuckDB activity, Hindsight recall/reflection and Graphiti dated relations; reviewed native-agent sources, correction/erase, portable restoration and interrupted projection recovery.
-- [ ] **24 — Integrate isolated desktops and remote work** — Partial: Linux SSH agent/shared memory, reconnect, selected return/decline, stop and portable re-pairing delivered; physical Lume remains.
+- [ ] **24 — REMOVED — Integrate isolated desktops and remote work** — Removed by explicit user decision 2026-09-08. All SSH/Lume/remote-control code, the environments panel and install/bundle scripts were deleted from the source tree; the app is local-only with per-project scoping plus permission prompts as the safety model. See the Task 24 plan card.
 - [x] **25 — Improve building applications in the editor** — Delivered: project language navigation/recovery, declared build, reviewed workflow creation and actual native DSH workflow reuse demonstrated.
 - [ ] **26 — Choose and establish the stronger desktop host** — Partial: external desktop Metal rendering, typed input and search observed; pointer selection and final integrated package qualification remain.
 
@@ -54,21 +54,13 @@ Existing: local MCP control operations, connection owner identity, generation/re
 
 2026-09-07 update: the local half is now proven on current source; see `docs/architecture/second-pass-16/resume-2026-09-07.md`. Both acceptance runners (`computer-control-ui.mjs`, `computer-control-mcp.mjs`) pass with `verified: true`. Known driver limitation: foreground pixel clicks on AppKit targets are silently ineffective in Cua Driver0.23.2 (SkyLight copy carries NaN location); the background exact-target AX route is the qualified path.
 
-Unfinished: the companion's guest-scoped control route — host-versus-environment target identity and computer control through the scoped remote protocol. Implemented 2026-09-07 in 6a631cf (guest controller entry, journaled facade methods, capability gate, panel target selector). Physical guest qualification (real Lume/SSH journey with an admitted in-guest driver binary) remains open at the16/24 boundary and belongs to the24 trials.
+Unfinished: none from the remote side — the companion's guest-scoped control route (6a631cf) was removed 2026-09-08 together with task24. Task16's remaining value is exercised through26/21 integration of the local control path.
 
 `tests/acceptance/computer-control-ui.mjs` was corrected on 2026-09-07: receipt-based completion wait, awaited fixture exit, sibling-press assertion. The earlier ENOENT was an early read while the click was in flight; the rerun additionally exposed a real driver delivery defect (see resume record). Both runners require an operator to read the produced native-target.png and write coordinates.json within the wait window.
 
-## Task24 — both environments and return of real work
+## Task24 — REMOVED 2026-09-08
 
-Existing SSH delivery records cover native OpenCode/local Ornith/shared facts, terminal reconnect without replay, selected text changes, conflicts/decline, stop/retirement and fresh-profile re-pairing. Existing Lume code covers prepared guest registration and lifecycle; Show desktop requests the existing native viewer and rechecks ownership. Its actual reopen remains unproven.
-
-Complete native Lume preparation/admission, actual clipboard policy and no unintended VNC, selected read-only source/writable-return boundaries, in-guest agent work and shared memory, disconnect/reconnect with uncertain writes preserved, guest controller identity, reviewed return and stop. Preserve a second project and user-owned VM. Pairing/setup must be usable through the intended product workflow, not only a temporary script.
-
-Current `ProjectRemoteMethod` exposes terminal/memory/source/result operations but no computer-control methods. The computer panel routes locally. Guest PID/window control is implementation work; clicking the host VM viewer is not guest enumeration.
-
-The remote `result.read` implementation accepts complete non-executable text and rejects binary/truncated files. Compare that boundary with the actual required artifact workflow; do not imply arbitrary binary/package import is already supported.
-
-Retained task guest exists under research/ in the app repository (see Operations). Prior suggestion to rename it into private storage is UNTRIED and conflicts with the registration wording and new-clone deployment notes. Reconcile requirements and ownership before selecting preparation, explicit adoption or cloning; do not bypass policy by path manipulation. No user VM may be appropriated.
+Removed by explicit user decision: the product is local-only; safety = per-project scoped folders plus permission prompts. All SSH/Lume/remote-control source, panel, CLI command, scripts and tests were deleted; typecheck/build/tests pass after removal (562 passed, 1 pre-existing unrelated cli.test failure). Historical SSH/Lume delivery records remain in Git history and `docs/architecture/`; the retained task guest under research/ is now irrelevant to the product — leave it untouched unless the user asks.
 
 ## Task26 — integrated host/native terminal
 
@@ -92,7 +84,7 @@ Report exact source commit/artifact hash and signing/notarization truth, verify 
 
 ## Completion and continuation
 
-The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Skip only02.
+The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Task24 was removed by user decision 2026-09-08; task02 was reactivated the same day. Open tasks:02,16,21,22,26.
 
 ## Correct folder layout — latest explicit user correction
 

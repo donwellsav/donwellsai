@@ -2,20 +2,6 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
 
 const api: IpcApi = {
-  environmentList: (...args) => ipcRenderer.invoke('environmentList', ...args),
-  environmentConfigure: (...args) => ipcRenderer.invoke('environmentConfigure', ...args),
-  environmentConnect: (...args) => ipcRenderer.invoke('environmentConnect', ...args),
-  environmentRemove: (...args) => ipcRenderer.invoke('environmentRemove', ...args),
-  environmentPause: (...args) => ipcRenderer.invoke('environmentPause', ...args),
-  environmentRequest: (...args) => ipcRenderer.invoke('environmentRequest', ...args),
-  environmentMemory: (...args) => ipcRenderer.invoke('environmentMemory', ...args),
-  environmentResultsList: (...args) => ipcRenderer.invoke('environmentResultsList', ...args),
-  environmentResultsCapture: (...args) => ipcRenderer.invoke('environmentResultsCapture', ...args),
-  environmentResultsSend: (...args) => ipcRenderer.invoke('environmentResultsSend', ...args),
-  environmentResultsStage: (...args) => ipcRenderer.invoke('environmentResultsStage', ...args),
-  environmentResultsApply: (...args) => ipcRenderer.invoke('environmentResultsApply', ...args),
-  environmentResultsDecline: (...args) => ipcRenderer.invoke('environmentResultsDecline', ...args),
-
   projectLanguageStatus: (...args) => ipcRenderer.invoke('projectLanguageStatus', ...args),
   projectLanguageStop: (...args) => ipcRenderer.invoke('projectLanguageStop', ...args),
   projectLanguageOpen: (...args) => ipcRenderer.invoke('projectLanguageOpen', ...args),
@@ -40,9 +26,6 @@ const api: IpcApi = {
   onNativeTerminal: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/native-terminal').NativeTerminalEvent) => callback(message); ipcRenderer.on('native-terminal:event', listener); return () => ipcRenderer.removeListener('native-terminal:event', listener) },
   projectKitExport: (...args) => ipcRenderer.invoke('projectKitExport', ...args),
   projectKitReconnectLearned: (...args) => ipcRenderer.invoke('projectKitReconnectLearned', ...args),
-  environmentLumeList: (...args) => ipcRenderer.invoke('environmentLumeList', ...args),
-  environmentLumeRegister: (...args) => ipcRenderer.invoke('environmentLumeRegister', ...args),
-  environmentLumeAction: (...args) => ipcRenderer.invoke('environmentLumeAction', ...args),
   projectKitPreview: (...args) => ipcRenderer.invoke('projectKitPreview', ...args),
   projectKitImport: (...args) => ipcRenderer.invoke('projectKitImport', ...args),
   projectKitReport: (...args) => ipcRenderer.invoke('projectKitReport', ...args),

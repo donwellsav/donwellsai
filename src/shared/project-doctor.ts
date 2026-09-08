@@ -34,8 +34,7 @@ export const PROJECT_INTEGRATION_ROLES = [
   { id: 'learned', name: 'Learned memory · Hindsight', route: 'memory' },
   { id: 'temporal', name: 'Temporal graph · Graphiti', route: 'memory' },
   { id: 'analytics', name: 'Session analytics · DuckDB', route: 'search' },
-  { id: 'language', name: 'Project language tools · TypeScript', route: 'language' },
-  { id: 'environments', name: 'Project environments · SSH / Lume', route: 'environment' }
+  { id: 'language', name: 'Project language tools · TypeScript', route: 'language' }
 ] as const
 
 export function parseProjectToolConfiguration(value: unknown): ProjectToolConfiguration {

@@ -5,7 +5,7 @@ import { redactDesignCaptureSecrets } from '@shared/design-capture'
 import { useAppStore } from '../../store'
 import { ProjectMemoryConnection } from '../ProjectMemoryConnection'
 
-export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'memory' | 'search' | 'environments') => void } = {}) {
+export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'memory' | 'search') => void } = {}) {
   const workspacePath = useAppStore(state => state.activeWorktreePath)
   const [role, setRole] = useState('')
   const [ownerStatus, setOwnerStatus] = useState('Not checked')
@@ -52,14 +52,6 @@ export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'mem
       if (id === 'language') { const value = await window.donwells.projectLanguageStatus(workspacePath!); detail = `${value.state} · ${value.detail}${value.pid ? ` · PID ${value.pid}` : ''}` }
       if (id === 'learned') { const value = await window.donwells.projectKnowledgeStatus(workspacePath!); detail = `${value.enabled ? value.phase : 'disabled'} · ${value.error ?? (value.stale ? 'Sources changed; reconcile selected sources' : 'Source manifest inspected; external connection not checked')}` }
       if (id === 'temporal') { const value = await window.donwells.projectTemporalKnowledgeStatus(workspacePath!); detail = `${value.enabled ? (value.busy ? 'working' : 'idle') : 'disabled'} · ${value.error ?? 'Source manifest inspected; external connection not checked'}` }
-      if (id === 'environments') {
-        const [ssh, lume] = await Promise.allSettled([window.donwells.environmentList(workspacePath!), window.donwells.environmentLumeList(workspacePath!)])
-        const states = [
-          ssh.status === 'fulfilled' ? (ssh.value.map(value => `SSH ${value.id}: ${value.state}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') || 'No SSH pairing') : `SSH status unavailable: ${String(ssh.reason)}`,
-          lume.status === 'fulfilled' ? (lume.value.guests.map(value => `Lume ${value.id}: ${value.state}${value.pid ? ` · PID ${value.pid}` : ''}${value.detail ? ` · ${value.detail}` : ''}`).join('; ') || 'No registered Lume guest') : `Lume status unavailable: ${String(lume.reason)}`
-        ]
-        detail = redactDesignCaptureSecrets(states.join('. ') + '. Recorded state only; use environment controls to verify or reconnect the owner.')
-      }
       if (id === 'facts') { const value = await window.donwells.projectMemoryList({ workspacePath: workspacePath! }); detail = `${value.total} canonical facts · local store readable · no background process to stop` }
       if (id === 'analytics') detail = report?.configuration.duckdbPython ? 'Python path configured; execute a report in Search → Sessions to verify DuckDB. Cancel remains beside that report.' : 'Set DuckDB Python under Native session history. Runtime has not been checked.'
       if (generation === roleOperation.current) setOwnerStatus(detail)
@@ -67,7 +59,6 @@ export function ProjectToolsSettings({ onNavigate }: { onNavigate?: (route: 'mem
   }
   useEffect(() => { roleOperation.current++; setRole(''); setOwnerStatus('Not checked') }, [workspacePath])
   const openRole = (route: string) => {
-    if (route === 'environment') { onNavigate?.('environments'); return }
     if (route === 'memory' || route === 'search') onNavigate?.(route)
   }
   const run = async (action: () => Promise<unknown>) => {

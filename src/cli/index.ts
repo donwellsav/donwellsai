@@ -1,4 +1,3 @@
-import { runProjectRemote } from './project-remote.js'
 import { RPC_COMMANDS } from '../shared/command-catalog.js'
 import { commandUsage, parseCliArguments } from './arguments.js'
 import { callRuntime, CliFailure, defaultUserData } from './rpc-client.js'
@@ -38,7 +37,6 @@ async function runMemoryMcp(argv: readonly string[]): Promise<number> {
 }
 
 export async function runCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  if (argv[0] === 'project-remote') return runProjectRemote(argv.slice(1))
   if (argv[0] === 'memory-mcp') return runMemoryMcp(argv.slice(1))
   let parsed: ReturnType<typeof parseCliArguments>
   try { parsed = parseCliArguments(argv) } catch (error) {

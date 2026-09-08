@@ -1,7 +1,3 @@
-import { ProjectEnvironments } from './project-environments'
-import { ProjectLume } from './project-lume'
-import { ProjectEnvironmentMemory } from './project-environment-memory'
-import { ProjectEnvironmentResults } from './project-environment-results'
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
@@ -83,7 +79,6 @@ let nativeTerminals: NativeTerminals | undefined
 let browserViews: BrowserViews | undefined
 let quitRequested = false
 let allowQuit = false
-let environmentMemory: ProjectEnvironmentMemory | undefined
 let projectTools: ProjectDoctor | undefined
 let projectLanguage: ProjectLanguageTools | undefined
 let toolsClosed = false
@@ -672,32 +667,6 @@ app.whenReady().then(() => {
   ipcMain.handle('projectMemoryHistory', (_e, request: Parameters<IpcApi['projectMemoryHistory']>[0]) => projectMemory.projectMemoryHistory(request))
   ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
   ipcMain.handle('projectMemoryErase', (_e, request: Parameters<IpcApi['projectMemoryErase']>[0]) => projectMemory.projectMemoryErase(request))
-  const environments = new ProjectEnvironments(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace), undefined, projectMemory)
-  const projectLume = new ProjectLume(app.getPath('userData'), path => resolveProjectToolScope(path, resolveToolWorkspace))
-  ipcMain.handle('environmentLumeList', (_e, ...args: Parameters<IpcApi['environmentLumeList']>) => projectLume.list(...args))
-  ipcMain.handle('environmentLumeRegister', (_e, ...args: Parameters<IpcApi['environmentLumeRegister']>) => projectLume.register(...args))
-  ipcMain.handle('environmentLumeAction', (_e, ...args: Parameters<IpcApi['environmentLumeAction']>) => projectLume.action(...args))
-  environmentMemory = new ProjectEnvironmentMemory(environments)
-  const environmentResults = new ProjectEnvironmentResults(app.getPath('userData'), environments, git)
-  ipcMain.handle('environmentList', (_e, ...args: Parameters<IpcApi['environmentList']>) => environments.list(...args))
-  ipcMain.handle('environmentConfigure', (_e, ...args: Parameters<IpcApi['environmentConfigure']>) => environments.configure(...args))
-  ipcMain.handle('environmentConnect', (_e, ...args: Parameters<IpcApi['environmentConnect']>) => environments.connect(...args))
-  ipcMain.handle('environmentRemove', async (_e, ...args: Parameters<IpcApi['environmentRemove']>) => { const reviews = await environmentResults.list(...args); if (reviews.some(review => review.files.some(file => file.received !== undefined && !['applied', 'declined'].includes(file.state)))) throw new Error('Review and apply or decline fetched results before removing this binding'); await environments.pause(...args); await environmentMemory!.stop(...args); await environments.remove(...args) })
-  ipcMain.handle('environmentPause', (_e, ...args: Parameters<IpcApi['environmentPause']>) => environments.pause(...args))
-  ipcMain.handle('environmentRequest', (_e, ...args: Parameters<IpcApi['environmentRequest']>) => environments.request(...args))
-  ipcMain.handle('environmentMemory', async (_e, path: string, id: string, generation: number, action: string) => {
-    await environments.get(path, id, generation)
-    if (action === 'status') return environmentMemory!.status(id)
-    if (action === 'start') return environmentMemory!.start(path, id, generation)
-    if (action === 'stop') return environmentMemory!.stop(path, id, generation)
-    throw new Error('Invalid environment memory action')
-  })
-  ipcMain.handle('environmentResultsList', (_e, ...args: Parameters<IpcApi['environmentResultsList']>) => environmentResults.list(...args))
-  ipcMain.handle('environmentResultsCapture', (_e, ...args: Parameters<IpcApi['environmentResultsCapture']>) => environmentResults.capture(...args))
-  ipcMain.handle('environmentResultsSend', (_e, ...args: Parameters<IpcApi['environmentResultsSend']>) => environmentResults.send(...args))
-  ipcMain.handle('environmentResultsStage', (_e, ...args: Parameters<IpcApi['environmentResultsStage']>) => environmentResults.stage(...args))
-  ipcMain.handle('environmentResultsApply', (_e, ...args: Parameters<IpcApi['environmentResultsApply']>) => environmentResults.apply(...args))
-  ipcMain.handle('environmentResultsDecline', (_e, ...args: Parameters<IpcApi['environmentResultsDecline']>) => environmentResults.decline(...args))
   const projectKit = new ProjectExport(app.getPath('userData'), store, resolveToolWorkspace, projectTools, () => projectMemory.reloadStorage())
   ipcMain.handle('projectKitExport', (_e, ...args: Parameters<IpcApi['projectKitExport']>) => projectKit.projectKitExport(...args))
   ipcMain.handle('projectKitReconnectLearned', (_e, ...args: Parameters<IpcApi['projectKitReconnectLearned']>) => projectKit.projectKitReconnectLearned(...args))
@@ -754,7 +723,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', (event) => {
   if (projectTools && !toolsClosed) {
     event.preventDefault()
-    closingTools ??= Promise.all([projectTools.close(),projectLanguage?.close(),environmentMemory?.close()]).then(()=>undefined).catch(() => {
+    closingTools ??= Promise.all([projectTools.close(),projectLanguage?.close()]).then(()=>undefined).catch(() => {
       dialog.showErrorBox('Tool shutdown incomplete', 'An owned tool process could not be confirmed stopped. Check it before starting another instance.')
     }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
     return

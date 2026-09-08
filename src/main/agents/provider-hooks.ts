@@ -187,10 +187,6 @@ export function createAgentLaunchPlan(options: {
     mode: 0o600,
     flag: 'wx'
   })
-  const remoteMemoryEntry = options.inheritedEnv?.DONWELLS_REMOTE_MEMORY_ENTRY
-  if (remoteMemoryEntry && options.inheritedEnv?.DONWELLS_REMOTE_MEMORY_SOCKET && options.inheritedEnv?.DONWELLS_REMOTE_MEMORY_ROOT) {
-    writeFileSync(join(configDir, 'opencode.json'), JSON.stringify({ mcp: { 'donwells-project-memory': { type: 'local', command: [process.execPath, remoteMemoryEntry], enabled: true } } }), { mode: 0o600, flag: 'wx' })
-  }
   env['OPENCODE_CONFIG_DIR'] = configDir
   return {
     ...base,
