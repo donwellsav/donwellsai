@@ -26,7 +26,9 @@ export class SecretStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
       throw error
     }
-    const all: unknown = JSON.parse(text)
+    let all: unknown
+    try { all = JSON.parse(text) }
+    catch { throw new Error('Invalid credential store JSON; original file preserved') }
     if (!all || typeof all !== 'object' || Array.isArray(all)) throw new Error('Invalid credential store; original file preserved')
     for (const [key, value] of Object.entries(all)) {
       this.validateKey(key)
