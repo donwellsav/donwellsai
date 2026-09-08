@@ -28,13 +28,20 @@ index 659fc21..f06f291 100644
  
      static func configureEnvironment() {
 diff --git a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
-index 914a195..4e09bc7 100644
+index 914a195..a7ae4bc 100644
 --- a/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
 +++ b/Sources/GhosttyTerminal/InMemory/InMemoryTerminalSession.swift
-@@ -185,6 +185,17 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
+@@ -185,6 +185,24 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
          receive(data)
      }
  
++    public var viewport: (columns: UInt16, rows: UInt16)? {
++        surfaceAccess.withCurrentSurface { surface in
++            let size = ghostty_surface_size(surface)
++            return (size.columns, size.rows)
++        }
++    }
++
 +    /// The host calls this only after the first viewport exists, and drains before resuming live output.
 +    public func replay(_ data: String, columns: UInt16, rows: UInt16) -> Bool {
 +        guard surfaceAccess.currentSurface != nil else { return false }

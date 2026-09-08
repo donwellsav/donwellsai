@@ -100,8 +100,10 @@ export class NativeTerminals {
       if (!entry || this.closed) return
       if (event.type === 'input' && entry.connected && typeof event.data === 'string') this.daemon.write(entry.sessionId, Buffer.from(event.data, 'base64').toString('utf8'))
       if (event.type === 'resize' && entry.boundsReady && Number.isInteger(event.cols) && Number.isInteger(event.rows) && event.cols > 0 && event.rows > 0) {
+        const current = this.call(entry, 'geometry')
+        if (current.cols !== event.cols || current.rows !== event.rows) return
         entry.cols = event.cols; entry.rows = event.rows; entry.measured = true
-        this.replay(entry)
+        try { this.replay(entry) } catch (error) { this.disconnected(entry, String(error)); return }
         if (entry.connected) void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
       }
       if (event.type === 'shortcut' && Object.values(this.shortcuts()).includes(event.command)) {

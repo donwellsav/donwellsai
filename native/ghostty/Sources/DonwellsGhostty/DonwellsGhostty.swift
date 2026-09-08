@@ -152,6 +152,8 @@ private func emit(_ payload: [String: Any]) {
                     guard let data = req["data"] as? String else { return "{\"error\":\"Invalid terminal data\"}" }
                     surface.session.receive(data)
                 case "reset": surface.session.receive("\u{1b}c")
+                case "geometry":
+                    if let size = surface.session.viewport { result["cols"] = size.columns; result["rows"] = size.rows }
                 case "snapshot":
                     guard let chunks = req["chunks"] as? [[String: Any]],
                         let columns = req["cols"] as? UInt16, let rows = req["rows"] as? UInt16 else { return "{\"error\":\"Invalid replay grid\"}" }
@@ -175,6 +177,7 @@ private func emit(_ payload: [String: Any]) {
                         let width = req["width"] as? Double, let height = req["height"] as? Double,
                         [x,y,width,height].allSatisfy({ $0.isFinite }), width > 0, height > 0 {
                         surface.frame = NSRect(x: x, y: parent.isFlipped ? y : parent.bounds.height-y-height, width: width, height: height)
+                        surface.layoutSubtreeIfNeeded()
                         surface.isHidden = false; surface.terminal.setSurfaceVisible(true)
                     } else {
                         result["focused"] = surface.window?.firstResponder === surface.terminal || surface.window?.firstResponder === surface.search.currentEditor()

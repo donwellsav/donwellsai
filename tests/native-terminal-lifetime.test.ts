@@ -55,6 +55,7 @@ it('ignores an old resize failure after a surface has been replaced', async () =
   let reject!: (error: Error) => void
   f.daemon.resize.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
   await f.terminals.request({ op: 'bounds', sessionId: 'session', instance: 'first', rect: { x: 0, y: 0, width: 1000, height: 700 } })
+  native.request.mockImplementation(json => JSON.parse(json).op === 'geometry' ? '{"cols":90,"rows":25}' : '{}')
   native.emit(JSON.stringify({ id: 'session/first', type: 'resize', cols: 90, rows: 25 }))
   await f.create('session', 'second')
   const count = f.operations().length
@@ -75,6 +76,9 @@ it('waits for viewport geometry and replays dimensioned history before queued li
   f.terminals.data('session', 'live', 2)
   expect(f.operations().some(op => op.op === 'write' || op.op === 'snapshot')).toBe(false)
   await f.terminals.request({ op: 'bounds', sessionId: 'session', instance: 'first', rect: { x: 0, y: 0, width: 1000, height: 700 } })
+  native.request.mockImplementation(json => JSON.parse(json).op === 'geometry' ? '{"cols":120,"rows":35}' : '{}')
+  native.emit(JSON.stringify({ id: 'session/first', type: 'resize', cols: 50, rows: 13 }))
+  expect(f.daemon.resize).not.toHaveBeenCalled()
   native.emit(JSON.stringify({ id: 'session/first', type: 'resize', cols: 120, rows: 35 }))
   const output = f.operations().filter(op => op.op === 'write' || op.op === 'snapshot')
   expect(output.map(op => op.op)).toEqual(['snapshot', 'write'])
