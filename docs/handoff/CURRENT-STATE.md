@@ -39,7 +39,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **19 — Make every integrated tool discoverable and manageable** — Delivered: catalog/configuration routes, actual missing-runtime repair and disable, scoped resource controls, native remote stop and inactive pairing retirement.
 - [x] **20 — Make projects portable and recoverable** — Delivered: learned/workflow/temporal restore, canonical provenance, actual collision resolution, credential omission and explicit SSH re-pairing.
 - [ ] **21 — Finish the integrated GUI and remove daily-use friction** — Substantially delivered 2026-09-08 ([increment record](architecture/second-pass-21/integration-2026-09-08.md)): ranked friction profile; fixes for the retired-environments pane, focus dead-ends and hidden-window polling; dead CSS removed; keyboard/palette/accessibility suites green on the current package. Remaining: 21F physical-desktop input qualification only.
-- [ ] **22 — Deliver the finished installable application** — Partial: installed5172c81 candidate native workflow and three-class profile recovery passed; final artifact awaits integrated GUI/physical qualification.
+- [x] **22 — Deliver the finished installable application** — Delivered 2026-09-08: final 0.5.0 DMG, isolated install, representative workflow, update/rollback and shipped-launcher recovery verified; ad hoc signing honestly reported. See the Task22 section.
 - [x] **23 — Integrate analytics and richer project memory** — Delivered: DuckDB activity, Hindsight recall/reflection and Graphiti dated relations; reviewed native-agent sources, correction/erase, portable restoration and interrupted projection recovery.
 - [ ] **24 — REMOVED — Integrate isolated desktops and remote work** — Removed by explicit user decision 2026-09-08. All SSH/Lume/remote-control code, the environments panel and install/bundle scripts were deleted from the source tree; the app is local-only with per-project scoping plus permission prompts as the safety model. See the Task 24 plan card.
 - [x] **25 — Improve building applications in the editor** — Delivered: project language navigation/recovery, declared build, reviewed workflow creation and actual native DSH workflow reuse demonstrated.
@@ -74,11 +74,7 @@ Remaining: 21F's physical native keyboard/pointer/selection/Metal qualification 
 
 ## Task22 — final current-source installed app
 
-Intermediate candidate5172c81 is historical; its DMG/archive/transcript hashes were checked against retained files. Installed recovery transferred three explicit classes (workspace, canonical JSON memory, project kits), not every profile/credential/pairing. Runtime use later changed navigation/docking/terminal-order fields in recovered workspace state; transfer hashes are not timeless current-state hashes.
-
-After remaining changes, use the actual package preparation/native/notices checks and isolated output. Install the current final candidate separately, use a representative integrated project/agent/memory workflow, and demonstrate update/recovery without project loss. Include required tooling setup and accurate distribution rights. Reuse unaffected proof, but allow the smallest necessary real agent call to qualify final installed behavior. No blanket promise of zero additional prompts.
-
-Report exact source commit/artifact hash and signing/notarization truth, verify actual final package, and provide the DMG link. Never replace the user's installation or call the old candidate final.
+Delivered 2026-09-08. Final artifact: `dist/donwells-0.5.0-mac-arm64.dmg` (SHA256 8ad3c856979a8d8e5bb0e53ca46ddd9f6d7888da807cd7b98ee11eb5b696e1f6, hdiutil-verified) from current source, installed isolated at `/tmp/donwells-22-final/donwells.app` — the user's own installation was never touched. Representative keyboard workflow incl. PDF preview passed on the installed copy; update/rollback continuity 0.4.0↔0.5.0 verified (`installed-update-0.5.0.json`); shipped recovery launcher transferred workspace+memory classes hash-identically and the recovered profile returned the identical project+fact (`installed-recovery-0.5.0.json`). Signing: ad hoc, no Developer ID, no notarization — reported, not hidden. Full record: `architecture/second-pass-22/final-0.5.0.md`. The 5172c81 candidate remains historical.
 
 ## Completion and continuation
 

@@ -1,0 +1,103 @@
+{
+  "sourceBefore": {
+    "commit": "cddce4b49614cd85d8b2e6b7d1e4ecba5ab94d18",
+    "dirty": true,
+    "contentHash": "77b2e5740af6c1c6f6d801a41af03a2de4c10597dfa2d557850caaf6b4777bf7"
+  },
+  "artifactBefore": {
+    "executable": "/private/tmp/donwells-22-final/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "46f31cfc6eef59220c2ae1f086e93a726b9a65f463a755ca8dcb73b4c39c4021",
+    "externalResources": {
+      "fileCount": 137,
+      "sha256": "1960c4a359f755511b5b77c4e204d85524d6e9adfd508580288f4dc729a51500"
+    }
+  },
+  "profile": "/private/tmp/dw22-kb-profile",
+  "project": "/private/tmp/dw22-kb-profile/fixture",
+  "journeys": {
+    "start": {
+      "sessionId": "bbc415d9-b612-432c-85f2-d478d6ce08ab",
+      "workspacePath": "/private/tmp/dw22-kb-profile/fixture"
+    },
+    "collaborate": {
+      "sessionId": "9f6bf366-f0c2-4296-9fa6-8c66b9905cfd",
+      "workspacePath": "/private/tmp/dw22-kb-profile/fixture",
+      "task": {
+        "intent": "Review shared README",
+        "files": [
+          "README.md"
+        ]
+      },
+      "overlapVisible": true
+    },
+    "handoff": {
+      "source": "bbc415d9-b612-432c-85f2-d478d6ce08ab",
+      "receiver": "9f6bf366-f0c2-4296-9fa6-8c66b9905cfd",
+      "reviewed": true,
+      "accepted": true,
+      "instructionsCopied": true,
+      "nativeDelivery": "Qualified separately by native-handoff-cli.json"
+    },
+    "understand": {
+      "memoryCreatedAndFound": true,
+      "sourceOpenedAtLine": 2,
+      "sourceEditedAndSaved": true
+    },
+    "buildVerify": {
+      "runId": "1b2fe102-ca53-4321-b9a7-1e2c509d2fb0",
+      "status": "succeeded",
+      "sourceState": "current",
+      "artifactAttached": true
+    },
+    "returnShip": {
+      "restart": "Owned app graceful close and relaunch",
+      "terminalIdentitiesRetained": true,
+      "memoryOpenedByKeyboard": true,
+      "verificationRetained": true,
+      "artifactUnchanged": true,
+      "installedRelease": "Task 22"
+    }
+  },
+  "limitations": [
+    "Keyboard UI uses a controllable /bin/cat CLI; native model authentication and execution are qualified separately."
+  ],
+  "memoryCommandTransfersFocus": true,
+  "memoryCreatedAndFound": true,
+  "mouseEventsBeforeRestart": 0,
+  "restartShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "pdf": {
+    "renderedCanvas": true,
+    "textLayer": true,
+    "secondPage": true,
+    "nodeCanvasRequired": false
+  },
+  "mouseEvents": 0,
+  "appShutdown": {
+    "forcedTermination": false,
+    "exitCode": 0,
+    "signal": null
+  },
+  "idleDaemonStopped": true,
+  "sourceAfter": {
+    "commit": "cddce4b49614cd85d8b2e6b7d1e4ecba5ab94d18",
+    "dirty": true,
+    "contentHash": "77b2e5740af6c1c6f6d801a41af03a2de4c10597dfa2d557850caaf6b4777bf7"
+  },
+  "sourceUnchanged": true,
+  "artifactAfter": {
+    "executable": "/private/tmp/donwells-22-final/donwells.app/Contents/MacOS/donwells",
+    "executableSha256": "cb1ff051972518956849b76293e78136cf60efe7df649075481547a36d052ac7",
+    "asarSha256": "46f31cfc6eef59220c2ae1f086e93a726b9a65f463a755ca8dcb73b4c39c4021",
+    "externalResources": {
+      "fileCount": 137,
+      "sha256": "1960c4a359f755511b5b77c4e204d85524d6e9adfd508580288f4dc729a51500"
+    }
+  },
+  "artifactUnchanged": true,
+  "verified": true
+}

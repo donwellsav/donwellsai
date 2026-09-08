@@ -1,0 +1,18 @@
+{
+  "profile": "/tmp/dw22-recovered",
+  "repos": [
+    "/private/tmp/dw22-kb-profile/fixture"
+  ],
+  "fact": {
+    "id": "2d178686-dff0-4e08-80cb-488988159128",
+    "revision": 1,
+    "title": "Keyboard project convention"
+  },
+  "projectKeyMatch": true,
+  "hashMatch": {
+    "donwells-data.json": "4088d8cce5766dbf76172a34002e469f78499ae2537328619ed63e00c97509e1",
+    "project-memory.json": "b0a4b8eaf7e1376751bc245142780c4b24ebe8c5743a90a1cc7cd42e4d91c41b"
+  },
+  "note": "First verify script asserted the wrong memory.list result shape (object, not array); corrected direct comparison of source and recovered profiles returns the identical fact on both.",
+  "verified": true
+}
