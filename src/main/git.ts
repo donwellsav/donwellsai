@@ -524,11 +524,18 @@ export class GitWorktrees {
         }
       }
     }
-    for (const item of await this.files.listDirectory(root, prefix)) {
-      if (HIDDEN_DIRS.has(item.name)) continue
-      const rel = base + item.name
-      if (files.has(rel) || seenDirs.has(rel)) continue
-      entries.push({ path: rel, name: item.name, type: item.type })
+    const extra = (await this.files.listDirectory(root, prefix))
+      .filter(item => !HIDDEN_DIRS.has(item.name) && !files.has(base + item.name) && !seenDirs.has(base + item.name))
+    for (let start = 0; start < extra.length; start += 256) {
+      const batch = extra.slice(start, start + 256)
+      const result = await runProcess({ program: 'git', args: ['check-ignore', '-z', '--stdin'], cwd: root,
+        input: batch.map(item => base + item.name).join('\0') + '\0', acceptExitCodes: [0, 1],
+        timeoutMs: 10_000, maxOutputBytes: DEFAULT_GIT_OUTPUT_BYTES, executionHost: { kind: 'local' } })
+      const ignored = new Set(result.stdout.split('\0'))
+      for (const item of batch) {
+        const rel = base + item.name
+        if (!ignored.has(rel)) entries.push({ path: rel, name: item.name, type: item.type })
+      }
     }
     return entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
   }

@@ -326,9 +326,25 @@ describe('GitWorktrees folder and history workflows', () => {
 
   it('preserves Git ignored-file semantics unless the request opts in', async () => {
     const { git, repo } = await gitFileContext()
-    writeFileSync(join(repo, '.gitignore'), '*.log' + LF)
+    writeFileSync(join(repo, '.gitignore'), ['*.log', 'out/', 'dist/', '!kept.log'].join(LF))
     writeFileSync(join(repo, 'ignored.log'), 'ignored' + LF)
     writeFileSync(join(repo, 'visible.txt'), 'visible' + LF)
+    for (const name of ['out', 'dist', 'empty', 'nested']) mkdirSync(join(repo, name))
+    writeFileSync(join(repo, 'out', 'generated.txt'), 'generated')
+    writeFileSync(join(repo, 'dist', 'tracked.log'), 'tracked')
+    execFileSync('git', ['add', '-f', 'dist/tracked.log'], { cwd: repo })
+    writeFileSync(join(repo, 'kept.log'), 'negation')
+    writeFileSync(join(repo, 'nested', '.gitignore'), '*.tmp')
+    writeFileSync(join(repo, 'nested', 'ignored.tmp'), 'nested')
+    writeFileSync(join(repo, 'line\nbreak.log'), 'ignored')
+    const request = { directory: '', showHidden: false, includeIgnored: false }
+    const listing = await git.listWorkspaceDirectory(repo, request)
+    expect(listing.entries.map(entry => entry.path)).toEqual(expect.arrayContaining(['dist', 'empty', 'kept.log']))
+    expect(listing.entries.map(entry => entry.path)).not.toEqual(expect.arrayContaining(['out']))
+    expect(listing.entries.some(entry => entry.path === 'ignored.log' || entry.path === 'line\nbreak.log')).toBe(false)
+    expect((await git.listWorkspaceDirectory(repo, { ...request, directory: 'nested' })).entries).toEqual([])
+    expect((await git.listWorkspaceDirectory(repo, { ...request, includeIgnored: true })).entries.some(entry => entry.path === 'out')).toBe(true)
+    expect((await git.searchWorkspaceFiles(repo, { query: 'tracked', showHidden: false, includeIgnored: false })).matches[0]?.entry.path).toBe('dist/tracked.log')
 
     const ordinary = await git.searchWorkspaceFiles(repo, { query: 'ignored', showHidden: false, includeIgnored: false })
     expect(ordinary.matches).toEqual([])
