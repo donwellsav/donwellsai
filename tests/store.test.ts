@@ -36,14 +36,14 @@ describe('Store', () => {
 
     const again = new Store(dirname(store.path))
     expect(again.listRepos().map((repo) => repo.id)).toEqual(['r1', 'r2'])
-    expect(again.getSettings()).toMatchObject({ agentCommand: 'claude', terminalFontSize: 16, theme: 'system' })
+    expect(again.getSettings()).toMatchObject({ agentCommand: 'claude', terminalFontSize: 16, theme: 'dark' })
   })
 
   it('treats a missing profile as new without manufacturing a file', () => {
     const store = new Store(tmp())
     expect(store.getSettings()).toMatchObject({
       agentCommand: 'codex',
-      theme: 'system',
+      theme: 'dark',
       terminalFontSize: 13,
       browserHomeUrl: 'http://localhost:3000'
     })
@@ -84,7 +84,6 @@ describe('Store', () => {
     expect(migrated.schemaVersion).toBe(2)
     expect(migrated.independentOwnerState).toEqual({ keep: 7 })
     expect(migrated.settings).toEqual({
-      theme: 'dark',
       terminalFontFamily: 'Commit Mono',
       terminalFontSize: 17,
       terminalTheme: 'dracula',

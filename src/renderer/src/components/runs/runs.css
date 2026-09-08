@@ -632,9 +632,9 @@
   display: flex;
   min-width: 0;
   min-height: 56px;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   padding: 9px 10px;
   color: var(--muted-fg);
   background: var(--background);
@@ -649,7 +649,7 @@
 .agent-harness-grid > button > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .agent-harness-grid strong { font-size: 13px; }
 .agent-harness-grid small { font-size: 11px; }
-.agent-harness-grid code { max-width: 46%; overflow: hidden; color: var(--muted-fg); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.agent-harness-grid code { max-width: 100%; overflow: hidden; color: var(--muted-fg); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 
 .agent-launcher-note { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; color: var(--muted-fg); background: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; }
 .agent-launcher-note strong { color: var(--foreground); font-size: 13px; }

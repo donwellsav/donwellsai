@@ -43,7 +43,7 @@ const statusPollIntervals = [0, 2000, 5000, 10000] as const
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   agentCommand: 'codex',
-  theme: 'system',
+  theme: 'dark',
   uiScale: 1,
   terminalRenderer: 'xterm',
   terminalFontFamily: '',

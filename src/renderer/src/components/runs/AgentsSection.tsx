@@ -210,7 +210,7 @@ export function AgentsSection() {
             {repos.flatMap(repo => repo.worktrees.map(worktree => <option key={worktree.path} value={worktree.path}>{worktree.isMain ? 'Shared checkout' : 'Existing worktree'} · {workspaceName(repo.repo.path)} · {worktree.branch ?? 'detached'} · {worktree.path}</option>))}
           </select>
         </label>
-        <p>Branch: {targetBranch ?? 'No Git branch'} · Other sessions in this checkout share its files.</p>
+        <p>{targetBranch ? `Branch: ${targetBranch} · ` : ''}Other sessions in this checkout share its files.</p>
         {targetRepo?.repo.kind !== 'folder' && targetRepo && <button type="button" className="btn btn-secondary" onClick={() => {useAppStore.setState({activeRepoId:targetRepo.repo.id, runsOpen:false, createOpen:true})}}>Create isolated worktree…</button>}
         <details className="agent-command-field"><summary>Task and file scope</summary>
         {targetPath && <details className="agent-command-field"><summary>Project tasks and native tools</summary>
@@ -245,7 +245,7 @@ export function AgentsSection() {
                   setLaunchError(null)
                 }}
               >
-                <span><strong>{preset.name}</strong><small>{preset.hookSupport.support === 'native' ? 'Hook adapter available' : 'Process status only'}</small></span>
+                <span><strong>{preset.name}</strong><small>{preset.hookSupport.support === 'native' ? 'Detailed activity status' : 'Basic status only'}</small></span>
                 <code>{preset.command}</code>
               </button>
             ))}
@@ -261,7 +261,7 @@ export function AgentsSection() {
           <p className="agent-unavailable">Not found on PATH: {unavailablePresets.map((preset) => preset.name).join(', ')}</p>
         )}
 
-        {selectedPreset && <p className="agent-unavailable">Installed · Launch unverified · Authentication unverified · Memory connection unverified</p>}
+        {selectedPreset && <p className="agent-unavailable">Installed. Launch, sign-in, and memory connection have not been verified yet.</p>}
         {targetPath && selectedPreset && ['omp', 'kimi', 'deepseek-harness', 'hermes'].includes(selectedPreset.id) && <div className="agent-command-field">
           <button type="button" className="btn btn-secondary" disabled={configuringMemory || launching} onClick={async () => {
             const target = `${targetPath}:${selectedPreset.id}`
