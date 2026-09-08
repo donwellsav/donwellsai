@@ -62,14 +62,15 @@
 .workspace-project-status button { display: inline-flex; align-items: center; gap: 5px; }
 .workspace-project-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 25; touch-action: none; }
 .workspace-project-resize:hover, .workspace-project-resize:focus-visible { background: var(--ring); }
-.workspace-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 68px; width: 68px; min-height: 0; padding: 8px 4px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--sidebar); }
+.workspace-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 68px; width: 68px; min-height: 0; padding: 8px 4px; overflow-y: auto; border-right: 1px solid var(--border); background: var(--sidebar); }
 .workspace-rail > button { position: relative; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px; width: 58px; min-height: 48px; flex-shrink: 0; border-radius: 3px; color: var(--muted-fg); }
 .workspace-rail > button > span { font-size: 10px; line-height: 1.2; }
 .workspace-rail > button:hover:not(:disabled) { background: var(--card); color: var(--foreground); }
 .workspace-rail > button[aria-pressed='true'] { color: var(--foreground); background: var(--ws-accent); }
-.workspace-rail > button[aria-pressed='true']::after { content: ''; position: absolute; right: -4px; height: 18px; width: 2px; background: var(--ring); }
+.workspace-rail > button[aria-pressed='true']::after { content: ''; position: absolute; left: -4px; height: 18px; width: 2px; background: var(--ring); }
 .workspace-rail button:disabled { opacity: .45; cursor: default; }
 .workspace-rail-spacer { flex: 1; min-height: 12px; }
+.workspace-header-actions { display: inline-flex; align-items: center; gap: 2px; }
 .workspace-frame button:focus-visible, .workspace-frame summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 @media (max-width: 700px) {
   .workspace-projects { min-width: 140px; width: 160px !important; flex-basis: 160px !important; max-width: 32vw; }

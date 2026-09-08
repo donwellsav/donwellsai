@@ -56,8 +56,23 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   return <>
     <div className="workspace-frame">
+      <nav className="workspace-rail" aria-label="Workspace tools">
+        <button aria-label="Projects" title="Projects panel" aria-pressed={sidebarOpen} onClick={() => state().setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={19} /><span>Projects</span></button>
+        <button aria-label="Terminal" title="Show terminal" disabled={!activePath} aria-pressed={!!activePane && activePath ? panes?.find(p => p.key === activePane)?.kind === 'terminal' : false} onClick={() => { if (!activePath) return; const terms = (panes ?? []).filter(p => p.kind === 'terminal'); if (terms.length === 0) { void state().openTerminal(activePath); return } const index = terms.findIndex(p => p.key === activePane); state().setActivePane(activePath, terms[(index + 1) % terms.length].key) }}><Icon name="terminal" size={19} /><span>Terminal</span></button>
+        <WorkspaceControls />
+        <button aria-label="Project search" title="Search files, code, documents and memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'search' && !runsOpen} onClick={() => showTool('search')}><Icon name="search" size={19} /><span>Search</span></button>
+        <button aria-label="Find a command" title={`Find a command (${formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))})`} onClick={() => state().setPaletteOpen(true)}><Icon name="bolt" size={19} /><span>Commands</span></button>
+        <button aria-label="Files" title="Files" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'explorer' && !runsOpen} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>
+        <button aria-label="Changes" title="Changes" disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={rightOpen && rightTab === 'git' && !runsOpen} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Changes</span></button>
+        <button aria-label="Project memory" title="Project memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'memory' && !runsOpen} onClick={() => showTool('memory')}><Icon name="file" size={19} /><span>Knowledge</span></button>
+        <button aria-label="Agent sessions" title="Agent sessions" aria-pressed={runsOpen} onClick={() => runsOpen ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="activity" size={19} /><span>Runs{waiting.length > 0 ? ` · ${waiting.length}` : ''}</span></button>
+        <button aria-label="Computer control" title="Computer control" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'computer' && !runsOpen} onClick={() => showTool('computer')}><Icon name="eye" size={19} /><span>Control</span></button>
+        <div className="workspace-rail-spacer" />
+        <button aria-label="Recover unsaved files" title="Recover unsaved files" aria-pressed={rightOpen && rightTab === 'recovery' && !runsOpen} onClick={() => showTool('recovery')}><Icon name="clock" size={18} /><span>Recover</span></button>
+        <button aria-label="Settings" title="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={18} /><span>Settings</span></button>
+      </nav>
       {sidebarOpen && <aside className="workspace-projects" aria-label="Projects and checkouts" style={{ width: sidebarWidth, flexBasis: sidebarWidth }}>
-        <header><button className="workspace-wordmark" aria-label="Go to Projects" onClick={() => state().setActiveRepo(null)}>donwells</button><button className="workspace-icon-control" aria-label="New project" onClick={() => openProjectSetup()}><Icon name="plus" size={17} /></button></header>
+        <header><button className="workspace-wordmark" aria-label="Go to Projects" onClick={() => state().setActiveRepo(null)}>donwells</button><span className="workspace-header-actions"><button className="workspace-icon-control" aria-label="Hide projects panel" title="Hide projects panel" onClick={() => state().setSidebarOpen(false)}><Icon name="panelLeft" size={17} /></button><button className="workspace-icon-control" aria-label="New project" onClick={() => openProjectSetup()}><Icon name="plus" size={17} /></button></span></header>
         <button className="workspace-project-picker" aria-expanded={projectPickerOpen || !activePath} aria-controls="workspace-project-picker" onClick={() => setProjectPickerOpen(!projectPickerOpen)}>
           <span><strong>{selectedRepo ? pathBasename(selectedRepo.repo.path) : 'Choose a project'}</strong><small>{activePath ? navigation.renames[activePath] ?? status?.branch ?? pathBasename(activePath) : 'Open a folder or create an app'}</small></span><Icon name="down" size={13} />
         </button>
@@ -102,7 +117,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </div>
         {activePath && <section className="workspace-session-list" aria-label="Project sessions">
           {waiting.length > 0 && <button className="workspace-add-checkout" onClick={() => dispatchAppCommand('next-waiting-session')}>Next waiting session ({waiting.length})</button>}
-          <div className="workspace-session-heading"><h2 className="workspace-section-label">Sessions <span>{panes?.filter(pane => pane.kind === 'terminal').length ?? 0}</span></h2><button className="workspace-icon-control" aria-label="Add agent" title="Add agent" onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={16} /></button></div>
+          <div className="workspace-session-heading"><h2 className="workspace-section-label">Sessions <span>{panes?.filter(pane => pane.kind === 'terminal').length ?? 0}</span></h2><span className="workspace-header-actions"><button className="workspace-icon-control" aria-label="New terminal" title="New terminal" onClick={() => void state().openTerminal(activePath)}><Icon name="terminal" size={15} /></button><button className="workspace-icon-control" aria-label="Add agent" title="Add agent" onClick={() => dispatchAppCommand('show-agents')}><Icon name="plus" size={16} /></button></span></div>
           {panes?.filter(pane => pane.kind === 'terminal').map((pane, index) => {
             const agent = pane.sessionId ? runningAgents[pane.sessionId] : undefined
             const presentation = agent ? agentPresentation(agent) : undefined
@@ -131,21 +146,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className="workspace-desk">
         <div className="workspace-surfaces">{children}</div>
       </div>
-      <nav className="workspace-rail" aria-label="Workspace tools">
-        <button aria-label="Terminal" title="New terminal" disabled={!activePath} onClick={() => activePath && void state().openTerminal(activePath)}><Icon name="terminal" size={19} /><span>Terminal</span></button>
-        <WorkspaceControls />
-        <button aria-label="Project search" title="Search files, code, documents and memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'search' && !runsOpen} onClick={() => showTool('search')}><Icon name="search" size={19} /><span>Search</span></button>
-        <button aria-label="Find a command" title={`Find a command (${formatAppShortcut(commandChord, appCommandPlatform(navigator.platform))})`} onClick={() => state().setPaletteOpen(true)}><Icon name="bolt" size={19} /><span>Commands</span></button>
-        <button aria-label="Projects" title="Projects" aria-pressed={sidebarOpen} onClick={() => state().setSidebarOpen(!sidebarOpen)}><Icon name="panelLeft" size={19} /><span>Projects</span></button>
-        <button aria-label="Files" title="Files" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'explorer' && !runsOpen} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>
-        <button aria-label="Changes" title="Changes" disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={rightOpen && rightTab === 'git' && !runsOpen} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Changes</span></button>
-        <button aria-label="Project memory" title="Project memory" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'memory' && !runsOpen} onClick={() => showTool('memory')}><Icon name="file" size={19} /><span>Knowledge</span></button>
-        <button aria-label="Agent sessions" title="Agent sessions" aria-pressed={runsOpen} onClick={() => runsOpen ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="activity" size={19} /><span>Runs{waiting.length > 0 ? ` · ${waiting.length}` : ''}</span></button>
-        <button aria-label="Computer control" title="Computer control" disabled={!activePath} aria-pressed={rightOpen && rightTab === 'computer' && !runsOpen} onClick={() => showTool('computer')}><Icon name="eye" size={19} /><span>Control</span></button>
-        <div className="workspace-rail-spacer" />
-        <button aria-label="Recover unsaved files" title="Recover unsaved files" aria-pressed={rightOpen && rightTab === 'recovery' && !runsOpen} onClick={() => showTool('recovery')}><Icon name="clock" size={18} /><span>Recover</span></button>
-        <button aria-label="Settings" title="Settings" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={18} /><span>Settings</span></button>
-      </nav>
     </div>
   </>
 }

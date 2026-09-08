@@ -79,6 +79,10 @@ try {
   report.checks.toolKeyboardNavigationRetainsSession = true
   await page.getByRole('button', { name: 'Terminal', exact: true }).click()
   sessions = await invoke('terminal.list')
+  assert.equal(sessions.length, 1)
+  report.checks.railTerminalFocusesExisting = true
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  sessions = await invoke('terminal.list')
   assert.equal(sessions.length, 2)
   report.checks.openSecondTerminal = true
   const sessionNavigation = page.getByRole('region', { name: 'Project sessions', exact: true })

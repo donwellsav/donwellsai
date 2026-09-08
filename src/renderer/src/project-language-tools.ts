@@ -5,11 +5,12 @@ const attached = new Set<string>()
 export const isProjectLanguageAttached = (uri: string): boolean => attached.has(uri)
 
 export function attachProjectLanguageTools(monaco: typeof Monaco, model: Monaco.editor.ITextModel, workspacePath: string, path: string, report: (message: string) => void) {
+  const plainErrorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '')
   const language = model.getLanguageId()
   if (language !== 'typescript' && language !== 'javascript') return { restart: async () => undefined, definition: async () => undefined, references: async () => [], dispose: () => undefined }
   let active = true, generation = 0, timer: ReturnType<typeof setTimeout>, status: ProjectLanguageStatus | null = null
   const document = (): ProjectLanguageDocument => ({ workspacePath, path, version: model.getVersionId(), content: model.getValue() })
-  const fallback = (error: unknown) => { attached.delete(model.uri.toString()); monaco.editor.setModelMarkers(model, 'donwells-project-language', []); report(`Project language tools unavailable: ${String(error)}. Open-file TypeScript tools remain active.`) }
+  const fallback = (error: unknown) => { attached.delete(model.uri.toString()); monaco.editor.setModelMarkers(model, 'donwells-project-language', []); report(`Project language tools unavailable: ${plainErrorMessage(error)}. Open-file TypeScript tools remain active.`) }
   const validate = async () => {
     const request = ++generation, version = model.getVersionId()
     try {

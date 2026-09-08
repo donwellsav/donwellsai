@@ -24,7 +24,7 @@
 .workspace-dock .flexlayout__tabset_tabbar_outer { background: var(--card); background-image: none; }
 .workspace-dock .flexlayout__tabset-selected, .workspace-dock .flexlayout__tabset-maximized { background-image: none; }
 
-.workspace-layout-popover { position: fixed; left: auto; top: 8px; right: 50px; bottom: auto; margin: 0; z-index: 100; width: 290px; max-width: calc(100vw - 78px); max-height: calc(100vh - 16px); overflow: auto; padding: 0; color: var(--foreground); background: var(--popover); border: 1px solid var(--input); box-shadow: var(--shadow-floating); }
+.workspace-layout-popover { position: fixed; left: 76px; top: 108px; right: auto; bottom: auto; margin: 0; z-index: 100; width: 290px; max-width: calc(100vw - 78px); max-height: calc(100vh - 16px); overflow: auto; padding: 0; color: var(--foreground); background: var(--popover); border: 1px solid var(--input); box-shadow: var(--shadow-floating); }
 .workspace-layout-popover .workspace-preset-buttons, .workspace-layout-popover .workspace-hidden-views { flex-basis: 100%; }
 .workspace-layout-popover .workspace-hidden-views > div { position: static; width: 100%; border: 0; }
 .workspace-layout-popover .workspace-arrangements button { min-height: 30px; }
