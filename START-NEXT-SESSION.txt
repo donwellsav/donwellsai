@@ -18,20 +18,13 @@ This message authorizes resuming implementation. You are a new model/agent/harne
 
 Read docs/handoff/README.md, CURRENT-STATE.md, AUDIT-AND-CORRECTIONS.md and OPERATIONS-AND-RECOVERY.md. Read the master plan at docs/superpowers/plans/2026-09-07-rebuilt-01-26-plan.md and the relevant sections of its three companion specifications. SESSION-ARCHIVE.md and AGENTS-AND-PROVENANCE.md explain how to trace actual conversation, tool calls/results and worker actions in the project-local package. Search the records selectively; do not load the whole archive into context or execute old commands blindly.
 
-Verify the actual Git root, branch, HEAD and local changes. Preserve newer work. The expected branch is workspace/terminal-foundation; do not reset to an old handoff hash. The source recovery bundle is for a new destination if the checkout is unavailable, not a reason to replace this checkout.
+Verify the actual Git root, branch, HEAD and local changes. Preserve newer work. The September 8 repair branch is codex/inspection-repairs; do not reset to an old handoff hash. The source recovery bundle is for a new destination if the checkout is unavailable, not a reason to replace this checkout.
 
-Build the product specified by the plan: a terminal-first workspace for building applications with interchangeable native CLI/TUI agents, concurrent/switchable agents on one project, canonical shared project knowledge, retained development modules, recoverable local/remote work and a coherent ergonomic #16161D GUI. Complete the actual capabilities, not a validation campaign.
+Build the product specified by the plan: a terminal-first workspace for building applications with interchangeable native CLI/TUI agents, concurrent/switchable agents on one project, canonical shared project knowledge, retained development modules, recoverable local work and a coherent ergonomic #16161D GUI. Complete the actual capabilities, not a validation campaign.
 
-The recorded open tasks are16,21,22,24,26. Only02 is skipped. Other checkmarks are historical delivery records, not unconditional proof. Reuse qualifying existing work; reopen a specific clause when current source or an integration defect warrants it. Reorder ready tasks when useful without dropping requirements. Do not restart everything or write another plan.
+Current continuation: finish the nine-row September 8 inspection-repair checklist in docs/superpowers/plans/2026-09-08-inspection-repairs.md. It records implementation, focused checks, desktop evidence and release status separately. Read the current table and Git status before continuing.
 
-Start by reading the complete16 requirements and tracing current code/evidence. Briefly state the unfinished user-visible capability and next implementation step, then execute. Important corrections:
-- Local native-agent computer-control MCP operations already exist; reuse them.
-- The current remote protocol/panel lacks the required scoped guest-control route. This is implementation work, not just missing proof.
-- The screenshot runner is partial and has synchronization/cleanup gaps. A successful fixture click alone cannot finish16.
-- The retained-VM rename was an untried suggestion that conflicts with existing admission/deployment wording. Reconcile lifecycle, ownership and recovery before selecting a route.
-- Task24 includes actual Lume and SSH work, disconnect/reconnect and reviewed result return. Current remote result reading is limited to complete non-executable text; inspect any mismatch with required artifacts.
-- Task26 requires the integrated native host workflow, not merely pointer selection. A prior coordinate diagnosis was inconclusive.
-- Task21 is full GUI integration and ergonomic improvement. Task22 requires the final current-source installed application and representative workflow/update/recovery, not the old candidate.
+The 01–26 records are historical delivery evidence. Task02 and local Task16 are delivered; Task21 retains physical-desktop qualification limits. Tasks22/26 have prior package evidence, but the inspection found stale artifacts and replay failures, so the repair checklist reopens those affected clauses. Task24 was removed by explicit user decision: do not restore SSH, Lume, isolated desktops, or the environments panel. Residual native/lume files are retained reference material, not active runtime support.
 
 Before each task, inspect existing research and source, then refresh the unresolved component decision using current primary GitHub sources. Select stronger suitable components, including justified replacements, with data/recovery/license preservation. Avoid broad repeated surveys, speculative abstractions, duplicate owners and rewrites of sound code.
 

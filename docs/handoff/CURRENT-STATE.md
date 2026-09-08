@@ -4,9 +4,13 @@
 
 A terminal-first macOS workspace for building applications with interchangeable native CLI/TUI agents: OMP, Hermes, DeepSeek Harness, Kimi, custom programs and explicit ACP sessions. Users run agents together or switch on the same project. Canonical project facts/decisions/sources and reviewed handoffs are shared; native histories preserve their own resume identities.
 
-Editor, files, changes, browser, knowledge, resources and environments are movable retained modules around the terminal. The GUI must have its own identity, dark base #16161D, readable type, side controls and preserved terminal height. Final GUI work belongs to21 (former29); this is substantive integration/ergonomics, not cosmetic validation. Stronger components may replace incumbents when current research supports the choice and data/recovery/license requirements are preserved.
+Editor, files, changes, browser, knowledge and resources are movable retained modules around the terminal. The GUI must have its own identity, dark base #16161D, readable type, side controls and preserved terminal height. Final GUI work belongs to21 (former29); this is substantive integration/ergonomics, not cosmetic validation. Stronger components may replace incumbents when current research supports the choice and data/recovery/license requirements are preserved.
 
-## State at transfer
+## Current repair continuation — September 8
+
+Use the existing app checkout on `codex/inspection-repairs`; verify actual HEAD and local changes. The user authorized execution of the [nine-row repair plan](../superpowers/plans/2026-09-08-inspection-repairs.md). That checklist owns current defect and release qualification. Earlier package/host acceptance below is historical and does not close the newly reproduced replay, language-tool, settings, ignore or artifact defects. Residual `native/lume` policy/reference files are retained history; no remote runtime is supported.
+
+## Historical state at transfer
 
 - Source root and branch: `/Users/muzikfirst/Documents/donwellsai/donwellsai`, `workspace/terminal-foundation`.
 - Last product change:71fc082 (point request payload fix). c89e541 adds Lume Show desktop; e8ecff0 corrects global module labels. These are partial increments.
@@ -33,7 +37,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **13 — Unify project knowledge and native session history** — Delivered: source-grouped navigation, native Hermes/Kimi resume, reviewed facts and actual slow-query cancellation/isolation demonstrated.
 - [x] **14 — Make browser previews part of the project** — Delivered scoped storage and existing view lifetime; final integration21.
 - [x] **15 — Let agents inspect and test project applications** — Delivered: guarded context controls, readable diagnostics and artifact references; retained native repair journey plus current app/browser proof.
-- [ ] **16 — Provide controlled desktop interaction** — Delivered for the local product scope 2026-09-07/08 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). The guest-scoped remote scope was removed with24 on 2026-09-08; local control is unaffected.
+- [x] **16 — Provide controlled desktop interaction** — Delivered for the local product scope 2026-09-07/08 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). The guest-scoped remote scope was removed with24 on 2026-09-08; local control is unaffected.
 - [x] **17 — Connect code changes to working results** — Delivered: actual failing/fixed runs, source-linked review and stale rejection; native and ACP producer records; verified text artifacts open in the existing editor.
 - [x] **18 — Coordinate parallel work and Git** — Delivered: overlap owner/changes/handoff routes and deliberate UI merge resolution proven; retained native tools and shared/isolated intent evidence.
 - [x] **19 — Make every integrated tool discoverable and manageable** — Delivered: catalog/configuration routes, actual missing-runtime repair and disable, scoped resource controls, native remote stop and inactive pairing retirement.
@@ -78,7 +82,7 @@ Delivered 2026-09-08. Final artifact: `dist/donwells-0.5.0-mac-arm64.dmg` (SHA25
 
 ## Completion and continuation
 
-The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Task24 was removed by user decision 2026-09-08; task02 was reactivated the same day. Open tasks:02,16,21,22,26.
+The full master cards and linked companions remain acceptance authority. Reorder ready slices when dependencies justify it; do not drop requirements. After a full task completes, update existing records, commit locally, show every01–26 row/current position/product outcome/proof/limits, then continue. Reopen specific old clauses only when evidence demands it. Task24 was removed by user decision 2026-09-08; task02 was reactivated the same day. Current product qualification:21F remains open. Task02 and local16 are delivered;24 is removed. The September 8 repair checklist tracks reopened defects and source-matched release qualification for22/26.
 
 ## Correct folder layout — latest explicit user correction
 

@@ -1,3 +1,5 @@
+Current continuation: [September 8 inspection repairs](docs/superpowers/plans/2026-09-08-inspection-repairs.md), in the existing app checkout on `codex/inspection-repairs`. Verify actual HEAD/status. Earlier transfer records below are historical; do not restore removed remote work.
+
 # donwells.ai handoff — start here
 
 The complete cross-application handoff is [docs/handoff/README.md](docs/handoff/README.md).

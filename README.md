@@ -6,7 +6,11 @@ donwells.ai is a local desktop workspace for parallel agent development across G
 
 The donwells.ai workbench combines persistent workspace organization and split terminals with Explorer, Quick Open, Monaco, rich Markdown, source control, snapshot-bound review notes, and bounded image/PDF viewers. Settings cover agents, editor, source control, browser and media, appearance, terminals, shortcuts, notifications, privacy, and advanced behavior. Semantic light/dark themes and native interface scaling apply without restarting.
 
-## 0.4.0 changes
+## 0.5.0
+
+The current app is local-only. Projects stay in left navigation; native Ghostty and Xterm attach to daemon-owned terminals. Project language tools use the checkout’s legacy tsserver or TypeScript 7 native LSP entry. September 8 inspection repairs and their qualification status are tracked in [the repair checklist](docs/superpowers/plans/2026-09-08-inspection-repairs.md).
+
+## Historical 0.4.0 changes
 
 - Keyboard commands transfer focus into side panels and remain available while editing. The installed keyboard acceptance covers shared-project agents, handoffs, memory, search/edit/save, build evidence and restart continuity.
 - macOS Finder launches discover standard Homebrew and user CLI installations while preserving an explicit PATH. Custom installation locations still require an explicit PATH or executable.
@@ -15,7 +19,7 @@ The donwells.ai workbench combines persistent workspace organization and split t
 - Production dependency notices are generated and verified during packaging. PDF preview uses Chromium canvas without shipping unused Node canvas binaries.
 - The controlled 0.3.0 → 0.4.0 → 0.3.0 → 0.4.0 check preserves SQLite revisions, terminal identities, source files and the migration backup. Export a project kit before changing versions.
 
-Installed-release evidence and remaining qualification limits are in [Task 22](docs/architecture/strengthening-22/README.md). The local macOS ARM64 DMG is Developer ID signed; notarization is not configured. This is a local review artifact, with no automatic publishing or update delivery.
+Installed-release evidence and remaining qualification limits are in [Task 22](docs/architecture/strengthening-22/README.md). The previously inspected macOS ARM64 candidate has an ad hoc signature, not Developer ID signing; notarization is not configured. Check the repair release record for the newly built candidate. This is a local review artifact, with no automatic publishing or update delivery.
 
 ## 0.3.0 changes
 
@@ -54,7 +58,7 @@ Existing profiles are not copied automatically. The installed macOS app provides
 
 ## Local packaging
 
-`pnpm package:dir` builds the local application bundle; `pnpm package:mac`, `pnpm package:linux`, and `pnpm package:win` define platform artifacts. The macOS build is unsigned unless release signing is deliberately configured. The bundled `Contents/Resources/bin/donwells` launcher runs the CLI without a separate Node installation.
+`pnpm package:dir` builds the local application bundle; `pnpm package:mac`, `pnpm package:linux`, and `pnpm package:win` define platform artifacts. The macOS build has no Developer ID identity unless release signing is deliberately configured; local builds may carry an ad hoc signature. The bundled `Contents/Resources/bin/donwells` launcher runs the CLI without a separate Node installation.
 
 ## Development
 

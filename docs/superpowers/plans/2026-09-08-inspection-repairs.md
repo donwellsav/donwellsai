@@ -35,7 +35,7 @@ Baseline: build/typecheck pass; 563 tests pass, 1 fails, 15 skip. The failed CLI
 | 5 | Repair parallel-run CLI argument compatibility | None | Implemented; all 9 CLI checks and typecheck pass |
 | 6 | Honor Git ignores in Explorer and file search | None | Complete; 19 Git checks; Explorer ignored toggle verified in desktop; search already honored rules |
 | 7 | Preserve credentials on corruption/write failure | None | Implemented; synthetic corruption and atomic failure checks pass; typecheck passes |
-| 8 | Reconcile launch, handoff and release documentation | 1–7 | [ ] |
+| 8 | Reconcile launch, handoff and release documentation | 1–7 | Current continuation and signing claims corrected; final release identity pending |
 | 9 | Build and qualify the matching local release | 1–8 | [ ] |
 
 After each row: update this table and report the complete nine-row checklist, local commit, user-visible result, focused check, visual proof and remaining limitations. Commit completion alone is not a stop condition during an authorized execution run.
