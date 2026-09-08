@@ -19,7 +19,7 @@ Editor, files, changes, browser, knowledge, resources and environments are movab
 Statuses below deliberately distinguish prior delivery from closure of this rebuilt contract. Planning itself closes no task.
 
 - [x] **01 — Consolidate the working foundation without rolling back** — Delivered; retained536e03b, ownership reconciled.
-- [ ] **02 — Original terminal/layout comparison** — Reactivated by user 2026-09-08; pending. Informs26's host decision.
+- [x] **02 — Original terminal/layout comparison** — Delivered 2026-09-08: evidence-grounded comparison record; keep xterm default + native Ghostty + daemon PTYs + flexlayout docking ([record](architecture/second-pass-02-terminal-layout-comparison.md)).
 - [x] **03 — Make engine choices usable per project** — Delivered for existing engines; saved/draft status and native connection entry refined.
 - [x] **04 — Own tools and resources by project** — Delivered for existing services; endpoint adapters extend it in23.
 - [x] **05 — Establish the terminal-centered workspace** — Delivered shell rebuild; final integration remains21.
