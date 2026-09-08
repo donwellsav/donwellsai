@@ -160,9 +160,11 @@ export function parseCliArguments(argv: readonly string[]): CliArguments {
   } else if (command.mode === 'settings') {
     if (positional.length !== 1) throw new Error(command.name + ' requires exactly one JSON object')
     params = jsonObject(positional[0]!)
-  } else if (positional.length === 1 && positional[0]!.trimStart().startsWith('{')
-    && !(command.fields.length === 1 && command.fields[0]?.kind === 'object')) {
-    params = jsonObject(positional[0]!)
+  } else if (positional.length === 1 && positional[0]!.trimStart().startsWith('{')) {
+    const object = jsonObject(positional[0]!)
+    const first = command.fields.find(field => !field.flag)
+    const envelope = command.fields.some(field => Object.hasOwn(object, field.name))
+    params = first?.kind === 'object' && !envelope ? { [first.name]: object } : object
   } else if (command.mode === 'selector') {
     if (positional.length !== 1) throw new Error('ui-activate requires one exact path or repository ID')
     const selector = positional[0]!

@@ -101,30 +101,26 @@ describe('CLI argument contract', () => {
     ])
     expect(scheduled.params.input).toMatchObject({ target: { root: resolve('.') } })
 
-    const parallel = parseCliArguments([
-      'parallel-start',
-      JSON.stringify({
-        name: 'Mixed',
-        command: 'echo ok',
-        concurrency: 2,
-        targets: [
-          { kind: 'local', root: 'local', label: 'local' },
-          { kind: 'remote', connectionId: 'server', root: '/srv/repo', label: 'remote' }
-        ]
-      })
-    ])
-    expect(parallel.params.input).toMatchObject({
-      targets: [{ root: resolve('local') }, { root: '/srv/repo' }]
-    })
+    const input = { name: 'Local', command: 'echo ok', concurrency: 2,
+      targets: [{ kind: 'local', root: 'local', label: 'local' }] }
+    const bare = parseCliArguments(['parallel-start', JSON.stringify(input)])
+    expect(bare.params.input).toMatchObject({ targets: [{ root: resolve('local') }] })
+    expect(parseCliArguments(['parallel-start', JSON.stringify({ input })]).params).toEqual(bare.params)
+    expect(parseCliArguments(['parallel-start', '--params', JSON.stringify({ input })]).params).toEqual(bare.params)
+    expect(parseCliArguments(['parallel-start', JSON.stringify(input), '{}']).params)
+      .toEqual(parseCliArguments(['parallel-start', JSON.stringify({ input, options: {} })]).params)
+    expect(() => parseCliArguments(['parallel-start', '{"input":{},"input":{}}'])).toThrow('Duplicate JSON key')
+    expect(() => parseCliArguments(['parallel-start', JSON.stringify({ input, unexpected: true })])).toThrow('Unknown parameter')
+    expect(() => parseCliArguments(['parallel-start', '{"name":'])).toThrow('Invalid JSON')
 
     expect(() => parseCliArguments([
-      'agent-deliver', 'session', '.', 'diff-review', 'Review', 'Body'
+      'agent-deliver', 'request', 'session', '.', 'diff-review', 'Review', 'Body'
     ])).toThrow('Missing parameter: confirmed')
     expect(() => parseCliArguments([
-      'agent-deliver', 'session', '.', 'diff-review', 'Review', 'Body', '--confirm=false'
+      'agent-deliver', 'request', 'session', '.', 'diff-review', 'Review', 'Body', '--confirm=false'
     ])).toThrow('requires explicit --confirm')
     expect(parseCliArguments([
-      'agent-deliver', 'session', '.', 'diff-review', 'Review', 'Body', '--confirm', '--submit=false'
+      'agent-deliver', 'request', 'session', '.', 'diff-review', 'Review', 'Body', '--confirm', '--submit=false'
     ]).params).toMatchObject({ confirmed: true, submit: false })
   })
 

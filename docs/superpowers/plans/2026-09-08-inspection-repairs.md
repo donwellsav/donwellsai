@@ -32,7 +32,7 @@ Baseline: build/typecheck pass; 563 tests pass, 1 fails, 15 skip. The failed CLI
 | 2 | Fix development resource roots for all callers | None | Implemented; 4 focused checks and typecheck pass; desktop qualification pending |
 | 3 | Reproduce and repair terminal replay geometry | 2 | [ ] |
 | 4 | Make terminal settings truthful and functional | 2; recheck 3 | Implemented; 11 focused checks and typecheck pass; desktop qualification pending |
-| 5 | Repair parallel-run CLI argument compatibility | None | [ ] |
+| 5 | Repair parallel-run CLI argument compatibility | None | Implemented; all 9 CLI checks and typecheck pass |
 | 6 | Honor Git ignores in Explorer and file search | None | [ ] |
 | 7 | Preserve credentials on corruption/write failure | None | [ ] |
 | 8 | Reconcile launch, handoff and release documentation | 1–7 | [ ] |
