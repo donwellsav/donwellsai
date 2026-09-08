@@ -43,7 +43,7 @@ const until = async (predicate, message) => {
   while (!(await predicate())) { assert(Date.now() < deadline, message); await delay(100) }
 }
 let app, page, id, instance
-const report = { source: sourceIdentity(), executable, profile, fixture, artifacts: Object.fromEntries(['app.asar', 'native/libDonwellsGhostty.dylib', 'native/ghostty.node'].map(file => [file, hash(readFileSync(join(resources, file)))])), checks: [], limitations: ['Native AppKit events are dispatched in process; physical mouse, keyboard and rendered Metal pixels require an unlocked desktop.', 'The TUI fixture verifies transport and renderer lifecycle, not model inference.'] }
+const report = { source: sourceIdentity(), executable, profile, fixture, artifacts: Object.fromEntries(['app.asar', 'native/libDonwellsGhostty.dylib', 'native/ghostty.node'].map(file => [file, hash(readFileSync(join(resources, file)))])), checks: [], limitations: ['Native AppKit events are dispatched in process; physical mouse, keyboard and rendered Metal pixels require an unlocked desktop.', 'Pointer selection is proven with in-process synthesized mouseDown/mouseDragged/mouseUp events, the same class as the keyDown proof; no physical pointer crosses the view.', 'The TUI fixture verifies transport and renderer lifecycle, not model inference.'] }
 const launch = async () => {
   app = await _electron.launch({ executablePath: executable, env }); page = await app.firstWindow()
   page.setDefaultTimeout(15000)
@@ -72,6 +72,26 @@ try {
   await action('key', 'x')
   await until(async () => /INPUT: x/.test((await read()).text), 'Native input did not reach PTY')
   report.checks.push('Native keyDown reaches the retained PTY')
+  await action('select', 'all')
+  let copied = ''
+  await until(async () => { copied = await action('copy', ''); return copied.includes(`NATIVE GHOSTTY ${pid}`) }, 'Native drag selection did not reach the clipboard')
+  assert(copied.includes('Find this needle twice: needle') && copied.includes('INPUT: x'), `Selection copied unexpected text: ${JSON.stringify(copied)}`)
+  report.checks.push('Native pointer drag selects the displayed text and copy returns it')
+  const host = page.locator(`[data-pane-key="term:${id}"] .native-terminal-host`)
+  const frame = async () => (await action('frame', '')).split(',').map(Number)
+  const frameBefore = await frame()
+  const [windowWidth, windowHeight] = await app.evaluate(_electron => _electron.BrowserWindow.getAllWindows()[0].getSize())
+  await app.evaluate((_electron, size) => _electron.BrowserWindow.getAllWindows()[0].setSize(size.width - 160, size.height - 120), { width: windowWidth, height: windowHeight })
+  await until(async () => {
+    const now = await frame(), box = await host.boundingBox()
+    return box && now[2] < frameBefore[2] - 40 && now[3] < frameBefore[3] - 40 && Math.abs(now[2] - box.width) < 8 && Math.abs(now[3] - box.height) < 8
+  }, 'Native surface did not track its pane size')
+  await app.evaluate((_electron, size) => _electron.BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width: windowWidth, height: windowHeight })
+  await until(async () => {
+    const now = await frame(), box = await host.boundingBox()
+    return box && Math.abs(now[2] - frameBefore[2]) < 8 && Math.abs(now[3] - frameBefore[3]) < 8 && Math.abs(now[2] - box.width) < 8 && Math.abs(now[3] - box.height) < 8
+  }, 'Native surface did not restore to its original size')
+  report.checks.push('Native surface resizes with its pane')
   await page.evaluate(({ id, instance }) => window.donwells.nativeTerminal({ op: 'find', sessionId: id, instance }), { id, instance })
   await action('search', 'needle')
   await until(async () => (await read()).searchTotal === 2, 'Native search did not find exact matches')

@@ -29,7 +29,7 @@ function visit(directory){
 }
 for(const name of Object.keys(json(join(root,'package.json')).dependencies)){const directory=locate(name,root);assert(directory,`Missing installed dependency: ${name}`);visit(directory)}
 entries.sort((a,b)=>(a.name+'@'+a.version).localeCompare(b.name+'@'+b.version,'en'))
-const output='BUNDLED DEPENDENCY NOTICES\nGenerated from the installed production dependency graph. Includes bundled renderer dependencies.\nElectron and Chromium notices are supplied in the Electron distribution.\nNative CLI agents and optional project tools are separately installed.\n\n'+entries.map(entry=>entry.text.replaceAll('\r\n','\n').trim()).join('\n\n'+'='.repeat(72)+'\n\n')+'\n'
+const output='BUNDLED DEPENDENCY NOTICES\nGenerated from the installed production dependency graph. Includes bundled renderer dependencies.\nElectron and Chromium notices are supplied in the Electron distribution.\nNative CLI agents and optional project tools are separately installed.\nThe bundled native Ghostty terminal engine (libghostty-spm pin in scripts/build-native-terminal.mjs) carries its licenses and corresponding-source archive in Contents/Resources/native/ within the packaged app; see native/ghostty/README.md for the admitted list.\n\n'+entries.map(entry=>entry.text.replaceAll('\r\n','\n').trim()).join('\n\n'+'='.repeat(72)+'\n\n')+'\n'
 const target=join(root,'resources/THIRD_PARTY_DEPENDENCIES.txt')
 if(process.argv.includes('--check'))assert.equal(readFileSync(target,'utf8'),output,'Dependency notices are stale; run pnpm notices:build')
 else writeFileSync(target,output)

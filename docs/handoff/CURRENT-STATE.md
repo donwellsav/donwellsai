@@ -33,7 +33,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **13 — Unify project knowledge and native session history** — Delivered: source-grouped navigation, native Hermes/Kimi resume, reviewed facts and actual slow-query cancellation/isolation demonstrated.
 - [x] **14 — Make browser previews part of the project** — Delivered scoped storage and existing view lifetime; final integration21.
 - [x] **15 — Let agents inspect and test project applications** — Delivered: guarded context controls, readable diagnostics and artifact references; retained native repair journey plus current app/browser proof.
-- [ ] **16 — Provide controlled desktop interaction** — Local half delivered 2026-09-07 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). The guest-scoped remote route (6a631cf) was deleted 2026-09-08 with the removal of24; local control is unaffected. Remaining: none for the local product; 16 closes with26/21 integration.
+- [ ] **16 — Provide controlled desktop interaction** — Delivered for the local product scope 2026-09-07/08 (commit e16f6e6): GUI and native-agent MCP entry points both drive the admitted driver to a verified fixture press (background AX route), with ownership scoping, closed-target recovery and clean teardown proven ([resume record](architecture/second-pass-16/resume-2026-09-07.md)). The guest-scoped remote scope was removed with24 on 2026-09-08; local control is unaffected.
 - [x] **17 — Connect code changes to working results** — Delivered: actual failing/fixed runs, source-linked review and stale rejection; native and ACP producer records; verified text artifacts open in the existing editor.
 - [x] **18 — Coordinate parallel work and Git** — Delivered: overlap owner/changes/handoff routes and deliberate UI merge resolution proven; retained native tools and shared/isolated intent evidence.
 - [x] **19 — Make every integrated tool discoverable and manageable** — Delivered: catalog/configuration routes, actual missing-runtime repair and disable, scoped resource controls, native remote stop and inactive pairing retirement.
@@ -43,7 +43,7 @@ Statuses below deliberately distinguish prior delivery from closure of this rebu
 - [x] **23 — Integrate analytics and richer project memory** — Delivered: DuckDB activity, Hindsight recall/reflection and Graphiti dated relations; reviewed native-agent sources, correction/erase, portable restoration and interrupted projection recovery.
 - [ ] **24 — REMOVED — Integrate isolated desktops and remote work** — Removed by explicit user decision 2026-09-08. All SSH/Lume/remote-control code, the environments panel and install/bundle scripts were deleted from the source tree; the app is local-only with per-project scoping plus permission prompts as the safety model. See the Task 24 plan card.
 - [x] **25 — Improve building applications in the editor** — Delivered: project language navigation/recovery, declared build, reviewed workflow creation and actual native DSH workflow reuse demonstrated.
-- [ ] **26 — Choose and establish the stronger desktop host** — Partial: external desktop Metal rendering, typed input and search observed; pointer selection and final integrated package qualification remain.
+- [x] **26 — Choose and establish the stronger desktop host** — Delivered 2026-09-08: Electron + native Ghostty re-qualified on the current-source package; 12/12 acceptance checks (selection+copy, resize, renderer switch without PTY restart, real agent, coexistence, crash recovery). See the Task26 section below and `architecture/second-pass-26/integrated-2026-09-08.json`.
 
 
 ## Task16 — current implementation boundary
@@ -54,7 +54,7 @@ Existing: local MCP control operations, connection owner identity, generation/re
 
 2026-09-07 update: the local half is now proven on current source; see `docs/architecture/second-pass-16/resume-2026-09-07.md`. Both acceptance runners (`computer-control-ui.mjs`, `computer-control-mcp.mjs`) pass with `verified: true`. Known driver limitation: foreground pixel clicks on AppKit targets are silently ineffective in Cua Driver0.23.2 (SkyLight copy carries NaN location); the background exact-target AX route is the qualified path.
 
-Unfinished: none from the remote side — the companion's guest-scoped control route (6a631cf) was removed 2026-09-08 together with task24. Task16's remaining value is exercised through26/21 integration of the local control path.
+Status: task16 is Delivered for the local product scope — the remote side was removed 2026-09-08 together with task24, and the local control path is proven (e16f6e6) and packaged (26's 2026-09-08 run).
 
 `tests/acceptance/computer-control-ui.mjs` was corrected on 2026-09-07: receipt-based completion wait, awaited fixture exit, sibling-press assertion. The earlier ENOENT was an early read while the click was in flight; the rerun additionally exposed a real driver delivery defect (see resume record). Both runners require an operator to read the produced native-target.png and write coordinates.json within the wait window.
 
@@ -64,9 +64,7 @@ Removed by explicit user decision: the product is local-only; safety = per-proje
 
 ## Task26 — integrated host/native terminal
 
-Electron/native Ghostty with daemon-owned PTYs is the implemented direction. Preserve it unless fresh comparative evidence justifies a migration. Existing external desktop evidence shows Metal rendering, pointer focus followed by typed/echoed text, and native search opening/closing. Pointer text selection is unproven; dispatched drag events are not successful selection.
-
-Complete the full26 card: representative native agent + shared knowledge + unsaved editor + browser + reconnect; input/search/resize/selection usability and preserved live PTY/session owner when changing renderer. Complete dependency/license obligations and applicable packaged integration. A subagent's proposed global-coordinate explanation was not established by later observations; do not patch the bridge based on that claim.
+Electron/native Ghostty with daemon-owned PTYs is the established direction, re-qualified 2026-09-08 on the current-source package (0365b5a, post task-24 removal). All 12 acceptance checks pass: daemon-owned TUI display, keyDown→PTY, pointer drag selection with copy, pane-tracked resize, exact search, palette/focus, renderer switch without PTY restart, real OMP input without submission, editor/browser/memory coexistence and GUI-crash recovery without resubmission. Evidence: `docs/architecture/second-pass-26/integrated-2026-09-08.json` with artifact hashes. Pointer selection is now proven in-process; the rejected global-coordinate hypothesis stays rejected — no bridge patch was made or needed. Pins kept: wrapper e47b20a is current upstream HEAD; core c4e16970 remains the matched pairing (see decision.md for the refresh rationale and upgrade candidates). License/notice obligations closed via Contents/Resources/native plus a pointer line in THIRD_PARTY_DEPENDENCIES.txt. Remaining honest limits: in-process AppKit dispatch (physical pointer/keyboard and Metal pixel quality unqualified), no model inference.
 
 ## Task21 — finish the actual GUI
 

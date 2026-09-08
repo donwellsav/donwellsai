@@ -2,6 +2,7 @@ BUNDLED DEPENDENCY NOTICES
 Generated from the installed production dependency graph. Includes bundled renderer dependencies.
 Electron and Chromium notices are supplied in the Electron distribution.
 Native CLI agents and optional project tools are separately installed.
+The bundled native Ghostty terminal engine (libghostty-spm pin in scripts/build-native-terminal.mjs) carries its licenses and corresponding-source archive in Contents/Resources/native/ within the packaged app; see native/ghostty/README.md for the admitted list.
 
 @agentclientprotocol/sdk@1.4.0
 Declared license: Apache-2.0
