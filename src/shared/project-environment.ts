@@ -7,8 +7,9 @@ export type SshEnvironmentConfig = {
 export type ProjectEnvironment = {
   id: string; generation: number; projectKey: string; checkoutPath: string; retired?: boolean
   state: 'configured' | 'ready' | 'paused' | 'unverifiable'; config: SshEnvironmentConfig; detail?: string
+  computerControl?: boolean
 }
-export type ProjectRemoteMethod = 'source.put' | 'result.read' | 'hello' | 'agent.start' | 'agent.authenticate' | 'memory.status' | 'memory.prepare' | 'memory.probe' | 'terminal.list' | 'terminal.open' | 'terminal.observe' | 'terminal.write' | 'terminal.resize' | 'terminal.stop' | 'operation.get'
+export type ProjectRemoteMethod = 'source.put' | 'result.read' | 'hello' | 'agent.start' | 'agent.authenticate' | 'memory.status' | 'memory.prepare' | 'memory.probe' | 'terminal.list' | 'terminal.open' | 'terminal.observe' | 'terminal.write' | 'terminal.resize' | 'terminal.stop' | 'computer.call' | 'computer.stop' | 'operation.get'
 export type ProjectRemoteRequest = {
   version: 1; environmentId: string; generation: number; projectId: string; remoteRoot: string
   requestId: string; method: ProjectRemoteMethod; params: Record<string, unknown>
@@ -19,7 +20,7 @@ export const projectEnvironmentId = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new Error('Invalid environment identifier')
   return value
 }
-export const remoteMutation = (method: ProjectRemoteMethod) => ['source.put', 'agent.start', 'terminal.open', 'terminal.write', 'terminal.resize', 'terminal.stop'].includes(method)
+export const remoteMutation = (method: ProjectRemoteMethod) => ['source.put', 'agent.start', 'terminal.open', 'terminal.write', 'terminal.resize', 'terminal.stop', 'computer.call', 'computer.stop'].includes(method)
 
 export type EnvironmentResultFile = { path: string; baseRevision: string | null; baseContent: string | null; currentContent?: string | null; currentRevision?: string | null; received?: { revision: string; content: string } | null; state: 'pending' | 'staged' | 'applied' | 'declined' | 'conflict'; error?: string }
 export type EnvironmentResultReview = { id: string; environmentId: string; generation: number; workspacePath: string; baseGitRevision: string | null; files: EnvironmentResultFile[] }

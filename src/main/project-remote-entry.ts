@@ -14,7 +14,7 @@ export async function runProjectRemoteStdio(mappingPath: string): Promise<void> 
   process.env.DONWELLS_REMOTE_MEMORY_ROOT = mapping.root
   process.env.DONWELLS_REMOTE_MEMORY_ENTRY = join(__dirname, 'project-remote-memory-entry.js')
   const client = new DaemonClient(mapping.stateDirectory, { data() {}, exit() {}, title() {}, agent() {}, agentDismissed() {} }, join(__dirname, 'terminal-daemon-entry.js'))
-  const server = new ProjectRemoteServer(mapping, client), decoder = new StringDecoder('utf8')
+  const server = new ProjectRemoteServer(mapping, client, mappingPath), decoder = new StringDecoder('utf8')
   let buffer = ''
   try {
     for await (const chunk of process.stdin) {

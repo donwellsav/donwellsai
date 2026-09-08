@@ -1,8 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createServer } from 'node:net'
+import { spawn } from 'node:child_process'
 import { ProjectEnvironments } from '../src/main/project-environments'
 import { validateSshConfig, sshFailureMessage, sshProjectArguments } from '../src/main/project-remote'
 import { ProcessExecutionError } from '../src/shared/child-process/run-process'
@@ -40,6 +42,11 @@ it('pins independently verified SSH identity and makes project pairing immutable
   expect(environment.state).toBe('configured')
   await expect(environments.request(project, 'guest', 1, 'terminal.open', { cols: 80, rows: 24 }, 'open')).rejects.toThrow('Connect')
   await environments.connect(project, 'guest', 1)
+  expect((await environments.list(project)).find(item => item.id === 'guest')?.computerControl).toBe(false)
+  remoteCapabilities = ['terminal', 'ordered-input', 'operation-journal', 'computer-control']
+  await environments.configure(project, 'control-guest', config)
+  expect((await environments.connect(project, 'control-guest', 1)).computerControl).toBe(true)
+  remoteCapabilities = ['terminal', 'ordered-input', 'operation-journal']
   remotePlatform = { os: 'linux', arch: 'arm64', runtime: 'v24.19.0' }
   await environments.configure(project, 'linux-guest', config)
   expect((await environments.connect(project, 'linux-guest', 1)).state).toBe('ready')
@@ -114,6 +121,60 @@ it('records an uncertain input and blocks later bytes after dispatch failure', a
   expect(daemon.writeAcknowledged).toHaveBeenCalledTimes(1)
   await expect(server.dispatch({ ...request, requestId: 'second', params: { ...request.params, sequence: 1 } })).rejects.toThrow('pending or uncertain')
 })
+
+it('journals guest computer-control through an owned controller socket and verifies exit on stop', async () => {
+  const { root, project } = fixture()
+  // ponytail: /tmp keeps the controller socket below the 104-byte sun_path limit; fixture() tmpdir paths exceed it.
+  const stateRoot = realpathSync(mkdtempSync(join('/tmp', 'dwcc-'))); paths.push(stateRoot)
+  const stateDirectory = join(stateRoot, 's')
+  const daemon = { list: async () => [], open: vi.fn(), attach: vi.fn(), resize: vi.fn(), close: vi.fn(), writeAcknowledged: vi.fn() }
+  const server = new ProjectRemoteServer({ version: 1, environmentId: 'guest', generation: 1, projectId: 'remote-project', root: project, stateDirectory, computerExecutable: '/fixture/computer-driver' }, daemon)
+  const request = (method: ProjectRemoteRequest['method'], requestId: string, params: Record<string, unknown> = {}): ProjectRemoteRequest => ({ version: 1, environmentId: 'guest', generation: 1, projectId: 'remote-project', remoteRoot: project, method, requestId, params })
+  await expect(server.dispatch({ ...request('computer.call', 'mismatch', { operation: 'status' }), generation: 2 })).rejects.toThrow('mismatch')
+  expect(await server.dispatch(request('computer.call', 'call-0', { operation: 'status' }))).toMatchObject({ state: 'uncertain', error: expect.stringContaining('could not be started') })
+  const plain = new ProjectRemoteServer({ version: 1, environmentId: 'guest', generation: 1, projectId: 'remote-project', root: project, stateDirectory: join(root, 'plain') }, daemon)
+  expect(await plain.dispatch(request('hello', 'hello-plain'))).toMatchObject({ capabilities: ['terminal', 'ordered-input', 'operation-journal'] })
+  await expect(plain.dispatch(request('computer.call', 'unsupported', { operation: 'status' }))).rejects.toThrow('administrator-paired computer-control')
+  await expect(plain.dispatch(request('operation.get', 'op', { requestId: 'unsupported' }))).rejects.toThrow('not found')
+  const socketPath = join(stateDirectory, 'computer.sock')
+  const received: string[] = []
+  let behavior = 'ok', exitPid = 0
+  const fake = createServer(socket => {
+    let buffer = ''
+    socket.on('data', chunk => {
+      buffer += chunk
+      const newline = buffer.indexOf('\n'); if (newline < 0) return
+      const message = JSON.parse(buffer.slice(0, newline)); received.push(message.operation)
+      const reply = (response: Record<string, unknown>) => socket.end(JSON.stringify({ id: message.id, ...response }) + '\n')
+      if (message.operation === 'stop') {
+        if (behavior === 'stop-exit') { reply({ ok: true, result: { pid: exitPid } }); fake.close(); try { unlinkSync(socketPath) } catch {} }
+        else reply({ ok: true, result: { pid: process.pid } })
+      } else if (behavior === 'error') reply({ ok: false, error: 'driver lost after dispatch' })
+      else reply({ ok: true, result: { content: [{ type: 'text', text: 'ok' }], structuredContent: { echo: message.operation } } })
+    })
+  })
+  await new Promise<void>(resolve => fake.listen(socketPath, resolve))
+  try {
+    expect(await server.dispatch(request('hello', 'hello'))).toMatchObject({ capabilities: expect.arrayContaining(['computer-control']) })
+    expect(await server.dispatch(request('computer.call', 'call-1', { operation: 'status', arguments: {} }))).toMatchObject({ state: 'completed', result: { structuredContent: { echo: 'status' } } })
+    expect(await server.dispatch(request('computer.call', 'call-1', { operation: 'status', arguments: {} }))).toMatchObject({ state: 'completed' })
+    expect(received).toEqual(['status'])
+    await expect(server.dispatch(request('computer.call', 'call-1', { operation: 'windows' }))).rejects.toThrow('different parameters')
+    await expect(server.dispatch(request('computer.call', 'bad-args', { operation: 'click', arguments: ['not-an-object'] }))).rejects.toThrow('Invalid computer operation')
+    behavior = 'error'
+    const click = request('computer.call', 'call-2', { operation: 'click', arguments: { owner: 'o', generation: 1, revision: 1, element: 'e' } })
+    expect(await server.dispatch(click)).toMatchObject({ state: 'uncertain' })
+    expect(await server.dispatch(click)).toMatchObject({ state: 'uncertain' })
+    expect(received).toEqual(['status', 'click'])
+    behavior = 'stop-live'
+    expect(await server.dispatch(request('computer.stop', 'stop-1'))).toMatchObject({ state: 'uncertain', error: expect.stringContaining('could not be verified') })
+    const child = spawn(process.execPath, ['-e', ''])
+    await new Promise(resolve => child.once('exit', resolve))
+    exitPid = child.pid!; behavior = 'stop-exit'
+    expect(await server.dispatch(request('computer.stop', 'stop-2'))).toMatchObject({ state: 'completed', result: { stopped: true, pid: exitPid } })
+    expect(await server.dispatch(request('computer.stop', 'stop-3'))).toMatchObject({ state: 'completed', result: { stopped: true } })
+  } finally { fake.close(); if (existsSync(socketPath)) unlinkSync(socketPath) }
+}, 30000)
 
 it('prepares only the admitted Lume machine with scoped mounts and explicit clipboard/VNC disable', async () => {
   const { root, project } = fixture()

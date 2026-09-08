@@ -3,15 +3,18 @@ import { artifactPath } from '@shared/project-export'
 import { ensureEnvironmentArtifactParents } from './environment-artifact-files'
 import { createConnection } from 'node:net'
 import { remoteMemoryRequest } from './project-remote-memory'
+import { remoteComputerRequest } from './project-remote-computer'
 import { createHash } from 'node:crypto'
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync } from 'node:fs'
 import { dirname, isAbsolute, relative, sep, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
+import { spawnProcess } from '@shared/child-process/run-process'
+import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { projectEnvironmentId, remoteMutation, type ProjectRemoteRequest, type ProjectRemoteOperation } from '@shared/project-environment'
 import type { DaemonClient } from './daemon-client'
 
-export type RemoteProjectMapping = { version: 1; environmentId: string; generation: number; projectId: string; root: string; stateDirectory: string; opencodeExecutable?: string }
+export type RemoteProjectMapping = { version: 1; environmentId: string; generation: number; projectId: string; root: string; stateDirectory: string; opencodeExecutable?: string; computerExecutable?: string }
 type RemoteDaemon = Pick<DaemonClient, 'open' | 'list' | 'attach' | 'resize' | 'close' | 'writeAcknowledged'> & Partial<Pick<DaemonClient, 'startAgent' | 'authenticateAgent' | 'listAgents' | 'stopAgent'>>
 const dimension = (value: unknown): number => { if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 1000) throw new Error('Invalid terminal dimensions'); return Number(value) }
 
@@ -37,7 +40,7 @@ export function readRemoteProjectMapping(path: string): RemoteProjectMapping {
 export class ProjectRemoteServer {
   private readonly journal: string
   private readonly files = new WorktreeFiles()
-  constructor(private readonly mapping: RemoteProjectMapping, private readonly daemon: RemoteDaemon) {
+  constructor(private readonly mapping: RemoteProjectMapping, private readonly daemon: RemoteDaemon, private readonly mappingPath?: string) {
     mkdirSync(mapping.stateDirectory, { recursive: true, mode: 0o700 })
     const directory = lstatSync(mapping.stateDirectory)
     if (!directory.isDirectory() || directory.isSymbolicLink() || directory.mode & 0o077 || process.getuid && directory.uid !== process.getuid()) throw new Error('Remote supervisor directory must be private and owned')
@@ -69,13 +72,77 @@ export class ProjectRemoteServer {
     }
     return record
   }
+  private computerSocket(): string { return join(this.mapping.stateDirectory, 'computer.sock') }
+  private probeComputer(socketPath: string): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const socket = createConnection(socketPath)
+      socket.setTimeout(1000, () => { socket.destroy(); reject(new Error('Existing computer controller is unverifiable')) })
+      socket.on('connect', () => { socket.destroy(); resolve(true) })
+      socket.on('error', error => { socket.destroy(); if ((error as NodeJS.ErrnoException).code === 'ECONNREFUSED') resolve(false); else reject(error) })
+    })
+  }
+  private async ensureComputer(): Promise<string> {
+    const socketPath = this.computerSocket()
+    for (let attempt = 0; ; attempt++) {
+      let stat
+      try { stat = lstatSync(socketPath) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+      if (stat) {
+        if (!stat.isSocket() || stat.uid !== process.getuid?.()) throw new Error('Remote computer socket is not owned')
+        if (await this.probeComputer(socketPath)) return socketPath
+        const current = lstatSync(socketPath)
+        if (current.ino !== stat.ino || current.dev !== stat.dev || !current.isSocket()) throw new Error('Computer socket changed while inspecting it')
+        unlinkSync(socketPath)
+      }
+      if (attempt > 0 || !this.mappingPath) throw new Error('Remote computer controller could not be started')
+      const child = spawnProcess({ program: process.execPath, args: [join(__dirname, 'project-remote-computer-entry.js'), '--mapping', this.mappingPath], detached: true, stdio: 'ignore', env: sanitizedProcessEnv(process.env, { ELECTRON_RUN_AS_NODE: '1' }) })
+      const spawned = new Promise<void>((resolve, reject) => { child.once('spawn', () => resolve()); child.once('error', error => reject(error)) })
+      child.unref()
+      await spawned
+      const deadline = Date.now() + 10000
+      while (Date.now() <= deadline) {
+        let started = false
+        try { started = lstatSync(socketPath).isSocket() && await this.probeComputer(socketPath) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+        if (started) break
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error('Remote computer controller exited during startup')
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+  }
+  private async computerCall(operation: string, args: Record<string, unknown>): Promise<unknown> {
+    const result = await remoteComputerRequest(await this.ensureComputer(), operation, args)
+    if (Buffer.byteLength(JSON.stringify(result)) > 2 * 1024 * 1024 - 64 * 1024) throw new Error('Computer-control result exceeds the remote frame limit')
+    return result ?? {}
+  }
+  private async computerStop(): Promise<unknown> {
+    const socketPath = this.computerSocket()
+    let stat
+    try { stat = lstatSync(socketPath) } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { stopped: true }; throw error }
+    if (!stat.isSocket() || stat.uid !== process.getuid?.()) throw new Error('Remote computer socket is not owned')
+    if (!await this.probeComputer(socketPath)) {
+      const current = lstatSync(socketPath)
+      if (current.ino !== stat.ino || current.dev !== stat.dev || !current.isSocket()) throw new Error('Computer socket changed while inspecting it')
+      unlinkSync(socketPath)
+      return { stopped: true }
+    }
+    const result = await remoteComputerRequest(socketPath, 'stop', {}, undefined, 10000)
+    const pid = typeof result === 'object' && result !== null ? (result as { pid?: unknown }).pid : undefined
+    if (!Number.isSafeInteger(pid)) throw new Error('Remote computer controller stop was not acknowledged')
+    const deadline = Date.now() + 5000
+    while (Date.now() <= deadline) {
+      let gone = false
+      try { gone = !lstatSync(socketPath).isSocket() } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') gone = true; else throw error }
+      if (gone && probeLocalProcessLiveness(Number(pid)) === 'exited') return { stopped: true, pid }
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error('Remote computer controller exit could not be verified')
+  }
   async dispatch(request: ProjectRemoteRequest): Promise<unknown> {
     const m = this.mapping
     if (!request || request.version !== 1 || request.environmentId !== m.environmentId || request.generation !== m.generation || request.projectId !== m.projectId || request.remoteRoot !== m.root) throw new Error('Remote project identity, root, version or generation mismatch')
     projectEnvironmentId(request.requestId)
     if (!request.params || typeof request.params !== 'object' || Array.isArray(request.params) || Buffer.byteLength(JSON.stringify(request)) > 2 * 1024 * 1024) throw new Error('Invalid remote request parameters')
     const p = request.params
-    if (request.method === 'hello') return { version: 1, environmentId: m.environmentId, generation: m.generation, projectId: m.projectId, root: m.root, os: process.platform, arch: process.arch, runtime: process.version, capabilities: ['terminal', 'ordered-input', 'operation-journal'], sharedMemory: false, memorySocket: join(m.stateDirectory, 'memory.sock') }
+    if (request.method === 'hello') return { version: 1, environmentId: m.environmentId, generation: m.generation, projectId: m.projectId, root: m.root, os: process.platform, arch: process.arch, runtime: process.version, capabilities: ['terminal', 'ordered-input', 'operation-journal', ...(m.computerExecutable && isAbsolute(m.computerExecutable) ? ['computer-control'] : [])], sharedMemory: false, memorySocket: join(m.stateDirectory, 'memory.sock') }
     if (request.method === 'result.read') {
       const path = artifactPath(p.path)
       let stat
@@ -122,9 +189,13 @@ export class ProjectRemoteServer {
     const hash = createHash('sha256').update(JSON.stringify(request)).digest('hex')
     const prior = this.db(db => db.prepare('SELECT hash FROM requests WHERE id=?').get(request.requestId))
     if (prior) { if (prior.hash !== hash) throw new Error('Remote request ID reused with different parameters'); return this.operation(request.requestId) }
-    const sessionId = ['source.put', 'terminal.open', 'agent.start'].includes(request.method) ? undefined : await this.session(p.sessionId)
+    const sessionId = ['source.put', 'terminal.open', 'agent.start', 'computer.call', 'computer.stop'].includes(request.method) ? undefined : await this.session(p.sessionId)
     if (request.method === 'terminal.open' || request.method === 'terminal.resize') { dimension(p.cols); dimension(p.rows) }
     if (request.method === 'terminal.write' && (typeof p.data !== 'string' || !p.data || Buffer.byteLength(p.data) > 64 * 1024 || !Number.isSafeInteger(p.sequence) || Number(p.sequence) < 0)) throw new Error('Invalid ordered terminal input')
+    if (request.method === 'computer.call' || request.method === 'computer.stop') {
+      if (!m.computerExecutable || !isAbsolute(m.computerExecutable)) throw new Error('No administrator-paired computer-control executable')
+      if (request.method === 'computer.call' && (typeof p.operation !== 'string' || !/^[A-Za-z]{1,32}$/.test(p.operation) || p.arguments !== undefined && (typeof p.arguments !== 'object' || !p.arguments || Array.isArray(p.arguments)))) throw new Error('Invalid computer operation')
+    }
     const record: ProjectRemoteOperation = { requestId: request.requestId, state: 'accepted', ...(sessionId ? { sessionId } : {}), ...(request.method === 'terminal.write' ? { sequence: Number(p.sequence) } : {}) }
     this.db(db => {
       if (Number(db.prepare('SELECT COUNT(*) AS count FROM requests').get()!.count) >= 10000) throw new Error('Remote request journal reached its limit')
@@ -152,6 +223,8 @@ export class ProjectRemoteServer {
       else if (request.method === 'terminal.open') result = await this.daemon.open(m.root, Number(p.cols), Number(p.rows))
       else if (request.method === 'terminal.write') { await this.daemon.writeAcknowledged(sessionId!, String(p.data)); result = { sequence: p.sequence } }
       else if (request.method === 'terminal.resize') await this.daemon.resize(sessionId!, Number(p.cols), Number(p.rows))
+      else if (request.method === 'computer.call') result = await this.computerCall(String(p.operation), (p.arguments ?? {}) as Record<string, unknown>)
+      else if (request.method === 'computer.stop') result = await this.computerStop()
       else {
         const agent = this.daemon.listAgents && (await this.daemon.listAgents()).find(run => run.sessionId === sessionId && run.workspacePath === m.root)
         if (!agent) await this.daemon.close(sessionId!)
