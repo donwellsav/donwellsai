@@ -7,7 +7,15 @@ import type { DaemonClient } from '../src/main/daemon-client'
 const native = vi.hoisted(() => ({ request: vi.fn(), listen: vi.fn(), emit: (_json: string) => {} }))
 vi.mock('node:module', () => ({ createRequire: () => () => native }))
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/test' }, shell: {} }))
-import { NativeTerminals } from '../src/main/native-terminals'
+import { NativeTerminals, nativeTerminalConfiguration } from '../src/main/native-terminals'
+
+it('maps native line spacing, line-based history and explicit clipboard selection', () => {
+  const config = nativeTerminalConfiguration({ ...DEFAULT_SETTINGS, terminalLineHeight: 1.25, scrollback: 5000, copyOnSelect: true })
+  expect(config).toContain('adjust-cell-height = 25%')
+  expect(config).toContain('scrollback-limit-lines = 5000')
+  expect(config).toContain('copy-on-select = clipboard')
+  expect(nativeTerminalConfiguration(DEFAULT_SETTINGS)).toContain('copy-on-select = false')
+})
 
 beforeEach(() => {
   vi.clearAllMocks()

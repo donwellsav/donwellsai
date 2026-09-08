@@ -46,6 +46,8 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const fontSize = useAppStore((s) => s.settings.terminalFontSize)
   const fontFamily = useAppStore((s) => s.settings.terminalFontFamily)
+  const fontWeight = useAppStore((s) => s.settings.terminalFontWeight)
+  const lineHeight = useAppStore((s) => s.settings.terminalLineHeight)
   const cursorStyle = useAppStore((s) => s.settings.cursorStyle)
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalTheme = useAppStore((s) => s.settings.terminalTheme)
@@ -85,6 +87,8 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         cursorBlink: settings.cursorBlink ?? true,
         cursorStyle: settings.cursorStyle === 'bar' || settings.cursorStyle === 'underline' ? settings.cursorStyle : 'block',
         fontSize: settings.terminalFontSize || 13,
+        fontWeight: settings.terminalFontWeight,
+        lineHeight: settings.terminalLineHeight,
         fontFamily: settings.terminalFontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
         theme: terminalThemeOf(settings.terminalTheme),
         scrollback: settings.scrollback ?? 10000,
@@ -356,6 +360,9 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         fitRef.current?.fit()
       }
       term.options.fontFamily = fontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+      term.options.fontWeight = fontWeight
+      term.options.lineHeight = lineHeight
+      fitRef.current?.fit()
       term.options.cursorStyle = cursorStyle === 'bar' || cursorStyle === 'underline' ? cursorStyle : 'block'
       term.options.cursorBlink = cursorBlink ?? true
       const theme = terminalThemeOf(terminalTheme)
@@ -365,7 +372,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       const viewport = hostRef.current?.querySelector<HTMLElement>('.xterm-viewport')
       if (viewport) viewport.style.backgroundColor = theme.background
     } catch { /* mid-dispose */ }
-  }, [fontSize, fontFamily, cursorStyle, cursorBlink, terminalTheme])
+  }, [fontSize, fontFamily, fontWeight, lineHeight, cursorStyle, cursorBlink, terminalTheme])
 
   // Programmatic resize requests from the store that did not originate in a fit round-trip.
   useEffect(() => {

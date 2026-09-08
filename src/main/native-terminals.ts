@@ -31,6 +31,9 @@ export function nativeTerminalConfiguration(settings: AppSettings): string {
   const font = settings.terminalFontFamily.split(',')[0].trim().replace(/^['"]|['"]$/g, '').replace(/[\r\n\0]/g, '') || 'Menlo'
   return [
     `font-family = ${JSON.stringify(font)}`, `font-size = ${settings.terminalFontSize}`,
+    `adjust-cell-height = ${Math.round((settings.terminalLineHeight - 1) * 100)}%`,
+    `scrollback-limit-lines = ${settings.scrollback}`,
+    `copy-on-select = ${settings.copyOnSelect ? 'clipboard' : 'false'}`,
     `cursor-style = ${settings.cursorStyle}`, `cursor-style-blink = ${settings.cursorBlink}`,
     `background = ${theme.background}`, `foreground = ${theme.foreground}`,
     `cursor-color = ${theme.cursor}`, `cursor-text = ${theme.cursorAccent}`,

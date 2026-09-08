@@ -137,6 +137,9 @@ function SettingControlView({
     }
   }
 
+  if (metadata.key === 'terminalFontWeight' && settings.terminalRenderer === 'ghostty') {
+    return <p role="note">Numeric font weight is available with Xterm. Native Ghostty uses the selected font’s regular face; your Xterm weight is preserved.</p>
+  }
   if (metadata.key === 'keyboardShortcutOverrides') {
     return <ShortcutEditor settings={settings} revision={revision} onCommit={onCommit} />
   }
@@ -231,6 +234,7 @@ function SettingsList({
             if (resettingKey === null) onReset(item.key)
           }}
         >
+          {item.key === 'scrollback' && settings.terminalRenderer === 'ghostty' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
           <SettingControlView metadata={item} settings={settings} revision={revision} agents={agents} onCommit={onCommit} />
         </SettingsField>
       ))}
