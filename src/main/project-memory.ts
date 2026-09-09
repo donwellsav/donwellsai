@@ -87,6 +87,7 @@ export class ProjectMemoryService implements ProjectMemoryApi {
     const project = await this.projectFor(request.workspacePath)
     const result = this.store.list(project.projectKey, {
       query: request.query,
+      offset: request.offset,
       kinds: request.kinds,
       includeArchived: request.includeArchived ?? false,
       limit: request.limit ?? PROJECT_MEMORY_DEFAULT_RESULT_LIMIT
@@ -95,7 +96,7 @@ export class ProjectMemoryService implements ProjectMemoryApi {
       project,
       entries: result.entries,
       total: result.total,
-      hasMore: result.total > result.entries.length
+      hasMore: result.total > (request.offset ?? 0) + result.entries.length
     }
   }
 

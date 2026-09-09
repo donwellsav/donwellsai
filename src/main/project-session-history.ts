@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createReadStream, type Dirent } from 'node:fs'
+import { createReadStream, realpathSync, statSync, type Dirent } from 'node:fs'
+import { homedir } from 'node:os'
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, join, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionHistorySource, SessionHistoryAnalytics, SessionAnalyticsOptions, SessionAnalyticsProgress, SessionHistoryPage } from '@shared/project-session-history'
 import { aggregateSessionHistory, duckdbSessionHistory } from './project-analytics'
@@ -12,7 +13,7 @@ import { forceTerminateProcessTree } from '@shared/child-process/process-tree-te
 import type { ProjectSearchHit, ProjectToolScope } from '@shared/project-tools'
 
 export const SESSION_HISTORY_VERSION = 'agentsview-0.42.0-donwells-cwd3'
-export const SESSION_HISTORY_BINARY_SHA256 = '1c9365fd70b3bca35ff1997dfb1fcebc06bb0804d95d9a6401af9583a53af05a'
+export const SESSION_HISTORY_BINARY_SHA256 = 'cf55f8f1705fa95bc10fcc9ac2e2cfec124520e296907720e4e625060865c794'
 export const SESSION_HISTORY_CAPABILITIES = {
   omp: 'AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact source resume',
   'deepseek-harness': 'AgentsView 0.42.0 parser; project from native cwd; parent/helper identity preserved; exact UUID resume',
@@ -20,9 +21,25 @@ export const SESSION_HISTORY_CAPABILITIES = {
   kimi: 'AgentsView 0.42.0 + Donwells cwd3 patch; explicit workspace roots and validated native state.json identity/cwd with wire fallback; parent/helper identity preserved; exact native-ID resume'
 }
 
+/** Only known provider locations are inspected; transcript parsing remains project-filtered by the history engine. */
+export function discoverNativeSessionRoots(project: string | string[], home = homedir(), env: NodeJS.ProcessEnv = process.env) {
+  const existing = (...paths: Array<string | undefined>) => [...new Set(paths.flatMap(path => {
+    if (!path || !isAbsolute(path)) return []
+    try { return statSync(path).isDirectory() ? [realpathSync(path)] : [] } catch { return [] }
+  }))]
+  const under = (base: string | undefined, suffix: string) => base && isAbsolute(base) ? join(base, suffix) : undefined
+  const local = (suffix: string) => (Array.isArray(project) ? project : [project]).map(path => join(path, suffix))
+  return {
+    omp: existing(env.PI_CODING_AGENT_SESSION_DIR ?? env.OMP_DIR ?? under(env.OMP_CODING_AGENT_DIR ?? env.PI_CODING_AGENT_DIR ?? join(home, '.omp/agent'), 'sessions'), ...local('.omp/agent/sessions')),
+    'deepseek-harness': existing(env.DEEPSEEK_HARNESS_SESSIONS_DIR ?? under(env.DSH_HOME ?? join(home, '.dsh'), 'sessions'), ...local('.dsh/sessions')),
+    hermes: existing(env.HERMES_SESSIONS_DIR ?? under(env.HERMES_HOME ?? join(home, '.hermes'), 'sessions'), ...local('.hermes/sessions')),
+    kimi: existing(under(env.KIMI_SHARE_DIR ?? join(home, '.kimi'), 'sessions'), under(env.KIMI_CODE_HOME ?? join(home, '.kimi-code'), 'sessions'), env.KIMI_DIR, ...local('.kimi/sessions'), ...local('.kimi-code/sessions'))
+  }
+}
+
 type Row = Record<string, unknown>
 type SourceFingerprint = { size:string; mtime:string }
-type HistoryOptions = { analyticsPython?: string; binary: string; cache: string; roots: { omp: string[]; 'deepseek-harness': string[]; hermes?: string[]; kimi?: string[] } }
+type HistoryOptions = { analyticsPython?: string; binary: string; cache: string; roots: { omp?: string[]; 'deepseek-harness'?: string[]; hermes?: string[]; kimi?: string[] } }
 const supportedAgents = ['omp', 'deepseek-harness', 'hermes', 'kimi']
 const helperSession = (row: Row) => Boolean(typeof row.parent_session_id === 'string' && row.parent_session_id || /helper|subagent/i.test(`${row.relationship_type ?? ''} ${row.session_kind ?? ''}`))
 const disabledProviderRoots = Object.fromEntries([
@@ -37,7 +54,7 @@ const disabledProviderRoots = Object.fromEntries([
 
 /** Derived archive only. The admitted native engine owns parsing/FTS; app reads its SQLite archive. */
 export class ProjectSessionHistory {
-  private queue = new Map<string, Promise<unknown>>()
+  private queue = new Map<string, Promise<{ indexedAt: string; capabilities: typeof SESSION_HISTORY_CAPABILITIES }>>()
   private children = new Set<ChildProcess>()
   private closed = false
   private searches = new Map<string, { requestId: string; controller: AbortController }>()
@@ -60,7 +77,7 @@ export class ProjectSessionHistory {
   async index(path: string): Promise<{ indexedAt: string; capabilities: typeof SESSION_HISTORY_CAPABILITIES }> {
     const { scope, directory } = await this.bound(path)
     const existing = this.queue.get(scope.indexKey)
-    if (existing) throw new Error('Session indexing is already running')
+    if (existing) return existing
     const operation = this.rebuild(path, scope, directory)
     this.queue.set(scope.indexKey, operation)
     try { return await operation } finally { this.queue.delete(scope.indexKey) }
@@ -69,7 +86,7 @@ export class ProjectSessionHistory {
   private async rebuild(path: string, scope: ProjectToolScope, directory: string) {
     const hash = createHash('sha256')
     for await (const chunk of createReadStream(this.options.binary)) hash.update(chunk)
-    if (hash.digest('hex') !== SESSION_HISTORY_BINARY_SHA256) throw new Error('Session history requires the admitted AgentsView 0.42.0 Donwells cwd3 binary')
+    if (![SESSION_HISTORY_BINARY_SHA256, '1c9365fd70b3bca35ff1997dfb1fcebc06bb0804d95d9a6401af9583a53af05a'].includes(hash.digest('hex'))) throw new Error('Session history requires the admitted AgentsView 0.42.0 Donwells cwd3 binary')
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const roots = async (values: string[]) => Promise.all(values.map(value => realpath(value)))
     const prefixes = new Set([resolve(path), scope.checkoutPath, scope.projectPath])
@@ -77,14 +94,15 @@ export class ProjectSessionHistory {
       const alias = prefix.startsWith('/private/') ? prefix.slice('/private'.length) : null
       if (process.platform === 'darwin' && alias && await realpath(alias).catch(() => null) === prefix) prefixes.add(alias)
     }
+    const discovered = discoverNativeSessionRoots([scope.projectPath, scope.checkoutPath])
     const config = {
       ...disabledProviderRoots,
       disable_update_check: true,
       sync_include_cwd_prefixes: [...prefixes],
-      omp_dirs: await roots(this.options.roots.omp),
-      deepseek_harness_sessions_dirs: await roots(this.options.roots['deepseek-harness']),
-      hermes_sessions_dirs: await roots(this.options.roots.hermes ?? []),
-      kimi_dirs: await roots(this.options.roots.kimi ?? [])
+      omp_dirs: await roots(this.options.roots.omp ?? discovered.omp),
+      deepseek_harness_sessions_dirs: await roots(this.options.roots['deepseek-harness'] ?? discovered['deepseek-harness']),
+      hermes_sessions_dirs: await roots(this.options.roots.hermes ?? discovered.hermes),
+      kimi_dirs: await roots(this.options.roots.kimi ?? discovered.kimi)
     }
     await writeFile(join(directory, 'config.toml'), Object.entries(config).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n') + '\n', { mode: 0o600 })
     await this.assertScope(path, scope)
@@ -141,9 +159,16 @@ export class ProjectSessionHistory {
 
   private async archive(path: string) {
     const { scope, directory } = await this.bound(path)
-    if (this.queue.has(scope.indexKey)) throw new Error('Session indexing is running')
-    const receipt: unknown = JSON.parse(await readFile(join(directory, 'receipt.json'), 'utf8'))
-    if (!isObject(receipt) || receipt.version !== SESSION_HISTORY_VERSION || receipt.binarySha256 !== SESSION_HISTORY_BINARY_SHA256 || receipt.indexKey !== scope.indexKey || typeof receipt.indexedAt !== 'string') throw new Error('Session history must be indexed for this parser version')
+    await this.queue.get(scope.indexKey)
+    let content: string
+    try { content = await readFile(join(directory, 'receipt.json'), 'utf8') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await this.index(path)
+      content = await readFile(join(directory, 'receipt.json'), 'utf8')
+    }
+    await this.assertScope(path, scope)
+    const receipt: unknown = JSON.parse(content)
+    if (!isObject(receipt) || receipt.version !== SESSION_HISTORY_VERSION || ![SESSION_HISTORY_BINARY_SHA256, '1c9365fd70b3bca35ff1997dfb1fcebc06bb0804d95d9a6401af9583a53af05a'].includes(String(receipt.binarySha256)) || receipt.indexKey !== scope.indexKey || typeof receipt.indexedAt !== 'string') throw new Error('Session history must be indexed for this parser version')
     return { scope, directory, indexedAt: receipt.indexedAt }
   }
 

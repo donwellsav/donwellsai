@@ -131,6 +131,11 @@ describe('navigation history initialization', () => {
 })
 
 describe('navigation command shortcuts', () => {
+  it('matches transformed Option letters and shifted digit shortcuts', () => {
+    const match = createAppShortcutMatcher({ 'show-project-search': 'Mod+Alt+Y' }, 'mac')
+    expect(match({ key: '¥', code: 'KeyY', metaKey: true, ctrlKey: false, altKey: true, shiftKey: false })?.id).toBe('show-project-search')
+    expect(match({ key: '%', code: 'Digit5', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })?.id).toBe('split-terminal')
+  })
   it('registers conflict-free platform shortcuts for history, MRU, and the global navigator', () => {
     expect(validateAppShortcutOverrides({})).toEqual([])
     const match = createAppShortcutMatcher({}, 'mac')
@@ -148,4 +153,12 @@ describe('navigation command shortcuts', () => {
     expect(match({ key: 'o', metaKey: true, ctrlKey: false, altKey: false, shiftKey: true })?.id)
       .toBe('global-navigator')
   })
+})
+
+
+it('rejects overrides that steal native edit and window commands', () => {
+  for (const chord of ['Mod+C', 'Mod+Q', 'Mod+R', 'Mod+Shift+W']) {
+    expect(validateAppShortcutOverrides({ 'new-terminal': chord }).some(issue => issue.reason === 'conflict' && issue.nativeCommand)).toBe(true)
+    expect(createAppShortcutMatcher({ 'new-terminal': chord }, 'mac')({ key: chord.split('+').at(-1)!, metaKey: true, ctrlKey: false, altKey: false, shiftKey: chord.includes('Shift') })).toBeUndefined()
+  }
 })

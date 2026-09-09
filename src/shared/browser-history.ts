@@ -20,4 +20,5 @@ export type BrowserHistoryApi = {
   browserHistoryList(): Promise<BrowserHistoryEntry[]>
   browserHistoryRecord(entry: BrowserHistoryRecord): Promise<BrowserHistoryEntry[]>
   browserHistoryClear(): Promise<void>
+  browserSiteDataClear(worktreePath: string): Promise<void>
 }

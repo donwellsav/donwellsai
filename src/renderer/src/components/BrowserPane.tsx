@@ -1,3 +1,4 @@
+import { PopupMenu } from 'flexlayout-react'
 import { BrowserTestingPanel } from './BrowserTestingPanel'
 import { BrowserViewPort } from '../browser-view-port'
 import type { BrowserHistoryEntry } from '@shared/browser-history'
@@ -36,7 +37,6 @@ type BrowserPaneProps = {
   url: string
   router: BrowserCommandRouter
   active: boolean
-  onClose(): void
 }
 
 const INITIAL_FIND_STATE: BrowserFindState = {
@@ -47,7 +47,7 @@ const INITIAL_FIND_STATE: BrowserFindState = {
 }
 
 /** One persistent Electron guest. BrowserHosts owns its lifetime and routing. */
-export function BrowserPane({ worktreePath, url, router, active, onClose }: BrowserPaneProps) {
+export function BrowserPane({ worktreePath, url, router, active }: BrowserPaneProps) {
   const browserHomeUrl = useAppStore((state) => state.settings.browserHomeUrl) ?? 'http://localhost:3000'
   const searchEngine = useAppStore((state) => state.settings.browserSearchEngine) ?? 'duckduckgo'
   const webviewRef = useRef<BrowserViewPort | null>(null)
@@ -76,6 +76,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
   const [historyClearConfirm, setHistoryClearConfirm] = useState(false)
   const [historyClearing, setHistoryClearing] = useState(false)
   const [testingOpen, setTestingOpen] = useState(false)
+  const [toolsAnchor, setToolsAnchor] = useState<HTMLElement | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1)
@@ -235,8 +236,8 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
       const slot = viewSlotRef.current, port = webviewRef.current
       if (slot && port) {
         const r = slot.getBoundingClientRect()
-        const overlays = [...document.querySelectorAll<HTMLElement>('dialog[open], [role="dialog"], [role="menu"], .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
-        const blocked = overlays.some(node => { const b = node.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(node).visibility !== 'hidden' })
+        const overlays = [...document.querySelectorAll<HTMLElement>(':popover-open, dialog[open], [role="dialog"], [role="menu"], .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
+        const blocked = Boolean(document.querySelector('[data-native-resize]')) || overlays.some(node => { const b = node.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(node).visibility !== 'hidden' })
         const visible = !blocked && slot.getClientRects().length > 0 && getComputedStyle(slot).visibility !== 'hidden' && r.width > 0 && r.height > 0
         const rect = visible ? {x:Math.max(0,r.left),y:Math.max(0,r.top),width:Math.max(0,Math.min(r.right,innerWidth)-Math.max(0,r.left)),height:Math.max(0,Math.min(r.bottom,innerHeight)-Math.max(0,r.top))} : null
         const value = JSON.stringify(rect)
@@ -245,8 +246,8 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
     }
     const resize = new ResizeObserver(schedule)
     if (viewSlotRef.current) resize.observe(viewSlotRef.current)
-    const mutations = new MutationObserver(schedule)
-    mutations.observe(document.body, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','open','aria-hidden']})
+    const mutations = new MutationObserver(measure)
+    mutations.observe(document.body, {subtree:true, childList:true, attributes:true, attributeFilter:['style','class','open','aria-hidden','data-native-resize']})
     window.addEventListener('resize',schedule); window.addEventListener('scroll',schedule,true)
     schedule()
     return () => { resize.disconnect(); mutations.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); cancelAnimationFrame(frame); webviewRef.current?.bounds(null) }
@@ -474,7 +475,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
             disabled={!navigationState.canGoBack}
             onClick={() => runHostAction((host) => host.back())}
           >
-            <span aria-hidden="true">‹</span>
+            <Icon name="left" />
           </button>
           <button
             className="icon-btn browser-control"
@@ -484,7 +485,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
             disabled={!navigationState.canGoForward}
             onClick={() => runHostAction((host) => host.forward())}
           >
-            <span aria-hidden="true">›</span>
+            <Icon name="right" />
           </button>
           <button
             className="icon-btn browser-control"
@@ -493,12 +494,17 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
             title="Home"
             onClick={() => navigate(browserHomeUrl)}
           >
-            <span aria-hidden="true">⌂</span>
+            <Icon name="home" />
           </button>
         </div>
 
-        <div className="browser-address-wrap">
-          <Icon name="globe" size={12} className="browser-address-icon" />
+        <div className="browser-address-wrap" onBlur={event => {
+          if (event.currentTarget.contains(event.relatedTarget)) return
+          setSuggestionsOpen(false)
+          setSelectedSuggestion(-1)
+          dispatchAddress({ type: 'blur' })
+        }}>
+          <Icon name="globe" size={14} className="browser-address-icon" />
           <input
             ref={addressInputRef}
             className="browser-address-input"
@@ -520,11 +526,6 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
               setAddressError(null)
               refreshHistory()
               event.currentTarget.select()
-            }}
-            onBlur={() => {
-              setSuggestionsOpen(false)
-              setSelectedSuggestion(-1)
-              dispatchAddress({ type: 'blur' })
             }}
             onChange={(event) => {
               setAddressError(null)
@@ -559,7 +560,6 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
 
           {address.focused && suggestionsOpen ? (
             <div className="browser-suggestions">
-              <p className="empty-note">Site sign-ins and storage belong to this checkout. Older shared browser sign-ins are preserved separately; sign in again here if needed.</p>
               <div id={addressListId} role="listbox" aria-label="Address suggestions">
                 {suggestions.map((suggestion, index) => (
                   <button
@@ -572,7 +572,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => navigate(suggestion.url)}
                   >
-                    <Icon name={suggestion.kind === 'search' ? 'search' : 'globe'} size={12} />
+                    <Icon name={suggestion.kind === 'search' ? 'search' : 'globe'} size={14} />
                     <span className="browser-suggestion-copy">
                       <span className="browser-suggestion-title">{suggestion.label}</span>
                       <span className="browser-suggestion-detail">{suggestion.detail}</span>
@@ -619,52 +619,21 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           title={loading ? 'Stop loading' : 'Reload'}
           onClick={() => loading ? hostRef.current?.stopLoading() : runHostAction((host) => host.reload())}
         >
-          <Icon name={loading ? 'stop' : 'refresh'} size={12} />
+          <Icon name={loading ? 'stop' : 'refresh'} size={14} />
         </button>
-        <button
-          className={`icon-btn browser-control${findOpen ? ' active' : ''}`}
-          type="button"
-          aria-label="Find in page"
-          title="Find in page (⌘F / Ctrl+F)"
-          aria-pressed={findOpen}
-          onClick={() => {
-            if (findOpen) closeFind()
-            else setFindOpen(true)
-          }}
-        >
-          <Icon name="search" size={12} />
-        </button>
-        <button
-          className={`icon-btn browser-control browser-design-toggle${designMode ? ' active' : ''}`}
-          type="button"
-          aria-label={designMode ? 'Cancel Design Mode' : 'Start Design Mode'}
-          title={designMode ? 'Cancel Design Mode (Escape)' : 'Design Mode — inspect a page element'}
-          aria-pressed={designMode}
-          disabled={!ready || loading || Boolean(loadError)}
-          onClick={() => designMode ? cancelDesignMode() : beginDesignCapture()}
-        >
-          <Icon name="edit" size={12} />
-          <span>Design</span>
-        </button>
-        <button type="button" className="icon-btn browser-control browser-design-toggle" aria-label="Browser testing" onClick={()=>setTestingOpen(true)}>Test</button>
-        <div className="browser-zoom" role="group" aria-label="Page zoom">
-          <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => changeZoom(-0.1)}>−</button>
-          <button type="button" aria-label="Reset zoom" title="Reset zoom" onClick={resetZoom}>{Math.round(zoomFactor * 100)}%</button>
-          <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => changeZoom(0.1)}>+</button>
-        </div>
-        <button
-          className="icon-btn browser-control"
-          type="button"
-          aria-label="Open in system browser"
-          title="Open in system browser"
-          disabled={!address.liveUrl}
-          onClick={() => void openInSystemBrowser()}
-        >
-          <Icon name="globe" size={12} />
-        </button>
-        <button className="icon-btn browser-control danger" type="button" aria-label="Close browser tab" title="Close browser tab" onClick={onClose}>
-          <Icon name="x" size={12} />
-        </button>
+        {designMode && <button className="icon-btn browser-control active" type="button" aria-label="Cancel Design Mode" title="Cancel Design Mode (Escape)" onClick={cancelDesignMode}><Icon name="x" /></button>}
+        <button className="icon-btn browser-control" type="button" aria-label="Browser tools" title="Find, inspect, test, zoom, or open in your default browser" aria-haspopup="menu" aria-expanded={Boolean(toolsAnchor)} onClick={event => setToolsAnchor(event.currentTarget)}><Icon name="more" /></button>
+        {toolsAnchor && <PopupMenu anchor={toolsAnchor} title="Browser tools" onClose={() => setToolsAnchor(null)} items={[
+          { key: 'find', label: findOpen ? 'Close find in page' : 'Find in page…', onSelect: () => findOpen ? closeFind() : setFindOpen(true) },
+          { key: 'design', label: designMode ? 'Cancel Design Mode' : 'Inspect page design', disabled: !ready || loading || Boolean(loadError), onSelect: () => requestAnimationFrame(() => designMode ? cancelDesignMode() : beginDesignCapture()) },
+          { key: 'test', label: 'Browser testing…', onSelect: () => setTestingOpen(true) },
+          { type: 'divider', key: 'zoom-divider' },
+          { key: 'zoom-out', label: 'Zoom out', onSelect: () => changeZoom(-0.1) },
+          { key: 'zoom-reset', label: `Reset zoom (${Math.round(zoomFactor * 100)}%)`, onSelect: resetZoom },
+          { key: 'zoom-in', label: 'Zoom in', onSelect: () => changeZoom(0.1) },
+          { type: 'divider', key: 'external-divider' },
+          { key: 'external', label: 'Open in default browser', disabled: !address.liveUrl, onSelect: () => void openInSystemBrowser() }
+        ]} />}
       </div>
 
       <div className="browser-page">
@@ -679,7 +648,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
         />
         {designMode ? (
           <div className="browser-design-status" role="status" aria-live="polite">
-            <Icon name="edit" size={12} />
+            <Icon name="edit" size={14} />
             <span>Move over the page and select a component</span>
             <kbd>Esc</kbd>
           </div>
@@ -689,8 +658,8 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           <div className="browser-design-error" role="alert">
             <Icon name="alert" size={13} />
             <span>{designError}</span>
-            <button className="icon-btn" type="button" aria-label="Dismiss Design Mode error" onClick={dismissDesignError}>
-              <Icon name="x" size={11} />
+            <button className="icon-btn" type="button" aria-label="Dismiss Design Mode error" title="Dismiss this design-mode error message" onClick={dismissDesignError}>
+              <Icon name="x" size={14} />
             </button>
           </div>
         ) : null}
@@ -698,8 +667,8 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
           <div className="browser-design-error" role="alert">
             <Icon name="alert" size={13} />
             <span>{actionError}</span>
-            <button className="icon-btn" type="button" aria-label="Dismiss browser action error" onClick={() => setActionError(null)}>
-              <Icon name="x" size={11} />
+            <button className="icon-btn" type="button" aria-label="Dismiss browser action error" title="Dismiss this browser error message" onClick={() => setActionError(null)}>
+              <Icon name="x" size={14} />
             </button>
           </div>
         ) : null}
@@ -728,7 +697,7 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
               stepFind(!event.shiftKey)
             }
           }}>
-            <Icon name="search" size={12} />
+            <Icon name="search" size={14} />
             <input
               ref={findInputRef}
               value={findQuery}
@@ -750,13 +719,13 @@ export function BrowserPane({ worktreePath, url, router, active, onClose }: Brow
               Aa
             </button>
             <button type="button" aria-label="Previous match" title="Previous match" disabled={!findQuery} onClick={() => stepFind(false)}>
-              <Icon name="up" size={12} />
+              <Icon name="up" size={14} />
             </button>
             <button type="button" aria-label="Next match" title="Next match" disabled={!findQuery} onClick={() => stepFind(true)}>
-              <Icon name="down" size={12} />
+              <Icon name="down" size={14} />
             </button>
             <button type="button" aria-label="Close find" title="Close find" onClick={closeFind}>
-              <Icon name="x" size={12} />
+              <Icon name="x" size={14} />
             </button>
           </div>
         ) : null}

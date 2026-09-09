@@ -61,7 +61,6 @@ export class TrayService {
         {
           label: 'Quit',
           click: () => {
-            this.stop()
             app.quit()
           }
         }

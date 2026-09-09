@@ -204,9 +204,9 @@ export function ImagePreview({ worktreePath, relPath }: ImagePreviewProps) {
     <section className="media-viewer media-image-viewer" aria-label={`Image preview: ${fileName}`}>
       <div className="media-toolbar">
         <div className="media-toolbar-group" role="group" aria-label="Image zoom">
-          <button className="icon-btn" title="Zoom out (−)" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.2)}>−</button>
+          <button className="icon-btn" title="Zoom out (−)" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.2)}><Icon name="minus" /></button>
           <span className="media-zoom-readout" aria-live="polite">{Math.round(scale * 100)}%</span>
-          <button className="icon-btn" title="Zoom in (+)" aria-label="Zoom in" onClick={() => zoomAt(1.2)}>+</button>
+          <button className="icon-btn" title="Zoom in (+)" aria-label="Zoom in" onClick={() => zoomAt(1.2)}><Icon name="plus" /></button>
         </div>
         <div className="media-toolbar-group media-fit-controls" role="group" aria-label="Image fit">
           <button className="media-tool-button" aria-pressed={fitMode === 'contain'} onClick={() => chooseFit('contain')}>Contain</button>

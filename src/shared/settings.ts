@@ -45,6 +45,14 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   agentCommand: 'codex',
   theme: 'dark',
   uiScale: 1,
+  interfaceFont: 'geist',
+  interfaceMotion: 'system',
+  interfaceDensity: 'compact',
+  navigationLabels: 'icons',
+  toolPanelSide: 'right',
+  browserAutoPreview: true,
+  recordBrowserHistory: true,
+  externalAgentAccess: true,
   terminalRenderer: 'xterm',
   terminalFontFamily: '',
   terminalFontSize: 13,
@@ -64,7 +72,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   editorRenderWhitespace: 'selection',
   editorAutoSaveMode: 'after-delay',
   editorAutoSaveDelayMs: 400,
-  markdownPreviewDefault: false,
+  markdownPreviewDefault: true,
   diffViewStyle: 'split',
   diffWordWrap: false,
   diffFontFamily: null,
@@ -151,19 +159,72 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
   },
   theme: {
     key: 'theme', section: 'appearance', label: 'Theme',
-    description: 'Follow the operating system or use a fixed light or dark appearance.',
+    description: 'Follow the system, or choose light or dark.',
     default: DEFAULT_SETTINGS.theme, lifecycle: 'live', scope: 'global',
     control: { type: 'select', options: stringOptions(themeOptions) }, validate: oneOf(themeOptions)
   },
   uiScale: {
-    key: 'uiScale', section: 'appearance', label: 'Interface scale',
-    description: 'Scale application chrome without changing terminal or editor text.',
+    key: 'uiScale', section: 'appearance', label: 'Window zoom',
+    description: 'Scale the window and its content together.',
     default: DEFAULT_SETTINGS.uiScale, lifecycle: 'live', scope: 'global',
     control: { type: 'number', min: 0.75, max: 2, step: 0.05 }, validate: (value): value is number => boundedNumber(value, 0.75, 2)
   },
+  interfaceFont: {
+    key: 'interfaceFont', section: 'appearance', label: 'Interface font',
+    description: 'Font for menus, labels and controls.',
+    default: DEFAULT_SETTINGS.interfaceFont, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'geist', label: 'Geist' }, { value: 'system', label: 'System font' }] },
+    validate: oneOf(['geist', 'system'] as const)
+  },
+  interfaceMotion: {
+    key: 'interfaceMotion', section: 'appearance', label: 'Interface motion',
+    description: 'Reduce interface animations. Web pages keep their own settings.',
+    default: DEFAULT_SETTINGS.interfaceMotion, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'system', label: 'Follow system' }, { value: 'reduced', label: 'Reduced motion' }] },
+    validate: oneOf(['system', 'reduced'] as const)
+  },
+  interfaceDensity: {
+    key: 'interfaceDensity', section: 'appearance', label: 'Control spacing',
+    description: 'Choose compact controls or larger click targets.',
+    default: DEFAULT_SETTINGS.interfaceDensity, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'compact', label: 'Compact' }, { value: 'comfortable', label: 'Comfortable' }] },
+    validate: oneOf(['compact', 'comfortable'] as const)
+  },
+  navigationLabels: {
+    key: 'navigationLabels', section: 'appearance', label: 'Navigation style',
+    description: 'Show tool names or use icons only.',
+    default: DEFAULT_SETTINGS.navigationLabels, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'icons', label: 'Icons' }, { value: 'labels', label: 'Icons and labels' }] },
+    validate: oneOf(['icons', 'labels'] as const)
+  },
+  toolPanelSide: {
+    key: 'toolPanelSide', section: 'appearance', label: 'Tool panel position',
+    description: 'Place workspace tools on the left or right.',
+    default: DEFAULT_SETTINGS.toolPanelSide, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
+    validate: oneOf(['left', 'right'] as const)
+  },
+  recordBrowserHistory: {
+    key: 'recordBrowserHistory', section: 'privacy', label: 'Save browsing history',
+    description: 'Record visited addresses. Turning this off keeps existing history but stops saving new visits.',
+    default: DEFAULT_SETTINGS.recordBrowserHistory, lifecycle: 'live', scope: 'global',
+    control: { type: 'toggle' }, validate: booleanValue
+  },
+  externalAgentAccess: {
+    key: 'externalAgentAccess', section: 'privacy', label: 'Allow external agent access',
+    description: 'When off, blocks new Donwells CLI/MCP requests, including memory access. Running work continues. Re-enable here in Settings.',
+    default: DEFAULT_SETTINGS.externalAgentAccess, lifecycle: 'live', scope: 'global',
+    control: { type: 'toggle' }, validate: booleanValue
+  },
+  browserAutoPreview: {
+    key: 'browserAutoPreview', section: 'browser', label: 'Use detected project preview',
+    description: 'When opening a browser, resume its current page or use the checkout’s only detected server. Otherwise use the home URL.',
+    default: DEFAULT_SETTINGS.browserAutoPreview, lifecycle: 'live', scope: 'global',
+    control: { type: 'toggle' }, validate: booleanValue
+  },
   terminalFontFamily: {
     key: 'terminalFontFamily', section: 'terminal', label: 'Font family',
-    description: 'CSS font-family used by terminals; blank uses the default monospace stack.',
+    description: 'Leave blank for the default terminal font, or enter an installed font name.',
     default: DEFAULT_SETTINGS.terminalFontFamily, lifecycle: 'live', scope: 'global',
     control: { type: 'text', maxLength: 512, placeholder: 'Default monospace' }, validate: isFontFamily
   },
@@ -177,7 +238,7 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     key: 'terminalFontWeight', section: 'terminal', label: 'Font weight',
     description: 'Weight used for normal terminal text.',
     default: DEFAULT_SETTINGS.terminalFontWeight, lifecycle: 'live', scope: 'global',
-    control: { type: 'select', options: [400, 500, 600, 700].map((value) => ({ value, label: String(value) })) },
+    control: { type: 'select', options: [{ value: 400, label: 'Regular' }, { value: 500, label: 'Medium' }, { value: 600, label: 'Semibold' }, { value: 700, label: 'Bold' }] },
     validate: oneOf([400, 500, 600, 700] as const)
   },
   terminalLineHeight: {
@@ -278,8 +339,8 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     control: { type: 'number', min: 100, max: 5000, step: 50 }, validate: (value): value is number => boundedNumber(value, 100, 5000, true)
   },
   markdownPreviewDefault: {
-    key: 'markdownPreviewDefault', section: 'editor', label: 'Open Markdown as preview',
-    description: 'Open Markdown files in the rendered preview by default.',
+    key: 'markdownPreviewDefault', section: 'editor', label: 'Open Markdown in reading view',
+    description: 'Show formatted documents when opening Markdown. Turn off to open source for editing.',
     default: DEFAULT_SETTINGS.markdownPreviewDefault, lifecycle: 'live', scope: 'global',
     control: { type: 'toggle' }, validate: booleanValue
   },
@@ -345,7 +406,7 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
   },
   keyboardShortcutOverrides: {
     key: 'keyboardShortcutOverrides', section: 'shortcuts', label: 'Shortcut overrides',
-    description: 'Per-command keyboard shortcuts; command validation is supplied by the command catalog.',
+    description: 'Focus a shortcut field, press the keys you want, then Apply. Conflicts are checked before saving.',
     default: DEFAULT_SETTINGS.keyboardShortcutOverrides, lifecycle: 'live', scope: 'global',
     control: { type: 'shortcut-map' }, validate: isShortcutOverrides
   },
@@ -476,6 +537,7 @@ export function validateSettingsResetRequest(value: unknown): SettingsResetReque
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = Object.freeze([
+  'project',
   'agents',
   'editor',
   'source-control',

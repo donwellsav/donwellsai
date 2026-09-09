@@ -1,3 +1,4 @@
+import { guiDraftMap } from '../gui-drafts'
 import type { DiffReviewNote } from '@shared/diff-review'
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectHandoff, ProjectHandoffStatus } from '@shared/project-handoff'
@@ -6,7 +7,12 @@ import type { ProjectMemoryEntry } from '@shared/project-memory'
 import { agentProviderName } from '@shared/agent-presentation'
 import { useAppStore } from '../store'
 
+const emptyHandoffDraft = { source: '', receiver: '', goal: '', summary: '', questions: '', steps: '', memoryQuery: '', memoryResults: [] as ProjectMemoryEntry[], memoryTotal: 0, reviewedMemory: [] as ProjectMemoryEntry[], reviewPath: '', comparison: 'working' as DiffReviewNote['target']['comparison'], reviewResults: [] as DiffReviewNote[], selectedReviews: [] as DiffReviewNote[], exportPath: '' }
+const pendingOperations = new Map<string, Promise<string | null>>()
+const handoffDrafts = guiDraftMap<typeof emptyHandoffDraft>('handoffs')
+
 export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }) {
+  const draft = handoffDrafts.get(workspacePath) ?? emptyHandoffDraft
   const agents = useAppStore(state => state.runningAgents)
   const repos = useAppStore(state => state.repos)
   const project = repos.find(repo => repo.worktrees.some(worktree => worktree.path === workspacePath))
@@ -19,25 +25,27 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
   const sources = sessions.filter(agent => agent.workspacePath === workspacePath)
   const [items, setItems] = useState<ProjectHandoff[]>([])
   const [selected, setSelected] = useState<ProjectHandoffStatus | null>(null)
-  const [source, setSource] = useState('')
-  const [receiver, setReceiver] = useState('')
-  const [goal, setGoal] = useState('')
-  const [summary, setSummary] = useState('')
-  const [questions, setQuestions] = useState('')
-  const [steps, setSteps] = useState('')
-  const [memoryQuery, setMemoryQuery] = useState('')
-  const [memoryResults, setMemoryResults] = useState<ProjectMemoryEntry[]>([])
-  const [memoryTotal, setMemoryTotal] = useState(0)
-  const [reviewedMemory, setReviewedMemory] = useState<ProjectMemoryEntry[]>([])
-  const [reviewPath, setReviewPath] = useState('')
-  const [comparison, setComparison] = useState<DiffReviewNote['target']['comparison']>('working')
-  const [reviewResults, setReviewResults] = useState<DiffReviewNote[]>([])
-  const [selectedReviews, setSelectedReviews] = useState<DiffReviewNote[]>([])
-  const [busy, setBusy] = useState(false)
+  const [source, setSource] = useState(draft.source)
+  useEffect(() => { if (!source && sources.length === 1) setSource(sources[0]!.sessionId) }, [source, sources.map(session => session.sessionId).join('\0')])
+  const [receiver, setReceiver] = useState(draft.receiver)
+  const [goal, setGoal] = useState(draft.goal)
+  const [summary, setSummary] = useState(draft.summary)
+  const [questions, setQuestions] = useState(draft.questions)
+  const [steps, setSteps] = useState(draft.steps)
+  const [memoryQuery, setMemoryQuery] = useState(draft.memoryQuery)
+  const [memoryResults, setMemoryResults] = useState<ProjectMemoryEntry[]>(draft.memoryResults)
+  const [memoryTotal, setMemoryTotal] = useState(draft.memoryTotal)
+  const [reviewedMemory, setReviewedMemory] = useState<ProjectMemoryEntry[]>(draft.reviewedMemory)
+  const [reviewPath, setReviewPath] = useState(draft.reviewPath)
+  const [comparison, setComparison] = useState<DiffReviewNote['target']['comparison']>(draft.comparison)
+  const [reviewResults, setReviewResults] = useState<DiffReviewNote[]>(draft.reviewResults)
+  const [selectedReviews, setSelectedReviews] = useState<DiffReviewNote[]>(draft.selectedReviews)
+  const [busy, setBusy] = useState(pendingOperations.has(workspacePath))
   const [copied, setCopied] = useState(false)
-  const [exportPath, setExportPath] = useState('')
+  const [exportPath, setExportPath] = useState(draft.exportPath)
   const [error, setError] = useState<string | null>(null)
   const [generation, setGeneration] = useState(0)
+  useEffect(() => { handoffDrafts.set(workspacePath, { source, receiver, goal, summary, questions, steps, memoryQuery, memoryResults, memoryTotal, reviewedMemory, reviewPath, comparison, reviewResults, selectedReviews, exportPath }) }, [workspacePath, source, receiver, goal, summary, questions, steps, memoryQuery, memoryResults, memoryTotal, reviewedMemory, reviewPath, comparison, reviewResults, selectedReviews, exportPath])
   const checkoutPaths = project?.worktrees.map(worktree => worktree.path).join('\0') ?? ''
   useEffect(() => {
     let cancelled = false
@@ -52,24 +60,37 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
     void window.donwells.projectHandoffList(workspacePath).then(value => { if (!cancelled) setItems(value) }, cause => { if (!cancelled) setError(String(cause)) })
     return () => { cancelled = true }
   }, [workspacePath, generation])
+  useEffect(() => {
+    let live = true
+    const pending = pendingOperations.get(workspacePath)
+    if (pending) void pending.then(failure => {
+      if (!live) return
+      const retained = handoffDrafts.get(workspacePath)
+      setGoal(retained?.goal ?? ''); setSummary(retained?.summary ?? ''); setQuestions(retained?.questions ?? ''); setSteps(retained?.steps ?? '')
+      setReviewedMemory(retained?.reviewedMemory ?? []); setSelectedReviews(retained?.selectedReviews ?? [])
+      setError(failure); setBusy(false); setGeneration(value => value + 1)
+    })
+    return () => { live = false }
+  }, [workspacePath])
   const operate = async (action: () => Promise<void>) => {
-    if (busy) return
+    if (busy || pendingOperations.has(workspacePath)) return
     setBusy(true); setError(null)
-    try { await action(); setGeneration(value => value + 1) }
-    catch (cause) { setError(String(cause)) }
-    finally { setBusy(false) }
+    const pending = Promise.resolve().then(action).then(() => { setGeneration(value => value + 1); return null }).catch(cause => { const failure = String(cause); setError(failure); return failure }).finally(() => { pendingOperations.delete(workspacePath); setBusy(false) })
+    pendingOperations.set(workspacePath, pending)
+    await pending
   }
+  const hasDraft = !!goal || !!summary || !!questions || !!steps || reviewedMemory.length > 0 || selectedReviews.length > 0
   const lines = (text: string) => text.split('\n').map(line => line.trim()).filter(Boolean)
   return <details className="handoff-panel">
-    <summary>Agent handoffs · {items.length}</summary>
-    <p>Save the work in progress for another session. Shared decisions remain in project memory.</p>
+    <summary>Agent handoffs{items.length > 0 ? ` · ${items.length}` : ''}</summary>
+    <p>Agents can save handoffs as they work. Review them here, or write one yourself.</p>
     {error && <p role="alert" className="op-inline-error">{error}</p>}
     <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
       if (selected) setSelected(await window.donwells.projectHandoffGet(workspacePath, selected.handoff.id))
     })}>Refresh handoffs</button>
-    <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
+    {items.length > 0 && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
       setExportPath((await window.donwells.projectHandoffExport(workspacePath)).path)
-    })}>Export project handoffs</button>
+    })}>Export project handoffs</button>}
     {exportPath && <p className="memory-storage-path" role="status">Handoff export saved: {exportPath}</p>}
     <ul>{items.map(item => <li key={item.id}><button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void operate(async () => {
       setSelected(await window.donwells.projectHandoffGet(workspacePath, item.id)); setReceiver('')
@@ -141,12 +162,14 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         setSelected(await window.donwells.projectHandoffGet(workspacePath, selected.handoff.id))
       })}>Supersede handoff</button>}
     </section>}
-    <form aria-label="Save agent handoff" onSubmit={event => { event.preventDefault(); void operate(async () => {
+    <details open={hasDraft}><summary>Write a handoff</summary>
+    {!sources.length && !source && <><p>Start an agent in this checkout to create a handoff from its session.</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => { const state = useAppStore.getState(); state.setActiveWorktree(workspacePath); state.openRuns('agents'); useAppStore.setState({ agentComposerOpen: true }) }}>New agent</button></>}
+    <form hidden={!sources.length && !source && !hasDraft} aria-label="Save agent handoff" onSubmit={event => { event.preventDefault(); void operate(async () => {
       const handoff = await window.donwells.projectHandoffCreate(workspacePath, { taskId: null, fromSessionId: source, toAgent: null, goal, summary, openQuestions: lines(questions), nextSteps: lines(steps), evidenceIds: [], reviewSelections: selectedReviews.map(note => ({ id: note.id, revision: note.revision, filePath: note.target.filePath, comparison: note.target.comparison })), memorySources: reviewedMemory.map(({ id, revision }) => ({ id, revision })) })
-      setSelected(await window.donwells.projectHandoffGet(workspacePath, handoff.id))
+      handoffDrafts.delete(workspacePath)
       setGoal(''); setSummary(''); setQuestions(''); setSteps(''); setReviewedMemory([]); setSelectedReviews([])
+      setSelected(await window.donwells.projectHandoffGet(workspacePath, handoff.id))
     }) }}>
-      <strong>Save a handoff</strong>
       <fieldset disabled={busy}>
         <label>Source session<select aria-label="Source session" className="input" required value={source} onChange={event => setSource(event.target.value)}>
           <option value="">Choose a session in this checkout</option>
@@ -155,8 +178,10 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         {!sources.length && <p>Start an agent in this checkout before saving a handoff.</p>}
         <label>Goal<input className="input" required maxLength={8000} value={goal} onChange={event => setGoal(event.target.value)} /></label>
         <label>Progress summary<textarea className="input" required maxLength={24000} value={summary} onChange={event => setSummary(event.target.value)} /></label>
+        <details><summary>Questions and next steps</summary>
         <label>Open questions · one per line<textarea className="input" maxLength={16000} value={questions} onChange={event => setQuestions(event.target.value)} /></label>
         <label>Next steps · one per line<textarea className="input" maxLength={16000} value={steps} onChange={event => setSteps(event.target.value)} /></label>
+        </details>
         <details><summary>Attach reviewed project facts · {reviewedMemory.length} / 50</summary>
           <label>Find project facts<input className="input" value={memoryQuery} onChange={event => setMemoryQuery(event.target.value)} /></label>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void operate(async () => {
@@ -186,5 +211,6 @@ export function ProjectHandoffPanel({ workspacePath }: { workspacePath: string }
         <button className="btn btn-primary btn-sm" disabled={!source || !goal.trim() || !summary.trim()}>Save handoff for review</button>
       </fieldset>
     </form>
+    </details>
   </details>
 }

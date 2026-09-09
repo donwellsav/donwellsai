@@ -2,8 +2,7 @@
 .project-search form > label { display: block; font-size: 12px; margin-bottom: 8px; }
 .project-search-input { display: flex; gap: 5px; }
 .project-search-input input { min-width: 0; flex: 1; background: var(--background); color: var(--foreground); border: 1px solid var(--input); padding: 8px; border-radius: 3px; }
-.project-search-input button, .project-search-status button { border: 1px solid var(--input); padding: 5px 8px; border-radius: 3px; }
-.project-search-options { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--muted-fg); }
+.project-search-options { margin-top: 10px; font-size: 11px; color: var(--muted-fg); }
 .project-search-options label { display: flex; align-items: center; gap: 5px; }
 .project-search-status { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 24px; font-size: 11px; color: var(--muted-fg); }
 .project-search-error { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: var(--foreground); }
@@ -19,16 +18,12 @@
 .project-graph { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
 .project-graph p { margin: 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .project-graph-help { color: var(--muted-fg); }
-.project-graph-actions button, .project-graph li button { border: 1px solid var(--input); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
 .project-graph ul { list-style: none; margin: 0; padding: 0; }
 .project-graph li { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 11px; }
 .project-graph li code { width: 100%; overflow-wrap: anywhere; }
 .project-graph li span { flex: 1; color: var(--muted-fg); }
 .project-graph-disclosure summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-.project-search-sources { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
-.project-search-sources button { padding: 5px 7px; border-radius: 3px; font-size: 11px; color: var(--muted-fg); }
-.project-search-sources button[aria-pressed="true"] { background: var(--accent); color: var(--foreground); }
 .project-search-notes { display: flex; flex-wrap: wrap; gap: 2px 12px; flex-shrink: 0; font-size: 11px; color: var(--muted-fg); }
 .project-search-notes p { margin: 3px 0; }
 .project-search-kind { display: block; font-size: 11px; color: var(--muted-fg); margin-bottom: 5px; }
@@ -71,3 +66,8 @@
 .project-search-source-controls .project-analytics { max-height: none; }
 
 .project-search-notes:empty { display: none; }
+
+.project-search-input select { width: 96px; flex: 0 0 96px; }
+.project-search-options summary { cursor: pointer; padding: 4px 0; }
+.project-search-options > div { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 6px; }
+.project-search summary:focus-visible, .project-search select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

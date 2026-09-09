@@ -1,6 +1,6 @@
 {
   "name": "donwells.ai",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "donwells.ai desktop workspace for parallel agent development",
   "private": true,
   "packageManager": "pnpm@12.0.0",
@@ -20,7 +20,7 @@
     "acceptance:baseline": "node tests/acceptance/workspace-baseline.mjs",
     "icons:build": "node scripts/build-icons.mjs",
     "package:check": "node scripts/check-package.mjs",
-    "package:prepare": "pnpm run build && pnpm run build:native-terminal && pnpm run notices:build && pnpm run package:check",
+    "package:prepare": "pnpm run build && pnpm run build:native-terminal && pnpm run build:native-history && pnpm run notices:build && pnpm run package:check",
     "package:dir": "pnpm run package:prepare && electron-builder --config build/electron-builder.json --dir --publish never",
     "package:mac": "pnpm run package:prepare && electron-builder --config build/electron-builder.json --mac dmg --publish never",
     "package:linux": "pnpm run package:prepare && electron-builder --config build/electron-builder.json --linux AppImage tar.gz --publish never",
@@ -29,7 +29,8 @@
     "rebuild:native": "electron-rebuild -f -w node-pty",
     "postinstall": "electron-builder install-app-deps",
     "notices:build": "node scripts/build-notices.mjs",
-    "build:native-terminal": "node scripts/build-native-terminal.mjs"
+    "build:native-terminal": "node scripts/build-native-terminal.mjs",
+    "build:native-history": "node scripts/build-native-history.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
@@ -44,6 +45,7 @@
     "dompurify": "^3.4.14",
     "flexlayout-react": "0.10.8",
     "katex": "^0.18.5",
+    "lucide-react": "1.43.0",
     "marked": "^18.0.11",
     "marked-footnote": "^1.4.0",
     "marked-katex-extension": "^5.1.12",

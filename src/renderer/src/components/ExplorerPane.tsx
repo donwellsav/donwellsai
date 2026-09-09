@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { contextMenuKey, focusContextMenu } from '../context-menu'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { FileEntry } from '@shared/types'
 import { useAppStore, type ExplorerWorkspaceState, type ExplorerEntryDialog } from '../store'
@@ -53,7 +54,7 @@ function dialogTitle(dialog: EntryDialog): string {
   if (dialog.kind === 'create-directory') return 'New folder'
   if (dialog.kind === 'rename') return 'Rename or move'
   if (dialog.kind === 'duplicate') return 'Duplicate'
-  return 'Delete workspace entry'
+  return 'Move to Trash'
 }
 
 export function ExplorerPane({ worktreePath, active = true, location = 'sidebar' }: { worktreePath: string; active?: boolean; location?: 'sidebar' | 'workspace' }) {
@@ -67,6 +68,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
   const dialog = workspace.entryDialog ?? null
   const setDialog = (value: EntryDialog | null): void => useAppStore.getState().setExplorerEntryDialog(worktreePath, value)
   const sidebarOwnsDialog = useAppStore(state => state.rightSidebarOpen && state.rightSidebarTab === 'explorer' && state.activeWorktreePath === worktreePath)
+  const viewOptionsId = useId()
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const mutationError = dialog?.error ?? ''
   const mutating = dialog?.pending ?? false
@@ -83,7 +85,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
 
   useEffect(() => {
     if (!contextMenu) return
-    contextMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    focusContextMenu(contextMenuRef.current)
     const dismiss = (): void => setContextMenu(null)
     window.addEventListener('pointerdown', dismiss)
     window.addEventListener('blur', dismiss)
@@ -115,13 +117,21 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
     else void openPreview(worktreePath, entry.path)
   }
 
+  const openExternalEntry = async (entry: FileEntry, browser: boolean): Promise<void> => {
+    setContextMenu(null)
+    try {
+      if (browser) await useAppStore.getState().openBrowser(worktreePath, await window.donwells.workspacePreviewUrl(worktreePath, entry.path))
+      else await window.donwells.revealWorkspaceEntry(worktreePath, entry.path)
+    } catch (error) { useAppStore.setState({ error: String(error) }) }
+  }
+
   const openContextMenu = (entry: FileEntry | undefined, x: number, y: number): void => {
     if (entry) setSelected(worktreePath, entry.path)
     const inset = 8
     setContextMenu({
       entry,
       x: Math.min(Math.max(inset, x), Math.max(inset, window.innerWidth - 208)),
-      y: Math.min(Math.max(inset, y), Math.max(inset, window.innerHeight - 208))
+      y: Math.min(Math.max(inset, y), Math.max(inset, window.innerHeight - 320))
     })
   }
 
@@ -198,39 +208,20 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
   return (
     <div className="explorer-pane">
       <div className="pane-header explorer-toolbar">
-        <span className="pane-title">Explorer</span>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEntryDialog('create-file', selectedEntry)}>
-          <Icon name="plus" size={12} />
-          New file
-        </button>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEntryDialog('create-directory', selectedEntry)}>New folder</button>
-        <button type="button" className="icon-btn" title="Collapse folders" aria-label="Collapse folders" onClick={() => collapseExplorer(worktreePath)}>
-          <Icon name="up" size={12} />
-        </button>
-        <button type="button" className="icon-btn" title="Refresh loaded folders" aria-label="Refresh loaded folders" onClick={() => void refreshLoaded()}>
-          <Icon name="refresh" size={12} />
-        </button>
-      </div>
-      <div className="explorer-controls">
-
-        <button
-          type="button"
-          className="explorer-option"
-          aria-pressed={workspace.showHidden}
-          title="Show hidden files"
-          onClick={() => setVisibility(worktreePath, { showHidden: !workspace.showHidden })}
-        >
-          Dotfiles
-        </button>
-        <button
-          type="button"
-          className="explorer-option"
-          aria-pressed={workspace.includeIgnored}
-          title="Include ignored files"
-          onClick={() => setVisibility(worktreePath, { includeIgnored: !workspace.includeIgnored })}
-        >
-          Ignored
-        </button>
+        <button type="button" className="icon-btn" title="Create a file in the selected folder" aria-label="New file" onClick={() => openEntryDialog('create-file', selectedEntry)}><Icon name="filePlus" /></button>
+        <button type="button" className="icon-btn" title="Create a folder in the selected folder" aria-label="New folder" onClick={() => openEntryDialog('create-directory', selectedEntry)}><Icon name="folderPlus" /></button>
+        <button type="button" className="icon-btn" title={workspace.expanded.length === 0 ? 'No expanded folders to collapse' : 'Collapse all expanded folders'} aria-label="Collapse folders" disabled={workspace.expanded.length === 0} onClick={() => collapseExplorer(worktreePath)}><Icon name="up" /></button>
+        <button type="button" className="icon-btn" title="Show hidden or ignored files, or refresh the file list" aria-label="Files display options" popoverTarget={viewOptionsId}><Icon name="more" /></button>
+        <div id={viewOptionsId} popover="auto" className="explorer-view-options" onToggle={event => {
+          if (event.newState !== 'open') return
+          const panel = event.currentTarget, anchor = panel.previousElementSibling!.getBoundingClientRect()
+          panel.style.left = `${anchor.left}px`; panel.style.top = `${anchor.bottom + 4}px`
+          focusContextMenu(panel, 'input')
+        }}>
+          <label><input type="checkbox" checked={workspace.showHidden} onChange={event => setVisibility(worktreePath, { showHidden: event.target.checked })} />Show hidden files</label>
+          <label><input type="checkbox" checked={workspace.includeIgnored} onChange={event => setVisibility(worktreePath, { includeIgnored: event.target.checked })} />Include ignored files</label>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={event => { event.currentTarget.closest<HTMLElement>('[popover]')?.hidePopover(); void refreshLoaded() }}><Icon name="refresh" />Refresh files</button>
+        </div>
       </div>
       {root?.phase === 'loading' && root.entries.length === 0 ? <div className="explorer-loading">Loading workspace…</div> : null}
       {root?.phase === 'error' ? (
@@ -269,13 +260,14 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
                 id={'explorer-row-' + index}
                 type="button"
                 role="treeitem"
+                tabIndex={-1}
                 aria-level={row.depth + 1}
                 aria-expanded={row.entry.type === 'dir' ? expanded : undefined}
                 aria-selected={workspace.selected === row.entry.path}
                 className={'explorer-row ' + (row.entry.type === 'file' ? 'file ' : '') + (expanded ? 'open ' : '') + (workspace.selected === row.entry.path ? 'selected' : '')}
                 style={{ paddingInlineStart: 8 + row.depth * 14 }}
                 title={row.entry.path}
-                onClick={() => activate(row.entry)}
+                onClick={() => { treeRef.current?.focus(); activate(row.entry) }}
                 onContextMenu={(event) => {
                   event.preventDefault()
                   event.stopPropagation()
@@ -304,44 +296,32 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
           ref={contextMenuRef}
           className="explorer-context-menu"
           role="menu"
-          aria-label="Explorer actions"
+          aria-label="Files actions"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) setContextMenu(null)
           }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              setContextMenu(null)
-              treeRef.current?.focus()
-              return
-            }
-            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-            event.preventDefault()
-            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-            if (items.length === 0) return
-            const current = items.indexOf(document.activeElement as HTMLButtonElement)
-            const next = event.key === 'Home'
-              ? 0
-              : event.key === 'End'
-                ? items.length - 1
-                : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-            items[next]?.focus()
-          }}
+          onKeyDown={event => contextMenuKey(event, () => { setContextMenu(null); treeRef.current?.focus() })}
         >
+          {contextMenu.entry && <>
+            <button type="button" role="menuitem" onClick={() => { activate(contextMenu.entry!); setContextMenu(null) }}>Open</button>
+            <button type="button" role="menuitem" title="Reveal this item in the system file manager" onClick={() => void openExternalEntry(contextMenu.entry!, false)}>Open in Finder</button>
+            {contextMenu.entry.type !== 'dir' && <button type="button" role="menuitem" title="Preview this file and its assets in the built-in browser" onClick={() => void openExternalEntry(contextMenu.entry!, true)}>Open in browser</button>}
+            <hr role="separator" />
+          </>}
           <button type="button" role="menuitem" onClick={() => openEntryDialog('create-file', contextMenu.entry)}>New file…</button>
           <button type="button" role="menuitem" onClick={() => openEntryDialog('create-directory', contextMenu.entry)}>New folder…</button>
           {contextMenu.entry ? <button type="button" role="menuitem" onClick={() => openEntryDialog('rename', contextMenu.entry)}>Rename or move…</button> : null}
           {contextMenu.entry ? <button type="button" role="menuitem" onClick={() => openEntryDialog('duplicate', contextMenu.entry)}>Duplicate…</button> : null}
-          {contextMenu.entry ? <button type="button" role="menuitem" className="danger" onClick={() => openEntryDialog('delete', contextMenu.entry)}>Delete…</button> : null}
+          {contextMenu.entry ? <button type="button" role="menuitem" className="danger" onClick={() => openEntryDialog('delete', contextMenu.entry)}>Move to Trash…</button> : null}
         </div>
       ) : null}
       {dialog && active && (location === 'sidebar' || !sidebarOwnsDialog) ? (
         <ModalDialog labelledBy="explorer-dialog-title" onClose={() => !mutating && setDialog(null)}>
           <h2 id="explorer-dialog-title">{dialogTitle(dialog)}</h2>
           {dialog.kind === 'delete' ? (
-            <p>Delete <strong>{dialog.entry?.path}</strong> from this workspace? Folders and their contents are removed permanently.</p>
+            <p>Move <strong>{dialog.entry?.path}</strong> to the system Trash? You can recover it from there.</p>
           ) : (
             <label className="field modal-field">
               <span>Workspace-relative path</span>
@@ -369,7 +349,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
               disabled={mutating || (dialog.kind !== 'delete' && !dialog.value.trim())}
               onClick={() => void submitDialog()}
             >
-              {mutating ? 'Working…' : dialog.kind === 'delete' ? 'Delete permanently' : 'Apply'}
+              {mutating ? 'Working…' : dialog.kind === 'delete' ? 'Move to Trash' : 'Apply'}
             </button>
           </div>
         </ModalDialog>

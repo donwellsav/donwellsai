@@ -1,8 +1,9 @@
+import { ProjectMemoryStorage } from './ProjectMemoryStorage'
+import { useProjectMemoryEditor } from '../project-memory-editor'
 import { ProjectKitSettings } from './settings/ProjectKitSettings'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
 import { appCommandPlatform } from '@shared/app-commands'
-import type { AgentPreset, AppSettings, SettingKey, SettingsResetRequest, SettingsSection, TerminalThemeName } from '@shared/types'
+import type { AgentPreset, AppSettings, SettingKey, SettingsResetRequest, SettingsSection } from '@shared/types'
 import {
   SETTINGS_METADATA,
   effectiveDiffFontFamily,
@@ -11,10 +12,9 @@ import {
   effectiveEditorFontSize,
   validateSettingsPatch
 } from '@shared/settings'
-import type { SettingControl, SettingMetadata } from '@shared/settings'
+import type { SettingMetadata } from '@shared/settings'
 import { useAppStore } from '../store'
 import { SETTINGS_SECTION_PRESENTATION, resetSettingsAtRevision, searchSettingsCatalog } from '../settings-workspace'
-import { TERMINAL_THEMES, TERMINAL_THEME_NAMES } from '../terminal-themes'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
 import {
@@ -32,7 +32,6 @@ type ResetConfirmation = { kind: 'section'; section: SettingsSection; label: str
 type NativeFacts = {
   state: 'loading' | 'ready' | 'error'
   meta: { version: string; shell: string; userDataDir: string } | null
-  protectedSecrets: boolean | null
   error: string | null
 }
 
@@ -42,64 +41,6 @@ function inheritedValue(key: SettingKey, settings: AppSettings): string | undefi
   if (key === 'diffFontFamily' && settings.diffFontFamily === null) return effectiveDiffFontFamily(settings) || 'Default monospace stack'
   if (key === 'diffFontSize' && settings.diffFontSize === null) return `${effectiveDiffFontSize(settings)}px from Editor`
   return undefined
-}
-
-function navigateRadioCards(event: KeyboardEvent<HTMLDivElement>): void {
-  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-  const cards = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)')]
-  const current = cards.findIndex((card) => card === event.target)
-  if (current < 0) return
-  event.preventDefault()
-  const index = event.key === 'Home' ? 0 : event.key === 'End' ? cards.length - 1
-    : (current + (['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1) + cards.length) % cards.length
-  cards[index]?.focus()
-  cards[index]?.click()
-}
-
-function TerminalPalette({ value, disabled, onChange }: { value: TerminalThemeName; disabled: boolean; onChange(value: TerminalThemeName): void }) {
-  return (
-    <div className="settings-theme-grid" role="radiogroup" aria-label="Terminal palette" aria-busy={disabled} onKeyDown={navigateRadioCards}>
-      {TERMINAL_THEME_NAMES.map((id) => {
-        const theme = TERMINAL_THEMES[id]
-        return (
-          <button type="button" role="radio" aria-checked={value === id} tabIndex={value === id ? 0 : -1} disabled={disabled} key={id} className={`settings-theme-card${value === id ? ' is-active' : ''}`} onClick={() => onChange(id)}>
-            <span className="settings-theme-swatch" style={{ background: theme.swatch[0] }} aria-hidden="true">
-              {theme.swatch.slice(1).map((color) => <i key={color} style={{ background: color }} />)}
-            </span>
-            <span>{theme.label}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function AppearanceTheme({
-  metadata,
-  control,
-  value,
-  disabled,
-  onChange
-}: {
-  metadata: SettingMetadata
-  control: Extract<SettingControl, { type: 'select' }>
-  value: AppSettings['theme']
-  disabled: boolean
-  onChange(patch: Partial<AppSettings>): void
-}) {
-  return (
-    <div className="settings-appearance-grid" role="radiogroup" aria-label={metadata.label} aria-busy={disabled} onKeyDown={navigateRadioCards}>
-      {control.options.map((option) => {
-        const id = String(option.value)
-        return (
-          <button type="button" role="radio" aria-checked={value === option.value} tabIndex={value === option.value ? 0 : -1} disabled={disabled} key={id} className={`settings-appearance-card${value === option.value ? ' is-active' : ''}`} onClick={() => onChange(validateSettingsPatch({ theme: option.value }))}>
-            <span className={`settings-appearance-preview settings-appearance-preview-${id}`} aria-hidden="true"><i /><i /><i /></span>
-            <span>{id === 'system' ? 'System' : id === 'dark' ? 'Dark' : 'Light'}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 function SettingControlView({
@@ -146,26 +87,7 @@ function SettingControlView({
   if (control.type === 'text' || control.type === 'number') {
     return (
       <div className="settings-control-stack">
-        <SettingsDraftInput metadata={metadata} control={control} value={value} revision={revision} onCommit={onCommit} />
-        {metadata.key === 'agentCommand' && availableAgents.length > 0 && (
-          <div className="settings-agent-suggestions" aria-label="Discovered agent commands">
-            <span>Installed harnesses</span>
-            <div>
-              {availableAgents.map((agent) => (
-                <button
-                  type="button"
-                  key={agent.id}
-                  disabled={saving}
-                  className={settings.agentCommand === agent.command ? 'is-active' : ''}
-                  title={agent.executablePath}
-                  onClick={() => void commitChoice(validateSettingsPatch({ agentCommand: agent.command }))}
-                >
-                  {agent.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <SettingsDraftInput metadata={metadata} control={control} value={value} revision={revision} onCommit={onCommit} suggestions={metadata.key === 'agentCommand' ? availableAgents.map(agent => ({ value: agent.command, label: agent.name })) : undefined} />
         {saving && <span className="settings-save-status" role="status">Saving preference…</span>}
         {error && (
           <div className="settings-inline-error" role="alert">
@@ -178,11 +100,7 @@ function SettingControlView({
   }
 
   let rendered: React.ReactNode
-  if (metadata.key === 'theme' && control.type === 'select') {
-    rendered = <AppearanceTheme metadata={metadata} control={control} value={settings.theme} disabled={saving} onChange={(patch) => void commitChoice(patch)} />
-  } else if (metadata.key === 'terminalTheme') {
-    rendered = <TerminalPalette value={settings.terminalTheme} disabled={saving} onChange={(next) => void commitChoice(validateSettingsPatch({ terminalTheme: next }))} />
-  } else if (control.type === 'toggle') {
+  if (control.type === 'toggle') {
     if (typeof value !== 'boolean') return <SettingsState kind="error" title="Invalid setting definition" detail={metadata.key} />
     rendered = <SettingsSwitch checked={value} label={metadata.label} disabled={saving} onChange={(next) => void commitChoice(validateSettingsPatch({ [metadata.key]: next }))} />
   } else if (control.type === 'select') {
@@ -242,24 +160,45 @@ function SettingsList({
   )
 }
 
-function PrivacySection({ facts, onRetry }: { facts: NativeFacts; onRetry(): void }) {
-  if (facts.state === 'loading') return <SettingsState kind="loading" title="Checking native protections" detail="Reading this device’s credential capability." />
-  if (facts.state === 'error') return <SettingsState kind="error" title="Native capability check failed" detail={facts.error ?? undefined} action={<button className="btn btn-secondary" type="button" onClick={onRetry}>Retry check</button>} />
-  return (
-    <div className="settings-security-wrap">
-      <div className="settings-policy-note" role="note">
-        <strong>Security boundaries are fixed, not optional preferences.</strong>
-        <span>This app does not offer switches that weaken workspace confinement, renderer isolation, browser sandboxing, or provider consent.</span>
+function PrivacySection() {
+  const worktreePath = useAppStore(state => state.activeWorktreePath)
+  const [confirm, setConfirm] = useState<{ kind: 'history' | 'sites'; path?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [cleared, setCleared] = useState('')
+  const operation = useRef(false)
+  const clear = async () => {
+    if (operation.current || !confirm) return
+    operation.current = true; setBusy(true); setError('')
+    try {
+      if (confirm.kind === 'sites') await window.donwells.browserSiteDataClear(confirm.path!)
+      else await window.donwells.browserHistoryClear()
+      setCleared(confirm.kind === 'sites' ? `Cookies and site data cleared for ${confirm.path}. Open pages can create new data.` : 'Saved browsing history cleared.')
+      setConfirm(null)
+    } catch (cause) { setError(String(cause)) }
+    finally { operation.current = false; setBusy(false) }
+  }
+  return <section className="settings-preference-group" aria-label="Saved browser data">
+    <h3>Saved browser data</h3>
+    <p>Clear saved addresses across this profile. Cookies, website sign-ins and project files are kept.</p>
+    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setError(''); setCleared(''); setConfirm({ kind: 'history' }) }}>Clear browsing history…</button>
+    <p>Remove cookies, cached files and website storage for the current checkout’s built-in browser. This can sign you out of websites.</p>
+    <button type="button" className="btn btn-secondary btn-sm" disabled={!worktreePath} title={worktreePath ? `Clear browser site data for ${worktreePath}` : 'Select a project checkout first'} onClick={() => { if (worktreePath) { setError(''); setCleared(''); setConfirm({ kind: 'sites', path: worktreePath }) } }}>Clear cookies and site data…</button>
+    {cleared && <p role="status">{cleared}</p>}
+    {confirm && <ModalDialog labelledBy="clear-browser-data-title" onClose={() => { if (!operation.current) setConfirm(null) }}>
+      <h2 id="clear-browser-data-title" className="modal-title">{confirm.kind === 'sites' ? 'Clear cookies and site data?' : 'Clear browsing history?'}</h2>
+      {confirm.kind === 'sites' ? <>
+        <p>This permanently removes cookies, cached files and website storage for the checkout below. Website sign-ins and locally saved website drafts may be lost. Project files, browsing history and other checkouts are kept.</p>
+        <p style={{ overflowWrap: 'anywhere' }}>{confirm.path}</p>
+        <p>Open pages can create new data. Save any website work before continuing.</p>
+      </> : <p>This permanently deletes saved addresses from this profile. It cannot be undone. New visits will still be saved if history recording is on.</p>}
+      {error && <p role="alert">{error}</p>}
+      <div className="modal-footer">
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void clear()}>{busy ? 'Clearing…' : confirm.kind === 'sites' ? 'Clear site data permanently' : 'Clear history permanently'}</button>
       </div>
-      <div className="settings-security-grid">
-        <article className="settings-security-card"><span className="settings-security-status">Enforced</span><h3>Renderer isolation</h3><p>The interface is sandboxed and context-isolated. Native access is limited to the typed <code>window.donwells</code> bridge.</p></article>
-        <article className="settings-security-card"><span className="settings-security-status">Confined</span><h3>Workspace files</h3><p>File operations pass through native handlers and stay confined to the selected worktree.</p></article>
-        <article className="settings-security-card"><span className="settings-security-status">Sandboxed</span><h3>Browser content</h3><p>Persistent browser guests accept HTTP(S) content without exposing Electron or Node.js APIs.</p></article>
-        <article className="settings-security-card"><span className={`settings-security-status${facts.protectedSecrets ? '' : ' is-muted'}`}>{facts.protectedSecrets ? 'Available' : 'Unavailable'}</span><h3>Protected credentials</h3><p>{facts.protectedSecrets ? 'This device can encrypt native service secrets. Stored values are never displayed in Settings.' : 'Operating-system secret protection is not available in this environment.'}</p></article>
-        <article className="settings-security-card settings-security-card-wide"><span className="settings-security-status">Required</span><h3>Provider consent</h3><p>No preference on this screen can bypass confirmation for provider calls, permission grants or other consequential actions.</p></article>
-      </div>
-    </div>
-  )
+    </ModalDialog>}
+  </section>
 }
 
 function AdvancedFacts({ facts, onRetry }: { facts: NativeFacts; onRetry(): void }) {
@@ -335,7 +274,7 @@ export function SettingsModal({ open }: { open: boolean }) {
   const [resetBusy, setResetBusy] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [draftGuardError, setDraftGuardError] = useState<string | null>(null)
-  const [facts, setFacts] = useState<NativeFacts>({ state: 'loading', meta: null, protectedSecrets: null, error: null })
+  const [facts, setFacts] = useState<NativeFacts>({ state: 'loading', meta: null, error: null })
   const resetTrigger = useRef<HTMLButtonElement | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const searchGroups = useMemo(() => searchSettingsCatalog(query), [query])
@@ -343,10 +282,10 @@ export function SettingsModal({ open }: { open: boolean }) {
   const searchModifier = appCommandPlatform(navigator.platform) === 'mac' ? '⌘' : 'Ctrl+'
 
   const loadFacts = useCallback((): void => {
-    setFacts({ state: 'loading', meta: null, protectedSecrets: null, error: null })
-    void Promise.all([window.donwells.meta(), window.donwells.secretAvailable()]).then(
-      ([meta, protectedSecrets]) => setFacts({ state: 'ready', meta, protectedSecrets, error: null }),
-      (caught: unknown) => setFacts({ state: 'error', meta: null, protectedSecrets: null, error: caught instanceof Error ? caught.message : String(caught) })
+    setFacts({ state: 'loading', meta: null, error: null })
+    void window.donwells.meta().then(
+      meta => setFacts({ state: 'ready', meta, error: null }),
+      (caught: unknown) => setFacts({ state: 'error', meta: null, error: caught instanceof Error ? caught.message : String(caught) })
     )
   }, [])
 
@@ -374,9 +313,10 @@ export function SettingsModal({ open }: { open: boolean }) {
       revision: expectedRevision,
       reset: (target) => window.donwells.resetSettings(target),
       currentRevision: () => useAppStore.getState().settingsRevision,
+      currentSettings: () => useAppStore.getState().settings,
       sync: syncSettings
     })
-    if (!applied) throw new Error('Settings changed while the reset was in flight. Nothing was overwritten; review the current values and retry.')
+    if (!applied) throw new Error('Settings changed while the reset was in flight. Review the current values before retrying.')
   }
 
   const resetOne = async (key: SettingKey): Promise<void> => {
@@ -415,7 +355,11 @@ export function SettingsModal({ open }: { open: boolean }) {
       return false
     }
     setDraftGuardError('Apply or discard the highlighted change before leaving this settings view.')
-    dirty.querySelector<HTMLElement>('input, button')?.focus()
+    const controls = [...dirty.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')]
+    const control = controls.find(item => item.checkVisibility()) ?? controls[0]
+    let ancestor: HTMLElement | null = control ?? dirty
+    while (ancestor) { if (ancestor instanceof HTMLDetailsElement) ancestor.open = true; ancestor = ancestor.parentElement }
+    control?.focus()
     return true
   }
 
@@ -435,19 +379,41 @@ export function SettingsModal({ open }: { open: boolean }) {
   }
 
   const renderSectionContent = (target: SettingsSection, metadata: readonly SettingMetadata[]): React.ReactNode => {
-    if (target === 'privacy') return <PrivacySection facts={facts} onRetry={loadFacts} />
+    if (target === 'appearance' || target === 'terminal') return <>
+      {(target === 'appearance' ? [
+        ['Theme', ['theme']],
+        ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
+        ['Layout', ['navigationLabels', 'toolPanelSide']]
+      ] as const : [
+        ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLineHeight']],
+        ['Colors and cursor', ['terminalTheme', 'cursorStyle', 'cursorBlink']],
+        ['Behavior', ['scrollback', 'copyOnSelect']],
+        ['Renderer', ['terminalRenderer']]
+      ] as const).map(([label, keys]) => {
+        const fields = keys.flatMap(key => metadata.filter(field => field.key === key))
+        return fields.length > 0 && <section className="settings-preference-group" key={label} aria-label={label}>
+          {label !== 'Theme' && label !== 'Renderer' && <h3>{label}</h3>}
+          <SettingsList metadata={fields} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={key => void resetOne(key)} />
+        </section>
+      })}
+      {!query && target === 'appearance' && <div className="settings-typography-links">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openSection('editor')}>Editor typography</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openSection('terminal')}>Terminal typography</button>
+      </div>}
+    </>
     return (
-      <>
-        {metadata.length > 0 ? <SettingsList metadata={metadata} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={(key) => void resetOne(key)} /> : <SettingsState kind="empty" title="No preferences in this section" />}
-        {target === 'agents' && <><ProjectToolsSettings onNavigate={route => {
+      <div className={target === 'privacy' ? 'settings-preference-group' : undefined}>
+        {metadata.length > 0 ? <SettingsList metadata={metadata} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={(key) => void resetOne(key)} /> : null}
+        {target === 'project' && <><ProjectToolsSettings key={useAppStore.getState().activeWorktreePath} onNavigate={route => {
           if (focusDirtyControl()) return
           const state = useAppStore.getState(), path = state.activeWorktreePath
           if (!path) return
           if (route === 'search') useAppStore.setState({ contentSearch: { ...state.contentSearch, source: 'session' } })
           state.openWorkspaceModule(path, route); setOpen(false)
-        }} /><SkillsManager /></>}
-        {target === 'advanced' && <><ProjectKitSettings /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
-      </>
+        }} /><details className="project-settings-group"><summary>Agent skills</summary><SkillsManager /></details><details className="project-settings-group"><summary>Backup and restore</summary><ProjectKitSettings key={useAppStore.getState().activeWorktreePath} /></details></>}
+        {target === 'privacy' && <PrivacySection />}
+        {target === 'advanced' && <><ProjectMemoryStorage onChanged={useProjectMemoryEditor.getState().refresh} /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
+      </div>
     )
   }
 
@@ -473,10 +439,10 @@ export function SettingsModal({ open }: { open: boolean }) {
                 if (!focusDirtyControl()) setQuery(event.currentTarget.value)
               }}
             />
-            {query && <button type="button" aria-label="Clear settings search" onClick={() => setQuery('')}><Icon name="x" size={13} /></button>}
+            {query && <button type="button" aria-label="Clear settings search" title="Clear the filter and show all settings" onClick={() => { if (!focusDirtyControl()) setQuery('') }}><Icon name="x" size={13} /></button>}
             <kbd>{searchModifier}F</kbd>
           </label>
-          <button className="icon-btn settings-close" type="button" aria-label="Close settings" onClick={close}><Icon name="x" size={15} /></button>
+          <button className="icon-btn settings-close" type="button" aria-label="Close settings" title="Close settings and return to your workspace" onClick={close}><Icon name="x" size={15} /></button>
         </header>
         <div className="settings-layout">
           <nav
@@ -528,10 +494,10 @@ export function SettingsModal({ open }: { open: boolean }) {
             {query ? (
               <div className="settings-search-results">
                 <div className="settings-section-heading"><div><span>Search</span><h2>{searchGroups.length === 0 ? 'No matching settings' : `Results for “${query}”`}</h2><p>{searchGroups.length === 0 ? 'Try a setting name, description, section or command.' : `${searchGroups.reduce((count, group) => count + Math.max(group.settings.length, 1), 0)} results across ${searchGroups.length} sections.`}</p></div></div>
-                {searchGroups.length === 0 ? <SettingsState kind="empty" title="Nothing matched your search" detail="Search includes setting names, descriptions, routes and application commands." action={<button className="btn btn-secondary" type="button" onClick={() => setQuery('')}>Clear search</button>} /> : searchGroups.map((group) => (
+                {searchGroups.length === 0 ? <SettingsState kind="empty" title="Nothing matched your search" detail="Search includes setting names, descriptions, routes and application commands." action={<button className="btn btn-secondary" type="button" onClick={() => { if (!focusDirtyControl()) setQuery('') }}>Clear search</button>} /> : searchGroups.map((group) => (
                   <section className="settings-result-group" key={group.section.id}>
                     <button type="button" className="settings-result-route" onClick={() => openSection(group.section.id)}><Icon name={group.section.icon} size={14} /><span>{group.section.label}</span><Icon name="chevrons" size={12} /></button>
-                    {renderSectionContent(group.section.id, group.settings)}
+                    {group.settings.length > 0 && <SettingsList metadata={group.settings} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={key => void resetOne(key)} />}
                   </section>
                 ))}
               </div>

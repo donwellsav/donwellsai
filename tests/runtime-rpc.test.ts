@@ -3,11 +3,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS } from '../src/shared/settings'
 import { RuntimeRpcServer, type RpcDeps } from '../src/main/runtime-rpc'
 
 function dependencies(directory: string): RpcDeps {
   return {
-    store: undefined,
+    store: { getSettings: () => DEFAULT_SETTINGS },
     git: undefined,
     terminals: undefined,
     meta: async () => ({ version: 'test', shell: '/bin/sh', userDataDir: directory }),
@@ -81,6 +82,7 @@ describe('local RPC authority', () => {
     const observed: Record<string, unknown> = {}
     const deps = {
       store: {
+        getSettings: () => DEFAULT_SETTINGS,
         resetSettings: (value: unknown) => { observed.settingsReset = value; return { theme: 'system' } }
       },
       git: {
@@ -242,4 +244,24 @@ describe('local RPC authority', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+})
+
+
+it('blocks authenticated external commands immediately, including attempts to re-enable access', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'donwells-rpc-access-'))
+  const socketPath = join(directory, 'runtime.sock')
+  let enabled = true, settingsWrites = 0
+  const deps = dependencies(directory)
+  deps.store = { getSettings: () => ({ ...DEFAULT_SETTINGS, externalAgentAccess: enabled }), updateSettings: () => { settingsWrites++; enabled = true; return DEFAULT_SETTINGS } } as unknown as RpcDeps['store']
+  const server = new RuntimeRpcServer(socketPath, join(directory, 'runtime.json'), 'token', deps)
+  try {
+    await server.start()
+    expect(await request(socketPath, 'token', 'meta.get', {})).toMatchObject({ ok: true })
+    enabled = false
+    expect(await request(socketPath, 'token', 'meta.get', {})).toMatchObject({ ok: false, error: expect.stringContaining('External agent access is disabled') })
+    expect(await request(socketPath, 'token', 'settings.set', { externalAgentAccess: true })).toMatchObject({ ok: false })
+    expect(settingsWrites).toBe(0)
+    enabled = true
+    expect(await request(socketPath, 'token', 'meta.get', {})).toMatchObject({ ok: true })
+  } finally { server.stop(); rmSync(directory, { recursive: true, force: true }) }
 })

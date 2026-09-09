@@ -69,7 +69,8 @@ export class BrowserHistoryStore {
   constructor(
     userDataDir: string,
     limit = BROWSER_HISTORY_LIMIT,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly recordingEnabled: () => boolean = () => true
   ) {
     this.path = join(userDataDir, FILE)
     this.limit = Math.max(1, Math.min(BROWSER_HISTORY_LIMIT, Math.floor(limit)))
@@ -115,6 +116,7 @@ export class BrowserHistoryStore {
     if (!normalized) throw new Error('browser history only accepts HTTP(S) URLs without credentials')
 
     const entries = this.list()
+    if (!this.recordingEnabled()) return entries
     const previous = entries.find((entry) => entry.normalizedUrl === normalized.normalizedUrl)
     const next: BrowserHistoryEntry = {
       ...normalized,

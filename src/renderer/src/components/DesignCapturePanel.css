@@ -1,23 +1,3 @@
-.browser-design-toggle {
-  width: auto;
-  min-width: 32px;
-  height: 32px;
-  gap: 6px;
-  padding-inline: 8px;
-  font-size: 12px;
-  font-weight: 620;
-}
-
-.browser-design-toggle.active {
-  color: var(--primary-fg);
-  background: var(--primary);
-}
-
-.browser-design-toggle.active:hover:not(:disabled) {
-  color: var(--primary-fg);
-  background: color-mix(in srgb, var(--primary) 88%, var(--foreground));
-}
-
 .browser-design-status {
   position: absolute;
   z-index: 7;
@@ -74,16 +54,6 @@
   flex: 1 1 auto;
 }
 
-.browser-design-error button {
-  display: inline-flex;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  color: var(--muted-fg);
-}
 
 .browser-design-error button:hover {
   color: var(--foreground);
@@ -142,13 +112,6 @@
   font-weight: 650;
 }
 
-.design-capture-close {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  color: var(--muted-fg);
-}
 
 .design-capture-close:hover {
   color: var(--foreground);
@@ -358,12 +321,6 @@
   padding-top: 2px;
 }
 
-.design-capture-actions .btn {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  gap: 6px;
-}
 
 @media (max-width: 620px) {
   .browser-design-toggle span { display: none; }

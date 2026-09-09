@@ -1,20 +1,30 @@
+import { guiDraftMap } from '../gui-drafts'
 import { useEffect, useState } from 'react'
 import type { GraphitiConfiguration, TemporalKnowledgeAnswer, TemporalKnowledgeStatus } from '@shared/project-temporal-knowledge'
 import type { ProjectDoctorReport } from '@shared/project-doctor'
 import type { ProjectMemoryEntry, ProjectMemoryRevision } from '@shared/project-memory'
 import type { KnowledgeSelection } from '@shared/project-knowledge'
 const initial: GraphitiConfiguration = { enabled: false, python: '', neo4jUri: 'bolt://127.0.0.1:7687', neo4jUser: 'neo4j', modelUrl: 'http://127.0.0.1:8000/v1', model: '', embeddingUrl: 'http://127.0.0.1:8000/v1', embeddingModel: '', embeddingDimensions: 1024 }
+const drafts = guiDraftMap<{ report: ProjectDoctorReport | null; draft: GraphitiConfiguration; query: string; asOf: string }>('temporal-knowledge')
 export function ProjectTemporalKnowledgePanel({ workspacePath }: { workspacePath: string }) {
-  const [report, setReport] = useState<ProjectDoctorReport | null>(null), [draft, setDraft] = useState(initial)
-  const [password, setPassword] = useState(''), [query, setQuery] = useState(''), [asOf, setAsOf] = useState('')
+  const saved = drafts.get(workspacePath)
+  const [report, setReport] = useState<ProjectDoctorReport | null>(saved?.report ?? null), [draft, setDraft] = useState(saved?.draft ?? initial)
+  const [password, setPassword] = useState(''), [query, setQuery] = useState(saved?.query ?? ''), [asOf, setAsOf] = useState(saved?.asOf ?? '')
   const [sources, setSources] = useState<KnowledgeSelection[]>([]), [candidates, setCandidates] = useState<ProjectMemoryEntry[]>([])
   const [status, setStatus] = useState<TemporalKnowledgeStatus | null>(null), [answer, setAnswer] = useState<TemporalKnowledgeAnswer | null>(null)
   const [reviewedRevision, setReviewedRevision] = useState<ProjectMemoryRevision | null>(null)
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  useEffect(() => { drafts.set(workspacePath, { report, draft, query, asOf }) }, [workspacePath, report, draft, query, asOf])
   async function run(action: () => Promise<void>) { setBusy(true); setAnswer(null); setError(''); try { await action() } catch (cause) { setError(String(cause)) } finally { setBusy(false) } }
-  async function inspect() {
-    const value = await window.donwells.projectDoctorInspect(workspacePath); setReport(value)
-    if (value.configuration.graphiti) { setDraft(value.configuration.graphiti); const current = await window.donwells.projectTemporalKnowledgeStatus(workspacePath); setStatus(current); setSources(current.sources) }
+  async function inspect(reloadConfiguration = false) {
+    if (!report || reloadConfiguration) {
+      const value = await window.donwells.projectDoctorInspect(workspacePath)
+      setReport(value)
+      setDraft(value.configuration.graphiti ?? initial)
+    }
+    const current = await window.donwells.projectTemporalKnowledgeStatus(workspacePath)
+    setStatus(current)
+    if (!status) setSources(current.sources)
   }
   useEffect(() => {
     if (!answer) return
@@ -31,16 +41,16 @@ export function ProjectTemporalKnowledgePanel({ workspacePath }: { workspacePath
     <p className="memory-guidance">Derived relationships from explicitly reviewed memory history. Current and historical answers distinguish source revision dates from inferred relationship validity.</p>
     {report && <>
       <details><summary>Neo4j and model configuration</summary>
-        <label><input type="checkbox" checked={draft.enabled} onChange={event => setDraft({ ...draft, enabled: event.target.checked })} /> Enable Graphiti</label>
-        {([['python', 'Python with graphiti-core 0.30.1'], ['neo4jUri', 'Local Neo4j Bolt URI'], ['neo4jUser', 'Neo4j username'], ['modelUrl', 'Local model API'], ['model', 'Model identity'], ['embeddingUrl', 'Local embedding API'], ['embeddingModel', 'Embedding model identity']] as const).map(([field, label]) => <label key={field}>{label}<input className="input" value={draft[field]} onChange={event => setDraft({ ...draft, [field]: event.target.value })} /></label>)}
-        <label>Embedding dimensions<input className="input" type="number" min={1} max={4096} value={draft.embeddingDimensions} onChange={event => setDraft({ ...draft, embeddingDimensions: Number(event.target.value) })} /></label>
-        <button className="btn btn-secondary btn-sm" disabled={busy || !report.configurationValid} onClick={() => void run(async () => { await window.donwells.projectDoctorConfigure(workspacePath, { ...report.configuration, graphiti: draft }, report.revision); await inspect() })}>Save configuration and stop services</button>
-        <label>Neo4j password<input className="input" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+        <label><input disabled={busy} type="checkbox" checked={draft.enabled} onChange={event => setDraft({ ...draft, enabled: event.target.checked })} /> Enable Graphiti</label>
+        {([['python', 'Python with graphiti-core 0.30.1'], ['neo4jUri', 'Local Neo4j Bolt URI'], ['neo4jUser', 'Neo4j username'], ['modelUrl', 'Local model API'], ['model', 'Model identity'], ['embeddingUrl', 'Local embedding API'], ['embeddingModel', 'Embedding model identity']] as const).map(([field, label]) => <label key={field}>{label}<input disabled={busy} className="input" value={draft[field]} onChange={event => setDraft({ ...draft, [field]: event.target.value })} /></label>)}
+        <label>Embedding dimensions<input disabled={busy} className="input" type="number" min={1} max={4096} value={draft.embeddingDimensions} onChange={event => setDraft({ ...draft, embeddingDimensions: Number(event.target.value) })} /></label>
+        <button className="btn btn-secondary btn-sm" disabled={busy || !report.configurationValid} onClick={() => void run(async () => { await window.donwells.projectDoctorConfigure(workspacePath, { ...report.configuration, graphiti: draft }, report.revision); await inspect(true) })}>Save configuration and stop services</button>
+        <label>Neo4j password<input disabled={busy} className="input" type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
         <button className="btn btn-secondary btn-sm" disabled={busy || !password} onClick={() => void run(async () => { await window.donwells.projectTemporalKnowledgePasswordSet(workspacePath, password); setPassword('') })}>Save password to protected store</button>
         <p className="memory-guidance">Use an existing local Neo4j service; the app does not install or own its server. Passwords are never returned to agents or stored in tool configuration.</p>
       </details>
       <p role="status">{busy ? 'Temporal knowledge operation running…' : status ? `${status.stale ? 'Sources need reconciliation' : 'Sources current'} · ${status.pendingCleanup} groups awaiting cleanup` : 'No published relationship group'}</p>
-      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(inspect)}>Refresh saved state</button>
+      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(inspect)}>Refresh status</button>
       <label>Find sources / relationship question<input className="input" value={query} maxLength={2000} onChange={event => setQuery(event.target.value)} /></label>
       <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(async () => setCandidates((await window.donwells.projectMemoryList({ workspacePath, query: query.trim() || undefined, includeArchived: true, limit: 50 })).entries))}>Review matching source histories</button>
       {candidates.map(entry => <details key={entry.id}><summary>{entry.title} · r{entry.revision}{entry.archivedAt ? ' · archived' : ''}</summary><p style={{ whiteSpace: 'pre-wrap' }}>{entry.content}</p>

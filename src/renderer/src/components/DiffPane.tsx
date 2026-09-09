@@ -1,3 +1,4 @@
+import { ModalDialog } from './ModalDialog'
 import type { DiffReviewRunLink, DiffReviewRunState } from '@shared/diff-review'
 import {
   parseDiffFromFile,
@@ -101,13 +102,13 @@ export function DiffPane({
 }) {
   const settings = useAppStore((state) => state.settings)
   const openPreview = useAppStore((state) => state.openPreview)
-  const hidePaneView = useAppStore((state) => state.hidePaneView)
   const reviewPanelId = useId()
   const [loaded, setLoaded] = useState<LoadedDiff | null>(null)
   const [status, setStatus] = useState<DiffStatus>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [sideBySide, setSideBySide] = useState(settings.diffViewStyle === 'split')
+  const [narrow, setNarrow] = useState(false)
   const [systemPrefersDark, setSystemPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [selection, setSelection] = useState<DiffReviewSelection | null>(null)
   const [runStates, setRunStates] = useState<Record<string, DiffReviewRunState | null>>({})
@@ -118,13 +119,23 @@ export function DiffPane({
   const [reviewError, setReviewError] = useState('')
   const [reviewOpen, setReviewOpen] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [attachmentSelection, setAttachmentSelection] = useState<string[] | null>(null)
   const [attachment, setAttachment] = useState<AgentAttachmentDraft | null>(null)
   const diffHostRef = useRef<HTMLDivElement>(null)
+  const reviewTrigger = useRef<HTMLButtonElement>(null)
   const loadedTarget = useRef('')
   const refreshSources = useCallback(() => setRefresh(value => value + 1), [])
   useEffect(() => window.donwells.on('worktree:changed', refreshSources), [refreshSources])
 
   useEffect(() => setSideBySide(settings.diffViewStyle === 'split'), [settings.diffViewStyle])
+
+  useEffect(() => {
+    const host = diffHostRef.current
+    if (!host) return
+    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 720))
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -357,7 +368,7 @@ export function DiffPane({
   const options = useMemo<FileDiffOptions<ReviewAnnotationMetadata>>(() => ({
     theme: diffTheme === 'dark' ? 'github-dark' : 'github-light',
     themeType: diffTheme,
-    diffStyle: sideBySide ? 'split' : 'unified',
+    diffStyle: sideBySide && !narrow ? 'split' : 'unified',
     disableFileHeader: true,
     diffIndicators: 'classic',
     overflow: settings.diffWordWrap ? 'wrap' : 'scroll',
@@ -381,7 +392,7 @@ export function DiffPane({
         setReviewError(error instanceof Error ? error.message : String(error))
       }
     }
-  }), [diffTheme, handlePierreSelection, loaded, selectRange, settings.diffWordWrap, sideBySide])
+  }), [diffTheme, handlePierreSelection, loaded, selectRange, settings.diffWordWrap, sideBySide, narrow])
 
   const currentNotes = useMemo(() => {
     if (!loaded) return []
@@ -406,7 +417,7 @@ export function DiffPane({
         if (!line) return
         selectRange({ side: reviewSideFromPierre(line.side), startLine: line.lineNumber, endLine: line.lineNumber })
       }}
-    >+</button>
+    ><Icon name="plus" /></button>
   ), [selectRange])
 
   const renderAnnotation = useCallback((annotation: DiffLineAnnotation<ReviewAnnotationMetadata>) => {
@@ -417,25 +428,27 @@ export function DiffPane({
   const openAttachment = useCallback((): void => {
     if (!reviewTarget || !loaded || notes.length === 0) return
     try {
-      setAttachment(formatDiffReviewAttachment(reviewTarget, loaded.snapshot, notes))
+      setAttachmentSelection(notes.map(note => note.id))
     } catch (error) {
       setReviewError(error instanceof Error ? error.message : String(error))
     }
   }, [loaded, notes, reviewTarget])
 
-  const name = relPath.split(/[\\/]/).at(-1) ?? relPath
+  const attachmentPreview = useMemo(() => {
+    if (!attachmentSelection?.length || !reviewTarget || !loaded) return null
+    try {
+      const draft = formatDiffReviewAttachment(reviewTarget, loaded.snapshot, notes.filter(note => attachmentSelection.includes(note.id)))
+      return { draft, bytes: new TextEncoder().encode(draft.text).byteLength, error: '' }
+    } catch (error) { return { draft: null, bytes: 0, error: String(error) } }
+  }, [attachmentSelection, reviewTarget, loaded, notes])
+
   const subline = loaded ? `${comparisonLabel(comparison)} · ${changeLabel(loaded.metadata)}` : `${comparisonLabel(comparison)} · loading snapshots`
-  const paneKey = comparison === 'working' ? `diff:${relPath}` : `diff:${comparison}:${relPath}`
   const blank = loaded ? blankDiffMessage(loaded) : null
 
   return (
     <div className="diff-review-pane">
       <header className="pane-header diff-review-head">
-        <span className="diff-review-file-mark"><Icon name="git" size={12} /></span>
-        <div className="diff-review-heading">
-          <strong title={relPath}>{name}</strong>
-          <span>{subline}</span>
-        </div>
+        <span className="diff-review-heading" title={`${relPath} · ${subline}`}>{comparisonLabel(comparison)}</span>
         {statistics && (
           <span className="diff-review-stat" aria-label={`${statistics.additions} additions, ${statistics.deletions} deletions, ${statistics.hunks} hunks`}>
             <span className="is-added">+{statistics.additions}</span>{' '}
@@ -446,35 +459,33 @@ export function DiffPane({
         <div className="diff-review-head-actions">
           <button
             type="button"
-            className="diff-review-panel-toggle"
+            className="btn btn-ghost btn-sm diff-review-panel-toggle"
+            ref={reviewTrigger}
+            aria-label={`Review notes (${notes.length})`} title="Read or add review notes for this comparison"
             aria-expanded={reviewOpen}
             aria-controls={reviewPanelId}
             onClick={() => setReviewOpen((value) => !value)}
           >
-            <span>Review notes</span><b>{notes.length}</b>
+            <span>Notes</span>{notes.length > 0 && <b>{notes.length}</b>}
           </button>
           <button type="button" className="icon-btn" aria-label="Refresh comparison" title="Refresh comparison" onClick={() => setRefresh((value) => value + 1)}>
             <Icon name="refresh" size={12} />
           </button>
-          <button
+          {!narrow && <button
             type="button"
-            className={`btn btn-secondary btn-sm diff-review-view-toggle${sideBySide ? ' active' : ''}`}
+            className={`btn btn-ghost btn-sm diff-review-view-toggle${sideBySide ? ' active' : ''}`}
             aria-label={sideBySide ? 'Use unified diff view' : 'Use side-by-side diff view'}
             title={sideBySide ? 'Unified view' : 'Side-by-side view'}
             onClick={() => setSideBySide((value) => !value)}
           >
             <Icon name="columns" size={12} />
             <span>{sideBySide ? 'Unified' : 'Side by side'}</span>
-          </button>
-          {loaded?.sources.after.contents !== null && (
-            <button type="button" className="btn btn-secondary btn-sm diff-review-editor-action" onClick={() => void openPreview(worktreePath, relPath)}>
+          </button>}
+          {loaded && loaded.sources.after.contents !== null && (
+            <button type="button" className="icon-btn diff-review-editor-action" aria-label="Open file" title="Open file" onClick={() => void openPreview(worktreePath, relPath)}>
               <Icon name="edit" size={12} />
-              <span>Open file</span>
             </button>
           )}
-          <button type="button" className="icon-btn" aria-label="Close diff" title="Close diff" onClick={() => void hidePaneView(worktreePath, paneKey)}>
-            <Icon name="x" size={12} />
-          </button>
         </div>
       </header>
 
@@ -509,6 +520,8 @@ export function DiffPane({
 
         {reviewOpen && loaded && (
           <DiffReviewPanel
+            key={JSON.stringify([worktreePath, comparison, loaded.snapshot])}
+            draftKey={JSON.stringify([worktreePath, comparison, loaded.snapshot])}
             workspacePath={worktreePath}
             onSourcesChecked={refreshSources}
             id={reviewPanelId}
@@ -528,12 +541,23 @@ export function DiffPane({
             onEditingNoteChange={setEditingNoteId}
             onAttach={openAttachment}
             onRetry={() => setRefresh((value) => value + 1)}
-            onClose={() => setReviewOpen(false)}
+            onClose={() => { setReviewOpen(false); reviewTrigger.current?.focus() }}
           />
         )}
       </div>
 
-      {attachment && <AgentDeliveryDialog attachment={attachment} onClose={() => setAttachment(null)} />}
+      {attachmentSelection && !attachment && <ModalDialog labelledBy="review-attachment-title" onClose={() => setAttachmentSelection(null)}>
+        <h2 id="review-attachment-title" className="modal-title">Choose notes to attach</h2>
+        <div className="diff-attachment-choices">{notes.map((note, index) => <label key={note.id}><input type="checkbox" checked={attachmentSelection.includes(note.id)} onChange={event => setAttachmentSelection(current => event.target.checked ? [...(current ?? []), note.id] : (current ?? []).filter(id => id !== note.id))} /><span><strong>Note {index + 1} · {note.anchor.side} {note.anchor.startLine === note.anchor.endLine ? `line ${note.anchor.startLine}` : `lines ${note.anchor.startLine}–${note.anchor.endLine}`}</strong><span>{note.body.slice(0,160)}{note.body.length > 160 ? '…' : ''}</span></span></label>)}</div>
+        <p role="status">{attachmentSelection.length} of {notes.length} notes · {(attachmentPreview?.bytes ?? 0).toLocaleString()} / 65,536 bytes</p>
+        {attachmentPreview?.error && <p role="alert">{attachmentPreview.error}</p>}
+        {attachmentPreview && attachmentPreview.bytes > 65_536 && <p role="alert">Select fewer notes to fit the attachment limit. Saved notes stay unchanged.</p>}
+        <div className="modal-footer">
+        <button className="btn btn-secondary" onClick={() => setAttachmentSelection(null)}>Cancel</button>
+        <button className="btn btn-primary" disabled={!attachmentPreview?.draft || attachmentPreview.bytes > 65_536} onClick={() => setAttachment(attachmentPreview?.draft ?? null)}>Preview attachment</button>
+        </div>
+      </ModalDialog>}
+      {attachment && <AgentDeliveryDialog attachment={attachment} onClose={(delivered) => { setAttachment(null); if (delivered) setAttachmentSelection(null) }} />}
     </div>
   )
 }

@@ -213,6 +213,8 @@ describe('project memory MCP protocol', () => {
     expect(tools).toMatchObject({
       result: {
         tools: [
+          { name: 'donwells_commands' },
+          { name: 'donwells_execute' },
           { name: 'project_engines' },
           { name: 'memory_search' },
           { name: 'memory_read' },
@@ -599,4 +601,31 @@ it('pins verification runs to the MCP checkout and passes only its private sessi
  expect(await call({command:'npm test',workspacePath:'/foreign'})).toMatchObject({result:{isError:true}})
  expect(await call({command:'npm test',credential:{token:'replacement'}})).toMatchObject({result:{isError:true}})
  expect(calls).toHaveLength(count)
+})
+
+it('discovers and controls the visible app through validated RPC while memory-only sessions stay restricted', async () => {
+  const workspacePath = temporaryRoot(), calls: { method: string; params: Record<string, unknown> }[] = []
+  const invoke: ProjectMemoryMcpInvoke = async (method, params) => { calls.push({ method, params }); return { visible: true } }
+  const session = new ProjectMemoryMcpSession({ workspacePath, harness: 'codex', invoke })
+  await initialize(session, 1)
+  const call = (name: string, args: Record<string, unknown>) => exchange(session, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } })
+  const discovered = toolValue(await call('donwells_commands', { query: 'browser' })) as { commands: { name: string }[] }
+  expect(discovered.commands.some(command => command.name === 'browser-open')).toBe(true)
+  for (const [command, params, method] of [
+    ['ui-state', {}, 'ui.state'],
+    ['browser-open', { worktreePath: workspacePath, url: 'http://localhost:3000' }, 'browser.open'],
+    ['browser-open-file', { worktreePath: workspacePath, relPath: 'index.html' }, 'browser.openFile'],
+    ['browser-eval', { key: workspacePath, js: 'document.querySelector("button").click()' }, 'browser.eval']
+  ] as const) {
+    expect(toolValue(await call('donwells_execute', { command, params }))).toEqual({ visible: true })
+    expect(calls.at(-1)).toEqual({ method, params })
+  }
+  expect(await call('donwells_execute', { command: 'browser-open', params: { arbitrary: true } })).toMatchObject({ result: { isError: true } })
+  expect(await call('donwells_execute', { command: 'invented-command' })).toMatchObject({ result: { isError: true } })
+  expect(calls).toHaveLength(4)
+  const restricted = new ProjectMemoryMcpSession({ workspacePath, harness: 'codex', invoke, memoryOnly: true })
+  await initialize(restricted, 3)
+  const denied = await exchange(restricted, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'donwells_execute', arguments: { command: 'ui-state' } } })
+  expect(denied).toHaveProperty('error')
+  expect(calls).toHaveLength(4)
 })

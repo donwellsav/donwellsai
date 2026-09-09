@@ -1,0 +1,17 @@
+{
+  "source": "https://github.com/kenn-io/agentsview",
+  "commit": "ff8fb4e84823b9583eba417afc243140caabdcb0",
+  "patchSha256": "746bb17b292554e9dafeadd58c8985afb22db6ca9a0c32ae56ba117d10eb91c7",
+  "binarySha256": "cf55f8f1705fa95bc10fcc9ac2e2cfec124520e296907720e4e625060865c794",
+  "platform": "darwin-arm64",
+  "compiler": "go version go1.27.0 darwin/arm64",
+  "build": "CGO_ENABLED=1 go build -buildvcs=false -tags fts5 -trimpath -ldflags=\"-s -w -X main.version=0.42.0-donwells-cwd3\" -o agentsview ./cmd/agentsview",
+  "sourceArchiveSha256": "0c9fa8d243adeeef955d1c4635e82976b9b5d57dfd91f376476b1b6c2d351cfe",
+  "inputs": {
+    "source.tar.gz": "0c9fa8d243adeeef955d1c4635e82976b9b5d57dfd91f376476b1b6c2d351cfe",
+    "cwd3.patch": "746bb17b292554e9dafeadd58c8985afb22db6ca9a0c32ae56ba117d10eb91c7",
+    "snapshots/litellm_snapshot.json.gz": "f899bb4d8f99cf19e4c63b929d8ba17eafef27e231c000af13bd3d0c8ba6e3d9",
+    "snapshots/genai_prices.json.gz": "5d8fb83d1243718be75a2d6b48aa5bcbf266e234f286ba4087583d832405097c",
+    "DEPENDENCY_NOTICES.txt": "1a0e9fa2493921de2fadb34efe8d9450cf03c4d5564af5203d052b5736e493c2"
+  }
+}

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { commandUnavailableReason, dispatchAppCommand } from '../src/renderer/src/commands'
 import type { RepoSummary } from '../src/shared/types'
 import * as editorModels from '../src/renderer/src/editor-models'
 import { flushWorkspaceSession, useAppStore } from '../src/renderer/src/store'
@@ -29,6 +30,16 @@ function folderProject(): RepoSummary {
 const createWorktree = vi.fn()
 const removeRepo = vi.fn()
 const openTerminal = vi.fn()
+
+it('returns to the main checkout after removing the active worktree', async () => {
+  const main = gitProject()
+  seed([gitProject([...main.worktrees, { id: 'feature', path: createdRoot, branch: 'feature', isMain: false }])])
+  useAppStore.setState({ activeRepoId: main.repo.id, activeWorktreePath: createdRoot })
+  Object.assign(window.donwells, { removeWorktree: vi.fn(async () => main), terminalSessions: async () => [], agentList: async () => [] })
+  expect(await useAppStore.getState().removeWorktree(createdRoot)).toEqual({ ok: true })
+  expect(useAppStore.getState().activeWorktreePath).toBe(gitRoot)
+  expect(useAppStore.getState().activeRepoId).toBe(main.repo.id)
+})
 
 function seed(repos: RepoSummary[]): void {
   useAppStore.setState({
@@ -234,13 +245,14 @@ it('preserves unavailable saved resources without starting replacement processes
     getSettings: vi.fn(async () => useAppStore.getState().settings), gitStatus: vi.fn(async () => null),
     terminalSessions: vi.fn(async () => [{ id: 'foreign', worktreePath: folderRoot, title: 'foreign', exited: false, createdAt: 't0' }]),
     readFile: vi.fn(async () => { throw new Error('File missing') }),
-    getWorkspaceSession: vi.fn(async () => ({ activeRepoId: 'git-project', repos: { 'git-project': {
+    getWorkspaceSession: vi.fn(async () => ({ activeRepoId: 'git-project', ui: { railCollapsed: true, projectListPercent: 60, sidebarWidth: 540, sidebarOpen: false, rightSidebarOpen: true, rightSidebarTab: 'memory', runsOpen: false, runsSection: 'automations' }, repos: { 'git-project': {
       panes: { [gitRoot]: savedPanes }, layouts: {}, activePane: { [gitRoot]: 'term:lost' },
       activeTerminal: { [gitRoot]: 'lost' }, terminalOrder: { [gitRoot]: ['lost', 'foreign'] }, activeWorktreePath: gitRoot
     } } }))
   })
   await useAppStore.getState().load()
   expect(useAppStore.getState().initializationError).toBeNull()
+  expect(useAppStore.getState()).toMatchObject({ railCollapsed: true, projectListPercent: 60, sidebarWidth: 540, sidebarOpen: false, rightSidebarOpen: true, rightSidebarTab: 'memory', runsOpen: false, runsSection: 'automations' })
   expect(useAppStore.getState().panes[gitRoot]).toEqual(savedPanes)
   expect(useAppStore.getState().terminals).toEqual({})
   expect(useAppStore.getState().activePane[gitRoot]).toBe('term:lost')
@@ -327,4 +339,83 @@ it('coalesces edits behind an in-flight save into one latest snapshot without ac
   releases[1](); await Promise.all(pending)
   expect(save).toHaveBeenCalledTimes(2)
   window.donwells.saveWorkspaceSession = vi.fn(async () => {})
+})
+
+
+it('keeps hidden shells live and confirms closing a live terminal', async () => {
+  seed([gitProject()])
+  const store = useAppStore.getState()
+  await store.openTerminal(createdRoot)
+  store.hidePaneView(createdRoot, 'term:created-terminal')
+  expect(window.donwells.closeTerminal).not.toHaveBeenCalled()
+  expect(useAppStore.getState().terminals['created-terminal']).toBeDefined()
+  store.requestClosePane(createdRoot, 'term:created-terminal')
+  expect(useAppStore.getState().closeRequest?.sessionId).toBe('created-terminal')
+  expect(window.donwells.closeTerminal).not.toHaveBeenCalled()
+  store.cancelClosePane()
+  expect(useAppStore.getState().terminals['created-terminal']).toBeDefined()
+  store.requestClosePane(createdRoot, 'term:created-terminal')
+  await store.confirmClosePane()
+  expect(window.donwells.closeTerminal).toHaveBeenCalledWith('created-terminal')
+  expect(useAppStore.getState().panes[createdRoot]).toEqual([])
+})
+
+
+it('activates the owning project atomically and rejects unknown checkouts', () => {
+  seed([folderProject(), gitProject()])
+  useAppStore.setState({ panes: { [gitRoot]: [{ key: 'term:existing', kind: 'terminal' }] }, runsOpen: true })
+  useAppStore.getState().setActiveWorktree(gitRoot)
+  expect(useAppStore.getState()).toMatchObject({ activeRepoId: 'git-project', activeWorktreePath: gitRoot, runsOpen: false })
+  useAppStore.getState().setActiveWorktree('/unknown')
+  expect(useAppStore.getState().activeWorktreePath).toBe(gitRoot)
+})
+
+it('opens remembered tools from Runs, toggles only visible tools, and reuses docked owners', () => {
+  seed([gitProject()])
+  useAppStore.setState({ activeWorktreePath: gitRoot, runsOpen: true, rightSidebarOpen: true, rightSidebarTab: 'explorer' })
+  const state = useAppStore.getState()
+  state.setRightSidebarTab('explorer', true)
+  expect(useAppStore.getState()).toMatchObject({ runsOpen: false, rightSidebarOpen: true, rightSidebarTab: 'explorer' })
+  state.setRightSidebarTab('explorer', true)
+  expect(useAppStore.getState().rightSidebarOpen).toBe(false)
+  state.openWorkspaceModule(gitRoot, 'memory')
+  state.setRunsOpen(true)
+  state.setRightSidebarTab('memory')
+  expect(useAppStore.getState()).toMatchObject({ runsOpen: false, rightSidebarOpen: false, activePane: { [gitRoot]: `memory:${gitRoot}` } })
+  expect(useAppStore.getState().panes[gitRoot]).toHaveLength(1)
+})
+
+
+it('keeps workspace navigation available while Runs covers the workspace', () => {
+  seed([gitProject()])
+  useAppStore.setState({ activeWorktreePath: gitRoot, runsOpen: true })
+  for (const command of ['toggle-explorer', 'toggle-git-status', 'show-project-search', 'show-project-memory'] as const) {
+    expect(commandUnavailableReason(command)).toBeUndefined()
+  }
+})
+
+it('restores Markdown using the reading preference instead of falling back to source', async () => {
+  seed([folderProject()])
+  for (const reading of [true, false]) {
+    Object.assign(window.donwells, {
+      listRepos: async () => [folderProject()], listAgents: async () => [], agentList: async () => [], terminalSessions: async () => [],
+      getSettings: async () => ({ markdownPreviewDefault: reading }), gitStatus: async () => ({}),
+      readFile: async () => ({ path: 'guide.md', content: '# Guide', bytes: 7, truncated: false }),
+      getWorkspaceSession: async () => ({ version: 1, repos: { 'folder-project': { panes: { [folderRoot]: [{ key: 'preview:guide.md', kind: 'preview', file: 'guide.md' }] } } } })
+    })
+    await useAppStore.getState().load()
+    expect(useAppStore.getState().initializationError).toBeNull()
+    expect(useAppStore.getState().previews[folderRoot]?.['guide.md']?.mode).toBe(reading ? 'preview' : 'edit')
+  }
+})
+
+
+it('opens computer control through its discoverable command and requires a project', () => {
+  seed([gitProject()])
+  useAppStore.setState({ activeWorktreePath: gitRoot, runsOpen: true })
+  expect(commandUnavailableReason('show-computer-control')).toBeUndefined()
+  dispatchAppCommand('show-computer-control')
+  expect(useAppStore.getState()).toMatchObject({ runsOpen: false, rightSidebarOpen: true, rightSidebarTab: 'computer' })
+  useAppStore.setState({ activeWorktreePath: null })
+  expect(commandUnavailableReason('show-computer-control')).toBeTruthy()
 })

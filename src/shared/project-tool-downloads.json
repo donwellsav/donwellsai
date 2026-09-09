@@ -18,21 +18,23 @@
     "bytes": 40416962,
     "sha256": "9bd840dfb3ec7eaef4f310382057adaa5b0e904df883104d03ffcf39836afd07",
     "url": "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-darwin-arm64.tar.gz",
-    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64.",
+    "executableSha256": "2412e017268bef8f847f38d1b0f79f63185b38c27fe6fba637067bfc87c0eedf"
   },
   "historyBinary": {
     "file": "agentsview_0.42.0_darwin_arm64.tar.gz",
     "bytes": 39486758,
     "sha256": "57f437a089f2f9d41c7335d7ce2a96f2ba95a11d4517678c6a6866a65390a3f3",
     "url": "https://github.com/kenn-io/agentsview/releases/download/v0.42.0/agentsview_0.42.0_darwin_arm64.tar.gz",
-    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+    "instructions": "This upstream archive is not compatible with the history service. Donwells requires its cwd3 patched build; automatic setup is unavailable until a qualified distribution is provided."
   },
   "computerBinary": {
     "file": "cua-driver-rs-0.23.2-darwin-universal-binary.tar.gz",
     "bytes": 41513177,
     "sha256": "0127c82ff17922df4290931a8ebf9b4a8b21656aad24cba6f21ee50e41ed4493",
     "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.23.2/cua-driver-rs-0.23.2-darwin-universal-binary.tar.gz",
-    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64."
+    "instructions": "Extract into a separate tools directory, keep upstream notices, then select the executable. Qualified on macOS ARM64.",
+    "executableSha256": "2cb9be8da6c91bfa6b535a0d777ca61e463996aff9cd769dace2eb840ddd0700"
   },
   "embeddingModel": {
     "file": "Qwen3-Embedding-4B-Q8_0.gguf",
@@ -60,7 +62,8 @@
     "bytes": 26850835,
     "sha256": "8572a04e57a44e5488caba4c54d4d4acfa6c6ed6edd77b747a7dd7ddc5a3e4d6",
     "url": "https://registry.npmjs.org/backlog.md-darwin-arm64/-/backlog.md-darwin-arm64-1.51.0.tgz",
-    "instructions": "Extract the native archive and select its backlog executable. Keep the upstream notices."
+    "instructions": "Extract the native archive and select its backlog executable. Keep the upstream notices.",
+    "executableSha256": "f8ecec1e9e748db9ccddf6ec71fbff06e406bc0db106891e7e60fd1af2713415"
   },
   "browserExecutable": {
     "file": "chrome-mac-arm64.zip (Chrome 151.0.7922.34)",

@@ -1,0 +1,232 @@
+diff --git a/internal/parser/hermes.go b/internal/parser/hermes.go
+index 4ac1ef0..fc68c27 100644
+--- a/internal/parser/hermes.go
++++ b/internal/parser/hermes.go
+@@ -41,6 +41,7 @@ type hermesStateSession struct {
+ 	costStatus       string
+ 	costSource       string
+ 	title            string
++	cwd              string
+ 	apiCallCount     int
+ }
+ 
+@@ -649,7 +650,7 @@ func readHermesStateSessions(
+ 			COALESCE(reasoning_tokens, 0),
+ 			estimated_cost_usd, actual_cost_usd,
+ 			COALESCE(cost_status, ''), COALESCE(cost_source, ''),
+-			COALESCE(title, ''), COALESCE(api_call_count, 0)
++			COALESCE(title, ''), COALESCE(cwd, ''), COALESCE(api_call_count, 0)
+ 		FROM sessions
+ 		ORDER BY started_at ASC, id ASC`)
+ 	if err != nil {
+@@ -667,7 +668,7 @@ func readHermesStateSessions(
+ 			&ss.messageCount, &ss.inputTokens, &ss.outputTokens,
+ 			&ss.cacheReadTokens, &ss.cacheWriteTokens,
+ 			&ss.reasoningTokens, &ss.estimatedCost, &ss.actualCost,
+-			&ss.costStatus, &ss.costSource, &ss.title,
++			&ss.costStatus, &ss.costSource, &ss.title, &ss.cwd,
+ 			&ss.apiCallCount,
+ 		); err != nil {
+ 			return nil, fmt.Errorf("scan hermes session: %w", err)
+@@ -730,7 +731,7 @@ func readHermesStateSession(
+ 			COALESCE(reasoning_tokens, 0),
+ 			estimated_cost_usd, actual_cost_usd,
+ 			COALESCE(cost_status, ''), COALESCE(cost_source, ''),
+-			COALESCE(title, ''), COALESCE(api_call_count, 0)
++			COALESCE(title, ''), COALESCE(cwd, ''), COALESCE(api_call_count, 0)
+ 		FROM sessions
+ 		WHERE id = ?`,
+ 		rawSessionID,
+@@ -743,7 +744,7 @@ func readHermesStateSession(
+ 		&ss.messageCount, &ss.inputTokens, &ss.outputTokens,
+ 		&ss.cacheReadTokens, &ss.cacheWriteTokens,
+ 		&ss.reasoningTokens, &ss.estimatedCost, &ss.actualCost,
+-		&ss.costStatus, &ss.costSource, &ss.title, &ss.apiCallCount,
++		&ss.costStatus, &ss.costSource, &ss.title, &ss.cwd, &ss.apiCallCount,
+ 	)
+ 	if err == sql.ErrNoRows {
+ 		return hermesStateSession{}, false, nil
+@@ -1016,6 +1017,12 @@ func applyHermesStateMetadata(
+ 	sess.SourceSessionID = ss.id
+ 	sess.SourceVersion = "hermes-state-db"
+ 	sess.SessionName = ss.title
++	if ss.cwd != "" {
++		sess.Cwd = ss.cwd
++		if project == "" {
++			sess.Project = ExtractProjectFromCwd(ss.cwd)
++		}
++	}
+ 
+ 	// Populate the session-aggregate token columns from Hermes's own
+ 	// authoritative state.db accounting. These feed the session list,
+diff --git a/internal/parser/hermes_test.go b/internal/parser/hermes_test.go
+index 68716b7..90e0b55 100644
+--- a/internal/parser/hermes_test.go
++++ b/internal/parser/hermes_test.go
+@@ -124,6 +124,7 @@ func createHermesStateDB(t *testing.T, root string) {
+ 			cache_read_tokens INTEGER DEFAULT 0,
+ 			cache_write_tokens INTEGER DEFAULT 0,
+ 			reasoning_tokens INTEGER DEFAULT 0,
++			cwd TEXT,
+ 			billing_provider TEXT,
+ 			billing_base_url TEXT,
+ 			billing_mode TEXT,
+@@ -635,6 +636,14 @@ func TestBuildHermesStateResultKeepsUsageOnlySessions(t *testing.T) {
+ 	assert.Equal(t, 10, res.UsageEvents[0].InputTokens)
+ }
+ 
++func TestBuildHermesStateResultUsesNativeCwdForProjectAttribution(t *testing.T) {
++	root := filepath.Join(t.TempDir(), "terminal-foundation")
++	res, ok := buildHermesStateResult(hermesStateSession{id: "cwd", source: "cli", cwd: root}, []hermesStateMessage{{role: "user", content: "cwd"}}, t.TempDir(), "state.db", "", "local")
++	require.True(t, ok)
++	assert.Equal(t, root, res.Session.Cwd)
++	assert.Equal(t, "terminal_foundation", res.Session.Project)
++}
++
+ func TestBuildHermesStateResultPopulatesSessionAggregateTokens(t *testing.T) {
+ 	res, ok := buildHermesStateResult(
+ 		hermesStateSession{
+diff --git a/internal/parser/kimi_provider.go b/internal/parser/kimi_provider.go
+index 5b8113c..216ce7a 100644
+--- a/internal/parser/kimi_provider.go
++++ b/internal/parser/kimi_provider.go
+@@ -2,6 +2,9 @@ package parser
+ 
+ import (
+ 	"context"
++	"encoding/json"
++	"fmt"
++	"os"
+ 	"path/filepath"
+ 	"strings"
+ )
+@@ -52,6 +55,14 @@ func kimiParseFile(
+ 	if sess == nil {
+ 		return nil, nil, nil
+ 	}
++	if state := kimiStateMetadataForWire(path); state != nil {
++		if sess.Cwd == "" && state.Cwd != "" {
++			sess.Cwd = state.Cwd
++			sess.Project = ExtractProjectFromCwd(state.Cwd)
++		}
++		sess.SourceSessionID = state.ID
++		sess.SourceVersion = fmt.Sprintf("kimi-wire+state-v%d", state.Version)
++	}
+ 	if req.Fingerprint.Hash != "" {
+ 		sess.File.Hash = req.Fingerprint.Hash
+ 	}
+@@ -65,6 +76,39 @@ func kimiParseFile(
+ 	}}, nil, nil
+ }
+ 
++type kimiStateMetadata struct {
++	Cwd     string `json:"cwd"`
++	WorkDir string `json:"workDir"`
++	ID      string `json:"id"`
++	Version int    `json:"version"`
++}
++
++func kimiStateMetadataForWire(wirePath string) *kimiStateMetadata {
++	statePath := filepath.Join(filepath.Dir(wirePath), "state.json")
++	if filepath.Base(filepath.Dir(filepath.Dir(wirePath))) == "agents" {
++		statePath = filepath.Join(filepath.Dir(wirePath), "..", "..", "state.json")
++	}
++	info, err := os.Stat(statePath)
++	if err != nil || !info.Mode().IsRegular() || info.Size() > 1024*1024 {
++		return nil
++	}
++	data, err := os.ReadFile(statePath)
++	if err != nil {
++		return nil
++	}
++	var state kimiStateMetadata
++	if json.Unmarshal(data, &state) != nil {
++		return nil
++	}
++	if state.Cwd == "" {
++		state.Cwd = state.WorkDir
++	}
++	if state.ID == "" || state.ID != filepath.Base(filepath.Dir(statePath)) || state.Version < 1 {
++		return nil
++	}
++	return &state
++}
++
+ // kimiRawSessionIDSourceFiles reconstructs wire.jsonl candidate paths from a
+ // colon-joined raw ID. A two-part ID maps to <root>/<workspace>/<session>/
+ // wire.jsonl; a three-part ID adds the agents/ subagent layout
+@@ -81,11 +125,19 @@ func kimiRawSessionIDSourceFiles(roots []string, rawID string) []string {
+ 		}
+ 		switch len(parts) {
+ 		case 2:
++			if filepath.Base(filepath.Clean(root)) == parts[0] {
++				candidates = append(candidates, filepath.Join(root, parts[1], "wire.jsonl"))
++				continue
++			}
+ 			candidates = append(
+ 				candidates,
+ 				filepath.Join(root, parts[0], parts[1], "wire.jsonl"),
+ 			)
+ 		case 3:
++			if filepath.Base(filepath.Clean(root)) == parts[0] {
++				candidates = append(candidates, filepath.Join(root, parts[2], "agents", parts[1], "wire.jsonl"))
++				continue
++			}
+ 			candidates = append(candidates, filepath.Join(
+ 				root, parts[0], parts[2], "agents", parts[1], "wire.jsonl",
+ 			))
+@@ -129,6 +181,9 @@ func kimiSourceRelParts(root, path string) ([]string, bool) {
+ 			return nil, false
+ 		}
+ 	}
++	if strings.HasPrefix(filepath.Base(filepath.Clean(root)), "wd_") {
++		parts = append([]string{filepath.Base(filepath.Clean(root))}, parts...)
++	}
+ 	return parts, true
+ }
+ 
+diff --git a/internal/parser/kimi_provider_test.go b/internal/parser/kimi_provider_test.go
+index 9161b42..7a6bae0 100644
+--- a/internal/parser/kimi_provider_test.go
++++ b/internal/parser/kimi_provider_test.go
+@@ -172,6 +172,40 @@ func TestKimiProviderCwdCapabilityAndParse(t *testing.T) {
+ 	assert.Equal(t, "/Users/helix/Code/mcp-hub", outcome.Results[0].Result.Session.Cwd)
+ }
+ 
++func TestKimiProviderUsesCurrentStateCwdWhenWireHasNoConfigUpdate(t *testing.T) {
++	root := t.TempDir()
++	session := filepath.Join(root, "wd_lossy_hash", "session_native")
++	sourcePath := filepath.Join(session, "agents", "main", "wire.jsonl")
++	writeSourceFile(t, sourcePath, kimiProviderFixture("state cwd"))
++	require.NoError(t, os.WriteFile(filepath.Join(session, "state.json"), []byte(`{"version":2,"id":"session_native","cwd":"/Users/helix/Code/terminal-foundation"}`), 0o600))
++	provider, ok := NewProvider(AgentKimi, ProviderConfig{Roots: []string{root}})
++	require.True(t, ok)
++	sources, err := provider.Discover(context.Background())
++	require.NoError(t, err)
++	outcome, err := provider.Parse(context.Background(), ParseRequest{Source: sources[0]})
++	require.NoError(t, err)
++	require.Len(t, outcome.Results, 1)
++	assert.Equal(t, "/Users/helix/Code/terminal-foundation", outcome.Results[0].Result.Session.Cwd)
++	assert.Equal(t, "terminal_foundation", outcome.Results[0].Result.Session.Project)
++	assert.Equal(t, "session_native", outcome.Results[0].Result.Session.SourceSessionID)
++	assert.Equal(t, "kimi-wire+state-v2", outcome.Results[0].Result.Session.SourceVersion)
++}
++
++func TestKimiProviderAcceptsAnExplicitWorkspaceRoot(t *testing.T) {
++	container := t.TempDir()
++	root := filepath.Join(container, "wd_selected_0123456789ab")
++	sourcePath := filepath.Join(root, "session_native", "agents", "main", "wire.jsonl")
++	writeSourceFile(t, sourcePath, kimiProviderFixture("selected root"))
++	provider, ok := NewProvider(AgentKimi, ProviderConfig{Roots: []string{root}})
++	require.True(t, ok)
++	sources, err := provider.Discover(context.Background())
++	require.NoError(t, err)
++	require.Len(t, sources, 1)
++	rawID := kimiSessionIDFromPath(sourcePath)
++	assert.Equal(t, "wd_selected_0123456789ab:main:session_native", rawID)
++	assert.Equal(t, []string{sourcePath}, kimiRawSessionIDSourceFiles([]string{root}, rawID))
++}
++
+ func TestKimiProviderParseNewLayoutRoundTrip(t *testing.T) {
+ 	root := t.TempDir()
+ 	rawID := "wd_kimi-code_057f5c09ee3f:main:session_uuid-2"

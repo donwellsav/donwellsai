@@ -276,7 +276,7 @@ function sameIdentity(left: Stats, right: Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino
 }
 
-async function resolveExistingEntry(root: string, relPath: string): Promise<ResolvedEntry> {
+export async function resolveExistingEntry(root: string, relPath: string): Promise<ResolvedEntry> {
   const normalized = validateRelativePath(relPath)
   const abs = resolve(root, normalized)
   if (!isInside(root, abs)) throw new WorktreeFileError('Path escapes worktree: ' + relPath)
@@ -699,13 +699,14 @@ export class WorktreeFiles {
     })
   }
 
-  async deleteWorkspaceEntry(root: string, request: WorkspaceDeleteRequest): Promise<WorkspaceMutationResult> {
+  async deleteWorkspaceEntry(root: string, request: WorkspaceDeleteRequest, trash?: (path: string) => Promise<void>): Promise<WorkspaceMutationResult> {
     if (!request) throw new WorktreeFileError('Invalid delete request')
     const relPath = validateRelativePath(request.path)
     return this.runExclusive(root, async () => {
       const entry = await resolveExistingEntry(root, relPath)
       if (request.expectedRevision !== undefined && (entry.kind !== 'file' || !REVISION_PATTERN.test(request.expectedRevision) || await readCurrentRevision(root, entry.abs, relPath) !== request.expectedRevision)) throw new WorktreeFileError('Delete conflict: ' + relPath + ' changed on disk')
-      await removeEntryTree(root, entry)
+      if (trash) await trash(entry.abs)
+      else await removeEntryTree(root, entry)
       return { path: relPath, kind: entry.kind }
     })
   }

@@ -1,3 +1,4 @@
+import { Icon } from './Icon'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { agentPresentation, agentProviderName } from '@shared/agent-presentation'
@@ -271,7 +272,6 @@ export function CommandPalette({ open }: { open: boolean }) {
           hits: match.hits,
           run: () => {
             const state = useAppStore.getState()
-            state.setActiveRepo(workspace.repoId)
             state.setActiveWorktree(workspace.workspacePath)
             void state.openPreview(workspace.workspacePath, path)
           }
@@ -309,9 +309,9 @@ export function CommandPalette({ open }: { open: boolean }) {
         hits: match.hits.filter((index) => index < label.length),
         run: () => {
           const state = useAppStore.getState()
-          state.setActiveRepo(repo.repo.id)
           const workspacePath = repo.worktrees.find((worktree) => worktree.isMain)?.path ?? repo.worktrees[0]?.path
           if (workspacePath) state.setActiveWorktree(workspacePath)
+          else state.setActiveRepo(repo.repo.id)
         }
       })
       for (const worktree of repo.worktrees) {
@@ -328,7 +328,6 @@ export function CommandPalette({ open }: { open: boolean }) {
           hits: workspaceMatch.hits.filter((index) => index < workspaceTitle.length),
           run: () => {
             const state = useAppStore.getState()
-            state.setActiveRepo(repo.repo.id)
             state.setActiveWorktree(worktree.path)
           }
         })
@@ -370,7 +369,6 @@ export function CommandPalette({ open }: { open: boolean }) {
           hits: match.hits.filter((index) => index < label.length),
           run: () => {
             const state = useAppStore.getState()
-            state.setActiveRepo(workspace.repoId)
             state.setActiveWorktree(workspace.workspacePath)
             state.setActivePane(workspace.workspacePath, pane.key)
           }
@@ -380,7 +378,7 @@ export function CommandPalette({ open }: { open: boolean }) {
     return items.slice(0, MAX_PALETTE_ITEMS)
   }, [fileQuery, mode, open, panes, repos, runningAgents, scope, workspaces])
 
-  const remoteFileItems = useMemo<PaletteItem[]>(() => fileSearch.matches.map(({ repoId, workspacePath, workspaceLabel, match }) => ({
+  const remoteFileItems = useMemo<PaletteItem[]>(() => fileSearch.matches.map(({ workspacePath, workspaceLabel, match }) => ({
     id: `file:${workspacePath}:${match.entry.path}`,
     label: match.entry.path,
     hint: scope === 'global' ? workspaceLabel : 'File',
@@ -388,7 +386,6 @@ export function CommandPalette({ open }: { open: boolean }) {
     hits: match.hits,
     run: () => {
       const state = useAppStore.getState()
-      state.setActiveRepo(repoId)
       state.setActiveWorktree(workspacePath)
       void state.openPreview(workspacePath, match.entry.path)
     }
@@ -483,7 +480,7 @@ export function CommandPalette({ open }: { open: boolean }) {
               }}
             >Everywhere</button>
           </div>
-          <button type="button" className="palette-close" aria-label="Close palette" onClick={() => setOpen(false)}>×</button>
+          <button type="button" className="icon-btn palette-close" aria-label="Close palette" title="Close command search and return to your workspace" onClick={() => setOpen(false)}><Icon name="x" /></button>
         </header>
         <input
           ref={inputRef}

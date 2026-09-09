@@ -60,9 +60,22 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [historyCapabilities, setHistoryCapabilities] = useState<Record<string, string>>({})
   const [document, setDocument] = useState<{ title: string; content: string; detail: string; resume?: AgentExecutable | null; historyId?: string; previousOrdinal?: number | null; nextOrdinal?: number | null; sourceRef?: string } | null>(null)
+  const [documentPaging, setDocumentPaging] = useState(false)
   const documentQueue = useRef(Promise.resolve())
   const openGeneration = useRef(0)
+  const closeDocument = (): void => { openGeneration.current++; setDocument(null); setDocumentPaging(false) }
   useEffect(() => { openGeneration.current++; return () => { openGeneration.current++ } }, [workspacePath, active])
+  const pageDocument = async (fromOrdinal: number): Promise<void> => {
+    if (!document?.historyId || documentPaging) return
+    const selected = document, generation = ++openGeneration.current
+    setDocumentPaging(true); setError('')
+    try {
+      const value = await window.donwells.projectSessionHistoryGet(workspacePath, selected.historyId!, { fromOrdinal, limit: 5 })
+      if (generation !== openGeneration.current || useAppStore.getState().activeWorktreePath !== workspacePath) return
+      setDocument({ ...selected, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n') })
+    } catch (error) { if (generation === openGeneration.current) setError(String(error)) }
+    finally { if (generation === openGeneration.current) setDocumentPaging(false) }
+  }
   const resultsRef = useRef<HTMLOListElement>(null)
   const [hits, setHits] = useState<ProjectSearchHit[]>([])
   const [status, setStatus] = useState('Search the text in this checkout.')
@@ -86,7 +99,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
     if (current.current?.id === event.requestId && current.current.path === event.workspacePath) setHits(previous => [...previous, event.hit])
   }), [])
   useEffect(() => {
-    setHits([]); setError(''); setNotes(source === 'all' || source === 'session' ? { session: 'Session history is read-only. Index only the selected native session roots.' } : {}); setVisible(25); setDocument(null); setHistoryCapabilities({})
+    setHits([]); setError(''); setNotes(source === 'all' || source === 'session' ? { session: 'Session history is prepared automatically from detected or selected folders. Original conversations are unchanged.' } : {}); setVisible(25); openGeneration.current++; setDocument(null); setHistoryCapabilities({})
     if (!active) { setRunning(false); return }
     if (!query.trim()) { setRunning(false); setStatus('Search the text in this checkout.'); return }
     setRunning(true); setStatus('Searching…')
@@ -219,12 +232,11 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
   const ordered = (Object.keys(sources) as SearchSource[]).flatMap(kind => hits.filter(hit => hit.source === kind))
   return <section className="project-search" aria-label="Project search">
     <form onSubmit={event => { event.preventDefault(); stop(); setRefresh(value => value + 1) }}>
-      <div className="project-search-sources" role="group" aria-label="Search sources">{(Object.entries(sources) as [SearchSource, string][]).map(([kind, label]) => <button key={kind} type="button" aria-pressed={source === kind} onClick={() => { if (source !== kind) { stop(); setSource(kind) } }}>{label}</button>)}</div>
-      <label htmlFor={inputId}>Search text</label>
-      <div className="project-search-input"><input ref={inputRef} id={inputId} type="search" value={query} maxLength={1000} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus() } }} placeholder="A phrase, function or setting" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><button type="submit" disabled={!query.trim()}>Search</button></div>
-      {(source === 'all' || source === 'file' || source === 'code') && <div className="project-search-options"><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div>}
+      <label className="sr-only" htmlFor={inputId}>Search project</label>
+      <div className="project-search-input"><input ref={inputRef} id={inputId} type="search" value={query} maxLength={1000} onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); resultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus() } }} placeholder="Search project…" title="Search as you type. Press Down to move to results, or Enter to search again" onChange={event => { stop(); setSearch({ query: event.target.value }) }} /><select className="input" aria-label="Search source" title="Choose which sources to search; results update automatically" value={source} onChange={event => { stop(); setSource(event.target.value as SearchSource) }}>{Object.entries(sources).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></div>
+      {(source === 'all' || source === 'file' || source === 'code') && <details className="project-search-options"><summary title="Include hidden files or files excluded by ignore rules">File options{hidden || ignored ? ' · modified' : ''}</summary><div><label><input type="checkbox" checked={hidden} onChange={event => { stop(); setSearch({ hidden: event.target.checked }) }} />Hidden files</label><label><input type="checkbox" checked={ignored} onChange={event => { stop(); setSearch({ ignored: event.target.checked }) }} />Ignored files</label></div></details>}
     </form>
-    <div className="project-search-status"><span role="status">{status}{query.trim() && ` · ${ordered.length} matches`}</span>{running && <button onClick={stop}>Stop</button>}</div>
+    <div className="project-search-status"><span role="status">{status}{query.trim() && ` · ${ordered.length} matches`}</span>{running && <button className="btn btn-secondary btn-sm" onClick={stop}>Stop</button>}</div>
     <div className="project-search-notes">{source !== 'all' && notes[source] && <p>{notes[source]}</p>}</div>
     {indexing && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
@@ -248,7 +260,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       const open = event.currentTarget.open
       setSourceControlsOpen(open)
       if (!open) useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: false } }))
-    }}><summary>Source controls</summary>
+    }}><summary title="Manage document and session indexes, code relationships, and analytics">Source controls</summary>
     {source === 'all' && <div className="project-search-notes">{Object.entries(notes).map(([kind, note]) => <p key={kind}>{note}</p>)}</div>}
     <details className="project-graph-disclosure" open={graphOpen} onToggle={event => { const open = event.currentTarget.open; useAppStore.setState(state => ({ contentSearch: { ...state.contentSearch, graphOpen: open } })) }}><summary>Code graph · callers</summary><ProjectGraph key={workspacePath} workspacePath={workspacePath} active={active && sourceControlsOpen && graphOpen} /></details>
     {documentStatus && (source === 'all' || source === 'document') && <p role="status">{documentStatus}</p>}
@@ -258,8 +270,8 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
         const value = documentValue(response)
         if (useAppStore.getState().activeWorktreePath === path) { setDocumentStatus(`Document index: ${String(value.phase)}`); setIndexing(true) }
       }).catch(error => { if (useAppStore.getState().activeWorktreePath === path) setError(String(error)) })
-    }}>{hits.some(hit => hit.source === 'document' && hit.stale) ? 'Reindex changed document sources' : 'Index documents'}</button>}
-    {(source === 'all' || source === 'document') && !documentAvailable && <button type="button" className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('agents')}>Configure documents</button>}
+    }}>{hits.some(hit => hit.source === 'document' && hit.stale) ? 'Reindex changed document sources' : 'Refresh document index'}</button>}
+    {(source === 'all' || source === 'document') && !documentAvailable && <button type="button" className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('project')}>Configure documents</button>}
     {(source === 'all' || source === 'document') && documentReady && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const path = workspacePath
       void window.donwells.projectToolStop(path, 'documents').then(() => {
@@ -268,14 +280,14 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       }).catch(error => setError(String(error)))
     }}>Stop document service</button>}
     {Object.keys(historyCapabilities).length > 0 && <details><summary>Native history support</summary>{Object.entries(historyCapabilities).map(([agent, detail]) => <p key={agent}>{agent}: {detail}</p>)}</details>}
-    {(source === 'all' || source === 'session') && !historyAvailable && <button type="button" disabled={historyAvailable === null} onClick={() => useAppStore.getState().openSettings('agents')}>Configure session history</button>}
-    {(source === 'all' || source === 'session') && historyAvailable && <button type="button" disabled={historyIndexing} onClick={() => {
+    {(source === 'all' || source === 'session') && !historyAvailable && <button className="btn btn-secondary btn-sm" type="button" disabled={historyAvailable === null} onClick={() => useAppStore.getState().openSettings('project')}>Configure session history</button>}
+    {(source === 'all' || source === 'session') && historyAvailable && <button className="btn btn-secondary btn-sm" type="button" disabled={historyIndexing} onClick={() => {
       const generation = openGeneration.current
       setHistoryIndexing(true)
       void window.donwells.projectSessionHistoryIndex(workspacePath).then(() => {
         if (generation === openGeneration.current) setRefresh(value => value + 1)
       }).catch(error => { if (generation === openGeneration.current) setError(String(error)) }).finally(() => setHistoryIndexing(false))
-    }}>{historyIndexing ? 'Indexing selected sessions…' : 'Index sessions'}</button>}
+    }}>{historyIndexing ? 'Indexing selected sessions…' : 'Refresh session history'}</button>}
     {active && source === 'session' && historyAvailable && <ProjectAnalytics key={workspacePath} workspacePath={workspacePath} />}
     </details>
     {error && <p className="project-search-error" role="alert">{error}</p>}
@@ -287,33 +299,21 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       event.preventDefault()
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus()
     }}>{ordered.slice(0, visible).map(hit => <li key={`${hit.source}:${hit.id}`}><button onClick={() => void open(hit)} title={`${hit.path ?? hit.title}${hit.line ? `:${hit.line}` : ''}`}><span className="project-search-path">{hit.path ?? hit.title}{hit.line && <b>:{hit.line}</b>}</span><span className="project-search-kind">{sources[hit.source]}{hit.revision ? ` · revision ${hit.revision.slice(0, 12)}` : ''}{hit.stale ? ' · source changed' : ''}{hit.indexedAt ? ` · ${new Date(hit.indexedAt).toLocaleString()}` : ''}</span><code>{hit.excerpt}</code></button></li>)}</ol>
-    {ordered.length > visible && <button onClick={() => setVisible(value => value + 25)}>Show more · {visible} of {ordered.length}</button>}
-    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={() => setDocument(null)}><h2 id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document">{document.content}</pre>{document.historyId && document.previousOrdinal !== undefined && <>{document.previousOrdinal !== null && <button type="button" onClick={() => {
-      const selected = document, generation = openGeneration.current
-      void window.donwells.projectSessionHistoryGet(workspacePath, selected.historyId!, { fromOrdinal: selected.previousOrdinal!, limit: 5 }).then(value => {
-        if (generation !== openGeneration.current || useAppStore.getState().activeWorktreePath !== workspacePath) return
-        setDocument({ ...selected, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n') })
-      }).catch(error => setError(String(error)))
-    }}>Earlier messages</button>}{document.nextOrdinal !== null && <button type="button" onClick={() => {
-      const selected = document, generation = openGeneration.current
-      void window.donwells.projectSessionHistoryGet(workspacePath, selected.historyId!, { fromOrdinal: selected.nextOrdinal!, limit: 5 }).then(value => {
-        if (generation !== openGeneration.current || useAppStore.getState().activeWorktreePath !== workspacePath) return
-        setDocument({ ...selected, previousOrdinal: value.previousOrdinal, nextOrdinal: value.nextOrdinal, content: value.messages.map(message => `${message.ordinal + 1} · ${message.role}\n${message.content}`).join('\n\n') })
-      }).catch(error => setError(String(error)))
-    }}>Later messages</button>}<button type="button" onClick={() => {
+    {ordered.length > visible && <button className="btn btn-secondary btn-sm" onClick={() => setVisible(value => value + 25)}>Show more · {visible} of {ordered.length}</button>}
+    {document && <ModalDialog labelledBy={`${inputId}-source`} onClose={closeDocument}><h2 className="modal-title" id={`${inputId}-source`}>{document.title}</h2><p>{document.detail}</p><pre className="project-search-document" aria-busy={documentPaging}>{document.content}</pre>{documentPaging && <p role="status">Loading messages…</p>}{error && <p role="alert">{error}</p>}<div className="modal-footer">{document.historyId && document.previousOrdinal !== undefined && <>{document.previousOrdinal !== null && <button className="btn btn-secondary btn-sm" type="button" disabled={documentPaging} onClick={() => void pageDocument(document.previousOrdinal!)}>Earlier messages</button>}{document.nextOrdinal !== null && <button className="btn btn-secondary btn-sm" type="button" disabled={documentPaging} onClick={() => void pageDocument(document.nextOrdinal!)}>Later messages</button>}<button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const selected = document
       if (useProjectMemoryEditor.getState().editor) { setError('Save or discard the open project memory draft before reviewing this transcript.'); return }
       openProjectMemoryEditor(workspacePath)
       useProjectMemoryEditor.getState().change({ title: selected.title.slice(0, 200), content: selected.content, sourceRef: selected.sourceRef ?? '' })
-      setDocument(null)
-    }}>Review as project memory</button></>}{document.resume && <button type="button" onClick={() => {
+      closeDocument()
+    }}>Review as project memory</button></>}{document.resume && <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
       const id = document.historyId!
-      setDocument(null)
+      closeDocument()
       void window.donwells.projectSessionHistoryGet(workspacePath, id).then(async current => {
         if (!current.resume || useAppStore.getState().activeWorktreePath !== workspacePath) return
         const result = await window.donwells.agentStart(workspacePath, current.resume)
         if (useAppStore.getState().activeWorktreePath === workspacePath) await focusRetainedAgentSession(result.run.sessionId)
       }).catch(error => setError(String(error)))
-    }}>Open native conversation</button>}<button onClick={() => setDocument(null)}>Close source</button></ModalDialog>}
+    }}>Open native conversation</button>}<button className="btn btn-secondary btn-sm" onClick={closeDocument}>Close source</button></div></ModalDialog>}
   </section>
 }

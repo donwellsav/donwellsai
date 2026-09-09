@@ -1,3 +1,4 @@
+import { guiDraftMap } from './gui-drafts'
 import { create } from 'zustand'
 import type { ProjectMemoryEntry, ProjectMemoryKind } from '@shared/project-memory'
 
@@ -22,6 +23,17 @@ export const useProjectMemoryEditor = create<MemoryEditorState>((set) => ({
     : {}),
   refresh: () => set((state) => ({ generation: state.generation + 1 }))
 }))
+
+const recoveryDraft = guiDraftMap<MemoryEditor>('memory-editor')
+useProjectMemoryEditor.subscribe((state, previous) => {
+  if (state.editor === previous.editor) return
+  if (state.editor) recoveryDraft.set('editor', state.editor)
+  else recoveryDraft.delete('editor')
+})
+export function restoreProjectMemoryDraft(): void {
+  const editor = recoveryDraft.get('editor')
+  if (editor && !useProjectMemoryEditor.getState().editor) useProjectMemoryEditor.setState({ editor })
+}
 
 export function draftFromEntry(entry: ProjectMemoryEntry | null): MemoryDraft {
   return {

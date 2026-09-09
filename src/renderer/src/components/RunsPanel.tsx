@@ -6,50 +6,30 @@ import { ScheduledRunsSection } from './runs/ScheduledRunsSection'
 import './runs/runs.css'
 
 export function RunsPanel() {
+  const draftKey = useAppStore(state => state.activeWorktreePath ?? state.activeRepoId ?? '')
   const section = useAppStore((state) => state.runsSection)
   const openRuns = useAppStore((state) => state.openRuns)
   const setRunsOpen = useAppStore((state) => state.setRunsOpen)
 
   return (
-    <section className="runs-panel operational-runs" aria-label="Agent supervision and operational runs">
+    <section className="runs-panel operational-runs" aria-label={section === 'agents' ? 'Agents' : 'Automations'}>
       <header className="runs-header op-runs-header">
-        <div>
-          <span className="op-eyebrow">Supervision</span>
-          <h2>Runs</h2>
-        </div>
-        <div className="rs-tabs" role="tablist" aria-label="Run views">
-          <button
-            className={`rs-tab${section === 'agents' ? ' active' : ''}`}
-            role="tab"
-            aria-selected={section === 'agents'}
-            onClick={() => openRuns('agents')}
-          >
-            Agents
-          </button>
-          <button
-            className={`rs-tab${section === 'orchestration' ? ' active' : ''}`}
-            role="tab"
-            aria-selected={section === 'orchestration'}
-            onClick={() => openRuns('orchestration')}
-          >
-            Parallel shells
-          </button>
-          <button
-            className={`rs-tab${section === 'automations' ? ' active' : ''}`}
-            role="tab"
-            aria-selected={section === 'automations'}
-            onClick={() => openRuns('automations')}
-          >
-            Scheduled shells
-          </button>
-        </div>
-        <button className="icon-btn" aria-label="Close runs" onClick={() => setRunsOpen(false)}>
+        {section === 'agents' ? <h2 className="workspace-tool-title">Agents</h2> : <div className="rs-tabs" role="tablist" aria-label="Automation views" onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const next = event.key === 'Home' ? 'orchestration' : event.key === 'End' ? 'automations' : section === 'orchestration' ? 'automations' : 'orchestration'
+          openRuns(next)
+          event.currentTarget.querySelector<HTMLButtonElement>(`#runs-tab-${next}`)?.focus()
+        }}>
+          {([['orchestration', 'Commands', 'Run a shell command across selected project checkouts'], ['automations', 'Schedules', 'Run shell commands automatically on a schedule']] as const).map(([id, label, title]) => <button key={id} className={`rs-tab${section === id ? ' active' : ''}`} role="tab" aria-selected={section === id} id={`runs-tab-${id}`} title={title} aria-controls="runs-content" tabIndex={section === id ? 0 : -1} onClick={() => openRuns(id)}>{label}</button>)}
+        </div>}
+        <button className="icon-btn" aria-label={section === 'agents' ? 'Close agents' : 'Close automations'} title="Return to your open terminals and files" onClick={() => setRunsOpen(false)}>
           <Icon name="x" size={14} />
         </button>
       </header>
-      <div className="runs-body op-runs-body">
+      <div id="runs-content" role={section === 'agents' ? 'region' : 'tabpanel'} aria-label={section === 'agents' ? 'Agent sessions' : undefined} aria-labelledby={section === 'agents' ? undefined : `runs-tab-${section}`} tabIndex={0} className="runs-body op-runs-body">
         {section === 'agents' ? (
-          <AgentsSection />
+          <AgentsSection key={draftKey} />
         ) : section === 'orchestration' ? (
           <ParallelRunsSection />
         ) : (

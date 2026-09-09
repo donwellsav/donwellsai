@@ -307,3 +307,17 @@ describe('renderer recovery serialization', () => {
     })
   })
 })
+
+it('recognizes only the exact persisted content, version, and disk base as protected', async () => {
+  const request = checkpoint('/protected', 'draft.txt', 'retained text')
+  const entry = entryFrom(request, 'stored')
+  const controller = new EditorRecoveryController({ editorRecoveryList: async () => [entry], editorRecoveryGet: async () => entry, editorRecoveryCheckpoint: async () => { throw new Error('Storage unavailable') }, editorRecoveryClear: async () => ({ cleared: true }) })
+  await controller.load()
+  const snapshot = { phase: 'conflict' as const, content: request.content, bufferVersion: request.bufferVersion, savedVersion: 0, sourceEpoch: 1, revision: request.originalRevision }
+  expect(controller.protects({ workspacePath: request.workspacePath, relPath: request.relPath }, snapshot)).toBe(true)
+  expect(controller.protects({ workspacePath: request.workspacePath, relPath: request.relPath }, { ...snapshot, content: 'new text' })).toBe(false)
+  expect(controller.protects({ workspacePath: request.workspacePath, relPath: request.relPath }, { ...snapshot, bufferVersion: 3 })).toBe(false)
+  expect(controller.protects({ workspacePath: request.workspacePath, relPath: request.relPath }, { ...snapshot, revision: 'another base' })).toBe(false)
+  await controller.checkpoint({ ...request, content: 'new text', bufferVersion: 3 }).catch(() => undefined)
+  expect(controller.protects({ workspacePath: request.workspacePath, relPath: request.relPath }, snapshot)).toBe(false)
+})

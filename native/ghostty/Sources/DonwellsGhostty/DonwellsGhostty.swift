@@ -17,6 +17,7 @@ private func emit(_ payload: [String: Any]) {
     weak var owner: Surface?
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if owner?.shortcut(event) == true { return true }
+        if NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
     override func keyDown(with event: NSEvent) {

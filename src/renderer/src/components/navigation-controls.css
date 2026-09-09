@@ -5,16 +5,7 @@
   align-items: center;
   gap: 3px;
   padding: 0 5px;
-  border-right: 1px solid var(--border);
   -webkit-app-region: no-drag;
-}
-
-.navigation-control-pair {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
 }
 
 .navigation-control {
@@ -22,13 +13,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 25px;
+  width: 28px;
+  height: 28px;
   color: var(--muted-fg);
-}
-
-.navigation-control-pair .navigation-control + .navigation-control {
-  border-left: 1px solid var(--border);
 }
 
 .navigation-control:hover:not(:disabled),
@@ -43,22 +30,19 @@
 }
 
 .navigation-recent-trigger {
-  width: 31px;
+  width: 28px;
   gap: 1px;
   border-radius: var(--radius-sm);
 }
 
-.navigation-control-caret {
-  margin: 1px -2px 0 -1px;
-  font-size: 8px;
-  line-height: 1;
-}
-
 .navigation-recent-menu {
-  position: absolute;
+  position: fixed;
+  margin: 0;
+  right: auto;
+  bottom: auto;
   z-index: 90;
-  top: calc(100% + 5px);
-  left: 5px;
+  top: 8px;
+  left: 8px;
   width: min(340px, calc(100vw - 24px));
   max-height: min(420px, calc(100dvh - 60px));
   overflow-y: auto;
@@ -128,7 +112,7 @@
 
 .navigation-recent-item > small {
   color: var(--muted-fg);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .navigation-recent-switch {
@@ -143,8 +127,6 @@
   .navigation-controls {
     padding-inline: 3px;
   }
-
-  .navigation-recent-trigger {
-    display: none;
-  }
 }
+
+.navigation-recent-item:disabled { opacity: .4; cursor: default; background: none; }

@@ -1,5 +1,5 @@
 import type * as monacoNs from 'monaco-editor/editor'
-import type { VersionedEditorSave } from './editor-save'
+import type { EditorSaveSnapshot, VersionedEditorSave } from './editor-save'
 
 export type EditorModel = monacoNs.editor.ITextModel
 
@@ -7,7 +7,7 @@ export type EditorDocument = {
   model: EditorModel
   save: VersionedEditorSave
   /** Lets close/preview transitions wait until queued recovery IPC has reached the main authority. */
-  recovery?: { waitForPersistence(): Promise<void> }
+  recovery?: { waitForPersistence(): Promise<void>; protects?(snapshot: EditorSaveSnapshot): boolean }
 }
 
 type EditorDocumentMeta = {
@@ -111,17 +111,17 @@ export async function flushPreviewModel(worktreePath: string, relPath: string): 
   if (!document.save.canDispose()) throw new Error(state.error ?? 'Unsaved changes remain in ' + relPath)
 }
 
-/** App-close gate: every dirty model must reach disk before renderer teardown. */
+/** App-close gate: dirty text must reach its file or an exact durable recovery checkpoint. */
 export async function flushAllPreviewModels(): Promise<void> {
   await Promise.all(
     [...documents.values()].map(async (document) => {
       const state = await document.save.flush()
       await document.recovery?.waitForPersistence()
-      if (!document.save.canDispose()) throw new Error(state.error ?? 'Unsaved editor changes remain')
+      if (!document.save.canDispose() && !document.recovery?.protects?.(document.save.snapshot())) throw new Error(state.error ?? 'Unsaved editor changes remain')
     })
   )
   for (const document of documents.values()) {
-    if (!document.save.canDispose()) throw new Error(document.save.snapshot().error ?? 'Unsaved editor changes remain')
+    if (!document.save.canDispose() && !document.recovery?.protects?.(document.save.snapshot())) throw new Error(document.save.snapshot().error ?? 'Unsaved editor changes remain')
   }
 }
 

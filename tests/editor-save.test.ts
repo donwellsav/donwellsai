@@ -214,3 +214,15 @@ describe('editor close flush', () => {
     }
   })
 })
+
+
+it('allows app teardown only when conflicted text has an exact durable recovery copy', async () => {
+  const save = new VersionedEditorSave({ initial: file('new disk', 'r2'), sourceEpoch: 1, recovery: { content: 'retained draft', originalRevision: 'r1', bufferVersion: 7 }, write: async () => { throw new Error('Must not overwrite disk') } })
+  const protectedState = save.snapshot()
+  cacheEditorDocument('/protected-close', 'draft.txt', { model: disposableModel(), save, recovery: { waitForPersistence: async () => {}, protects: snapshot => snapshot.content === protectedState.content && snapshot.bufferVersion === protectedState.bufferVersion } })
+  try {
+    await expect(flushAllPreviewModels()).resolves.toBeUndefined()
+    save.edit('new unprotected draft', 8)
+    await expect(flushAllPreviewModels()).rejects.toThrow()
+  } finally { save.reload(file('new disk', 'r2'), 2); disposePreviewModel('/protected-close', 'draft.txt') }
+})

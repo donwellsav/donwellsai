@@ -1,9 +1,14 @@
+import { WorkspacePreview } from './workspace-preview'
+import { resolveExistingEntry } from './worktree-files'
+import { isObject } from '@shared/command-catalog'
+import { appCommand, electronAccelerator, type AppCommandId } from '@shared/app-commands'
 import { appResourcesRoot } from './app-resources'
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { ProjectHandoffService } from './project-handoff'
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
+import { restoreWindowBounds } from './window-bounds'
 import { join } from 'node:path'
 import { resolveProjectToolScope } from './project-tools'
 import { ProjectDoctor } from './project-doctor'
@@ -26,6 +31,7 @@ import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
+import { hashVerificationArtifact } from './diff-review'
 import { OperationalRunService, openVerificationArtifact } from './operational-run-service'
 import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
 import { deliverAgentAttachment } from './agent-delivery'
@@ -42,6 +48,7 @@ import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
 import { registerProjectSearchHandlers } from './project-search-ipc'
 import { configureDesktopPath } from '@shared/child-process/process-environment'
+import { AgentRegistry } from './agents/registry'
 
 configureDesktopPath()
 
@@ -75,6 +82,29 @@ let trayService: TrayService | null = null
 let secrets: SecretStore | null = null
 let operationalRuns: OperationalRunService
 let agentRuntime: AgentRuntime
+const guiDrafts = new Map<string, string>()
+const pendingGuiSaves = new Set<Promise<unknown>>()
+function acknowledgeGuiDraft<T>(name: string, key: string, action: () => Promise<T>): Promise<T> {
+  const entries = () => JSON.parse(guiDrafts.get(name) ?? '[]') as Array<[string, unknown]>
+  const submitted = JSON.stringify(entries().find(row => row[0] === key)?.[1])
+  const pending = Promise.resolve().then(action).then(result => {
+    const current = entries()
+    if (JSON.stringify(current.find(row => row[0] === key)?.[1]) === submitted) guiDrafts.set(name, JSON.stringify(current.filter(row => row[0] !== key)))
+    return result
+  }).finally(() => pendingGuiSaves.delete(pending))
+  pendingGuiSaves.add(pending)
+  return pending
+}
+function acknowledgeMemoryDraft<T>(request: Parameters<IpcApi['projectMemoryCreate']>[0] | Parameters<IpcApi['projectMemoryUpdate']>[0], action: () => Promise<T>): Promise<T> {
+  const editor: unknown = (JSON.parse(guiDrafts.get('memory-editor') ?? '[]') as Array<[string, unknown]>).find(row => row[0] === 'editor')?.[1]
+  if (!isObject(editor) || !isObject(editor.draft)) return action()
+  const draft = editor.draft
+  const matches = editor.workspacePath === request.workspacePath && draft.kind === request.kind && draft.title === request.title && draft.content === request.content
+    && (isObject(editor.entry) ? editor.entry.id : undefined) === ('id' in request ? request.id : undefined)
+    && JSON.stringify(typeof draft.tags === 'string' ? draft.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []) === JSON.stringify(request.tags ?? [])
+    && (typeof draft.sourceRef === 'string' ? draft.sourceRef.trim() : '') === (request.attribution.sourceRef ?? '')
+  return matches ? acknowledgeGuiDraft('memory-editor', 'editor', action) : action()
+}
 let mainWindow: BrowserWindow | null = null
 let nativeTerminals: NativeTerminals | undefined
 let browserViews: BrowserViews | undefined
@@ -85,6 +115,7 @@ let projectLanguage: ProjectLanguageTools | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
+const workspacePreview = new WorkspacePreview(resolveRegisteredWorkspace)
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
   mainWindow?.webContents.send(channel, payload)
@@ -104,6 +135,10 @@ function menuAction(action: string): void {
 
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
+  const commandItem = (id: AppCommandId): Electron.MenuItemConstructorOptions => {
+    const command = appCommand(id)!
+    return { label: command.label, accelerator: electronAccelerator(command, store.getSettings().keyboardShortcutOverrides), click: () => menuAction(id) }
+  }
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? ([
@@ -126,10 +161,12 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'Add Repository…', accelerator: 'CmdOrCtrl+O', click: () => menuAction('add-repo') },
-        { label: 'New Worktree', accelerator: 'CmdOrCtrl+N', click: () => menuAction('new-worktree') },
+        commandItem('new-project'),
+        commandItem('add-repo'),
+        commandItem('quick-open'),
+        commandItem('new-worktree'),
         { type: 'separator' },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => menuAction('close-active-pane') },
+        commandItem('close-active-pane'),
         { label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W', click: () => BrowserWindow.getFocusedWindow()?.close() },
         ...(isMac ? [] : [{ type: 'separator' } as Electron.MenuItemConstructorOptions, { role: 'quit' } as Electron.MenuItemConstructorOptions])
       ]
@@ -149,15 +186,16 @@ function buildMenu(): void {
     {
       label: 'View',
       submenu: [
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+P', click: () => menuAction('command-palette') },
-        { label: 'New Terminal', accelerator: 'CmdOrCtrl+T', click: () => menuAction('new-terminal') },
-        { label: 'Split Terminal', accelerator: 'CmdOrCtrl+Shift+5', click: () => menuAction('split-terminal') },
-        { label: 'Toggle Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: () => menuAction('toggle-explorer') },
-        { label: 'Toggle Git Status', accelerator: 'CmdOrCtrl+Shift+G', click: () => menuAction('toggle-git-status') },
-        { label: 'Run Agent', accelerator: 'CmdOrCtrl+Enter', click: () => menuAction('run-agent') },
+        commandItem('command-palette'),
+        commandItem('new-terminal'),
+        commandItem('split-terminal'),
+        commandItem('toggle-explorer'),
+        commandItem('toggle-git-status'),
+        commandItem('show-project-memory'),
+        commandItem('show-computer-control'),
+        commandItem('show-editor-recovery'),
+        commandItem('run-agent'),
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -170,7 +208,7 @@ function buildMenu(): void {
     {
       label: 'Window',
       submenu: [
-        { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => menuAction('settings') },
+        commandItem('settings'),
         { type: 'separator' },
         { role: 'minimize' },
         { role: 'zoom' },
@@ -219,6 +257,18 @@ function runtimeMetadata(): AppMeta {
 }
 
 function registerIpc(): void {
+  const draftOwner = (event: Electron.IpcMainInvokeEvent) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Draft recovery has no authorized window')
+  }
+  ipcMain.handle('guiDraftsRead', async event => { draftOwner(event); await Promise.allSettled([...pendingGuiSaves]); return [...guiDrafts] })
+  ipcMain.handle('guiDraftsWrite', (event, name: unknown, entries: unknown) => {
+    draftOwner(event)
+    if (typeof name !== 'string' || !/^[a-z-]{1,64}$/.test(name) || typeof entries !== 'string' || Buffer.byteLength(entries) > 8 * 1024 * 1024) throw new Error('Draft recovery exceeds its supported size')
+    const value: unknown = JSON.parse(entries)
+    if (!Array.isArray(value) || value.length > 10000 || !value.every(row => Array.isArray(row) && row.length === 2 && typeof row[0] === 'string')) throw new Error('Invalid draft recovery entries')
+    if (!guiDrafts.has(name) && guiDrafts.size >= 32) throw new Error('Too many draft recovery owners')
+    guiDrafts.set(name, entries)
+  })
   ipcMain.handle('agentConfigureMemory', async (_e, workspacePath: string, provider: string, launchArgs?: string[], replacement?: { action: 'preview' } | { action: 'apply'; revision: string }) => configureAgentMemory({
     files: git, workspacePath: await resolveRegisteredWorkspace(workspacePath), provider, launchArgs, replacement, userDataDir: app.getPath('userData'), executable: process.execPath,
     cliPath: join(appResourcesRoot(), 'cli', 'donwells.mjs')
@@ -326,7 +376,7 @@ function registerIpc(): void {
   ipcMain.handle('createWorkspaceEntry', (_e, ...args: Parameters<IpcApi['createWorkspaceEntry']>) => git.createWorkspaceEntry(...args))
   ipcMain.handle('moveWorkspaceEntry', (_e, ...args: Parameters<IpcApi['moveWorkspaceEntry']>) => git.moveWorkspaceEntry(...args))
   ipcMain.handle('duplicateWorkspaceEntry', (_e, ...args: Parameters<IpcApi['duplicateWorkspaceEntry']>) => git.duplicateWorkspaceEntry(...args))
-  ipcMain.handle('deleteWorkspaceEntry', (_e, ...args: Parameters<IpcApi['deleteWorkspaceEntry']>) => git.deleteWorkspaceEntry(...args))
+  ipcMain.handle('deleteWorkspaceEntry', (_e, ...args: Parameters<IpcApi['deleteWorkspaceEntry']>) => git.deleteWorkspaceEntry(...args, path => shell.trashItem(path)))
   ipcMain.handle('readFile', (_e, worktreePath: string, relPath: string) => git.readFile(worktreePath, relPath))
   ipcMain.handle('readFileAtRef', (_e, worktreePath: string, relPath: string, ref?: string) => git.readFileAtRef(worktreePath, relPath, ref))
   ipcMain.handle('writeFile', (_e, worktreePath: string, relPath: string, content: string, expectedRevision?: string) => git.writeFile(worktreePath, relPath, content, expectedRevision))
@@ -344,6 +394,10 @@ function registerIpc(): void {
   ipcMain.handle('browserHistoryList', () => browserHistory.list())
   ipcMain.handle('browserHistoryRecord', (_e, entry: BrowserHistoryRecord) => browserHistory.record(entry))
   ipcMain.handle('browserHistoryClear', () => browserHistory.clear())
+  ipcMain.handle('browserSiteDataClear', (_e, worktreePath: string) => {
+    if (!browserViews) throw new Error('Browser is unavailable')
+    return browserViews.clearSiteData(worktreePath)
+  })
 
   ipcMain.handle('getWorkspaceSession', () => store.getWorkspaceSession())
   ipcMain.handle('saveWorkspaceSession', (_e, ws) => store.setWorkspaceSession(ws))
@@ -353,6 +407,19 @@ function registerIpc(): void {
     const opts: Electron.OpenDialogOptions = { properties: ['openDirectory', 'createDirectory'] }
     const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('pickProjectKitPath', async (event, kind: unknown) => {
+    if (kind !== 'export' && kind !== 'archive' && kind !== 'destination') throw new Error('Invalid project kit path kind')
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (kind === 'archive') {
+      const options: Electron.OpenDialogOptions = { title: 'Choose project kit', properties: ['openFile'], filters: [{ name: 'Project kit', extensions: ['json'] }] }
+      const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+      return result.canceled ? null : result.filePaths[0] ?? null
+    }
+    const options: Electron.SaveDialogOptions = { title: kind === 'export' ? 'Save project kit' : 'Choose new project destination', defaultPath: kind === 'export' ? 'project.donwells-kit.json' : 'restored-project', properties: ['createDirectory'] }
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    return result.canceled ? null : result.filePath ?? null
   })
 
   ipcMain.handle('listAgents', () => agentRuntime.listAgents())
@@ -370,6 +437,13 @@ function registerIpc(): void {
   ipcMain.handle('agentDismiss', (_e, sessionId: string) => agentRuntime.dismiss(sessionId))
   ipcMain.handle('agentDeliver', (_e, request: Parameters<IpcApi['agentDeliver']>[0]) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request))
 
+  ipcMain.handle('revealWorkspaceEntry', async (_event, workspacePath: string, relPath: string) => {
+    const root = await resolveRegisteredWorkspace(workspacePath)
+    const target = relPath === '' ? root : (await resolveExistingEntry(root, relPath)).abs
+    shell.showItemInFolder(target)
+  })
+  ipcMain.handle('workspacePreviewUrl', (_event, workspacePath: string, relPath: string) => workspacePreview.url(workspacePath, relPath))
+
   ipcMain.handle('openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     return true
@@ -382,11 +456,13 @@ function registerIpc(): void {
 }
 
 function createWindow(): void {
+  const saved = store.getWindowState()
+  const { workArea } = saved ? screen.getDisplayMatching(saved) : screen.getPrimaryDisplay()
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
+    show: process.env['DONWELLS_SMOKE'] !== '1',
+    ...restoreWindowBounds(saved, workArea),
+    minWidth: Math.min(900, workArea.width),
+    minHeight: Math.min(600, workArea.height),
     title: 'donwells.ai',
     backgroundColor: '#0a0a0a',
     webPreferences: {
@@ -398,8 +474,9 @@ function createWindow(): void {
   })
 
   const window = mainWindow
+  if (saved?.maximized && process.env['DONWELLS_SMOKE'] !== '1') window.maximize()
   commandRouter.bind(window.webContents)
-  browserViews = new BrowserViews(window, resolveRegisteredWorkspace)
+  browserViews = new BrowserViews(window, resolveRegisteredWorkspace, (key, url) => workspacePreview.resolveUrl(key, url))
   nativeTerminals = new NativeTerminals(window, terminalBus, () => store.getSettings())
   // Documents may open content, never replace the privileged application renderer.
   window.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -407,7 +484,15 @@ function createWindow(): void {
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) commandRouter.reset(new Error('Renderer reloaded before the command finished'), true)
   })
-  window.webContents.on('render-process-gone', () => commandRouter.reset(new Error('Renderer process exited before the command finished')))
+  let rendererRecoveryAttempted = false
+  window.webContents.on('render-process-gone', (_event, details) => {
+    commandRouter.reset(new Error('Renderer process exited before the command finished'))
+    // ponytail: one automatic recovery per window prevents a crash loop; further failures require reopening the window.
+    if (!quitRequested && details.reason !== 'clean-exit' && !rendererRecoveryAttempted && !window.isDestroyed()) {
+      rendererRecoveryAttempted = true
+      window.webContents.reload()
+    }
+  })
   let closing = false
   let allowClose = false
   window.on('close', (event) => {
@@ -417,6 +502,7 @@ function createWindow(): void {
     closing = true
     void (async () => {
       try {
+        store.setWindowState({ ...window.getNormalBounds(), maximized: window.isMaximized() })
         await uiControl({ op: 'workspace.flush' })
       } catch (error) {
         const result = await dialog.showMessageBox(window, {
@@ -444,7 +530,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   store = new Store()
-  browserHistory = new BrowserHistoryStore(app.getPath('userData'))
+  browserHistory = new BrowserHistoryStore(app.getPath('userData'), undefined, undefined, () => store.getSettings().recordBrowserHistory)
   ipcMain.handle('browser:view', (event, request) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !browserViews) throw new Error('Browser request has no authorized owner')
     return browserViews.request(request)
@@ -489,6 +575,11 @@ app.whenReady().then(() => {
     return config.disabled.includes('backlog') ? undefined : config.backlogBinary
   })
   agentRuntime = new AgentRuntime(terminalBus, {
+    nativeMcpArgs: async (workspacePath, provider, args) => {
+      if (args.some(arg => arg.includes('donwells-project-memory'))) return []
+      const setup = await configureAgentMemory({ files: git, workspacePath, provider, userDataDir: app.getPath('userData'), executable: process.execPath, cliPath: join(appResourcesRoot(), 'cli', 'donwells.mjs') })
+      return setup.launchArgs ?? []
+    },
     acpMcpServers: async workspacePath => {
       const meta = runtimeMetadata(), mcp = meta.memoryMcp
       if (!mcp) throw new Error('Project memory MCP launcher is unavailable')
@@ -537,7 +628,7 @@ app.whenReady().then(() => {
 
   void operationalRuns.resume().catch((error) => console.error('Run recovery failed:', error))
   ipcMain.handle('scheduledRunsList', () => operationalRuns.scheduledRunsList())
-  ipcMain.handle('scheduledRunSave', (_e, ...args: Parameters<IpcApi['scheduledRunSave']>) => operationalRuns.scheduledRunSave(...args))
+  ipcMain.handle('scheduledRunSave', (_e, ...args: Parameters<IpcApi['scheduledRunSave']>) => acknowledgeGuiDraft('scheduled-composer', 'draft', () => operationalRuns.scheduledRunSave(...args)))
   ipcMain.handle('scheduledRunSetEnabled', (_e, ...args: Parameters<IpcApi['scheduledRunSetEnabled']>) => operationalRuns.scheduledRunSetEnabled(...args))
   ipcMain.handle('scheduledRunDuplicate', (_e, id: string) => operationalRuns.scheduledRunDuplicate(id))
   ipcMain.handle('scheduledRunDelete', (_e, id: string) => operationalRuns.scheduledRunDelete(id))
@@ -550,7 +641,7 @@ app.whenReady().then(() => {
   ipcMain.handle('verificationOpen', (_e, ...args: Parameters<IpcApi['verificationOpen']>) => operationalRuns.verificationOpen(...args))
   ipcMain.handle('verificationAttach', (_e, ...args: Parameters<IpcApi['verificationAttach']>) => operationalRuns.verificationAttach(...args))
   ipcMain.handle('parallelRunsList', () => operationalRuns.parallelRunsList())
-  ipcMain.handle('parallelRunStart', (_e, ...args: Parameters<IpcApi['parallelRunStart']>) => operationalRuns.parallelRunStart(...args))
+  ipcMain.handle('parallelRunStart', (_e, ...args: Parameters<IpcApi['parallelRunStart']>) => acknowledgeGuiDraft('parallel-composer', 'draft', () => operationalRuns.parallelRunStart(...args)))
   ipcMain.handle('parallelRunRetry', (_e, ...args: Parameters<IpcApi['parallelRunRetry']>) => operationalRuns.parallelRunRetry(...args))
   ipcMain.handle('parallelRunCancel', (_e, id: string) => operationalRuns.parallelRunCancel(id))
   ipcMain.handle('parallelRunDelete', (_e, id: string) => operationalRuns.parallelRunDelete(id))
@@ -596,20 +687,22 @@ app.whenReady().then(() => {
   ipcMain.handle('projectSessionHistorySearch', (_e, ...args: Parameters<IpcApi['projectSessionHistorySearch']>) => sessionHistory.search(...args))
   ipcMain.handle('projectSessionHistorySearchCancel', (_e, ...args: Parameters<IpcApi['projectSessionHistorySearchCancel']>) => sessionHistory.cancelSearch(...args))
   ipcMain.handle('projectSessionHistoryGet', (_e, ...args: Parameters<IpcApi['projectSessionHistoryGet']>) => sessionHistory.get(...args))
+  const toolDiscovery = new AgentRegistry()
+  const bundledHistory = join(app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources'), 'native/history/agentsview')
   projectTools = new ProjectDoctor(join(app.getPath('userData'), 'project-tools', 'configuration'), resolveToolWorkspace, projectPath => parseProjectToolConfiguration({
-    codeGraphBinary: process.env['DONWELLS_CODE_GRAPH_BINARY'],
-    historyBinary: process.env['DONWELLS_HISTORY_BINARY'],
+    codeGraphBinary: process.env['DONWELLS_CODE_GRAPH_BINARY'] ?? toolDiscovery.findExecutable('codebase-memory-mcp'),
+    historyBinary: process.env['DONWELLS_HISTORY_BINARY'] ?? (process.platform === 'darwin' && process.arch === 'arm64' && existsSync(bundledHistory) ? bundledHistory : toolDiscovery.findExecutable('agentsview')),
     duckdbPython: process.env['DONWELLS_DUCKDB_PYTHON'],
-    backlogBinary: process.env['DONWELLS_BACKLOG_BINARY'],
-    historyOmpRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').omp ?? [],
-    historyDshRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}')['deepseek-harness'] ?? [],
-    historyHermesRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').hermes ?? [],
-    historyKimiRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').kimi ?? [],
+    backlogBinary: process.env['DONWELLS_BACKLOG_BINARY'] ?? toolDiscovery.findExecutable('backlog'),
+    historyOmpRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').omp,
+    historyDshRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}')['deepseek-harness'],
+    historyHermesRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').hermes,
+    historyKimiRoots: JSON.parse(process.env['DONWELLS_HISTORY_ROOTS'] || '{}').kimi,
     qmdPackage: process.env['DONWELLS_DOCUMENT_QMD_PACKAGE'],
     lancePackage: process.env['DONWELLS_DOCUMENT_LANCE_PACKAGE'],
     browserPackage: process.env['DONWELLS_BROWSER_TOOL_PACKAGE'],
     browserExecutable: process.env['DONWELLS_BROWSER_TOOL_EXECUTABLE'],
-    computerBinary: process.env['DONWELLS_COMPUTER_TOOL_BINARY'],
+    computerBinary: process.env['DONWELLS_COMPUTER_TOOL_BINARY'] ?? toolDiscovery.findExecutable('cua-driver'),
     embeddingModel: process.env['DONWELLS_DOCUMENT_EMBEDDING_MODEL'],
     rerankingModel: process.env['DONWELLS_DOCUMENT_RERANKING_MODEL'],
     referenceRoots: JSON.parse(process.env['DONWELLS_DOCUMENT_REFERENCES'] || '{}')[projectPath] ?? [],
@@ -638,6 +731,13 @@ app.whenReady().then(() => {
   ipcMain.handle('projectKnowledgeStop', (_e, ...args: Parameters<IpcApi['projectKnowledgeStop']>) => projectTools!.knowledgeStop(...args))
   ipcMain.handle('projectDoctorPreviewBackup', (_e, path: string, name: string) => projectTools!.previewBackup(path, name))
   ipcMain.handle('projectDoctorInspect', (_e, path: string) => projectTools!.inspect(path))
+  ipcMain.handle('projectBrowserArtifactReveal', async (_e, workspacePath: string, path: string, sha256: string) => {
+    const scope = await resolveProjectToolScope(workspacePath, resolveToolWorkspace)
+    const artifact = await hashVerificationArtifact(path, [join(app.getPath('userData'), 'project-tools', 'browser', scope.indexKey)])
+    if (artifact.sha256 !== sha256) throw new Error('Artifact changed; take a new screenshot before revealing it')
+    shell.showItemInFolder(artifact.path)
+  })
+  ipcMain.handle('projectDoctorSetup', (_e, path: string, field: string, revision: string | null) => projectTools!.setup(path, field, revision))
   ipcMain.handle('projectDoctorConfigure', (_e, path: string, config: unknown, revision: string | null) => projectTools!.configure(path, config, revision))
   ipcMain.handle('projectDoctorRetry', (_e, path: string, id: string) => projectTools!.retry(path, id))
   ipcMain.handle('projectToolsList', (_e, ...args: Parameters<IpcApi['projectToolsList']>) => projectTools!.list(...args))
@@ -648,7 +748,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectHandoffExport', (_e, ...args: Parameters<IpcApi['projectHandoffExport']>) => handoffs.projectHandoffExport(...args))
   ipcMain.handle('projectHandoffList', (_e, ...args: Parameters<IpcApi['projectHandoffList']>) => handoffs.projectHandoffList(...args))
   ipcMain.handle('projectHandoffGet', (_e, ...args: Parameters<IpcApi['projectHandoffGet']>) => handoffs.projectHandoffGet(...args))
-  ipcMain.handle('projectHandoffCreate', (_e, ...args: Parameters<IpcApi['projectHandoffCreate']>) => handoffs.projectHandoffCreate(...args))
+  ipcMain.handle('projectHandoffCreate', (_e, ...args: Parameters<IpcApi['projectHandoffCreate']>) => acknowledgeGuiDraft('handoffs', args[0], () => handoffs.projectHandoffCreate(...args)))
   ipcMain.handle('projectHandoffAccept', (_e, ...args: Parameters<IpcApi['projectHandoffAccept']>) => handoffs.projectHandoffAccept(...args))
   ipcMain.handle('projectHandoffSupersede', (_e, ...args: Parameters<IpcApi['projectHandoffSupersede']>) => handoffs.projectHandoffSupersede(...args))
   const projectMemory = new ProjectMemoryService(app.getPath('userData'), async (workspacePath) => {
@@ -663,8 +763,8 @@ app.whenReady().then(() => {
     return result
   })
   ipcMain.handle('projectMemoryGet', (_e, request: Parameters<IpcApi['projectMemoryGet']>[0]) => projectMemory.projectMemoryGet(request))
-  ipcMain.handle('projectMemoryCreate', (_e, request: Parameters<IpcApi['projectMemoryCreate']>[0]) => projectMemory.projectMemoryCreate(request))
-  ipcMain.handle('projectMemoryUpdate', (_e, request: Parameters<IpcApi['projectMemoryUpdate']>[0]) => projectMemory.projectMemoryUpdate(request))
+  ipcMain.handle('projectMemoryCreate', (_e, request: Parameters<IpcApi['projectMemoryCreate']>[0]) => acknowledgeMemoryDraft(request, () => projectMemory.projectMemoryCreate(request)))
+  ipcMain.handle('projectMemoryUpdate', (_e, request: Parameters<IpcApi['projectMemoryUpdate']>[0]) => acknowledgeMemoryDraft(request, () => projectMemory.projectMemoryUpdate(request)))
   ipcMain.handle('projectMemoryHistory', (_e, request: Parameters<IpcApi['projectMemoryHistory']>[0]) => projectMemory.projectMemoryHistory(request))
   ipcMain.handle('projectMemoryArchive', (_e, request: Parameters<IpcApi['projectMemoryArchive']>[0]) => projectMemory.projectMemoryArchive(request))
   ipcMain.handle('projectMemoryErase', (_e, request: Parameters<IpcApi['projectMemoryErase']>[0]) => projectMemory.projectMemoryErase(request))
@@ -698,7 +798,7 @@ app.whenReady().then(() => {
       meta: async () => runtimeMetadata(),
       onChanged: (repoId) => send('worktree:changed', { repoId }),
       onSettingsChanged: publishSettings,
-      browser: { command: (cmd) => browserControl(cmd) },
+      browser: { command: (cmd) => browserControl(cmd), openFile: async (worktreePath, relPath) => browserControl({ op: 'open', key: worktreePath, url: await workspacePreview.url(worktreePath, relPath) }) },
       ui: { command: (cmd) => uiControl(cmd) }
     }
   )
@@ -707,7 +807,7 @@ app.whenReady().then(() => {
   if (process.env['DONWELLS_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
       console.log('smoke:ready')
-      void runSmokeProbe(git).then((ok) => {
+      void runSmokeProbe(git, mainWindow!).then((ok) => {
         app.exit(ok ? 0 : 1)
       })
     })
@@ -731,6 +831,7 @@ app.on('will-quit', (event) => {
   }
   // daemon rule: never kill the daemon or its PTYs on app exit — sessions survive.
   // The RPC socket is UI-adjacent: closing it is correct (CLI reconnects via discovery).
+  void workspacePreview.close()
   rpcServer?.stop()
   operationalRuns?.stop()
   trayService?.stop()

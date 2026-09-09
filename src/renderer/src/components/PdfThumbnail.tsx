@@ -89,7 +89,7 @@ export function PdfThumbnail({ document, pageNumber, active, onSelect }: PdfThum
       type="button"
       className={`media-pdf-thumbnail${active ? ' is-active' : ''}`}
       aria-current={active ? 'page' : undefined}
-      aria-label={`Go to page ${pageNumber}`}
+      aria-label={`Go to page ${pageNumber}`} title={`Go to page ${pageNumber}`}
       onClick={() => onSelect(pageNumber)}
     >
       <span className="media-pdf-thumbnail-canvas">

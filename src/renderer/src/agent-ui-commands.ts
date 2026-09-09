@@ -126,9 +126,9 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       s.openRuns(cmd.section)
       return {}
     case 'workspace.flush':
+      await flushWorkspaceSession()
       assertProjectMemoryDraftSaved()
       await flushAllPreviewModels()
-      await flushWorkspaceSession()
       return {}
   }
 }

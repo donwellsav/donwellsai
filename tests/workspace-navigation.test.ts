@@ -46,15 +46,22 @@ describe('workspace navigation state', () => {
       renames: { [feature]: 'Navigation Lab' },
       hiddenPaths: [main]
     })
-    expect(orderedWorkspacePaths(repositories(), state)).toEqual([notes, main, feature])
+    expect(orderedWorkspacePaths(repositories(), state)).toEqual([feature, main, notes])
   })
 
   it('reorders only within valid bounds and restores one hidden workspace without disturbing others', () => {
-    const state = normalizeWorkspaceNavigation({ order: [main, feature, notes], hiddenPaths: [main, notes] }, repositories())
-    const moved = moveWorkspaceNavigation(state, repositories(), feature, 1)
-    expect(moved.order).toEqual([main, notes, feature])
-    expect(moveWorkspaceNavigation(moved, repositories(), main, -1)).toBe(moved)
+    const state = normalizeWorkspaceNavigation({ order: [main, feature, notes] }, repositories())
+    const moved = moveWorkspaceNavigation(state, repositories(), notes, -1)
+    expect(orderedWorkspacePaths(repositories(), moved)).toEqual([notes, main, feature])
+    expect(moveWorkspaceNavigation(moved, repositories(), notes, -1)).toBe(moved)
+    const checkoutMoved = moveWorkspaceNavigation(moved, repositories(), feature, -1)
+    expect(orderedWorkspacePaths(repositories(), checkoutMoved)).toEqual([notes, feature, main])
+    expect(moveWorkspaceNavigation(checkoutMoved, repositories(), feature, -1)).toBe(checkoutMoved)
+    moved.hiddenPaths = [main, notes]
 
+    const pinned = normalizeWorkspaceNavigation({ ...moved, pinnedPaths: [main], hiddenPaths: [] }, repositories())
+    expect(orderedWorkspacePaths(repositories(), pinned)).toEqual([main, feature, notes])
+    expect(moveWorkspaceNavigation(pinned, repositories(), notes, -1)).toBe(pinned)
     const restored = restoreWorkspaceNavigation(moved, main)
     expect(restored.hiddenPaths).toEqual([notes])
     expect(restoreWorkspaceNavigation(restored).hiddenPaths).toEqual([])

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
+import { focusPaneTarget } from '../navigation-controller'
 
 type Props = {
   labelledBy: string
@@ -14,7 +15,7 @@ export function ModalDialog({ labelledBy, className = 'modal', onClose, children
     const dialog = ref.current
     if (!dialog) return
     dialog.showModal()
-    return () => dialog.close()
+    return () => { dialog.close(); void focusPaneTarget() }
   }, [])
 
   return (

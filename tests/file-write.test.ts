@@ -157,6 +157,21 @@ describe('GitWorktrees.writeFile', () => {
     await expect(configureAgentMemory({ ...options, launchArgs: ['--profile'] })).rejects.toThrow(/profile/)
   })
 
+  it('prepares Codex and Claude memory launches without changing project configuration', async () => {
+    const { git, path } = await repoContext()
+    const options = { files: git, workspacePath: path, userDataDir: '/profile with spaces', executable: '/runtime/"Electron"', cliPath: '/runtime/cli/donwells.mjs' }
+    const before = execFileSync('git', ['status', '--porcelain'], { cwd: path, encoding: 'utf8' })
+    const codex = await configureAgentMemory({ ...options, provider: 'codex' })
+    expect(codex.changed).toBe(false)
+    expect(codex.launchArgs?.[0]).toBe('-c')
+    expect(codex.launchArgs?.[1]).toContain('command="/runtime/\\"Electron\\""')
+    expect(codex.launchArgs?.[1]).toContain('env_vars=["DONWELLS_AGENT_HOOK_RUN_ID","DONWELLS_AGENT_HOOK_SESSION_ID","DONWELLS_AGENT_HOOK_TOKEN"]')
+    const claude = await configureAgentMemory({ ...options, provider: 'claude' })
+    expect(claude.launchArgs?.[0]).toBe('--mcp-config')
+    expect(JSON.parse(claude.launchArgs![1]).mcpServers['donwells-project-memory']).toEqual({ command: options.executable, args: [options.cliPath, 'memory-mcp', '--workspace', path, '--harness', 'claude', '--user-data', options.userDataDir], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: path, encoding: 'utf8' })).toBe(before)
+  })
+
   it('captures staged, unstaged and binary untracked source changes for handoffs', async () => {
     const { git, path } = await repoContext()
     const clean = await git.handoffSource(path)

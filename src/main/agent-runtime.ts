@@ -17,6 +17,7 @@ const MAX_AGENT_COMMAND_LENGTH = 16 * 1024
 export type AgentWorkspaceRegistration = { path: string; host: ExecutionHost }
 
 export type AgentRuntimeOptions = {
+  nativeMcpArgs?: (workspacePath: string, provider: string, args: string[]) => Promise<string[]>
   acpMcpServers?: (workspacePath: string, sessionId: string) => Promise<McpServer[]>
   registeredWorkspaces: () =>
     | readonly AgentWorkspaceRegistration[]
@@ -141,7 +142,7 @@ export class AgentRuntime {
 
   async start(workspacePath: string, command: string | AgentExecutable, task?: AgentTaskIntent): Promise<AgentStartResult> {
     const intent = task === undefined ? undefined : parseAgentTaskIntent(task)
-    const launch = typeof command === 'string' ? undefined : parseAgentExecutable(command)
+    let launch = typeof command === 'string' ? undefined : parseAgentExecutable(command)
     if (launch) {
       const executable = this.registry.findExecutable(launch.executable)
       if (!executable) throw new Error('Agent executable is unavailable')
@@ -160,6 +161,12 @@ export class AgentRuntime {
     const provider = launch ? agentProviderForExecutable(launch.executable) : this.registry.providerForCommand(normalizedCommand)
     if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
       throw new Error(`${provider.name} executable is unavailable`)
+    }
+    if (provider && ['codex', 'claude'].includes(provider.id) && this.options.nativeMcpArgs) {
+      launch ??= { executable: this.registry.findExecutable(normalizedCommand)!, args: [] }
+      const args = await this.options.nativeMcpArgs(cwd, provider.id, launch.args)
+      launch = { ...launch, args: [...args, ...launch.args] }
+      validateAgentWorkspacePath(workspacePath, await this.options.registeredWorkspaces())
     }
     const result = intent ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch, 100, 30, intent) : launch ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch) : await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
     this.observe(result.run)

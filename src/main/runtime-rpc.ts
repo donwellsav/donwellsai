@@ -101,7 +101,7 @@ export type RpcDeps = {
   /** Notify the renderer (settings:changed) so RPC-driven settings apply live. */
   onSettingsChanged: (settings: AppSettings) => void
   /** Forward browser control commands to the renderer's webviews. */
-  browser: { command: (cmd: BrowserCommand) => Promise<unknown> }
+  browser: { command: (cmd: BrowserCommand) => Promise<unknown>; openFile?: (worktreePath: string, relPath: string) => Promise<unknown> }
   /** Forward UI/panel control commands to the renderer's store. */
   ui: { command: (cmd: UiCommand) => Promise<unknown> }
 }
@@ -265,6 +265,7 @@ export class RuntimeRpcServer {
 
   private async route(method: string, params: Record<string, unknown>, str: (k: string) => string): Promise<unknown> {
     const { store, git, terminals } = this.deps
+    if (!store.getSettings().externalAgentAccess) throw new Error('External agent access is disabled in Privacy & Security settings. Re-enable it in the app.')
     switch (method) {
       case 'status.get': {
         const repos = await git.listAll()
@@ -461,6 +462,10 @@ export class RuntimeRpcServer {
         return this.deps.ui.command({ op: 'workspace.flush' })
       case 'browser.list':
         return { panes: await this.deps.browser.command({ op: 'list' }) }
+      case 'browser.openFile': {
+        if (!this.deps.browser.openFile) throw new Error('Workspace file preview is unavailable')
+        return { snapshot: await this.deps.browser.openFile(str('worktreePath'), str('relPath')) }
+      }
       case 'browser.open': {
         const snapshot = await this.deps.browser.command({ op: 'open', key: str('worktreePath'), url: str('url') })
         return { snapshot }

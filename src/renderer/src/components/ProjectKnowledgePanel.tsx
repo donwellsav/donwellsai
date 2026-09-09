@@ -1,16 +1,20 @@
+import { guiDraftMap } from '../gui-drafts'
 import { useEffect, useState } from 'react'
 import type { KnowledgeAnswer, KnowledgeSelection, KnowledgeStatus } from '@shared/project-knowledge'
 import type { ProjectDoctorReport } from '@shared/project-doctor'
 import { openProjectMemoryEditor, useProjectMemoryEditor } from '../project-memory-editor'
 
+const drafts = guiDraftMap<{ report: ProjectDoctorReport | null; endpoint: string; model: string; enabled: boolean; query: string }>('knowledge')
 type Candidate = KnowledgeSelection & { title: string; content: string }
 export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string }) {
-  const [report, setReport] = useState<ProjectDoctorReport | null>(null)
-  const [endpoint, setEndpoint] = useState('http://127.0.0.1:8888'), [model, setModel] = useState('')
-  const [enabled, setEnabled] = useState(false), [status, setStatus] = useState<KnowledgeStatus | null>(null)
+  const saved = drafts.get(workspacePath)
+  const [report, setReport] = useState<ProjectDoctorReport | null>(saved?.report ?? null)
+  const [endpoint, setEndpoint] = useState(saved?.endpoint ?? 'http://127.0.0.1:8888'), [model, setModel] = useState(saved?.model ?? '')
+  const [enabled, setEnabled] = useState(saved?.enabled ?? false), [status, setStatus] = useState<KnowledgeStatus | null>(null)
   const [sources, setSources] = useState<KnowledgeSelection[]>([]), [candidates, setCandidates] = useState<Candidate[]>([])
-  const [query, setQuery] = useState(''), [answer, setAnswer] = useState<KnowledgeAnswer | null>(null)
+  const [query, setQuery] = useState(saved?.query ?? ''), [answer, setAnswer] = useState<KnowledgeAnswer | null>(null)
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  useEffect(() => { drafts.set(workspacePath, { report, endpoint, model, enabled, query }) }, [workspacePath, report, endpoint, model, enabled, query])
   const memoryGeneration = useProjectMemoryEditor(state => state.generation)
   useEffect(() => { setAnswer(null) }, [memoryGeneration])
   useEffect(() => {
@@ -29,13 +33,17 @@ export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string
     setBusy(true); setError(''); setAnswer(null)
     try { await action() } catch (cause) { setError(String(cause)) } finally { setBusy(false) }
   }
-  async function inspect() {
-    const value = await window.donwells.projectDoctorInspect(workspacePath)
-    setReport(value)
-    if (value.configuration.hindsight) {
-      setEndpoint(value.configuration.hindsight.endpoint); setModel(value.configuration.hindsight.model); setEnabled(value.configuration.hindsight.enabled)
-      const current = await window.donwells.projectKnowledgeStatus(workspacePath); setStatus(current); setSources(current.sources)
+  async function inspect(reloadConfiguration = false) {
+    if (!report || reloadConfiguration) {
+      const value = await window.donwells.projectDoctorInspect(workspacePath)
+      setReport(value)
+      setEndpoint(value.configuration.hindsight?.endpoint ?? 'http://127.0.0.1:8888')
+      setModel(value.configuration.hindsight?.model ?? '')
+      setEnabled(value.configuration.hindsight?.enabled ?? false)
     }
+    const current = await window.donwells.projectKnowledgeStatus(workspacePath)
+    setStatus(current)
+    if (!status) setSources(current.sources)
   }
   async function review() {
     const [memory, handoffs] = await Promise.all([window.donwells.projectMemoryList({ workspacePath, query: query.trim() || undefined, limit: 50 }), window.donwells.projectHandoffList(workspacePath)])
@@ -49,15 +57,15 @@ export function ProjectKnowledgePanel({ workspacePath }: { workspacePath: string
     <p className="memory-guidance">Select reviewed project sources, then retain them explicitly. Recall and reflection use the selected local service. Learned answers remain separate from authored memory.</p>
     {report && <>
       <details><summary>Service configuration</summary>
-      <label><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Enable local Hindsight</label>
-      <label>Service origin<input className="input" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
-      <label>Server model (configured externally)<input className="input" value={model} onChange={event => setModel(event.target.value)} placeholder="Exact model configured on your service" /></label><p className="memory-guidance">This records your server configuration; Hindsight’s API does not expose or verify its model identity.</p>
+      <label><input disabled={busy} type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Enable local Hindsight</label>
+      <label>Service origin<input disabled={busy} className="input" value={endpoint} onChange={event => setEndpoint(event.target.value)} /></label>
+      <label>Server model (configured externally)<input disabled={busy} className="input" value={model} onChange={event => setModel(event.target.value)} placeholder="Exact model configured on your service" /></label><p className="memory-guidance">This records your server configuration; Hindsight’s API does not expose or verify its model identity.</p>
       <p className="memory-guidance">Use an existing local HTTP service. Remote endpoints and credentials are not supported here.</p>
       <button className="btn btn-secondary btn-sm" disabled={busy || !report.configurationValid} onClick={() => void run(async () => {
         await window.donwells.projectDoctorConfigure(workspacePath, { ...report.configuration, hindsight: { enabled, endpoint, model } }, report.revision)
-        await inspect()
+        await inspect(true)
       })}>Save configuration and stop services</button>
-      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(inspect)}>Refresh saved configuration</button>
+      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void run(inspect)}>Refresh status</button>
       </details>
       <p role="status">{busy ? 'Knowledge operation running…' : status ? `${status.phase} · ${status.stale ? 'sources need reconciliation' : 'sources current'} · ${status.pendingCleanup} generations awaiting cleanup` : 'No retained generation'}</p>
       <label>Find sources / ask a question<input className="input" value={query} maxLength={2000} onChange={event => setQuery(event.target.value)} /></label>

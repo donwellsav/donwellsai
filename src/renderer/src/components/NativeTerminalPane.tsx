@@ -1,3 +1,4 @@
+import { Icon } from './Icon'
 import { useEffect, useRef, useState } from 'react'
 import type { NativeTerminalRequest } from '@shared/native-terminal'
 import { useAppStore } from '../store'
@@ -52,15 +53,16 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
 
   useEffect(() => {
     if (!ready) return
-    let frame = 0, last = ''
-    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure) }
+    let last = ''
+    // Native surfaces can occlude Chromium and pause animation frames. Hide them before waiting for another frame.
+    const schedule = () => measure()
     const measure = () => {
       const node = host.current
       if (!node) return
       const r = node.getBoundingClientRect()
-      const overlays = [...document.querySelectorAll<HTMLElement>('dialog[open], [role="dialog"], [role="menu"], .palette-backdrop, .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
-      const blocked = overlays.some(item => { const b = item.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(item).visibility !== 'hidden' })
-      const visible = isActive && !error && !truncated && !runsOpen && !inbox.overlayOpen && !blocked && document.visibilityState === 'visible' && node.getClientRects().length > 0 && r.width > 0 && r.height > 0
+      const overlays = [...document.querySelectorAll<HTMLElement>(':popover-open, dialog[open], [role="dialog"], [role="menu"], .palette-backdrop, .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
+      const blocked = Boolean(document.querySelector('[data-native-resize]')) || overlays.some(item => { const b = item.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(item).visibility !== 'hidden' })
+      const visible = isActive && !error && !runsOpen && !inbox.overlayOpen && !blocked && document.visibilityState === 'visible' && node.getClientRects().length > 0 && r.width > 0 && r.height > 0
       const rect = visible ? { x: Math.max(0,r.left), y: Math.max(0,r.top), width: Math.max(0,Math.min(r.right,innerWidth)-Math.max(0,r.left)), height: Math.max(0,Math.min(r.bottom,innerHeight)-Math.max(0,r.top)) } : null
       const serialized = JSON.stringify(rect)
       if (serialized !== last) {
@@ -71,25 +73,26 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
     }
     const resize = new ResizeObserver(schedule); if (host.current) resize.observe(host.current)
     const mutation = new MutationObserver(schedule)
-    mutation.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style','class','open','aria-hidden'] })
+    mutation.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style','class','open','aria-hidden','data-native-resize'] })
     window.addEventListener('resize',schedule); window.addEventListener('scroll',schedule,true); document.addEventListener('visibilitychange',schedule)
     schedule()
-    return () => { resize.disconnect(); mutation.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); document.removeEventListener('visibilitychange',schedule) }
+    return () => { resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); document.removeEventListener('visibilitychange',schedule) }
   }, [ready,isActive,error,truncated,runsOpen,inbox.overlayOpen,sessionId])
 
   useEffect(() => {
     if (ready && isActive && inbox.reveals[sessionId] && !runsOpen && !inbox.overlayOpen && !error && !truncated) void call({ op: 'focus' }).catch(cause => setError(String(cause)))
   }, [ready,isActive,inbox.reveals[sessionId],runsOpen,inbox.overlayOpen,error,truncated])
 
-  return <div className={'terminal-host-wrap ' + (isActive ? '' : 'terminal-hidden')}>
+  return <div className={'terminal-host-wrap native-terminal-wrap ' + (isActive ? '' : 'terminal-hidden')}>
     {error && <div className="terminal-replay-warning" role="alert"><strong>Native terminal unavailable</strong><p>{error}</p>
       <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnect()}>{connecting ? 'Reattaching…' : 'Retry connection'}</button>
       <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().setSettings({ terminalRenderer: 'xterm' }).then(result => { if (!result.ok) setError(result.error) })}>Use xterm for existing sessions</button>
       <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('terminal')}>Terminal settings</button>
     </div>}
-    {!error && truncated && <div className="terminal-replay-warning" role="alert"><strong>Terminal history is incomplete</strong><p>{message || 'Retained output was shortened. Request a redraw from the same running process.'}</p>
-      <button className="btn btn-secondary btn-sm" onClick={() => void call({ op: 'redraw' }).then(() => setMessage('Redraw requested. Check the screen before continuing.')).catch(cause => setMessage(String(cause)))}>Request redraw</button>
-      <button className="btn btn-secondary btn-sm" onClick={() => setTruncated(false)}>Dismiss notice</button>
+    {!error && truncated && <div className="terminal-history-notice" role="status">
+      <details><summary title="Retained terminal history is incomplete. Expand for details.">History incomplete</summary><p>{message || 'Retained output was shortened. Request a redraw from the same running process.'}</p></details>
+      <button className="btn btn-ghost btn-sm" aria-label="Request redraw" title="Ask the running process to redraw its screen; earlier output remains incomplete" onClick={() => void call({ op: 'redraw' }).then(() => setMessage('Redraw requested from the running process. Earlier output is still incomplete.')).catch(cause => setMessage(String(cause)))}>Redraw</button>
+      <button className="icon-btn" aria-label="Dismiss notice" title="Dismiss this history notice" onClick={() => setTruncated(false)}><Icon name="x" size={14} /></button>
     </div>}
     <div className="terminal-host native-terminal-host" data-native-instance={instance.current} ref={host} tabIndex={0} aria-label="Native terminal" onFocus={() => { if (ready) void call({ op: 'focus' }).catch(cause => setError(String(cause))) }} />
   </div>

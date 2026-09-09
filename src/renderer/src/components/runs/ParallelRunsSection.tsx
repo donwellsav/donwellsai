@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { PopupMenu } from 'flexlayout-react'
+import { Icon } from '../Icon'
+import { guiDraftMap } from '../../gui-drafts'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { OperationalTarget, ParallelRun, ParallelRunInput } from '@shared/operational-runs'
 import { operationalTargetKey } from '@shared/operational-runs'
 import { useAppStore } from '../../store'
@@ -16,7 +19,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+let pendingStart: Promise<boolean> | null = null
+const emptyComposer = { name: '', command: '', concurrency: 4, selectedTargets: {} as Record<string, boolean>, composerOpen: false }
+
+const composerDrafts = guiDraftMap<typeof emptyComposer>('parallel-composer')
+
 export function ParallelRunsSection() {
+  const composerDraft = composerDrafts.get('draft') ?? emptyComposer
   const repos = useAppStore((state) => state.repos)
   const targets = useMemo(() => {
     const unique = new Map<string, OperationalTarget>()
@@ -28,45 +37,71 @@ export function ParallelRunsSection() {
     }
     return [...unique.values()]
   }, [repos])
+  const listRequest = useRef(0)
   const [runs, setRuns] = useState<ParallelRun[]>([])
-  const [name, setName] = useState('')
-  const [command, setCommand] = useState('')
-  const [concurrency, setConcurrency] = useState(4)
-  const [selectedTargets, setSelectedTargets] = useState<Record<string, boolean>>({})
+  const [name, setName] = useState(composerDraft.name)
+  const [command, setCommand] = useState(composerDraft.command)
+  const [concurrency, setConcurrency] = useState(composerDraft.concurrency)
+  const [selectedTargets, setSelectedTargets] = useState<Record<string, boolean>>(() => {
+    if (composerDrafts.has('draft')) return composerDraft.selectedTargets
+    const current = targets.find(target => target.root === useAppStore.getState().activeWorktreePath)
+    return current ? { [operationalTargetKey(current)]: true } : {}
+  })
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; run: ParallelRun } | null>(null)
+  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [selectedFailures, setSelectedFailures] = useState<Record<string, boolean>>({})
-  const [busy, setBusy] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(pendingStart ? 'start' : null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<OperationError | null>(null)
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
-  const [composerOpen, setComposerOpen] = useState(false)
+  const [composerOpen, setComposerOpen] = useState(composerDraft.composerOpen)
+  useEffect(() => { if (composerOpen) document.querySelector<HTMLTextAreaElement>('#parallel-run-composer textarea')?.focus() }, [composerOpen])
+
+  useEffect(() => {
+    let live = true
+    if (pendingStart) void pendingStart.then(ok => {
+      if (!live) return
+      setBusy(null)
+      if (ok) { const retained = composerDrafts.get('draft') ?? emptyComposer; setName(retained.name); setCommand(retained.command); setSelectedTargets(retained.selectedTargets); setComposerOpen(false); void refresh() }
+      else setOperationError({ key: 'start', message: 'Start failed; the draft is retained. Check existing runs before retrying.' })
+    })
+    return () => { live = false }
+  }, [])
+  useEffect(() => { composerDrafts.set('draft', { name, command, concurrency, selectedTargets, composerOpen }) }, [name, command, concurrency, selectedTargets, composerOpen])
 
   const refresh = useCallback(async () => {
+    const request = ++listRequest.current
     try {
-      setRuns(await window.donwells.parallelRunsList())
+      const result = await window.donwells.parallelRunsList()
+      if (request !== listRequest.current) return
+      setRuns(result)
       setLoadError(null)
     } catch (error) {
-      setLoadError(errorMessage(error))
+      if (request === listRequest.current) setLoadError(errorMessage(error))
     }
   }, [])
 
   useEffect(() => {
     void refresh()
+    return () => { listRequest.current++ }
   }, [refresh])
 
   const hasLiveRuns = runs.some(runMayBeLive)
   useEffect(() => {
-    if (!hasLiveRuns) return
-    const timer = window.setInterval(() => void refresh(), 1_500)
+    const timer = window.setInterval(() => void refresh(), hasLiveRuns ? 1_500 : 5_000)
     return () => window.clearInterval(timer)
   }, [hasLiveRuns, refresh])
 
+  const visibleRuns = runs.filter(run => `${run.name} ${run.command} ${run.tasks.map(task => task.target.root).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
   const chosenTargets = targets.filter((target) => selectedTargets[operationalTargetKey(target)])
   const runAction = async <Result,>(key: string, action: () => Promise<Result>, apply: (result: Result) => void): Promise<boolean> => {
     setBusy(key)
     setOperationError((current) => current?.key === key ? null : current)
     try {
-      apply(await action())
+      const result = await action()
+      listRequest.current++
+      apply(result)
       return true
     } catch (error) {
       setOperationError({ key, message: errorMessage(error) })
@@ -77,20 +112,23 @@ export function ParallelRunsSection() {
   }
 
   const start = async (): Promise<void> => {
+    if (pendingStart) return
     const input: ParallelRunInput = {
-      name: name.trim() || `Shell fan-out · ${new Date().toLocaleTimeString()}`,
+      name: name.trim() || command.trim().split('\n')[0]!.slice(0, 256),
       command,
       targets: chosenTargets,
       concurrency
     }
-    await runAction('start', () => window.donwells.parallelRunStart(input), (run) => {
+    pendingStart = runAction('start', () => window.donwells.parallelRunStart(input), (run) => {
       setRuns((current) => [run, ...current.filter((candidate) => candidate.id !== run.id)])
+      composerDrafts.delete('draft')
       setName('')
       setCommand('')
       setSelectedTargets({})
       setComposerOpen(false)
       setExpanded(run.id)
-    })
+    }).finally(() => { pendingStart = null })
+    await pendingStart
   }
 
   const retryFailures = async (run: ParallelRun): Promise<void> => {
@@ -121,18 +159,22 @@ export function ParallelRunsSection() {
     <div className="op-section">
       <div className="op-section-heading">
         <div>
-          <span className="op-eyebrow">Finite shell fan-out</span>
-          <h3>Parallel shells</h3>
-          <p>Run the same bounded shell command in selected local folders or worktrees. This does not start AI agents.</p>
+          <p>{runs.length ? `${runs.length} command${runs.length === 1 ? '' : 's'}` : "Run a command in one or more project checkouts."}</p>
         </div>
         <button
           type="button"
           className={`btn ${composerOpen ? 'btn-secondary' : 'btn-primary'}`}
           aria-expanded={composerOpen}
           aria-controls="parallel-run-composer"
-          onClick={() => setComposerOpen((open) => !open)}
+          onClick={() => {
+            if (!command && !name && Object.keys(selectedTargets).length === 0) {
+              const current = targets.find(target => target.root === useAppStore.getState().activeWorktreePath)
+              if (current) setSelectedTargets({ [operationalTargetKey(current)]: true })
+            }
+            setComposerOpen(true)
+          }}
         >
-          {composerOpen ? 'Close setup' : 'New shell run'}
+          <Icon name="plus" size={14} />New command
         </button>
       </div>
 
@@ -144,24 +186,28 @@ export function ParallelRunsSection() {
       )}
 
       {composerOpen && (
-        <div id="parallel-run-composer" className="op-composer" aria-label="Create parallel shell run">
+        <ModalDialog className="modal op-setup-dialog" labelledBy="parallel-setup-title" onClose={() => { if (busy !== 'start') setComposerOpen(false) }}>
+        <form onSubmit={event => { event.preventDefault(); void start() }}>
+        <fieldset disabled={busy === 'start'} id="parallel-run-composer" className="op-composer" aria-label="Run command">
           <div className="op-composer-title">
-            <div><span className="op-eyebrow">New shell run</span><h4>One command, exact targets</h4></div>
-            <span className="op-count">{chosenTargets.length} selected</span>
+            <h3 id="parallel-setup-title" className="modal-title">New command</h3>
+            <button type="button" className="icon-btn" aria-label="Close command setup" title="Close setup and keep your draft" onClick={() => setComposerOpen(false)}><Icon name="x" size={14} /></button>
           </div>
           <div className="op-form-grid">
+            <label className="modal-field op-command-field">Command
+              <textarea autoFocus className="input op-command-input" rows={3} value={command} onChange={(event) => setCommand(event.target.value)} placeholder="For example: pnpm test" />
+            </label>
+          </div>
+          <details><summary>Run options</summary><div className="op-form-grid">
             <label className="modal-field">Run name
               <input className="input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Optional label" />
             </label>
-            <label className="modal-field">Max concurrency
-              <input className="input" type="number" min={1} max={16} value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))} />
+            <label className="modal-field">Run at once
+              <input className="input" type="number" required min={1} max={16} onInvalid={event => event.currentTarget.closest('details')?.setAttribute('open', '')} value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))} />
             </label>
-            <label className="modal-field op-command-field">Finite shell command
-              <textarea className="input op-command-input" rows={3} value={command} onChange={(event) => setCommand(event.target.value)} placeholder="For example: pnpm test" />
-            </label>
-          </div>
+          </div></details>
           <div className="op-target-head">
-            <span>Local folders & worktrees</span>
+            <span>Projects and checkouts</span>
             <button type="button" className="op-text-action" onClick={() => {
               const allSelected = chosenTargets.length === targets.length
               setSelectedTargets(Object.fromEntries(targets.map((target) => [operationalTargetKey(target), !allSelected])))
@@ -181,14 +227,18 @@ export function ParallelRunsSection() {
           </div>
           {operationError?.key === 'start' && <div className="op-inline-error" role="alert">Start failed: {operationError.message}</div>}
           <div className="op-composer-footer">
-            <span className="op-hint">At most {Math.min(Math.max(1, concurrency || 1), chosenTargets.length || 1)} commands will be live at once.</span>
-            <button type="button" className="btn btn-primary" disabled={!command.trim() || chosenTargets.length === 0 || concurrency < 1 || concurrency > 16 || busy === 'start'} onClick={() => void start()}>{busy === 'start' ? 'Starting…' : `Run on ${chosenTargets.length} target${chosenTargets.length === 1 ? '' : 's'}`}</button>
+            <span className="op-hint">{chosenTargets.length > 1 ? `Up to ${Math.min(Math.max(1, concurrency || 1), chosenTargets.length)} running at once.` : chosenTargets.length === 0 ? 'Select checkouts to run this command.' : ''}</span>
+            <button type="submit" className="btn btn-primary" disabled={!command.trim() || chosenTargets.length === 0 || busy === 'start'}>{busy === 'start' ? 'Starting…' : `Run on ${chosenTargets.length} target${chosenTargets.length === 1 ? '' : 's'}`}</button>
           </div>
-        </div>
+        </fieldset>
+        </form>
+        </ModalDialog>
       )}
 
+      {(runs.length > 5 || query) && <input className="input" type="search" aria-label="Search command history" placeholder="Search commands or projects" value={query} onChange={event => setQuery(event.target.value)} />}
+      {query && visibleRuns.length === 0 && <p className="op-empty" role="status">No commands match your search.</p>}
       <div className="op-list">
-        {runs.map((run) => {
+        {visibleRuns.map((run) => {
           const isExpanded = expanded === run.id
           const counts = run.tasks.reduce<Record<string, number>>((current, task) => {
             current[task.status] = (current[task.status] ?? 0) + 1
@@ -201,24 +251,21 @@ export function ParallelRunsSection() {
               <div className="op-run-summary">
                 <button type="button" className="op-run-main" onClick={() => setExpanded(isExpanded ? null : run.id)} aria-expanded={isExpanded}>
                   <RunStatus status={run.status} />
-                  <span className="op-run-copy"><strong>{run.name}</strong><span>{run.tasks.length} targets · concurrency {run.concurrency} · {formatRunTime(run.createdAt)}</span></span>
+                  <span className="op-run-copy"><strong>{run.name}</strong><span>{run.tasks.length === 1 ? run.tasks[0]!.target.label : `${run.tasks.length} checkouts`} · {formatRunTime(run.createdAt)}</span></span>
                 </button>
-                <div className="op-card-state op-counts" aria-label="Task status counts">
-                  {Object.entries(counts).map(([status, count]) => <span key={status}>{count} {status}</span>)}
-                </div>
                 <div className="op-actions">
-                  {runMayBeLive(run) && <button type="button" className="btn btn-danger btn-sm" disabled={busy === `cancel:${run.id}`} onClick={() => setConfirmation({ kind: 'cancel', run })}>{busy === `cancel:${run.id}` ? 'Cancelling…' : 'Cancel…'}</button>}
-                  {!runMayBeLive(run) && <button type="button" className="btn btn-secondary btn-sm" disabled={busy === `delete:${run.id}`} onClick={() => setConfirmation({ kind: 'delete', run })}>Delete…</button>}
+                  <button type="button" className="icon-btn" aria-label={`Actions for ${run.name}`} title="Stop command or delete retained history" aria-haspopup="menu" disabled={Boolean(busy)} onClick={event => setMenu({ anchor: event.currentTarget, run })}><Icon name="more" size={14} /></button>
                 </div>
               </div>
               {runError && <div className="op-inline-error" role="alert">Operation failed: {runError}</div>}
               {isExpanded && (
                 <div className="op-run-detail">
                   {run.retryOfRunId && <p className="op-retry-note">Retry of run <code>{run.retryOfRunId}</code></p>}
-                  <pre className="op-command">{run.command}</pre>
+                  <div className="op-counts" aria-label="Task status counts">{run.tasks.length > 1 && Object.entries(counts).map(([status, count]) => <span key={status}>{count} {status}</span>)}</div>
+                  {run.name !== run.command.trim() && <pre className="op-command">{run.command}</pre>}
                   <div className="op-task-list">
                     {run.tasks.map((task) => (
-                      <details key={task.id} className="op-task-row">
+                      <details key={task.id} className="op-task-row" open={run.tasks.length === 1}>
                         <summary>
                           {task.status === 'failed' ? <input type="checkbox" aria-label={`Select failed task ${task.target.label}`} checked={Boolean(selectedFailures[task.id])} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelectedFailures((current) => ({ ...current, [task.id]: event.target.checked }))} /> : <span className="op-checkbox-space" />}
                           <RunStatus status={task.status} />
@@ -237,7 +284,7 @@ export function ParallelRunsSection() {
                   {run.tasks.some((task) => task.status === 'failed') && (
                     <div className="op-retry-bar">
                       <span>Select failed targets to create a separately tracked retry run.</span>
-                      <button type="button" className="btn btn-secondary" disabled={selectedFailureCount === 0 || busy === `retry:${run.id}`} onClick={() => void retryFailures(run)}>{busy === `retry:${run.id}` ? 'Retrying…' : `Retry selected (${selectedFailureCount})`}</button>
+                      <button type="button" className="btn btn-secondary" title={runMayBeLive(run) ? 'Wait for all commands to finish and their state to be verified before retrying' : 'Run the selected failed checkouts again'} disabled={runMayBeLive(run) || selectedFailureCount === 0 || Boolean(busy)} onClick={() => void retryFailures(run)}>{busy === `retry:${run.id}` ? 'Retrying…' : `Retry selected (${selectedFailureCount})`}</button>
                     </div>
                   )}
                   {run.status === 'unverifiable' && <p className="op-unverifiable-note">One or more daemon jobs may still be live. This run cannot be deleted or safely retried until their state is reconciled.</p>}
@@ -246,16 +293,13 @@ export function ParallelRunsSection() {
             </article>
           )
         })}
-        {runs.length === 0 && !loadError && (
-          <div className="op-empty op-first-run-empty">
-            <strong>No parallel shell history yet</strong>
-            <span>Start with a finite command across one or more registered local targets.</span>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setComposerOpen(true)}>Create first shell run</button>
-          </div>
-        )}
+
 
       </div>
 
+      {menu && <PopupMenu anchor={menu.anchor} title="Command actions" onClose={() => setMenu(null)} items={[
+        { key: 'action', label: runMayBeLive(menu.run) ? 'Cancel command…' : 'Delete history…', disabled: Boolean(busy), onSelect: () => setConfirmation({ kind: runMayBeLive(menu.run) ? 'cancel' : 'delete', run: menu.run }) }
+      ]} />}
       {confirmation && (
         <ModalDialog className="modal op-confirm" labelledBy="parallel-run-confirm-title" onClose={() => { if (!busy) setConfirmation(null) }}>
           <span className="op-eyebrow">Confirm exact operation</span>

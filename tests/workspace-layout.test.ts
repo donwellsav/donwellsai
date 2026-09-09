@@ -1,8 +1,15 @@
 import { expect, it } from 'vitest'
-import { Model, TabNode, TabSetNode } from 'flexlayout-react'
-import { restoreWorkspaceLayout, workspacePreset, moveWorkspacePane, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout } from '../src/renderer/src/workspace-layout'
+import { Actions, Model, TabNode, TabSetNode } from 'flexlayout-react'
+import { workspaceTabKeys, restoreWorkspaceLayout, workspacePreset, moveWorkspacePane, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout } from '../src/renderer/src/workspace-layout'
 const panes = [{ key: 'a', kind: 'terminal' }, { key: 'b', kind: 'terminal' }, { key: 'file', kind: 'preview' }, { key: 'web', kind: 'browser' }, { key: 'diff', kind: 'diff' }]
 const ids = (layout: WorkspaceLayout) => { const found: string[] = []; Model.fromJson(layout.model).visitNodes(node => { if (node instanceof TabNode) found.push(node.getId()) }); return found }
+it('retains a maximized group across sanitized layout restoration', () => {
+  const layout = workspacePreset('grid', panes, 'a'), model = Model.fromJson(layout.model)
+  model.doAction(Actions.maximizeToggle(model.getNodeById('a')!.getParent()!.getId()))
+  const restored = Model.fromJson(restoreWorkspaceLayout({ ...layout, model: model.toJson() }, panes).layout.model)
+  expect(restored.getMaximizedTabset()?.getSelectedNode()?.getId()).toBe('a')
+  expect(ids({ ...layout, model: restored.toJson() }).sort()).toEqual(panes.map(pane => pane.key).sort())
+})
 it('migrates a binary split while retaining panes outside the old visible tree', () => {
   const result = restoreWorkspaceLayout(undefined, panes, { kind: 'split', dir: 'col', size: 35, first: { kind: 'leaf', pane: 'a' }, second: { kind: 'leaf', pane: 'b' } })
   expect(result.layout.version).toBe(1)
@@ -44,7 +51,7 @@ it('reports invalid hidden references and keeps a selected tab when a preceding 
   const model = Model.fromJson(restored.layout.model)
   expect((model.getNodeById('b')?.getParent() as TabSetNode).getSelectedNode()?.getId()).toBe('b')
 })
-it.each(['focus','pair','build','review'] as const)('composes %s using every existing resource exactly once', preset => {
+it.each(['focus','pair','stack','grid','build','review'] as const)('composes %s using every existing resource exactly once', preset => {
   const layout = workspacePreset(preset, panes, 'a')
   expect(ids(layout).sort()).toEqual(panes.map(p => p.key).sort())
   const model = Model.fromJson(layout.model)
@@ -81,4 +88,21 @@ it('retains the environment module identity through hide, restore and movement a
   expect(ids(restored).filter(id => id === module.key)).toHaveLength(1)
   const model = Model.fromJson(restored.model)
   expect((model.getNodeById(module.key) as TabNode).getName()).toBe('Project environments')
+})
+
+it('numbers only the visible ordered tabs in the selected dock group', () => {
+  const layout = workspacePreset('focus', [panes[2], panes[1], panes[0]])
+  layout.hidden = ['b']
+  expect(workspaceTabKeys(layout, panes.slice(0, 3), 'a')).toEqual(['file', 'a'])
+  const split = workspacePreset('pair', panes, 'a')
+  expect(workspaceTabKeys(split, panes, 'b')).toEqual(['b'])
+})
+
+it('makes stacked and grid arrangements with restorable geometry and no lost overflow tabs', () => {
+  const stacked = workspacePreset('stack', panes, 'a')
+  expect(stacked.model.global?.rootOrientationVertical).toBe(true)
+  const grid = workspacePreset('grid', panes, 'a')
+  expect(grid.model.layout.children).toHaveLength(2)
+  expect(grid.model.layout.children.every(row => row.type === 'row' && row.children.length === 2)).toBe(true)
+  expect(ids(restoreWorkspaceLayout(grid, panes).layout).sort()).toEqual(panes.map(p => p.key).sort())
 })

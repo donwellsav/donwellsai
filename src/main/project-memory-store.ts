@@ -104,6 +104,7 @@ export type ProjectMemoryListOptions = {
   query?: string
   kinds?: readonly ProjectMemoryKind[]
   includeArchived: boolean
+  offset?: number
   limit: number
 }
 
@@ -323,6 +324,8 @@ export class ProjectMemoryStore {
     if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > PROJECT_MEMORY_MAX_RESULT_LIMIT) {
       throw new Error(`Project memory result limit must be between 1 and ${PROJECT_MEMORY_MAX_RESULT_LIMIT}`)
     }
+    const offset = options.offset ?? 0
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid project memory offset')
     const project = this.document.projects.find((candidate) => candidate.projectKey === projectKey)
     if (!project) return { entries: [], total: 0 }
     const kinds = options.kinds === undefined ? undefined : new Set(options.kinds)
@@ -341,7 +344,7 @@ export class ProjectMemoryStore {
       return recency || left.entry.id.localeCompare(right.entry.id)
     })
     return {
-      entries: ranked.slice(0, options.limit).map(({ entry }, index) => parseProjectMemoryEntry(entry, `list result ${index}`)),
+      entries: ranked.slice(offset, offset + options.limit).map(({ entry }, index) => parseProjectMemoryEntry(entry, `list result ${index}`)),
       total: ranked.length
     }
   }

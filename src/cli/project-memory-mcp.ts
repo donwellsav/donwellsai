@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { validateCommandParams } from '../shared/command-catalog.js'
+import { RPC_COMMANDS, validateCommandParams } from '../shared/command-catalog.js'
 import { parseCodeGraphFunctionName } from '../shared/project-tools.js'
 import type { AgentSessionCredential } from '../shared/agent-runtime.js'
 import { once } from 'node:events'
@@ -43,6 +43,12 @@ export const PROJECT_MEMORY_MCP_MAX_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_MEMORY_MCP_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 export const PROJECT_MEMORY_MCP_USAGE = 'donwells memory-mcp --workspace <path> --harness <id>'
 
+// The local connection has the same control scope as the authenticated Donwells CLI.
+const DONWELLS_MCP_TOOLS: readonly McpTool[] = [
+  { name: 'donwells_commands', title: 'Discover Donwells controls', description: 'Search the live command catalog for workspace state, terminals, files, settings, agents, and the visible built-in browser. Start with query "ui-state" or "browser". Returned fields are the exact parameters accepted by donwells_execute. This controls the user’s app; preserve unrelated work.', inputSchema: { type: 'object', additionalProperties: false, properties: { query: { type: 'string' } } }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
+  { name: 'donwells_execute', title: 'Control Donwells', description: 'Execute a command returned by donwells_commands through the authenticated app connection. Full local-app scope: inspect state before changing it. Use browser-open-file with worktreePath and relPath to serve a local HTML app automatically, or browser-open with worktreePath and an HTTP(S) URL to show an app in the actual built-in preview; browser-snapshot reads it and browser-eval interacts with that same page. Use terminal commands to launch development servers. These are visible user resources, not the isolated browser_test tools. Do not replay uncertain mutations.', inputSchema: { type: 'object', additionalProperties: false, properties: { command: { type: 'string' }, params: { type: 'object' } }, required: ['command'] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }
+]
+
 const JSON_RPC_PARSE_ERROR = -32700
 const JSON_RPC_INVALID_REQUEST = -32600
 const JSON_RPC_METHOD_NOT_FOUND = -32601
@@ -73,7 +79,7 @@ type JsonRpcFailure = {
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure
 
 export type ProjectMemoryMcpInvoke = (
-  method: 'verification.scripts' | 'verification.run' | 'verification.list' | 'parallel.start' | 'memory.operation' | 'temporal.status' | 'temporal.query' | 'temporal.reconcile' | 'temporal.stop' | 'knowledge.status' | 'knowledge.reconcile' | 'knowledge.recall' | 'knowledge.reflect' | 'knowledge.stop' | ProjectMemoryRpcMethod | 'agent.authenticate' | 'history.analytics' | 'history.analytics.cancel' | 'history.analytics.progress' | 'handoff.receive' | 'handoff.acknowledge' | 'file.searchContent' | 'tool.list' | 'tool.call' | 'tool.stop',
+  method: string,
   params: Record<string, unknown>
 ) => Promise<unknown>
 
@@ -548,7 +554,7 @@ export class ProjectMemoryMcpSession {
         title: 'donwells.ai Project Memory',
         version: this.serverVersion
       },
-      instructions: 'Memory belongs to the pinned registered project; code search and graph tools use its pinned checkout. Tool availability and freshness must be checked. Harness provenance is self-reported attribution, not authentication.'
+      instructions: (this.memoryOnly ? '' : 'Use donwells_commands to discover app controls and donwells_execute to inspect and operate the actual workspace and visible browser. These local tools have full app scope; preserve unrelated user work. ') + 'Memory belongs to the pinned registered project; code search and graph tools use its pinned checkout. Tool availability and freshness must be checked. Harness provenance is self-reported attribution, not authentication.'
     })
   }
 
@@ -566,7 +572,7 @@ export class ProjectMemoryMcpSession {
     }
   }
 
-  private tools(): readonly McpTool[] { if (this.memoryOnly) return [...PROJECT_MEMORY_MCP_TOOLS.filter(tool => tool.name.startsWith('memory_')), { name: 'memory_request_status', title: 'Inspect a memory mutation receipt', description: 'Read the operation ID reported by a failed remote memory call. Never resend an uncertain mutation as a new request.', inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: { type: 'string' } }, required: ['requestId'] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }]; return [...PROJECT_MEMORY_MCP_TOOLS, ...VERIFICATION_MCP_TOOLS, ...CODE_MCP_TOOLS, ...DOCUMENT_MCP_TOOLS, ...BROWSER_MCP_TOOLS, ...COMPUTER_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
+  private tools(): readonly McpTool[] { if (this.memoryOnly) return [...PROJECT_MEMORY_MCP_TOOLS.filter(tool => tool.name.startsWith('memory_')), { name: 'memory_request_status', title: 'Inspect a memory mutation receipt', description: 'Read the operation ID reported by a failed remote memory call. Never resend an uncertain mutation as a new request.', inputSchema: { type: 'object', additionalProperties: false, properties: { requestId: { type: 'string' } }, required: ['requestId'] }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }]; return [...DONWELLS_MCP_TOOLS, ...PROJECT_MEMORY_MCP_TOOLS, ...VERIFICATION_MCP_TOOLS, ...CODE_MCP_TOOLS, ...DOCUMENT_MCP_TOOLS, ...BROWSER_MCP_TOOLS, ...COMPUTER_MCP_TOOLS, ...(this.credential ? HANDOFF_MCP_TOOLS : [])] }
 
   private async callTool(id: JsonRpcId, params: unknown): Promise<JsonRpcResponse> {
     let name: string
@@ -601,6 +607,18 @@ export class ProjectMemoryMcpSession {
   }
 
   private async executeTool(name: string, input: UnknownRecord): Promise<unknown> {
+    if (name === 'donwells_commands') {
+      allowedKeys(input, ['query'], 'command search arguments')
+      if (input.query !== undefined && (typeof input.query !== 'string' || input.query.length > 200)) throw new Error('Query must be a string of at most 200 characters')
+      const query = String(input.query ?? '').toLowerCase()
+      return { workspacePath: this.workspacePath, scope: 'local app', commands: RPC_COMMANDS.filter(command => `${command.name} ${command.summary}`.toLowerCase().includes(query)) }
+    }
+    if (name === 'donwells_execute') {
+      allowedKeys(input, ['command', 'params'], 'command arguments')
+      const command = RPC_COMMANDS.find(command => command.name === input.command)
+      if (!command) throw new Error('Unknown Donwells command; discover it with donwells_commands')
+      return this.invoke(command.method, validateCommandParams(command.method, input.params ?? {}))
+    }
     if (name.startsWith('project_verification_')) {
       const action = name.slice('project_verification_'.length)
       allowedKeys(input,action==='run'?['script','outputs']:action==='command'?['command','outputs']:action==='results'?['verifyArtifacts']:[],'verification arguments')

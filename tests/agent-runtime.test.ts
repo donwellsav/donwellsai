@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, chmodSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentStartResult, RunningAgent } from '../src/shared/agent-runtime'
@@ -169,4 +169,18 @@ describe('agent presentation authority', () => {
       [completed.sessionId]: completed
     })).toBe(live)
   })
+})
+
+
+it('adds automatic native MCP arguments at the shared agent launch boundary', async () => {
+  const registered = workspace(), executable = join(registered.root, 'codex')
+  writeFileSync(executable, '#!/bin/sh\nexit 0\n'); chmodSync(executable, 0o755)
+  const launches: unknown[] = []
+  const daemon = { startAgent: async (_cwd, _command, _provider, launch) => { launches.push(launch); return { run: liveRun(registered.child), session: {} } } } as unknown as AgentRuntimeDaemonContract
+  const runtime = new AgentRuntime(daemon, {
+    registeredWorkspaces: () => [{ path: registered.root, host: { kind: 'local' } }],
+    nativeMcpArgs: async (path, provider, args) => { expect(path).toBe(realpathSync(registered.child)); expect(provider).toBe('codex'); expect(args).toEqual(['--model', 'chosen']); return ['-c', 'mcp_servers.donwells-project-memory={}'] }
+  })
+  await runtime.start(registered.child, { executable, args: ['--model', 'chosen'] })
+  expect(launches).toEqual([{ executable, args: ['-c', 'mcp_servers.donwells-project-memory={}', '--model', 'chosen'] }])
 })

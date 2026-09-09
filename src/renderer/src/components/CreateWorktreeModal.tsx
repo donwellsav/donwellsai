@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store'
 import { pathBasename } from '../workspace-navigation'
 import { ModalDialog } from './ModalDialog'
@@ -17,17 +17,29 @@ export function CreateWorktreeModal() {
   const [base, setBase] = useState('')
   const [busy, setBusy] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-
+  const [branches, setBranches] = useState<string[]>([])
+  const nameInput = useRef<HTMLInputElement>(null)
+  const repo = gitRepos.find((candidate) => candidate.repo.id === repoId)
+  useEffect(() => { if (open) nameInput.current?.focus() }, [open])
   useEffect(() => {
-    if (!open) return
+    let current = true
+    setBranches([])
+    if (open && repo) void window.donwells.gitBranches(repo.repo.path).then(result => { if (current) setBranches(result.all) }, () => { /* Branch entry and automatic base remain usable when discovery fails. */ })
+    return () => { current = false }
+  }, [open, repo?.repo.path])
+
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    const opening = open && !wasOpen.current
+    wasOpen.current = open
+    if (!opening) return
     setRepoId((current) => {
-      if (gitRepos.some((repo) => repo.repo.id === current)) return current
+      if (submitError && gitRepos.some((repo) => repo.repo.id === current)) return current
       return gitRepos.find((repo) => repo.repo.id === activeRepoId)?.repo.id ?? gitRepos[0]?.repo.id ?? ''
     })
-  }, [open, activeRepoId, gitRepos])
+  }, [open, activeRepoId, gitRepos, submitError])
 
   if (!open) return null
-  const repo = gitRepos.find((candidate) => candidate.repo.id === repoId)
   const defaultBranch = repo?.defaultBranch || repo?.currentBranch || 'main'
   const isMac = navigator.userAgent.includes('Mac')
   const close = (): void => {
@@ -52,9 +64,7 @@ export function CreateWorktreeModal() {
   return (
     <ModalDialog labelledBy="create-worktree-title" onClose={close}>
       <div className="lifecycle-modal-heading">
-        <span className="lifecycle-eyebrow">New workspace</span>
         <h2 id="create-worktree-title" className="modal-title">Create worktree</h2>
-        <p>Start an isolated branch workspace inside one of your registered Git projects.</p>
       </div>
       <div className="modal-field">
         <label htmlFor="worktree-project">Git project</label>
@@ -83,6 +93,7 @@ export function CreateWorktreeModal() {
         <label htmlFor="worktree-name">Worktree name</label>
         <input
           id="worktree-name"
+          ref={nameInput}
           className="input"
           placeholder="feature/my-work"
           autoFocus
@@ -102,6 +113,7 @@ export function CreateWorktreeModal() {
         <label htmlFor="worktree-base">Base branch <span className="lifecycle-optional">optional</span></label>
         <input
           id="worktree-base"
+          list="worktree-base-branches"
           className="input"
           placeholder={defaultBranch}
           value={base}
@@ -114,12 +126,13 @@ export function CreateWorktreeModal() {
             if (event.key === 'Enter' && (isMac ? event.metaKey : event.ctrlKey)) void submit()
           }}
         />
+        <datalist id="worktree-base-branches">{branches.map(branch => <option key={branch} value={branch} />)}</datalist>
       </div>
       {submitError && <div id="create-worktree-error" className="lifecycle-error" role="alert">{submitError}</div>}
       <div className="modal-footer">
         <span className="kbd">{isMac ? '⌘⏎' : 'Ctrl+Enter'}</span>
-        <button className="btn btn-secondary btn-sm" disabled={busy} onClick={close}>Cancel</button>
-        <button className="btn btn-primary btn-sm" disabled={!repo || !name.trim() || busy} onClick={() => void submit()}>
+        <button className="btn btn-secondary" disabled={busy} onClick={close}>Cancel</button>
+        <button className="btn btn-primary" disabled={!repo || !name.trim() || busy} onClick={() => void submit()}>
           {busy ? 'Creating…' : 'Create worktree'}
         </button>
       </div>

@@ -677,8 +677,8 @@ export class GitWorktrees {
     return this.files.duplicateWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
   }
 
-  async deleteWorkspaceEntry(workspacePath: string, request: WorkspaceDeleteRequest): Promise<WorkspaceMutationResult> {
-    return this.files.deleteWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request)
+  async deleteWorkspaceEntry(workspacePath: string, request: WorkspaceDeleteRequest, trash?: (path: string) => Promise<void>): Promise<WorkspaceMutationResult> {
+    return this.files.deleteWorkspaceEntry(await verifyWorktreePath(this.store, workspacePath), request, trash)
   }
   // ── Git operations ───────────────────────────────────────────────────────
 
@@ -899,7 +899,7 @@ function removeUntrackedPath(root: string, relPath: string): void {
   rmSync(target)
 }
 
-async function resolveWorkspacePath(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string }> {
+async function resolveWorkspacePath(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string; projectId: string }> {
   const real = canonicalDirectory(path)
   // Accept a registered workspace root itself or any worktree Git lists for it.
   // Linked worktrees live outside the registered repo directory.
@@ -908,13 +908,13 @@ async function resolveWorkspacePath(store: Store, path: string): Promise<Workspa
     const registered = realpathSync(repo.path)
     if (real === registered) {
       const kind = repo.kind ?? (await classifyWorkspace(registered)).kind
-      return { path: real, kind, projectPath: registered }
+      return { path: real, kind, projectPath: registered, projectId: repo.id }
     }
     if (repo.kind === 'folder') continue
     try {
       const worktrees = await listRepoWorktrees(registered)
       for (const worktree of worktrees) {
-        if (existsSync(worktree.path) && realpathSync(worktree.path) === real) return { path: real, kind: 'git', projectPath: registered }
+        if (existsSync(worktree.path) && realpathSync(worktree.path) === real) return { path: real, kind: 'git', projectPath: registered, projectId: repo.id }
       }
     } catch {
       // A different registered repo may be offline; it must not authorize this path.
@@ -923,7 +923,7 @@ async function resolveWorkspacePath(store: Store, path: string): Promise<Workspa
   throw new GitError(`Unknown worktree: ${path}`)
 }
 
-export async function resolveRegisteredProjectWorkspace(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string }> {
+export async function resolveRegisteredProjectWorkspace(store: Store, path: string): Promise<WorkspaceIdentity & { projectPath: string; projectId: string }> {
   return resolveWorkspacePath(store, path)
 }
 

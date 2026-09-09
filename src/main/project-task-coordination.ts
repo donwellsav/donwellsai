@@ -23,7 +23,7 @@ export class ProjectTaskCoordination {
 
   private async workspace(path: string) {
     const scope = await resolveRegisteredProjectWorkspace(this.store, path)
-    const repo = this.store.listRepos().find(repo => repo.path === scope.projectPath)
+    const repo = this.store.listRepos().find(repo => repo.id === scope.projectId)
     if (!repo) throw new Error('Project is no longer registered')
     return { ...scope, repo }
   }

@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { guiDraftMap } from '../../gui-drafts'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   APP_COMMANDS,
   appCommand,
   appCommandPlatform,
+  appShortcutKey,
   formatAppShortcut,
   validateAppShortcutOverrides
 } from '@shared/app-commands'
 import type { AppCommand, AppCommandPlatform, ShortcutValidationIssue } from '@shared/app-commands'
 import type { AppSettings } from '@shared/types'
 import { validateSettingsPatch } from '@shared/settings'
+
+const shortcutDrafts = guiDraftMap<{ raw: string; base: string | undefined }>('settings-shortcuts')
 
 const KEY_LABELS: Readonly<Record<string, string>> = {
   ' ': 'Space',
@@ -31,14 +35,15 @@ export function shortcutFromKeyboardEvent(event: React.KeyboardEvent<HTMLInputEl
   if (event.ctrlKey) modifiers.push(platform === 'mac' ? 'Ctrl' : 'Mod')
   if (event.altKey) modifiers.push('Alt')
   if (event.shiftKey) modifiers.push('Shift')
-  const mapped = KEY_LABELS[event.key] ?? (event.key.length === 1 ? event.key.toUpperCase() : event.key)
+  const key = appShortcutKey(event, platform)
+  const mapped = KEY_LABELS[key] ?? (key.length === 1 ? key.toUpperCase() : key)
   return [...modifiers, mapped].join('+')
 }
 
 function issueMessage(issue: ShortcutValidationIssue): string {
   if (issue.reason === 'unknown-command') return `Stored override references unknown command “${issue.commandId}”.`
   if (issue.reason === 'invalid-shortcut') return `“${issue.shortcut}” is not a valid shortcut.`
-  const other = issue.conflictsWith ? appCommand(issue.conflictsWith)?.label ?? issue.conflictsWith : 'another command'
+  const other = issue.conflictsWith ? appCommand(issue.conflictsWith)?.label ?? issue.conflictsWith : issue.nativeCommand ?? 'another command'
   return `Conflicts with ${other}${issue.platform ? ` on ${issue.platform}` : ''}.`
 }
 
@@ -47,34 +52,43 @@ function ShortcutRow({
   overrides,
   revision,
   platform,
-  onCommit
+  onCommit,
+  hidden
 }: {
   command: AppCommand
+  hidden: boolean
   overrides: Readonly<Record<string, string>>
   revision: number
   platform: AppCommandPlatform
   onCommit(patch: Partial<AppSettings>): Promise<void>
 }) {
   const current = overrides[command.id]
-  const [raw, setRaw] = useState(current ?? '')
+  const recovered = shortcutDrafts.get(command.id)
+  const baseValue = useRef(recovered ? recovered.base : current)
+  const [raw, setRaw] = useState(recovered?.raw ?? current ?? '')
   const [baseRevision, setBaseRevision] = useState(revision)
-  const [dirty, setDirty] = useState(false)
+  const [dirty, setDirty] = useState(Boolean(recovered && recovered.raw !== (current ?? '')))
   const [busy, setBusy] = useState(false)
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => { if (dirty) shortcutDrafts.set(command.id, { raw, base: baseValue.current }); else shortcutDrafts.delete(command.id) }, [command.id, raw, dirty])
+
   useEffect(() => {
     if (dirty) {
-      if (revision !== baseRevision) setStale(true)
+      if (current !== baseValue.current) setStale(true)
+      else if (!stale) setBaseRevision(revision)
       return
     }
+    baseValue.current = current
     setRaw(current ?? '')
     setBaseRevision(revision)
     setStale(false)
     setError(null)
-  }, [baseRevision, current, dirty, revision])
+  }, [baseRevision, current, dirty, revision, stale])
 
   const reload = (): void => {
+    baseValue.current = current
     setRaw(current ?? '')
     setBaseRevision(revision)
     setDirty(false)
@@ -117,10 +131,9 @@ function ShortcutRow({
     [command, platform]
   )
   return (
-    <div className="shortcut-row" data-settings-dirty={dirty ? 'true' : undefined} aria-busy={busy}>
+    <div hidden={hidden && !dirty} className="shortcut-row" data-settings-dirty={dirty ? 'true' : undefined} aria-busy={busy}>
       <div className="shortcut-copy">
         <strong>{command.label}</strong>
-        <span>{command.id}</span>
       </div>
       <div className="shortcut-default" aria-label={`Default: ${formattedDefaults.join(' or ') || 'unassigned'}`}>
         {formattedDefaults.length === 0 ? <span className="settings-muted">Unassigned</span> : formattedDefaults.map((shortcut) => <kbd key={shortcut}>{shortcut}</kbd>)}
@@ -204,13 +217,6 @@ export function ShortcutEditor({ settings, revision, onCommit }: { settings: App
 
   return (
     <div className="shortcut-editor">
-      <div className="shortcut-editor-head">
-        <div>
-          <strong>Application commands</strong>
-          <span>Focus a field and press a shortcut, then Apply. Conflicts are rejected before anything is saved.</span>
-        </div>
-        <span className="settings-badge">{platform === 'mac' ? 'macOS' : platform === 'windows' ? 'Windows' : 'Linux'}</span>
-      </div>
       <div className="shortcut-toolbar">
         <label>
           <span className="sr-only">Filter application commands</span>
@@ -225,14 +231,13 @@ export function ShortcutEditor({ settings, revision, onCommit }: { settings: App
         </div>
       )}
       {APP_COMMAND_CATEGORIES.map((category) => {
-        const commands = matchingCommands.filter((command) => command.category === category)
-        if (commands.length === 0) return null
+        const commands = APP_COMMANDS.filter((command) => command.category === category)
         const headingId = `shortcut-group-${category.replaceAll(' ', '-').toLowerCase()}`
         return (
           <section className="shortcut-group" key={category} aria-labelledby={headingId}>
             <h4 id={headingId}>{category}</h4>
             {commands.map((command) => (
-              <ShortcutRow key={command.id} command={command} overrides={settings.keyboardShortcutOverrides} revision={revision} platform={platform} onCommit={onCommit} />
+              <ShortcutRow hidden={!matchingCommands.includes(command)} key={command.id} command={command} overrides={settings.keyboardShortcutOverrides} revision={revision} platform={platform} onCommit={onCommit} />
             ))}
           </section>
         )

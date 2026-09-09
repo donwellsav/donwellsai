@@ -91,6 +91,14 @@ async function main() {
     publication = await index.replaceAll(replacements, (completed, total) => { state.completed = completed; state.total = total }, checkpoint, () => { state.phase = 'publishing' })
     state.phase = 'ready'
   }
+  let indexingJob: Promise<void> | null = null
+  const startIndex = () => {
+    if (indexingJob) return indexingJob
+    cancelled = false
+    state = { phase: 'reading', job: randomUUID(), completed: 0, total: 0, skipped: 0, error: null }
+    indexingJob = rebuild().catch(error => { state.phase = state.phase === 'publishing' ? 'publication-uncertain' : cancelled ? 'cancelled' : 'failed'; state.error = String(error).slice(0, 300); throw error }).finally(() => { indexingJob = null; const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve() })
+    return indexingJob
+  }
   const response = (value: unknown) => {
     const result = { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value }
     if (Buffer.byteLength(JSON.stringify(result)) > 900000) throw new Error('Document response is too large; request fewer lines or documents')
@@ -100,9 +108,7 @@ async function main() {
   server.registerTool('status', { description: 'Document index progress, model resources and selected roots.', inputSchema: z.object({}).strict() }, async () => response(status()))
   server.registerTool('index', { description: 'Prepare selected roots and publish one atomic index snapshot; poll status or cancel before publication.', inputSchema: z.object({}).strict() }, async () => {
     if (['reading', 'indexing', 'publishing'].includes(state.phase)) throw new Error('Document indexing is already running')
-    cancelled = false
-    state = { phase: 'reading', job: randomUUID(), completed: 0, total: 0, skipped: 0, error: null }
-    void rebuild().catch(error => { state.phase = state.phase === 'publishing' ? 'publication-uncertain' : cancelled ? 'cancelled' : 'failed'; state.error = String(error).slice(0, 300) }).finally(() => { const pending = paused; paused = null; pauseAcknowledged = false; pending?.resolve() })
+    void startIndex().catch(() => {})
     return response(status())
   })
   server.registerTool('cancel', { description: 'Cancel prepared changes before atomic publication; the service and previous index remain available.', inputSchema: z.object({}).strict() }, async () => {
@@ -143,7 +149,14 @@ async function main() {
     request.active = true
     const check = () => { if (request.cancelled)throw new Error('Document query cancelled; active native stage finished, remaining stages skipped') }
     try {
-      const result = await index.search(query, 5, check), hits = []
+      check()
+      let result = await index.search(query, 5, check)
+      if (result.mode === 'unindexed' && (state.phase === 'idle' || indexingJob)) {
+        await startIndex()
+        check()
+        result = await index.search(query, 5, check)
+      }
+      const hits = []
       for (const hit of result.hits) {
         check()
         const id = idFor(hit.collection, hit.path)

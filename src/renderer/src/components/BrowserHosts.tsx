@@ -157,7 +157,6 @@ export function BrowserHosts() {
               url={url}
               router={router}
               active={visible && activePaneKey === paneKey}
-              onClose={() => useAppStore.getState().hidePaneView(worktreePath, paneKey)}
             />
           </div>
         )

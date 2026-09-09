@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS } from '../src/shared/settings'
 import { RuntimeRpcServer, type RpcDeps } from '../src/main/runtime-rpc'
 import type { BrowserCommand, BrowserSnapshot, UiCommand } from '../src/shared/types'
 
@@ -26,7 +27,7 @@ describe('runtime RPC command routing', () => {
       text: 'wrong document'
     }
     const deps = {
-      store: undefined,
+      store: { getSettings: () => DEFAULT_SETTINGS },
       git: undefined,
       terminals: undefined,
       meta: async () => ({ version: 'test', shell: '/bin/sh', userDataDir: dir }),
@@ -89,7 +90,7 @@ describe('runtime RPC command routing', () => {
     const token = 'runs-test-token'
     const commands: UiCommand[] = []
     const deps = {
-      store: undefined,
+      store: { getSettings: () => DEFAULT_SETTINGS },
       git: undefined,
       terminals: undefined,
       meta: async () => ({ version: 'test', shell: '/bin/sh', userDataDir: dir }),

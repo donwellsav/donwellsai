@@ -88,7 +88,7 @@ export function navigationTargetAvailable(
     case 'terminal':
       return pane?.kind === 'terminal' && pane.sessionId === target.sessionId && Boolean(state.terminals[target.sessionId])
     case 'file':
-      return pane?.kind === 'preview' && pane.file === target.file && Boolean(state.previews[target.worktreePath]?.[target.file])
+      return Boolean(state.previews[target.worktreePath]?.[target.file])
     case 'browser':
       return pane?.kind === 'browser'
     case 'diff':
@@ -128,7 +128,7 @@ export function focusPaneTarget(target = activeNavigationTarget()): Promise<bool
       ? '.native-terminal-host, .xterm-helper-textarea'
       : target.kind === 'browser'
         ? '.browser-view'
-        : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], textarea'
+        : '.monaco-editor .native-edit-context, .monaco-editor textarea, .markdown-preview [tabindex], .media-image-viewport, .media-pdf-stage, textarea'
     const focusable = pane.querySelector<HTMLElement>(selector)
     ;(focusable ?? pane).focus()
     resolve(true)
@@ -141,8 +141,7 @@ async function applyNavigationTarget(target: NavigationTarget): Promise<boolean>
   traversalDepth += 1
   try {
     const state = useAppStore.getState()
-    if (state.activeRepoId !== target.repoId) state.setActiveRepo(target.repoId)
-    if (useAppStore.getState().activeWorktreePath !== target.worktreePath) {
+    if (state.activeRepoId !== target.repoId || state.activeWorktreePath !== target.worktreePath) {
       useAppStore.getState().setActiveWorktree(target.worktreePath)
     }
     if (target.kind === 'file') {

@@ -1,3 +1,4 @@
+import type { EditorSaveSnapshot } from './editor-save'
 import {
   editorRecoveryKey,
   parseEditorRecoveryCheckpointRequest,
@@ -323,6 +324,12 @@ export class EditorRecoveryController {
     }
     channel.status = channel.stored ? { phase: 'protected' } : { phase: 'idle' }
     this.publish(false)
+  }
+
+  protects(value: EditorRecoveryTarget, snapshot: EditorSaveSnapshot): boolean {
+    const channel = this.channelForTarget(parseEditorRecoveryTarget(value))
+    const stored = channel.stored
+    return channel.status.phase !== 'error' && Boolean(stored && stored.content === snapshot.content && stored.bufferVersion === snapshot.bufferVersion && stored.originalRevision === snapshot.revision)
   }
 
   async waitForDocument(value: EditorRecoveryTarget): Promise<void> {

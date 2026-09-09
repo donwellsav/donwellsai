@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SETTINGS } from '../src/shared/settings'
 import { useAppStore } from '../src/renderer/src/store'
 import type { FileContent, RepoSummary } from '../src/shared/types'
 
@@ -147,7 +148,8 @@ describe('editor tabs: multi-file previews', () => {
     expect(s.panes[wt]!.some((p) => p.kind === 'preview' && p.file === 'fresh.ts')).toBe(true)
   })
 
-  it('markdown files default to preview mode when the setting is on', async () => {
+  it('markdown opens as a document by default and source remains an explicit preference', async () => {
+    expect(DEFAULT_SETTINGS.markdownPreviewDefault).toBe(true)
     seed()
     useAppStore.setState({ settings: { ...useAppStore.getState().settings, markdownPreviewDefault: true } })
     await useAppStore.getState().openPreview(wt, 'README.md')

@@ -9,18 +9,27 @@ import { join } from 'node:path'
 import { runProcess } from '@shared/child-process/run-process'
 import type { GitWorktrees } from './git'
 import { PtyManager } from './pty'
+import { screen, type BrowserWindow } from 'electron'
+import { restoreWindowBounds } from './window-bounds'
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
   await runProcess({ program: 'git', args, cwd, timeoutMs: 10_000, maxOutputBytes: 1024 * 1024 })
 }
 
-export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
+export async function runSmokeProbe(git: GitWorktrees, window: BrowserWindow): Promise<boolean> {
   const root = mkdtempSync(join(tmpdir(), 'donwells-probe-'))
   const repo = join(root, 'proj')
   const results: string[] = []
   let pty: PtyManager | null = null
   let smokeSessionId: string | null = null
   try {
+    const saved = { x: -100000, y: -100000, width: 1000, height: 700 }
+    const expected = restoreWindowBounds(saved, screen.getDisplayMatching(saved).workArea)
+    const actual = window.getBounds()
+    if (Object.entries(expected).some(([key, value]) => actual[key as keyof typeof actual] !== value)) {
+      throw new Error('Saved window bounds were not restored on screen: ' + JSON.stringify({ expected, actual }))
+    }
+    results.push('window-bounds-restore')
     mkdirSync(repo, { recursive: true })
     await runGit(repo, ['init', '-b', 'main'])
     await runGit(repo, ['config', 'user.email', 'smoke@donwells.ai'])
@@ -78,6 +87,24 @@ export async function runSmokeProbe(git: GitWorktrees): Promise<boolean> {
     if (after.worktrees.some((w) => w.branch === 'feature/x')) throw new Error('removeWorktree failed')
     results.push('removeWorktree')
 
+    const memoryRequest = { workspacePath: repo, kind: 'convention', title: 'Recovery smoke', content: 'Saved exactly once', tags: [], attribution: { harness: 'human' } }
+    const memoryDraft = { workspacePath: repo, entry: null, draft: { ...memoryRequest, tags: '', sourceRef: '' } }
+    await window.webContents.executeJavaScript(`window.donwells.guiDraftsWrite('memory-editor', ${JSON.stringify(JSON.stringify([['editor', memoryDraft]]))})`)
+    await window.webContents.executeJavaScript(`window.donwells.projectMemoryCreate(${JSON.stringify(memoryRequest)})`)
+    await window.webContents.executeJavaScript(`window.donwells.guiDraftsWrite('smoke-recovery', JSON.stringify([['fixture', {text: 'unsent draft', destination: 'fixture-session'}]]))`)
+    const reloaded = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Renderer did not recover after crash')), 10000)
+      window.webContents.once('did-finish-load', () => { clearTimeout(timer); resolve() })
+    })
+    window.webContents.forcefullyCrashRenderer()
+    await reloaded
+    const recovered: Array<[string, string]> = await window.webContents.executeJavaScript('window.donwells.guiDraftsRead()')
+    const retained = recovered.find(([name]) => name === 'smoke-recovery')
+    if (!retained || JSON.parse(retained[1])[0][1].text !== 'unsent draft') throw new Error('Renderer crash lost the authored draft')
+    if (JSON.parse(recovered.find(([name]) => name === 'memory-editor')?.[1] ?? '[]').length) throw new Error('Acknowledged memory draft returned after renderer crash')
+    await window.webContents.executeJavaScript(`window.donwells.guiDraftsWrite('smoke-recovery', '[]')`)
+    results.push('renderer-crash-draft-recovery')
+    results.push('acknowledged-draft-not-replayed')
     console.log('smoke:ok ' + results.join(' | '))
     return true
   } catch (err) {

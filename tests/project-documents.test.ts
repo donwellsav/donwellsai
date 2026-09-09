@@ -18,7 +18,7 @@ it.skipIf(!process.env.DONWELLS_LANCE_PACKAGE || !process.env.DONWELLS_QMD_PACKA
   const lexical = new ProjectTools(resolve, [createDocumentDefinition({ ...config, retrievalMode: 'lexical', embeddingModel: badModel, rerankingModel: badModel })])
   const hybrid = new ProjectTools(resolve, [createDocumentDefinition({ ...config, retrievalMode: 'hybrid' })])
   try {
-    await lexical.call(project, 'documents', 'index', {})
+    expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard' })).toMatchObject({ structuredContent: { hits: [{ path: 'decision.md' }] } })
     await expect.poll(async () => ((await lexical.call(project, 'documents', 'status', {})) as any).structuredContent.phase, { timeout: 15000 }).toBe('ready')
     expect(await lexical.call(project, 'documents', 'status', {})).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelBytes: 0 } })
     expect(await lexical.call(project, 'documents', 'query', { query: 'copperorchard' })).toMatchObject({ structuredContent: { requestedMode: 'lexical', mode: 'lexical', modelError: null, hits: [{ path: 'decision.md' }] } })

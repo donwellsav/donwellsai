@@ -14,32 +14,6 @@
 
 .project-memory-panel > * { flex-shrink: 0; }
 
-.memory-panel-heading {
-  display: flex;
-  min-height: 44px;
-  margin: -12px -12px 0;
-  padding: 0 12px;
-  align-items: center;
-  gap: 10px;
-}
-
-.memory-panel-heading > div {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.memory-panel-heading > div > strong { font-size: 14px; font-weight: 630; }
-.memory-panel-heading > div > span {
-  overflow: hidden;
-  color: var(--muted-fg);
-  font: 11px var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .memory-guidance {
   margin: 0;
   color: var(--muted-fg);
@@ -54,7 +28,8 @@
   gap: 8px;
 }
 
-.memory-panel-actions > button { flex: 1 1 0; }
+.memory-panel-actions { flex-wrap: nowrap; }
+.memory-panel-actions .memory-search { flex: 1; min-width: 0; }
 .memory-panel-filters > select { min-width: 0; flex: 1 1 auto; }
 .memory-panel-filters > label {
   display: flex;
@@ -133,8 +108,7 @@
 
 .memory-empty {
   display: flex;
-  min-height: 170px;
-  padding: 24px 10px;
+  padding: 12px 4px;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
@@ -144,8 +118,7 @@
 .memory-empty > strong { font-size: 15px; font-weight: 630; }
 .memory-empty > p { max-width: 40ch; margin: 0; color: var(--muted-fg); font-size: 13px; line-height: 1.55; }
 
-.memory-editor,
-.memory-connection {
+.memory-editor {
   width: min(760px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   overflow: auto;
@@ -154,8 +127,7 @@
   font-size: 14px;
 }
 
-.memory-editor h2,
-.memory-connection h2 { margin: 5px 0 0; font-size: 20px; }
+.memory-editor h2 { margin: 5px 0 0; font-size: 20px; }
 .memory-editor-heading {
   display: flex;
   margin-bottom: 14px;
@@ -267,7 +239,6 @@
 }
 
 .memory-editor-status { margin-right: auto; color: var(--muted-fg); font-size: 12px; }
-.memory-connection { display: flex; flex-direction: column; gap: 14px; }
 .memory-connection-path {
   margin: 0;
   color: var(--muted-fg);
@@ -308,3 +279,12 @@
 .handoff-panel textarea { min-height: 72px; resize: vertical; }
 .handoff-panel form, .handoff-panel section { display: grid; gap: 8px; margin-top: 12px; overflow-wrap: anywhere; }
 .handoff-panel ul, .handoff-panel ol { padding-left: 18px; }
+
+.memory-tools { margin-top: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.memory-tools > summary { color: var(--muted-fg); margin-bottom: 8px; }
+
+.handoff-panel form[hidden] { display: none; }
+
+.memory-filter-options > summary { cursor: pointer; padding-block: 4px; color: var(--muted-fg); font-size: 12px; }
+.memory-filter-options > summary:focus-visible { outline: 2px solid var(--ring); }
+.memory-filter-options .memory-panel-filters { padding-top: 8px; flex-wrap: wrap; }

@@ -4,6 +4,7 @@ import { VersionedEditorSave } from '../src/renderer/src/editor-save'
 import { cacheEditorDocument, disposePreviewModel, type EditorModel } from '../src/renderer/src/editor-models'
 import { useAppStore, flushWorkspaceSession } from '../src/renderer/src/store'
 import { executeUiCommand } from '../src/renderer/src/agent-ui-commands'
+import * as editorModels from '../src/renderer/src/editor-models'
 import type { FileContent, PersistedState, RepoSummary, RunningAgent, TerminalSession } from '../src/shared/types'
 
 const main = '/repos/demo'
@@ -68,6 +69,17 @@ afterEach(async () => {
 })
 
 describe('executeUiCommand', () => {
+  it('saves panel choices even when an editor conflict prevents clean shutdown', async () => {
+    const save = vi.fn(async () => {})
+    window.donwells.saveWorkspaceSession = save
+    const conflict = vi.spyOn(editorModels, 'flushAllPreviewModels').mockRejectedValueOnce(new Error('Retained editor conflict'))
+    try {
+      useAppStore.getState().setSidebarOpen(false)
+      useAppStore.getState().setRightSidebarTab('memory')
+      await expect(executeUiCommand({ op: 'workspace.flush' })).rejects.toThrow('Retained editor conflict')
+      expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ ui: expect.objectContaining({ sidebarOpen: false, rightSidebarOpen: true, rightSidebarTab: 'memory' }) }))
+    } finally { conflict.mockRestore() }
+  })
   it('activate by worktree path selects the requested workspace, including main', async () => {
     await executeUiCommand({ op: 'activate', worktreePath: feature })
     expect(useAppStore.getState().activeRepoId).toBe('demo')

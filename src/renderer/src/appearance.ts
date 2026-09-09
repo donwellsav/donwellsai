@@ -13,6 +13,13 @@ function canonicalColor(root: HTMLElement, property: '--background' | '--foregro
 /** Applies renderer and native-window appearance without CSS zooming the BrowserHost coordinate space. */
 export function useAppearance(settings: AppSettings): void {
   useLayoutEffect(() => {
+    document.documentElement.dataset.interfaceFont = settings.interfaceFont
+    document.documentElement.dataset.motion = settings.interfaceMotion
+    document.documentElement.dataset.density = settings.interfaceDensity
+    document.documentElement.dataset.navigation = settings.navigationLabels
+  }, [settings.interfaceDensity, settings.navigationLabels, settings.interfaceFont, settings.interfaceMotion])
+
+  useLayoutEffect(() => {
     const root = document.documentElement
     const media = window.matchMedia('(prefers-color-scheme: dark)')
 

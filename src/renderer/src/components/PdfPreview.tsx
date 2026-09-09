@@ -409,9 +409,9 @@ export function PdfPreview({ worktreePath, relPath }: PdfPreviewProps) {
         </div>
 
         <div className="media-toolbar-group" role="group" aria-label="PDF zoom">
-          <button className="icon-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.2)}>−</button>
+          <button className="icon-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.2)}><Icon name="minus" /></button>
           <span className="media-zoom-readout" aria-live="polite">{Math.round(scale * 100)}%</span>
-          <button className="icon-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.2)}>+</button>
+          <button className="icon-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.2)}><Icon name="plus" /></button>
         </div>
 
         <div className="media-toolbar-group media-fit-controls" role="group" aria-label="PDF fit">

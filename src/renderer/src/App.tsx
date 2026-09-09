@@ -1,3 +1,4 @@
+import { Icon } from './components/Icon'
 import { useEffect } from 'react'
 
 import { WorkspaceShell } from './components/WorkspaceShell'
@@ -39,6 +40,8 @@ export function App() {
   useNavigationHistoryController()
 
   useEffect(() => {
+    const draftError = (event: Event) => useAppStore.getState().setError(`Draft recovery failed: ${(event as CustomEvent<string>).detail}. Keep this window open until the draft is saved.`)
+    window.addEventListener('gui-draft-error', draftError)
     // Wire PTY event stream once; terminal data bypasses React entirely.
     const offTerminals = initTerminalEvents(
       (sessionId, exitCode) => {
@@ -75,6 +78,7 @@ export function App() {
     const offMemory = window.donwells.on('project-memory:changed', () => useProjectMemoryEditor.getState().refresh())
     void load()
     return () => {
+      window.removeEventListener('gui-draft-error', draftError)
       offMemory()
       offWt()
       offSettings()
@@ -135,18 +139,18 @@ export function App() {
 
   return (
     <div className="app-layout">
-      <WorkspaceShell>
-        <div className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`} tabIndex={-1}>
+      <WorkspaceShell leftPanel={rightSidebarOpen && !runsOpen && settings.toolPanelSide === 'left' ? <RightSidebar key="tool-panel" /> : undefined}>
+        <div key="workspace-stage" className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`} tabIndex={-1}>
           <Workbench />
           {!activeWorktreePath && <Landing />}
           <BrowserHosts />
         </div>
         {runsOpen && <RunsPanel />}
-        {rightSidebarOpen && !runsOpen && <RightSidebar />}
+        {rightSidebarOpen && !runsOpen && settings.toolPanelSide !== 'left' && <RightSidebar key="tool-panel" />}
       </WorkspaceShell>
 
       {error && (
-        <div className="toast error" onClick={() => useAppStore.getState().setError(null)}>{error}</div>
+        <div className="toast error" role="alert"><span>{error}</span><button type="button" className="icon-btn" aria-label="Dismiss error" onClick={() => useAppStore.getState().setError(null)}><Icon name="x" /></button></div>
       )}
       <CommandPalette open={paletteOpen} />
       <SettingsModal open={settingsOpen} />

@@ -151,7 +151,7 @@ function migrateLegacySettings(value: unknown, path: string): Partial<AppSetting
       editorWordWrap: effective.editorWordWrap,
       editorMinimap: effective.editorMinimap,
       editorTabSize: effective.editorTabSize,
-      markdownPreviewDefault: effective.markdownPreviewDefault,
+      ...(Object.hasOwn(legacy, 'markdownPreviewDefault') ? { markdownPreviewDefault: effective.markdownPreviewDefault } : {}),
       statusPollMs: effective.statusPollMs
     }))
   } catch (error) {
@@ -328,6 +328,17 @@ export class Store {
     if (!next.worktreeLineage) next.worktreeLineage = {}
     next.worktreeLineage[repoId] = structuredClone(lineage)
     this.commit(next)
+  }
+
+  getWindowState(): PersistedState['windowState'] {
+    const value = this.state.windowState
+    if (!value || ![value.x, value.y, value.width, value.height].every((part) => Number.isInteger(part) && Math.abs(part) <= 2_147_483_647) ||
+      value.width <= 0 || value.height <= 0 || typeof value.maximized !== 'boolean') return undefined
+    return { ...value }
+  }
+
+  setWindowState(windowState: NonNullable<PersistedState['windowState']>): void {
+    this.commit({ ...this.state, windowState: { ...windowState } })
   }
 
   getWorkspaceSession(): PersistedState['workspaceSession'] {

@@ -1,3 +1,5 @@
+import { guiDraftMap } from '../gui-drafts'
+import { Icon } from './Icon'
 import { runWithEditorGuard } from '../editor-models'
 import type { VerificationEntry } from '@shared/operational-runs'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -20,21 +22,35 @@ function reviewRangeLabel(selection: DiffReviewSelection): string {
     : `${selection.side} lines ${selection.startLine}–${selection.endLine}`
 }
 
+const noteDrafts = guiDraftMap<string>('review-notes')
+type SelectedReviewRun = Pick<DiffReviewRunLink, 'runId' | 'taskId'> & { label: string }
+const runDrafts = guiDraftMap<SelectedReviewRun | undefined>('review-runs')
+const rangeDrafts = guiDraftMap<DiffReviewSelection>('review-ranges')
+
 function NoteEditor({
+  draftKey,
   label,
   initialValue,
   saving,
   onSave,
   onCancel
 }: {
+  draftKey: string
   label: string
   initialValue: string
   saving: boolean
   onSave(body: string): Promise<boolean>
   onCancel(): void
 }) {
-  const [body, setBody] = useState(initialValue)
+  const [body, setBody] = useState(noteDrafts.get(draftKey) ?? initialValue)
   const [error, setError] = useState('')
+  useEffect(() => { noteDrafts.set(draftKey, body) }, [draftKey, body])
+  const close = (): void => {
+    const owner = textareaRef.current?.closest('.diff-review-editor')?.parentElement
+    onCancel()
+    requestAnimationFrame(() => owner?.querySelector<HTMLButtonElement>('[data-note-editor-trigger]')?.focus())
+  }
+  const discard = (): void => { noteDrafts.delete(draftKey); close() }
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -48,13 +64,13 @@ function NoteEditor({
       return
     }
     setError('')
-    if (await onSave(body)) onCancel()
+    if (await onSave(body)) discard()
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault()
-      onCancel()
+      close()
       return
     }
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -81,10 +97,10 @@ function NoteEditor({
       </label>
       <div className="diff-review-editor-foot">
         <span className={error ? 'diff-review-field-error' : 'diff-review-key-hint'} role={error ? 'alert' : undefined}>
-          {error || '⌘↵ save · Esc cancel'}
+          {error || '⌘↵ save · Esc close, draft kept'}
         </span>
         <span className="diff-review-editor-count">{body.length.toLocaleString()} / {DIFF_REVIEW_BODY_MAX_LENGTH.toLocaleString()}</span>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={discard} disabled={saving}>Discard</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || !body.trim()}>
           {saving ? 'Saving…' : 'Save note'}
         </button>
@@ -160,6 +176,7 @@ function VerificationPanel({workspacePath,sourceVersion,onSelect,onSourcesChecke
 }
 
 export function DiffReviewPanel({
+  draftKey,
   workspacePath,
   onSourcesChecked,
   id,
@@ -181,6 +198,7 @@ export function DiffReviewPanel({
   onRetry,
   onClose
 }: {
+  draftKey: string
   workspacePath: string
   onSourcesChecked(): void
   id: string
@@ -202,6 +220,10 @@ export function DiffReviewPanel({
   onRetry(): void
   onClose(): void
 }) {
+  useEffect(() => {
+    const pending = notes.find(note => noteDrafts.has(`${draftKey}:${note.id}`))
+    if (pending) onEditingNoteChange(pending.id)
+  }, [draftKey, notes])
   const rangeTitleId = `${id}-range-title`
   const beforeLines = lineCountForReviewSide(snapshot, 'before')
   const afterLines = lineCountForReviewSide(snapshot, 'after')
@@ -209,7 +231,12 @@ export function DiffReviewPanel({
   const [manualStart, setManualStart] = useState('1')
   const [manualEnd, setManualEnd] = useState('1')
   const [rangeError, setRangeError] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(noteDrafts.has(`${draftKey}:new`))
+  useEffect(() => {
+    const range = rangeDrafts.get(draftKey)
+    if (range) onSelectionChange(range)
+  }, [draftKey])
+  useEffect(() => { if (selection) rangeDrafts.set(draftKey, selection) }, [draftKey, selection])
   const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -244,7 +271,8 @@ export function DiffReviewPanel({
     onSelectionChange({ side: manualSide, startLine, endLine })
   }
 
-  const [selectedRun, setSelectedRun] = useState<(Pick<DiffReviewRunLink, 'runId' | 'taskId'> & {label:string}) | undefined>()
+  const [selectedRun, setSelectedRun] = useState<SelectedReviewRun | undefined>(runDrafts.get(draftKey))
+  useEffect(() => { runDrafts.set(draftKey, selectedRun) }, [draftKey, selectedRun])
   const currentCount = notes.filter((note) => diffReviewNoteIsCurrent(note, snapshot)).length
   const staleCount = notes.length - currentCount
 
@@ -252,10 +280,9 @@ export function DiffReviewPanel({
     <aside id={id} className="diff-review-panel" aria-label="Diff review notes">
       <header className="diff-review-panel-head">
         <div>
-          <span className="diff-review-eyebrow">Review workspace</span>
           <h2>Notes <span aria-label={`${notes.length} notes`}>{notes.length}</span></h2>
         </div>
-        <button type="button" className="icon-btn" aria-label="Close review notes" title="Close review notes" onClick={onClose}>×</button>
+        <button type="button" className="icon-btn" aria-label="Close review notes" title="Close review notes" onClick={onClose}><Icon name="x" size={14} /></button>
       </header>
 
       <VerificationPanel key={workspacePath} onSourcesChecked={onSourcesChecked} workspacePath={workspacePath} sourceVersion={JSON.stringify(snapshot)} onSelect={entry=>setSelectedRun({runId:entry.runId,taskId:entry.task.id,label:entry.task.command})} />
@@ -295,6 +322,7 @@ export function DiffReviewPanel({
         <p className="diff-review-muted">Drag line numbers in the diff, or enter a range for keyboard-only review.</p>
         {creating ? (
           <NoteEditor
+            draftKey={`${draftKey}:new`}
             label={selection ? `New note on ${reviewRangeLabel(selection)}` : 'New note'}
             initialValue=""
             saving={saving}
@@ -305,6 +333,7 @@ export function DiffReviewPanel({
           <button
             type="button"
             className="btn btn-primary diff-review-new-note"
+            data-note-editor-trigger
             disabled={!selection || saving}
             onClick={() => setCreating(true)}
           >
@@ -355,6 +384,7 @@ export function DiffReviewPanel({
                     )}
                     {editing ? (
                       <NoteEditor
+                        draftKey={`${draftKey}:${note.id}`}
                         label={`Edit note ${index + 1}`}
                         initialValue={note.body}
                         saving={saving}
@@ -371,7 +401,7 @@ export function DiffReviewPanel({
                         <button type="button" className="btn btn-ghost btn-sm" disabled={!current} title={current ? 'Jump to the anchored range' : 'The original range is not applied to changed content'} onClick={() => onJump(note)}>
                           {current ? 'Jump' : 'Original context'}
                         </button>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onEditingNoteChange(note.id)}>Edit</button>
+                        <button type="button" className="btn btn-ghost btn-sm" data-note-editor-trigger onClick={() => onEditingNoteChange(note.id)}>Edit</button>
                         {confirmingDelete ? (
                           <span className="diff-review-delete-confirm" role="group" aria-label="Confirm note deletion">
                             <span>Delete permanently?</span>

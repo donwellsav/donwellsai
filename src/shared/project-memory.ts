@@ -80,6 +80,7 @@ export type ProjectMemoryListRequest = {
   query?: string
   kinds?: ProjectMemoryKind[]
   includeArchived?: boolean
+  offset?: number
   limit?: number
 }
 
@@ -464,7 +465,8 @@ export function parseProjectMemoryDocument(value: unknown): ProjectMemoryDocumen
 
 export function parseProjectMemoryListRequest(value: unknown): ProjectMemoryListRequest {
   const input = record(value, 'project memory list request')
-  keys(input, ['workspacePath'], ['query', 'kinds', 'includeArchived', 'limit'], 'project memory list request')
+  keys(input, ['workspacePath'], ['query', 'kinds', 'includeArchived', 'limit', 'offset'], 'project memory list request')
+  if (input.offset !== undefined && (!Number.isSafeInteger(input.offset) || (input.offset as number) < 0)) throw new Error('offset must be a non-negative safe integer')
   let query: string | undefined
   if (input.query !== undefined) {
     if (typeof input.query !== 'string' || input.query.length > PROJECT_MEMORY_MAX_QUERY_LENGTH) {
@@ -486,6 +488,7 @@ export function parseProjectMemoryListRequest(value: unknown): ProjectMemoryList
     ...(query === undefined ? {} : { query }),
     ...(kinds === undefined ? {} : { kinds }),
     ...(input.includeArchived === undefined ? {} : { includeArchived: boolean(input.includeArchived, 'includeArchived') }),
+    ...(input.offset === undefined ? {} : { offset: input.offset as number }),
     ...(input.limit === undefined ? {} : { limit: resultLimit(input.limit, 'limit') })
   }
 }

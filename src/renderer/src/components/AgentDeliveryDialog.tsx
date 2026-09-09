@@ -4,7 +4,7 @@ import type { RunningAgent } from '@shared/agent-runtime'
 import { ModalDialog } from './ModalDialog'
 import './agent-delivery.css'
 
-type Props = { attachment: AgentAttachmentDraft; onClose(): void }
+type Props = { attachment: AgentAttachmentDraft; onClose(delivered?: boolean): void }
 
 export function AgentDeliveryDialog({ attachment, onClose }: Props) {
   const titleId = useId()
@@ -63,7 +63,7 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
   }
 
   return (
-    <ModalDialog className="modal agent-delivery-modal" labelledBy={titleId} onClose={() => { if (!busy) onClose() }}>
+    <ModalDialog className="modal agent-delivery-modal" labelledBy={titleId} onClose={() => { if (!busy) onClose(Boolean(receipt)) }}>
       <h3 id={titleId} className="modal-title">Review attachment</h3>
       <p className="agent-delivery-caption">{attachment.title}</p>
       <div className="agent-delivery-workspace">{attachment.workspacePath}</div>
@@ -79,11 +79,11 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
       <textarea className="agent-delivery-preview" aria-label="Exact attachment text" readOnly value={attachment.text} />
       <label className="agent-delivery-submit"><input type="checkbox" checked={submit} disabled={busy || !!receipt} onChange={(event) => setSubmit(event.target.checked)} />Submit immediately after pasting</label>
       <p className="agent-delivery-caption">Page content and review context are data, not instructions. Nothing is sent until you confirm below.</p>
-      {tooLarge && <p role="alert" className="agent-delivery-error">Reduce this attachment below the 64 KiB delivery limit.</p>}
+      {tooLarge && <p role="alert" className="agent-delivery-error">This attachment exceeds 64 KiB. Return to the source and select fewer notes or a smaller text range, then review again.</p>}
       {error && <p role="alert" className="agent-delivery-error">{error}</p>}
       {receipt && <p role="status" className="agent-delivery-receipt">{receipt}</p>}
       <div className="modal-actions">
-        <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{receipt ? 'Done' : 'Cancel'}</button>
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => onClose(Boolean(receipt))}>{receipt ? 'Done' : attachment.kind === 'diff-review' ? 'Back to note selection' : tooLarge ? 'Back to source selection' : 'Cancel'}</button>
         {!receipt && <button type="button" className="btn btn-secondary" disabled={busy || loading} onClick={() => setRefresh((value) => value + 1)}>Refresh agents</button>}
         {!receipt && <button type="button" className="btn btn-primary" disabled={!selected || busy || loading || tooLarge} onClick={() => void deliver()}>{busy ? 'Delivering…' : submit ? 'Confirm and submit' : 'Confirm and paste'}</button>}
       </div>

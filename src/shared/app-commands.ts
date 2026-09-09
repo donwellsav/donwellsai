@@ -1,4 +1,4 @@
-export type AppCommandCategory = 'File' | 'Workspace' | 'View' | 'Terminal' | 'Source Control' | 'Agent'
+export type AppCommandCategory = 'File' | 'Workspace' | 'View' | 'Terminal' | 'Git' | 'Agent'
 export type AppCommandPlatform = 'mac' | 'windows' | 'linux'
 
 export type AppCommandId =
@@ -47,6 +47,7 @@ export type AppCommandId =
   | 'next-waiting-session'
   | 'show-project-search'
   | 'show-project-memory'
+  | 'show-computer-control'
   | 'show-editor-recovery'
   | 'show-parallel-runs'
   | 'show-scheduled-runs'
@@ -64,6 +65,7 @@ export type AppCommand = {
 }
 
 export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
+  { id: 'show-computer-control', label: 'Computer control', category: 'View', defaultAccelerators: [], palette: true },
   { id: 'show-project-search', label: 'Search project…', category: 'View', defaultAccelerators: ['Mod+Shift+F'], palette: true, rendererOnly: true },
   { id: 'next-waiting-session', label: 'Next waiting session', category: 'Agent', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'new-project', label: 'New project…', category: 'File', defaultAccelerators: ['Mod+Shift+N'], palette: true },
@@ -78,7 +80,7 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'switch-mru-previous', label: 'Switch to previous recent location', category: 'View', defaultAccelerators: ['Control+Shift+Tab'], palette: true },
   { id: 'new-terminal', label: 'New terminal', category: 'Terminal', defaultAccelerators: ['Mod+T'], palette: true },
   { id: 'split-terminal', label: 'Split terminal', category: 'Terminal', defaultAccelerators: ['Mod+Shift+5'], palette: true },
-  { id: 'close-active-pane', label: 'Hide active view', category: 'View', defaultAccelerators: ['Mod+W'], palette: true },
+  { id: 'close-active-pane', label: 'Close active tab…', category: 'View', defaultAccelerators: ['Mod+W'], palette: true },
   { id: 'move-pane-left', label: 'Move active view left', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'move-pane-right', label: 'Move active view right', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'move-pane-up', label: 'Move active view up', category: 'View', defaultAccelerators: [], palette: true, rendererOnly: true },
@@ -92,8 +94,8 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'focus-next-pane', label: 'Focus next pane', category: 'View', defaultAccelerators: ['Mod+Alt+ArrowRight'], palette: true, rendererOnly: true },
   { id: 'focus-previous-pane', label: 'Focus previous pane', category: 'View', defaultAccelerators: ['Mod+Alt+ArrowLeft'], palette: true, rendererOnly: true },
   { id: 'toggle-sidebar', label: 'Toggle workspace sidebar', category: 'View', defaultAccelerators: ['Mod+B'], palette: true },
-  { id: 'toggle-explorer', label: 'Toggle Explorer', category: 'View', defaultAccelerators: ['Mod+Shift+E'], palette: true },
-  { id: 'toggle-git-status', label: 'Toggle Source Control', category: 'Source Control', defaultAccelerators: ['Mod+Shift+G'], palette: true },
+  { id: 'toggle-explorer', label: 'Toggle Files', category: 'View', defaultAccelerators: ['Mod+Shift+E'], palette: true },
+  { id: 'toggle-git-status', label: 'Toggle Git', category: 'Git', defaultAccelerators: ['Mod+Shift+G'], palette: true },
   { id: 'toggle-markdown-preview', label: 'Toggle Markdown preview', category: 'View', defaultAccelerators: ['Mod+Shift+V'], palette: true },
   { id: 'run-agent', label: 'Run default agent', category: 'Agent', defaultAccelerators: ['Mod+Enter'], palette: true },
   { id: 'refresh-workspace', label: 'Refresh workspace', category: 'Workspace', defaultAccelerators: [], palette: true },
@@ -110,8 +112,8 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'show-agents', label: 'Show agent sessions', category: 'Agent', defaultAccelerators: [], palette: true },
   { id: 'show-project-memory', label: 'Show project memory', category: 'Workspace', defaultAccelerators: [], palette: true },
   { id: 'show-editor-recovery', label: 'Show editor recovery', category: 'View', defaultAccelerators: [], palette: true },
-  { id: 'show-parallel-runs', label: 'Show parallel runs', category: 'View', defaultAccelerators: [], palette: true },
-  { id: 'show-scheduled-runs', label: 'Show scheduled runs', category: 'View', defaultAccelerators: [], palette: true }
+  { id: 'show-parallel-runs', label: 'Show automation commands', category: 'View', defaultAccelerators: [], palette: true },
+  { id: 'show-scheduled-runs', label: 'Show automation schedules', category: 'View', defaultAccelerators: [], palette: true }
 ] satisfies AppCommand[])
 
 export function appCommand(id: string): AppCommand | undefined {
@@ -193,6 +195,7 @@ export type ShortcutValidationIssue = {
   shortcut: string
   reason: 'unknown-command' | 'invalid-shortcut' | 'conflict'
   conflictsWith?: AppCommandId
+  nativeCommand?: string
   platform?: AppCommandPlatform
 }
 
@@ -206,6 +209,12 @@ export function validateAppShortcutOverrides(overrides: Readonly<Record<string, 
     if (!parseChord(shortcut)) issues.push({ commandId, shortcut, reason: 'invalid-shortcut' })
   }
   for (const platform of ['mac', 'windows', 'linux'] as const) {
+    const native = new Map([
+      ['Mod+C', 'Copy'], ['Mod+X', 'Cut'], ['Mod+V', 'Paste'], ['Mod+A', 'Select all'],
+      ['Mod+Z', 'Undo'], ['Mod+Shift+Z', 'Redo'], ['Mod+Q', 'Quit'], ['Mod+R', 'Reload'],
+      ['Mod+Shift+R', 'Force reload'], ['Mod+Shift+W', 'Close window'], ['Mod+M', 'Minimize'],
+      ['Mod+0', 'Reset zoom']
+    ].map(([chord, name]) => [normalizedChord(parseChord(chord!)!, platform), name!]))
     const seen = new Map<string, AppCommandId>()
     for (const command of APP_COMMANDS) {
       const chords = overrides[command.id] === undefined ? command.defaultAccelerators : [overrides[command.id]!]
@@ -213,6 +222,8 @@ export function validateAppShortcutOverrides(overrides: Readonly<Record<string, 
         const parsed = parseChord(chord)
         if (!parsed) continue
         const normalized = normalizedChord(parsed, platform)
+        const nativeCommand = native.get(normalized)
+        if (overrides[command.id] !== undefined && nativeCommand) issues.push({ commandId: command.id, shortcut: chord, reason: 'conflict', nativeCommand, platform })
         const other = seen.get(normalized)
         if (other && other !== command.id) {
           issues.push({ commandId: command.id, shortcut: chord, reason: 'conflict', conflictsWith: other, platform })
@@ -261,10 +272,20 @@ export function resolveAppShortcuts(
 
 export type AppKeyboardEvent = {
   key: string
+  code?: string
   metaKey: boolean
   ctrlKey: boolean
   altKey: boolean
   shiftKey: boolean
+}
+
+export function appShortcutKey(event: AppKeyboardEvent, platform: AppCommandPlatform): string {
+  // ponytail: physical-key fallback only for transformed shortcuts; layout-aware mapping if non-Latin Option bindings are needed.
+  if (event.code && ((platform === 'mac' && event.altKey && !/^[a-z0-9]$/i.test(event.key)) || (event.shiftKey && /^Digit\d$/.test(event.code)))) {
+    const physical = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code)
+    if (physical) return physical[1] ?? physical[2]!
+  }
+  return event.key
 }
 
 
@@ -280,7 +301,7 @@ export function createAppShortcutMatcher(
       event.altKey ? 'alt' : '',
       event.shiftKey ? 'shift' : ''
     ].filter(Boolean).sort()
-    const key = event.key.toLowerCase()
+    const key = appShortcutKey(event, platform).toLowerCase()
     const normalized = [...modifiers, KEY_ALIASES[key] ?? key].join('+')
     return resolved.find((entry) => entry.normalized === normalized)?.command
   }

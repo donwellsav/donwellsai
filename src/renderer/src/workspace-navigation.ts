@@ -98,7 +98,10 @@ export function orderedWorkspacePaths(
   for (const path of existing) {
     if (!included.has(path)) ordered.push(path)
   }
-  return ordered
+  const rank = (repo: RepoSummary): number => Math.min(...repo.worktrees.map(worktree => ordered.indexOf(worktree.path)))
+  const pinned = (repo: RepoSummary): boolean => repo.worktrees.some(worktree => state.pinnedPaths.includes(worktree.path))
+  return [...repos].sort((a, b) => Number(pinned(b)) - Number(pinned(a)) || rank(a) - rank(b)).flatMap(repo =>
+    repo.worktrees.map(worktree => worktree.path).sort((a, b) => Number(state.pinnedPaths.includes(b)) - Number(state.pinnedPaths.includes(a)) || ordered.indexOf(a) - ordered.indexOf(b)))
 }
 
 export function moveWorkspaceNavigation(
@@ -108,11 +111,24 @@ export function moveWorkspaceNavigation(
   delta: -1 | 1
 ): WorkspaceNavigationState {
   const order = orderedWorkspacePaths(repos, state)
-  const from = order.indexOf(path)
-  const to = from + delta
-  if (from < 0 || to < 0 || to >= order.length) return state
-  const next = [...order]
-  ;[next[from], next[to]] = [next[to]!, next[from]!]
+  const repo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === path))
+  if (!repo || state.hiddenPaths.includes(path)) return state
+  const pinned = state.pinnedPaths.includes(path)
+  if (repo.worktrees.length === 1) {
+    const groups = [...repos].sort((a, b) => order.indexOf(a.worktrees[0]?.path ?? '') - order.indexOf(b.worktrees[0]?.path ?? ''))
+      .map(repo => order.filter(path => repo.worktrees.some(worktree => worktree.path === path)))
+    const visible = groups.filter(group => group.some(path => !state.hiddenPaths.includes(path)) && group.some(path => state.pinnedPaths.includes(path)) === pinned)
+    const from = visible.findIndex(group => group.includes(path)), to = from + delta
+    if (from < 0 || to < 0 || to >= visible.length) return state
+    const first = groups.indexOf(visible[from]!), second = groups.indexOf(visible[to]!)
+    ;[groups[first], groups[second]] = [groups[second]!, groups[first]!]
+    return { ...state, order: groups.flat() }
+  }
+  const siblings = order.filter(path => repo.worktrees.some(worktree => worktree.path === path) && !state.hiddenPaths.includes(path) && state.pinnedPaths.includes(path) === pinned)
+  const from = siblings.indexOf(path), to = from + delta
+  if (from < 0 || to < 0 || to >= siblings.length) return state
+  const next = [...order], first = next.indexOf(path), second = next.indexOf(siblings[to]!)
+  ;[next[first], next[second]] = [next[second]!, next[first]!]
   return { ...state, order: next }
 }
 

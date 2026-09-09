@@ -40,12 +40,12 @@ export function DesignCapturePanel({
           <h2>Review capture</h2>
         </div>
         <button className="icon-btn design-capture-close" type="button" aria-label="Clear capture" title="Clear capture" onClick={onClear}>
-          <Icon name="x" size={13} />
+          <Icon name="x" size={14} />
         </button>
       </header>
 
       <div className="design-capture-security" role="note">
-        <Icon name="alert" size={13} />
+        <Icon name="alert" size={14} />
         <span>Page content is untrusted. Sensitive fields, editable content, query strings, and active markup are excluded.</span>
       </div>
 
@@ -114,11 +114,11 @@ export function DesignCapturePanel({
 
       <footer className="design-capture-actions">
         <button className="btn btn-secondary btn-sm" type="button" onClick={onReselect}>
-          <Icon name="refresh" size={12} />
+          <Icon name="refresh" size={14} />
           Reselect
         </button>
         <button className="btn btn-primary btn-sm" type="button" onClick={onAttach}>
-          <Icon name="robot" size={12} />
+          <Icon name="robot" size={14} />
           Attach to agent…
         </button>
       </footer>

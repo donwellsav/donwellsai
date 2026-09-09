@@ -1,7 +1,9 @@
+import { contextMenuKey, focusContextMenu } from '../context-menu'
 import type { GitBranchInfo, GitCommit, GitPathFailure, GitPathOperation, GitPathOperationResult, GitStatusEntry } from '@shared/types'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { runWithEditorGuard } from '../editor-models'
 import { useAppStore } from '../store'
+import { PopupMenu } from 'flexlayout-react'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
 
@@ -82,14 +84,17 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
   const message = useAppStore((state) => state.gitCommitDrafts[worktreePath] ?? '')
   const setGitCommitDraft = useAppStore((state) => state.setGitCommitDraft)
 
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLButtonElement | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [failures, setFailures] = useState<GitPathFailure[]>([])
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const menuTrigger = useRef<HTMLElement | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [confirmation, setConfirmation] = useState<GitConfirmation | null>(null)
   const [branches, setBranches] = useState<GitBranchInfo | null>(null)
   const [branchPickerOpen, setBranchPickerOpen] = useState(false)
+  const branchTrigger = useRef<HTMLButtonElement>(null)
   const [branchSearch, setBranchSearch] = useState('')
   const [newBranch, setNewBranch] = useState('')
   const [amend, setAmend] = useState(false)
@@ -357,6 +362,13 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
       event.preventDefault()
       setSelected(new Set(allRows.map((row) => row.id)))
     } else if (event.key === 'Escape') {
+      if (branchPickerOpen) {
+        event.preventDefault()
+        event.stopPropagation()
+        setBranchPickerOpen(false)
+        branchTrigger.current?.focus()
+        return
+      }
       setSelected(new Set())
       setContextMenu(null)
     } else if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRows.length > 0) {
@@ -369,6 +381,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
 
   const showContextMenu = (event: MouseEvent, row: GitRow): void => {
     event.preventDefault()
+    menuTrigger.current = event.currentTarget as HTMLElement
     if (!selected.has(row.id)) setSelected(new Set([row.id]))
     setContextMenu({ x: event.clientX, y: event.clientY, row })
   }
@@ -400,23 +413,11 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
 
   return (
     <div className="git-pane" onKeyDown={handlePaneKeyDown}>
-      <div className="pane-header git-pane-header">
-        <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openProjectTaskTool(worktreePath, 'lazygit').catch(reportError)}>Lazygit</button>
-        <div className="git-pane-title"><Icon name="git" size={15} /><strong>Source control</strong></div>
-        <button className="icon-btn" type="button" title="Refresh source control" aria-label="Refresh source control" disabled={busy !== null} onClick={() => void runTask('refresh', refreshGit)}>
-          <Icon name="refresh" size={14} />
-        </button>
-      </div>
-
       <div className="git-branch-card">
         <div className="git-branch-summary">
-          <span className="git-branch-name" title={branchLabel}>{branchLabel}</span>
-          <span className="git-sync-state" aria-label={`${status.ahead} commits ahead and ${status.behind} behind`}>
-            ↑ {status.ahead} · ↓ {status.behind}
-          </span>
-          <button className="btn btn-secondary btn-sm" type="button" disabled={!branches || busy !== null} aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((open) => !open)}>
-            {!branches ? 'Loading branches…' : branchPickerOpen ? 'Close branches' : 'Switch branch'}
-          </button>
+          <button ref={branchTrigger} className="git-branch-name" title={busy ? 'Wait for the current Git operation to finish' : `Switch or create a branch. Current: ${branchLabel}`} aria-label="Switch branch" type="button" disabled={!branches || busy !== null} aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((open) => !open)}><Icon name="git" size={14} /><span>{!branches ? 'Loading branches…' : branchLabel}</span><Icon name="down" size={12} /></button>
+          {(status.ahead > 0 || status.behind > 0) && <span className="git-sync-state" aria-label={`${status.ahead} commits ahead and ${status.behind} behind`}>↑ {status.ahead} · ↓ {status.behind}</span>}
+          <button className="icon-btn" type="button" aria-label="Source control actions" title="Fetch, pull, push, open Lazygit, or refresh changes" aria-haspopup="menu" aria-expanded={!!actionsAnchor} onClick={event => setActionsAnchor(event.currentTarget)}><Icon name="more" size={14} /></button>
         </div>
         {branchPickerOpen && branches && (
           <div className="git-branch-picker">
@@ -429,18 +430,21 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
                 </button>
               ))}
             </div>
-          </div>
-        )}
         <div className="git-create-branch">
           <input className="input" value={newBranch} onChange={(event) => setNewBranch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createBranch() }} placeholder="New branch name" aria-label="New branch name" />
-          <button className="btn btn-secondary" type="button" disabled={!newBranch.trim() || busy !== null} onClick={() => void createBranch()}>Create branch</button>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={!newBranch.trim() || busy !== null} onClick={() => void createBranch()}>Create branch</button>
         </div>
-        <div className="git-sync-actions" aria-label="Remote actions">
-          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null} onClick={() => void sync('fetch')}>Fetch</button>
-          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null} onClick={() => void sync('pull')}>Pull (ff-only)</button>
-          <button className="btn btn-secondary btn-sm" type="button" disabled={busy !== null || status.detached} onClick={() => void sync('push')}>Push</button>
-        </div>
+          </div>
+        )}
       </div>
+      {actionsAnchor && <PopupMenu anchor={actionsAnchor} title="Fetch, pull, push, open Lazygit, or refresh changes" onClose={() => setActionsAnchor(null)} items={[
+        { key: 'fetch', label: 'Fetch', disabled: busy !== null, onSelect: () => void sync('fetch') },
+        { key: 'pull', label: 'Pull (fast-forward only)', disabled: busy !== null, onSelect: () => requestAnimationFrame(() => void sync('pull')) },
+        { key: 'push', label: 'Push', disabled: busy !== null || status.detached, onSelect: () => requestAnimationFrame(() => void sync('push')) },
+        { type: 'divider', key: 'tools' },
+        { key: 'lazygit', label: 'Open Lazygit', onSelect: () => void useAppStore.getState().openProjectTaskTool(worktreePath, 'lazygit').catch(reportError) },
+        { key: 'refresh', label: 'Refresh', disabled: busy !== null, onSelect: () => void runTask('refresh', refreshGit) }
+      ]} />}
 
       {busy && <div className="git-notice" role="status">Working… {busy.replace(':', ' · ')}</div>}
       {notice && <div className={failures.length > 0 ? 'git-notice git-notice-error' : 'git-notice'} role={failures.length > 0 ? 'alert' : 'status'}>{notice}</div>}
@@ -485,6 +489,11 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
                       title={failure}
                       onContextMenu={(event) => showContextMenu(event, row)}
                       onKeyDown={(event) => {
+                        if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                          event.preventDefault(); menuTrigger.current = event.currentTarget
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          setContextMenu({ x: rect.left, y: rect.bottom, row }); return
+                        }
                         if (event.key === ' ') {
                           event.preventDefault()
                           toggleRow(row.id)
@@ -512,7 +521,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
       <div className="git-commit-box">
         <textarea className="input git-commit-input" rows={3} value={message} onChange={(event) => setGitCommitDraft(worktreePath, event.target.value)} placeholder="Commit message" aria-label="Commit message" />
         <label className="git-amend-toggle"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} />Amend current commit</label>
-        <button className="btn btn-primary git-commit-button" type="button" disabled={!message.trim() || (!amend && status.staged === 0) || busy !== null} onClick={() => void commit()}>
+        <button className="btn btn-primary git-commit-button" title={busy ? 'Wait for the current Git operation to finish' : !message.trim() ? 'Enter a commit message first' : !amend && status.staged === 0 ? 'Stage changes before committing' : amend ? 'Review and amend the current commit' : 'Commit the staged changes with this message'} type="button" disabled={!message.trim() || (!amend && status.staged === 0) || busy !== null} onClick={() => void commit()}>
           {busy === 'commit' || busy === 'amend' ? 'Committing…' : amend ? 'Amend commit' : `Commit ${status.staged || ''}`.trim()}
         </button>
       </div>
@@ -574,7 +583,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
         </ModalDialog>
       )}
       {contextMenu && (
-        <div className="git-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+        <div ref={focusContextMenu} onKeyDown={event => contextMenuKey(event, () => { setContextMenu(null); menuTrigger.current?.focus() })} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setContextMenu(null) }} className="git-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
           <button role="menuitem" type="button" onClick={() => { openDiff(contextMenu.row); setContextMenu(null) }}>Open diff</button>
           {rowSupports(contextMenu.row, 'stage') && <button role="menuitem" type="button" onClick={() => { void operate('stage', [contextMenu.row]); setContextMenu(null) }}>Stage</button>}
           {rowSupports(contextMenu.row, 'unstage') && <button role="menuitem" type="button" onClick={() => { void operate('unstage', [contextMenu.row]); setContextMenu(null) }}>Unstage</button>}

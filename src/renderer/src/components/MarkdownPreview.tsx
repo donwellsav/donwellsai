@@ -1,7 +1,9 @@
 import DOMPurify from 'dompurify'
 import { Marked } from 'marked'
 import markedFootnote from 'marked-footnote'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { findTextMatches, textSegmentsForMatch } from '../media-preview'
+import { Icon } from './Icon'
 import { CALLOUT_KINDS, scanNeeds, slugify, splitFrontMatter, type TocEntry } from '../lib/markdown'
 import { monaco } from '../monaco-setup'
 import { useAppStore } from '../store'
@@ -406,7 +408,7 @@ const CALLOUT_RE = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i
  */
 export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: string; relPath: string }) {
   const content = useAppStore((s) => s.previews[worktreePath]?.[relPath]?.content ?? '')
-  const hostRef = useRef<HTMLDivElement>(null)
+  const hostRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const { beginRender, finishRender, failRender, navigateToAnchor } = useMarkdownView(
     worktreePath,
@@ -417,6 +419,57 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
   const [activeHeading, setActiveHeading] = useState<string | null>(null)
   const [renderState, setRenderState] = useState<Readonly<{ phase: 'rendering' | 'ready' | 'error'; error?: string }>>({ phase: 'rendering' })
   const [renderAttempt, setRenderAttempt] = useState(0)
+  const [findOpen, setFindOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [matchIndex, setMatchIndex] = useState(0)
+  const findInput = useRef<HTMLInputElement>(null)
+  const highlightId = 'md-find-' + useId().replace(/[^a-z0-9]/gi, '')
+  const matches = useMemo(() => {
+    const host = hostRef.current
+    if (!host || renderState.phase !== 'ready' || !findOpen || !query.trim()) return []
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+    const nodes: Text[] = [], segments: string[] = []
+    let block: Element | null = null
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const parent = node.parentElement
+      if (!parent || parent.closest('.md-anchor, .md-codehead, svg, [aria-hidden="true"]')) continue
+      const nextBlock = parent.closest('p,li,th,td,h1,h2,h3,h4,h5,h6,pre,blockquote')
+      if (nodes.length && block !== nextBlock) { nodes.push(document.createTextNode('\n')); segments.push('\n') }
+      nodes.push(node as Text); segments.push(node.textContent ?? ''); block = nextBlock
+    }
+    // ponytail: cap highlighting at 1000 matches; use a worker/index if documents outgrow this synchronous scan.
+    return findTextMatches(segments.join(''), query, 1, 1000).map(match => {
+      const parts = textSegmentsForMatch(segments, match), first = parts[0]!, last = parts[parts.length - 1]!
+      const range = document.createRange()
+      range.setStart(nodes[first.segment]!, first.start); range.setEnd(nodes[last.segment]!, last.end)
+      return range
+    })
+  }, [query, findOpen, renderState])
+  useEffect(() => {
+    CSS.highlights.set(highlightId, new Highlight(...matches))
+    return () => { CSS.highlights.delete(highlightId) }
+  }, [highlightId, matches])
+  useEffect(() => {
+    const match = matches[matchIndex % matches.length]
+    CSS.highlights.set(highlightId + '-current', new Highlight(...(match ? [match] : [])))
+    match?.startContainer.parentElement?.scrollIntoView({ block: 'center' })
+    return () => { CSS.highlights.delete(highlightId + '-current') }
+  }, [highlightId, matches, matchIndex])
+  useEffect(() => {
+    if (findOpen) { findInput.current?.focus(); findInput.current?.select() }
+  }, [findOpen])
+  useEffect(() => {
+    const open = (event: Event) => {
+      const target = (event as CustomEvent).detail
+      if (target?.worktreePath === worktreePath && target?.file === relPath) {
+        setFindOpen(true); findInput.current?.focus(); findInput.current?.select()
+      }
+    }
+    window.addEventListener('donwells:document-find', open)
+    return () => window.removeEventListener('donwells:document-find', open)
+  }, [worktreePath, relPath])
+  const closeFind = () => { setFindOpen(false); scrollRef.current?.focus() }
+
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
@@ -514,9 +567,9 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
           const fallback = document.createElement('span')
           fallback.className = 'md-image-unavailable'
           fallback.setAttribute('role', 'img')
-          fallback.setAttribute('aria-label', img.alt || source || 'Unavailable image')
+          fallback.setAttribute('aria-label', `${img.alt || 'Image'}: ${message}`)
           fallback.title = message
-          fallback.textContent = img.alt ? `Image unavailable: ${img.alt}` : 'Image unavailable'
+          fallback.textContent = `${img.alt ? `${img.alt}: ` : ''}${message}`
           img.replaceWith(fallback)
         }
         if (/^data:image\//i.test(source)) {
@@ -697,7 +750,18 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
 
   return (
     <div className={`md-wrap${showToc ? ' md-wrap-toc' : ''}`} aria-busy={renderState.phase === 'rendering'}>
-      <div className="md-scroll" ref={scrollRef}>
+      <style>{`::highlight(${highlightId}) { background: #e7c65b; color: #181818; } ::highlight(${highlightId}-current) { background: #f28c38; color: #181818; }`}</style>
+      {findOpen && <div className="md-find" role="search" aria-label="Find in document" onKeyDown={event => {
+        if (event.key === 'Escape') { event.preventDefault(); closeFind() }
+        if (event.key === 'Enter' && matches.length) { event.preventDefault(); setMatchIndex(index => (index + (event.shiftKey ? -1 : 1) + matches.length) % matches.length) }
+      }}>
+        <input ref={findInput} type="search" aria-label="Find in document" placeholder="Find in document" value={query} maxLength={256} onChange={event => { setQuery(event.target.value); setMatchIndex(0) }} />
+        <span role="status">{query ? matches.length ? `${matchIndex % matches.length + 1} of ${matches.length}${matches.length === 1000 ? '+' : ''}` : 'No matches' : ''}</span>
+        <button className="icon-btn" title="Previous match (Shift+Enter)" aria-label="Previous match" disabled={!matches.length} onClick={() => setMatchIndex(index => (index - 1 + matches.length) % matches.length)}><Icon name="up" /></button>
+        <button className="icon-btn" title="Next match (Enter)" aria-label="Next match" disabled={!matches.length} onClick={() => setMatchIndex(index => (index + 1) % matches.length)}><Icon name="down" /></button>
+        <button className="icon-btn" title="Close find (Escape)" aria-label="Close document find" onClick={closeFind}><Icon name="x" /></button>
+      </div>}
+      <div className="md-scroll" ref={scrollRef} tabIndex={0} role="region" aria-label="Markdown document">
         {renderState.phase === 'rendering' && (
           <div className="md-render-error" role="status"><strong>Rendering preview…</strong><span>Preparing document features and local assets.</span></div>
         )}
@@ -711,11 +775,10 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
         {empty && (
           <div className="md-render-error" role="status"><strong>Nothing to preview</strong><span>Add Markdown content in the editor to see it rendered here.</span></div>
         )}
-        <div ref={hostRef} className="md-preview" hidden={renderState.phase !== 'ready' || empty} />
-      </div>
       {showToc && (
-        <nav className="md-toc" aria-label="Contents">
-          <div className="md-toc-title">On this page</div>
+        <details className="md-toc">
+          <summary className="md-toc-title" title="Show or hide the document outline">Contents</summary>
+          <nav aria-label="Contents">
           {toc.map((t) => (
             <a
               key={t.id}
@@ -730,8 +793,12 @@ export function MarkdownPreview({ worktreePath, relPath }: { worktreePath: strin
               {t.text}
             </a>
           ))}
-        </nav>
+          </nav>
+        </details>
       )}
+        <article ref={hostRef} aria-label={relPath} className="md-preview" hidden={renderState.phase !== 'ready' || empty} />
+      </div>
+
     </div>
   )
 }

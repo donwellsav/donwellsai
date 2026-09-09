@@ -1,8 +1,10 @@
+import { installProjectTool } from './project-tool-install'
+import { rm } from 'node:fs/promises'
 import { ProjectTemporalKnowledge } from './project-temporal-knowledge'
 import { ProjectKnowledge } from './project-knowledge'
 import type { KnowledgeSelection } from '@shared/project-knowledge'
 import type { ProjectHandoffStatus } from '@shared/project-handoff'
-import { ProjectSessionHistory, SESSION_HISTORY_VERSION } from './project-session-history'
+import { ProjectSessionHistory, discoverNativeSessionRoots, SESSION_HISTORY_VERSION } from './project-session-history'
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, opendir, readdir, realpath, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -35,6 +37,7 @@ export async function measureProjectToolPath(path: string): Promise<{ bytes: num
 /** Project configuration routes to the existing MCP owners; changing it stops those owners first. */
 export class ProjectDoctor {
   private readonly files = new WorktreeFiles()
+  private readonly discovered = new Map<string, ProjectToolConfiguration>()
   private readonly owners = new Map<string, Promise<ProjectTools>>()
   private readonly histories = new Map<string, ProjectSessionHistory>()
   private readonly temporalOwners = new Map<string, ProjectTemporalKnowledge>()
@@ -68,7 +71,9 @@ export class ProjectDoctor {
 
   private async read(directory: string, projectPath: string) {
     const snapshot = await this.snapshot(directory)
-    try { return { ...snapshot, configuration: snapshot.content === null ? parseProjectToolConfiguration(this.defaults(projectPath)) : parseProjectToolConfiguration(JSON.parse(snapshot.content)) } }
+    // Keep discovery stable for the lifetime of the project owners; rediscover on app restart.
+    if (!this.discovered.has(projectPath)) this.discovered.set(projectPath, parseProjectToolConfiguration(this.defaults(projectPath)))
+    try { return { ...snapshot, configuration: parseProjectToolConfiguration({ ...this.discovered.get(projectPath), ...(snapshot.content === null ? {} : parseProjectToolConfiguration(JSON.parse(snapshot.content))) }) } }
     catch { throw new Error('Project tool configuration is invalid; repair it or review a saved backup') }
   }
 
@@ -118,7 +123,8 @@ export class ProjectDoctor {
     if (!problem) try { services = await (await this.owner(path)).list(path) } catch (error) { problem = redactDesignCaptureSecrets(String(error)) }
     if (problem && this.owners.has(scope.projectKey)) services = await (await this.owners.get(scope.projectKey)!).list(path).catch(() => [])
     if (this.histories.has(scope.projectKey) || (configurationValid && configuration.historyBinary && !configuration.disabled.includes('history'))) services.push({ id: 'history', status: await this.histories.get(scope.projectKey)?.isIndexing(path).catch(() => false) ? 'starting' : 'stopped', version: SESSION_HISTORY_VERSION, detail: 'Finite native indexing job; Reindex verifies the selected binary and roots.' })
-    return { workspacePath: scope.projectPath, configuration, revision, configurationPath: join(scope.directory, 'tools.json'), configurationValid, backups, problem, resources, availableDiskBytes,
+    const discovered = discoverNativeSessionRoots([scope.projectPath, scope.checkoutPath])
+    return { discoveredHistoryRoots: { historyOmpRoots: discovered.omp, historyDshRoots: discovered['deepseek-harness'], historyHermesRoots: discovered.hermes, historyKimiRoots: discovered.kimi }, workspacePath: scope.projectPath, configuration, revision, configurationPath: join(scope.directory, 'tools.json'), configurationValid, backups, problem, resources, availableDiskBytes,
       services: services.map(service => ({ ...service, detail: service.detail ? redactDesignCaptureSecrets(service.detail) : null })) }
   }
 
@@ -146,6 +152,20 @@ export class ProjectDoctor {
     return this.inspect(path)
   }
 
+  async setup(path: string, field: string, revision: string | null) {
+    const scope = await this.location(path)
+    const current = await this.read(scope.directory, scope.projectPath)
+    if (current.revision !== revision) throw new Error('Configuration changed; recheck before setup')
+    if (current.configuration[field as keyof ProjectToolConfiguration]) throw new Error('This component already has a configured path; preserve or clear that override before setup')
+    const installed = await installProjectTool(field, join(scope.directory, 'installed'))
+    try { return await this.configure(path, { ...current.configuration, [field]: installed.path }, revision) }
+    catch (cause) {
+      const latest = await this.read(scope.directory, scope.projectPath).catch(() => null)
+      if (latest && latest.configuration[field as keyof ProjectToolConfiguration] !== installed.path) await rm(installed.directory, { recursive: true, force: true })
+      throw cause
+    }
+  }
+
   async list(path: string) { return (await this.owner(path)).list(path) }
   async start(path: string, id: string) { return (await this.owner(path)).start(path, id) }
   async call(path: string, id: string, operation: string, input: unknown) { return (await this.owner(path)).call(path, id, operation, input) }
@@ -167,7 +187,7 @@ export class ProjectDoctor {
     if (!config.historyBinary || config.disabled.includes('history')) throw new Error('Configure and enable the admitted session history engine first')
     let history = this.histories.get(scope.projectKey)
     if (!history) {
-      history = new ProjectSessionHistory({ binary: config.historyBinary, analyticsPython: config.duckdbPython, cache: this.historyCache, roots: { omp: config.historyOmpRoots ?? [], 'deepseek-harness': config.historyDshRoots ?? [], hermes: config.historyHermesRoots ?? [], kimi: config.historyKimiRoots ?? [] } }, async requested => {
+      history = new ProjectSessionHistory({ binary: config.historyBinary, analyticsPython: config.duckdbPython, cache: this.historyCache, roots: { omp: config.historyOmpRoots, 'deepseek-harness': config.historyDshRoots, hermes: config.historyHermesRoots, kimi: config.historyKimiRoots } }, async requested => {
         const current = await resolveProjectToolScope(requested, this.resolveWorkspace)
         if (current.projectKey !== scope.projectKey) throw new Error('History belongs to another project')
         return current

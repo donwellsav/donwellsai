@@ -36,8 +36,8 @@ try {
   const originalHash = hash(readFileSync(join(profile, 'project-memory.json')))
   await page.getByRole('button', { name: 'Terminal', exact: true }).click()
   await page.getByRole('button', { name: 'Layout', exact: true }).click()
-  const split = page.getByRole('button', { name: 'Split terminal right', exact: true })
-  assert(await split.evaluate(element => !!element.closest('.workspace-layout-popover')))
+  const split = page.getByRole('menuitem', { name: 'Split terminal right', exact: true })
+  assert(await split.evaluate(element => !!element.closest('[role="menu"][aria-label="Layout"]')))
   assert.equal(await page.locator('.workspace-docking-surface button[aria-label="Split terminal right"]').count(), 0)
   const beforeSplit = (await invoke('terminal.list')).sessions.length
   await split.click()

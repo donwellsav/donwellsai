@@ -1,3 +1,4 @@
+import { contextMenuKey, focusContextMenu } from '../context-menu'
 import { NativeTerminalPane } from './NativeTerminalPane'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
@@ -146,7 +147,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
     // Copy-on-select reads the setting live so toggling applies without remount.
     t.onSelectionChange(() => {
       if (useAppStore.getState().settings.copyOnSelect && t.hasSelection()) {
-        void navigator.clipboard.writeText(t.getSelection()).catch(() => { /* clipboard denied */ })
+        void navigator.clipboard.writeText(t.getSelection()).catch(error => useAppStore.getState().setError(`Could not copy terminal selection: ${String(error)}`))
       }
     })
 
@@ -211,6 +212,11 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       setContextMenu({ x: event.clientX - rect.left, y: event.clientY - rect.top })
     }
     host.addEventListener('contextmenu', onContextMenu)
+    const onMenuKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+      event.preventDefault(); event.stopPropagation(); setContextMenu({ x: 8, y: 8 })
+    }
+    host.addEventListener('keydown', onMenuKey, true)
 
     /**
      * Fit with redundancy. The original bug: fit ran only from RO/activation
@@ -262,6 +268,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       window.removeEventListener('resize', onWinResize)
       subscription.dispose()
       host.removeEventListener('contextmenu', onContextMenu)
+      host.removeEventListener('keydown', onMenuKey, true)
       document.removeEventListener('visibilitychange', onVisible)
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
@@ -428,7 +435,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       } else if (action === 'paste') {
         if (terminal.options.disableStdin) throw new Error('Reattach the terminal before pasting.')
         const text = await navigator.clipboard.readText()
-        if (text) useAppStore.getState().writeTerminal(sessionId, text)
+        if (text) terminal.paste(text)
       } else if (action === 'select-all') {
         terminal.selectAll()
       } else if (action === 'clear') {
@@ -463,19 +470,18 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         <p>{connectionError}</p>
         {!exited && <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnectRef.current?.()}>{connecting ? 'Reattaching…' : 'Reattach terminal'}</button>}
       </div>}
-      {!connectionError && replayWarning && <div className="terminal-replay-warning" role="alert">
-        <strong>Terminal history is incomplete</strong>
-        <p>{redrawMessage || 'The retained output was shortened or could not be verified. The screen may need a native redraw.'}</p>
-        <div>
-          {!exited && <button className="btn btn-secondary btn-sm" disabled={redrawing} onClick={() => void requestRedraw()}>{redrawing ? 'Requesting…' : 'Request redraw'}</button>}
-          <button className="btn btn-secondary btn-sm" disabled={redrawing} onClick={() => { setReplayWarning(false); termRef.current?.focus() }}>Dismiss notice</button>
-        </div>
+      {!connectionError && replayWarning && <div className="terminal-history-notice" role="status">
+        <details><summary title="Retained terminal history is incomplete. Expand for details.">History incomplete</summary><p>{redrawMessage || 'The retained output was shortened or could not be verified. The screen may need a native redraw.'}</p></details>
+        {!exited && <button className="btn btn-ghost btn-sm" aria-label="Request redraw" title="Ask the running process to redraw its screen; earlier output remains incomplete" disabled={redrawing} onClick={() => void requestRedraw()}>{redrawing ? 'Requesting…' : 'Redraw'}</button>}
+        <button className="icon-btn" aria-label="Dismiss notice" title="Dismiss this history notice" disabled={redrawing} onClick={() => { setReplayWarning(false); termRef.current?.focus() }}><Icon name="x" size={14} /></button>
       </div>}
       {searchOpen && isActive && <TerminalSearch search={searchRef} onClose={closeSearch} />}
       {contextMenu && isActive && (
         <>
           <button className="terminal-context-scrim" aria-label="Close terminal menu" onClick={() => setContextMenu(null)} />
           <div
+            ref={focusContextMenu}
+            onKeyDown={event => contextMenuKey(event, () => { setContextMenu(null); termRef.current?.focus() })}
             className="terminal-context-menu"
             role="menu"
             aria-label="Terminal actions"
@@ -483,10 +489,10 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <button role="menuitem" onClick={() => void runContextAction('copy')}>Copy <span>⌘C</span></button>
-            <button role="menuitem" onClick={() => void runContextAction('paste')}>Paste <span>⌘V</span></button>
+            <button role="menuitem" title="Paste clipboard text into the active terminal" onClick={() => void runContextAction('paste')}>Paste <span>⌘V</span></button>
             <button role="menuitem" onClick={() => void runContextAction('select-all')}>Select all</button>
             <span className="terminal-context-rule" />
-            <button role="menuitem" onClick={() => void runContextAction('clear')}>Clear buffer</button>
+            <button role="menuitem" title="Clear the displayed terminal buffer; the running process continues" onClick={() => void runContextAction('clear')}>Clear buffer</button>
             <button role="menuitem" onClick={() => void runContextAction('find')}>Find… <span>⌘F</span></button>
             {contextMenu.error && <p role="alert">{contextMenu.error}</p>}
           </div>
@@ -601,11 +607,11 @@ function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAdd
         />
         <span className="terminal-search-results" aria-live="polite">{resultLabel}</span>
       </div>
-      <button className={'icon-btn search-option' + (caseSensitive ? ' active' : '')} aria-pressed={caseSensitive} title="Match case" onClick={() => setCaseSensitive(!caseSensitive)}>Aa</button>
-      <button className={'icon-btn search-option' + (wholeWord ? ' active' : '')} aria-pressed={wholeWord} title="Match whole word" onClick={() => setWholeWord(!wholeWord)}>ab</button>
-      <button className={'icon-btn search-option regex' + (regex ? ' active' : '')} aria-pressed={regex} title="Use regular expression" onClick={() => setRegex(!regex)}>.*</button>
-      <button className="icon-btn" title="Previous result (Shift+Enter)" disabled={!query || !!error} onClick={() => run(true)}>↑</button>
-      <button className="icon-btn" title="Next result (Enter)" disabled={!query || !!error} onClick={() => run(false)}>↓</button>
+      <button className={'icon-btn search-option' + (caseSensitive ? ' active' : '')} aria-pressed={caseSensitive} aria-label="Match case" title="Match uppercase and lowercase letters exactly" onClick={() => setCaseSensitive(!caseSensitive)}>Aa</button>
+      <button className={'icon-btn search-option' + (wholeWord ? ' active' : '')} aria-pressed={wholeWord} aria-label="Match whole word" title="Find whole words instead of parts of words" onClick={() => setWholeWord(!wholeWord)}>ab</button>
+      <button className={'icon-btn search-option regex' + (regex ? ' active' : '')} aria-pressed={regex} aria-label="Use regular expression" title="Interpret the search as a regular expression pattern" onClick={() => setRegex(!regex)}>.*</button>
+      <button className="icon-btn" title="Previous result (Shift+Enter)" disabled={!query || !!error} onClick={() => run(true)}><Icon name="up" /></button>
+      <button className="icon-btn" title="Next result (Enter)" disabled={!query || !!error} onClick={() => run(false)}><Icon name="down" /></button>
       <button className="icon-btn terminal-search-clear" title="Clear search" disabled={!query && !error} onClick={clear}>Clear</button>
       <button className="icon-btn" title="Close search (Esc)" onClick={onClose}><Icon name="x" size={11} /></button>
       {error && <p className="terminal-search-error" role="alert">{error}</p>}

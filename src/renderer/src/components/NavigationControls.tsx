@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Icon } from './Icon'
+import { useCallback, useId, useMemo, useRef, useState } from 'react'
 import {
   appCommandPlatform,
   formatAppShortcut,
@@ -17,23 +18,7 @@ import {
 import { pathBasename, pathParentLabel } from '../workspace-navigation'
 import { useAppStore, type Pane } from '../store'
 import './navigation-controls.css'
-
-function ArrowIcon({ direction }: { direction: 'left' | 'right' }) {
-  const path = direction === 'left' ? 'M10.5 3.5L6 8l4.5 4.5' : 'M5.5 3.5L10 8l-4.5 4.5'
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={path} />
-    </svg>
-  )
-}
-
-function RecentIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2a6 6 0 106 6M8 4.5V8l2.5 1.5M2 2v4h4" />
-    </svg>
-  )
-}
+import { contextMenuKey, focusContextMenu } from '../context-menu'
 
 function paneFor(target: NavigationTarget, panes: Record<string, Pane[]>): Pane | undefined {
   return target.kind === 'workspace'
@@ -62,6 +47,7 @@ export function NavigationControls() {
   const terminals = useAppStore((state) => state.terminals)
   const settings = useAppStore((state) => state.settings)
   const [recentOpen, setRecentOpen] = useState(false)
+  const recentMenuId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const platform = appCommandPlatform(navigator.platform || navigator.userAgent)
   const shortcuts = useMemo(() => resolveAppShortcuts(settings.keyboardShortcutOverrides, platform).shortcuts,
@@ -79,21 +65,13 @@ export function NavigationControls() {
     .filter((target) => navigationTargetAvailable(target))
     .slice(0, 8)
 
-  useEffect(() => {
-    if (!recentOpen) return
-    const onPointerDown = (event: PointerEvent): void => {
-      if (rootRef.current && !event.composedPath().includes(rootRef.current)) setRecentOpen(false)
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') setRecentOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [recentOpen])
+  const openRecentMenu = useCallback((menu: HTMLDivElement | null): void => {
+    if (!menu || !rootRef.current) return
+    const anchor = rootRef.current.getBoundingClientRect()
+    menu.style.left = `${Math.max(8, anchor.right - menu.offsetWidth)}px`
+    menu.style.top = `${anchor.bottom + 4}px`
+    focusContextMenu(menu)
+  }, [])
 
   const backShortcut = shortcutFor('navigate-back')
   const forwardShortcut = shortcutFor('navigate-forward')
@@ -101,43 +79,21 @@ export function NavigationControls() {
 
   return (
     <div className="navigation-controls" ref={rootRef} aria-label="Navigation history">
-      <div className="navigation-control-pair">
-        <button
-          type="button"
-          className="navigation-control"
-          disabled={!capabilities.canGoBack}
-          aria-label="Go back"
-          title={`Go back${backShortcut ? ` (${backShortcut})` : ''}`}
-          onClick={() => void navigateHistory(-1)}
-        >
-          <ArrowIcon direction="left" />
-        </button>
-        <button
-          type="button"
-          className="navigation-control"
-          disabled={!capabilities.canGoForward}
-          aria-label="Go forward"
-          title={`Go forward${forwardShortcut ? ` (${forwardShortcut})` : ''}`}
-          onClick={() => void navigateHistory(1)}
-        >
-          <ArrowIcon direction="right" />
-        </button>
-      </div>
       <button
         type="button"
         className={`navigation-control navigation-recent-trigger${recentOpen ? ' active' : ''}`}
-        disabled={recent.length === 0}
+        disabled={recent.length === 0 && !capabilities.canGoBack && !capabilities.canGoForward}
         aria-label="Recent locations"
         aria-haspopup="menu"
         aria-expanded={recentOpen}
-        title={`Recent locations${mruShortcut ? ` · switch with ${mruShortcut}` : ''}`}
-        onClick={() => setRecentOpen((open) => !open)}
+        title={`Workspace history: back, forward and recent locations${mruShortcut ? ` · switch with ${mruShortcut}` : ''}`}
+        popoverTarget={recentMenuId}
       >
-        <RecentIcon />
-        <span className="navigation-control-caret" aria-hidden="true">▾</span>
+        <Icon name="history" />
       </button>
-      {recentOpen ? (
-        <div className="navigation-recent-menu" role="menu" aria-label="Recent locations">
+        <div id={recentMenuId} className="navigation-recent-menu" popover="auto" onToggle={event => { const open = event.newState === 'open'; setRecentOpen(open); if (open) openRecentMenu(event.currentTarget) }} onKeyDown={event => contextMenuKey(event, () => { event.currentTarget.hidePopover(); rootRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus() })} role="menu" aria-label="Recent locations">
+          <button type="button" role="menuitem" className="navigation-recent-item" disabled={!capabilities.canGoBack} onClick={() => { document.getElementById(recentMenuId)?.hidePopover(); void navigateHistory(-1) }}>Back{backShortcut ? ` (${backShortcut})` : ''}</button>
+          <button type="button" role="menuitem" className="navigation-recent-item" disabled={!capabilities.canGoForward} onClick={() => { document.getElementById(recentMenuId)?.hidePopover(); void navigateHistory(1) }}>Forward{forwardShortcut ? ` (${forwardShortcut})` : ''}</button>
           <div className="navigation-recent-heading">
             <span>Recent locations</span>
             {mruShortcut ? <kbd>{mruShortcut}</kbd> : null}
@@ -151,7 +107,7 @@ export function NavigationControls() {
                 className="navigation-recent-item"
                 key={`${target.kind}\u0000${target.worktreePath}\u0000${target.kind === 'workspace' ? '' : target.paneKey}`}
                 onClick={() => {
-                  setRecentOpen(false)
+                  document.getElementById(recentMenuId)?.hidePopover()
                   void activateRecentNavigationTarget(target)
                 }}
               >
@@ -166,7 +122,7 @@ export function NavigationControls() {
               role="menuitem"
               className="navigation-recent-switch"
               onClick={() => {
-                setRecentOpen(false)
+                document.getElementById(recentMenuId)?.hidePopover()
                 void switchNavigationMru(1)
               }}
             >
@@ -174,7 +130,6 @@ export function NavigationControls() {
             </button>
           ) : null}
         </div>
-      ) : null}
     </div>
   )
 }

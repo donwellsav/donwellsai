@@ -2,7 +2,6 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { EditorRecoveryEntry } from '@shared/editor-recovery'
 import { getEditorRecoveryController } from '../editor-recovery'
 import { useAppStore } from '../store'
-import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
 import './editor-recovery.css'
 
@@ -35,7 +34,6 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
         const state = useAppStore.getState()
         const repo = state.repos.find((candidate) => candidate.worktrees.some((worktree) => worktree.path === entry.workspacePath))
         if (!repo) throw new Error('Workspace is unavailable. The recovery draft was retained.')
-        state.setActiveRepo(repo.repo.id)
         state.setActiveWorktree(entry.workspacePath)
         await state.openPreview(entry.workspacePath, entry.relPath, { mode: 'edit' })
         const restored = useAppStore.getState().previews[entry.workspacePath]?.[entry.relPath]
@@ -68,15 +66,13 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
   }
 
   return (
-    <section className="recovery-panel" aria-labelledby="recovery-panel-title">
+    <section className="recovery-panel" aria-label="Recovery drafts">
       <div className="recovery-panel-header">
-        <span className="recovery-panel-title" id="recovery-panel-title">
-          <Icon name="refresh" size={14} />
-          Recovery
+        <span className="recovery-panel-title" title={workspacePath}>
+          {workspacePath ? workspacePath.split(/[\\/]/).filter(Boolean).at(-1) : 'All checkouts'}
         </span>
-        {entries.length > 0 && <span className="recovery-panel-count" aria-label={`${entries.length} recovery drafts`}>{entries.length}</span>}
+        <span className="recovery-panel-count">{entries.length} {entries.length === 1 ? 'draft' : 'drafts'}</span>
       </div>
-
       {snapshot.loading && <div className="recovery-panel-state" role="status">Checking protected drafts…</div>}
       {snapshot.error && (
         <div className="recovery-panel-alert" role="alert">
@@ -103,10 +99,10 @@ export function RecoveryPanel({ workspacePath, onRestore }: RecoveryPanelProps) 
                   </span>
                 </div>
                 <div className="recovery-row-actions">
-                  <button type="button" className="btn btn-secondary btn-sm" disabled={busyCheckpointId !== null} onClick={() => void restore(entry)}>
+                  <button type="button" className="btn btn-secondary btn-sm" title="Open this file in the editor with its protected recovery draft" disabled={busyCheckpointId !== null} onClick={() => void restore(entry)}>
                     {busy ? 'Restoring…' : 'Restore'}
                   </button>
-                  <button type="button" className="btn btn-ghost btn-sm danger" disabled={busyCheckpointId !== null} onClick={() => setDiscardTarget(entry)}>
+                  <button type="button" className="btn btn-ghost btn-sm danger" title="Review a confirmation before permanently removing this unsaved draft; the file on disk stays unchanged" disabled={busyCheckpointId !== null} onClick={() => setDiscardTarget(entry)}>
                     Discard
                   </button>
                 </div>

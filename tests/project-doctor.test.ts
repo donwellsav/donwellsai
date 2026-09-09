@@ -223,3 +223,14 @@ it('reports saved engine state without treating partial setup or an unverified b
   expect(JSON.parse(projectDoctorDiagnostics(disabled)).tools.find((tool: { id: string }) => tool.id === 'documents').status).toBe('disabled')
   expect(projectToolSetupStatus({ ...report, configurationValid: false }, 'documents')).toBe('configuration unreadable')
 })
+
+ it('discovers newly installed tools after restart without replacing saved project choices', async () => {
+  const f = await fixture()
+  const initial = await f.doctor.inspect(f.project)
+  await f.doctor.configure(f.project, { ...initial.configuration, codeGraphBinary: '/custom/graph', disabled: ['documents'], referenceRoots: ['/custom/references'] }, initial.revision)
+  await f.doctor.close()
+  const restarted = new ProjectDoctor(join(f.root, 'config'), async path => ({ path, projectPath: f.project }), () => ({ codeGraphBinary: '/detected/graph', backlogBinary: '/detected/backlog', referenceRoots: [], disabled: [] }), () => [])
+  doctors.push(restarted)
+  const actual = await restarted.inspect(f.project)
+  expect(actual.configuration).toMatchObject({ codeGraphBinary: '/custom/graph', backlogBinary: '/detected/backlog', disabled: ['documents'], referenceRoots: ['/custom/references'] })
+})

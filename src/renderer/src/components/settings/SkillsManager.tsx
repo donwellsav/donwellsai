@@ -1,3 +1,4 @@
+import { guiDraftMap } from '../../gui-drafts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   InstalledSkillPackage,
@@ -10,6 +11,7 @@ import type {
   SkillPackagesListResult
 } from '@shared/skill-packages'
 import { SKILL_PACKAGE_PROVIDERS } from '@shared/skill-packages'
+import { useAppStore } from '../../store'
 import { SettingsState } from './SettingsControls'
 import './SkillsManager.css'
 
@@ -199,7 +201,12 @@ function PackageDetails({
   )
 }
 
+const emptySource = { location: '', revision: '', subpath: '', kind: 'local' as SkillPackageSource['kind'] }
+
+const sourceDrafts = guiDraftMap<typeof emptySource>('skill-sources')
+
 export function SkillsManager() {
+  const sourceDraft = sourceDrafts.get('source') ?? emptySource
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([])
   const [workspacePath, setWorkspacePath] = useState('')
   const [providerId, setProviderId] = useState<SkillPackageProviderId>('codex')
@@ -208,10 +215,11 @@ export function SkillsManager() {
   const [error, setError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [workspaceLoading, setWorkspaceLoading] = useState(true)
-  const [sourceKind, setSourceKind] = useState<SkillPackageSource['kind']>('local')
-  const [sourceLocation, setSourceLocation] = useState('')
-  const [sourceRevision, setSourceRevision] = useState('')
-  const [sourceSubpath, setSourceSubpath] = useState('')
+  const [sourceKind, setSourceKind] = useState<SkillPackageSource['kind']>(sourceDraft.kind)
+  const [sourceLocation, setSourceLocation] = useState(sourceDraft.location)
+  const [sourceRevision, setSourceRevision] = useState(sourceDraft.revision)
+  const [sourceSubpath, setSourceSubpath] = useState(sourceDraft.subpath)
+  useEffect(() => { sourceDrafts.set('source', { location: sourceLocation, revision: sourceRevision, subpath: sourceSubpath, kind: sourceKind }) }, [sourceLocation, sourceRevision, sourceSubpath, sourceKind])
   const [plan, setPlan] = useState<SkillPackagePlan | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null)
@@ -242,7 +250,7 @@ export function SkillsManager() {
         }
       }
       setWorkspaces(options)
-      setWorkspacePath((current) => current && options.some((option) => option.path === current) ? current : options[0]?.path ?? '')
+      setWorkspacePath((current) => current && options.some((option) => option.path === current) ? current : options.find((option) => option.path === useAppStore.getState().activeWorktreePath)?.path ?? options[0]?.path ?? '')
     } catch (caught) {
       if (sequence === workspaceSequence.current) {
         setWorkspaceError(errorMessage(caught))
@@ -379,9 +387,8 @@ export function SkillsManager() {
     <section className="skill-packages-manager" aria-labelledby="skill-packages-title">
       <div className="skill-packages-header">
         <div>
-          <span className="skill-packages-eyebrow">Agent-consumed packages</span>
           <h3 id="skill-packages-title">Workspace skills</h3>
-          <p>Install complete <code>SKILL.md</code> packages into a documented, agent-native workspace path. Nothing is installed globally, and package scripts are never run by the manager.</p>
+          <p>Install skills for agents in this workspace. Review the files before installation.</p>
         </div>
         <span className="settings-badge">{listing?.packages.length ?? 0} managed</span>
       </div>
@@ -389,14 +396,13 @@ export function SkillsManager() {
       <div className="skill-packages-targets">
         <label>
           <span>Target workspace</span>
-          <select className="settings-select" value={workspacePath} disabled={workspaceLoading || workspaces.length === 0 || state !== 'ready'} onChange={(event) => {
+          <select className="settings-select" title={workspacePath} value={workspacePath} disabled={workspaceLoading || workspaces.length === 0 || state !== 'ready'} onChange={(event) => {
             setWorkspacePath(event.currentTarget.value)
             setPlan(null)
             setSelectedPackage(null)
           }}>
             {workspaces.length === 0 ? <option value="">No authorized workspace</option> : workspaces.map((workspace) => <option key={workspace.path} value={workspace.path}>{workspace.label}</option>)}
           </select>
-          {workspacePath && <code title={workspacePath}>{workspacePath}</code>}
         </label>
         <label>
           <span>Target agent</span>
@@ -421,7 +427,7 @@ export function SkillsManager() {
       ) : state === 'loading' ? (
         <SettingsState kind="loading" title="Inspecting workspace skills" />
       ) : listing?.packages.length === 0 ? (
-        <SettingsState kind="empty" title="No managed packages for this target" detail="Prepare a local package, an HTTPS SKILL.md document, or a generic HTTPS Git source. You will review an exact plan before files change." />
+        <p className="settings-description">No skills installed for this agent yet.</p>
       ) : (
         <div className="skill-packages-list" aria-label="Managed workspace skill packages">
           {listing?.packages.map((skill) => {
@@ -474,7 +480,7 @@ export function SkillsManager() {
       <section className="skill-packages-source" aria-labelledby="skill-package-source-title">
         <div>
           <h4 id="skill-package-source-title">Prepare a package</h4>
-          <p>Acquisition is read-only. Installation begins only after you review and confirm the generated plan.</p>
+          <p>Choose a local package, HTTPS document or Git source.</p>
         </div>
         <div className="skill-packages-source-grid">
           <label htmlFor="skill-package-source-kind">
@@ -535,7 +541,7 @@ export function SkillsManager() {
         </div>
       </section>
 
-      <section className="skill-packages-legacy" aria-labelledby="skill-packages-legacy-title">
+      <details className="skill-packages-legacy" aria-labelledby="skill-packages-legacy-title"><summary>Legacy reference documents</summary>
         <div className="skill-packages-legacy-head"><div><span className="skill-packages-eyebrow">Reference library · not installed</span><h4 id="skill-packages-legacy-title">Legacy skill documents</h4><p>Existing app-managed Markdown documents are preserved exactly where they are. Agents do not discover or consume this library.</p></div><span className="settings-badge">{legacyDocuments.length} preserved</span></div>
         {legacyDocuments.length === 0 ? <SettingsState kind="empty" title="No legacy documents" /> : <div className="skill-packages-legacy-list">{legacyDocuments.map((document) => <button key={document.id} type="button" onClick={() => void readPreview({ kind: 'legacy', id: document.id })}><span><strong>{document.name}</strong><small>{document.source ?? document.fileName}</small></span><span>{formatBytes(document.bytes)}</span></button>)}</div>}
         {previewSelection?.kind === 'legacy' && (
@@ -543,7 +549,7 @@ export function SkillsManager() {
             {previewLoading ? <SettingsState kind="loading" title="Reading preserved document" /> : preview?.encoding === 'utf8' ? <><div className="skill-packages-preview-head"><code>{preview.path}</code><button className="btn btn-secondary btn-sm" type="button" onClick={() => { setPreviewSelection(null); setPreview(null) }}>Close</button></div><pre>{preview.content}</pre></> : preview ? <SettingsState kind="empty" title="Binary legacy document" /> : null}
           </div>
         )}
-      </section>
+      </details>
 
       {error && <div className="settings-inline-error" role="alert"><span>{error}</span><span className="settings-inline-actions"><button type="button" onClick={() => setError(null)}>Dismiss</button><button type="button" onClick={() => void refresh()}>Retry</button></span></div>}
     </section>

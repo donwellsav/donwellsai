@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import { access, readFile, stat, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { constants, existsSync } from "node:fs";
@@ -36,6 +37,12 @@ for (const platform of ["mac", "linux", "win"]) {
 const resources = new Map(config.extraResources.map(({ from, to }) => [from, to]));
 assert(resources.get("scripts/profile-recovery.mjs") === "recovery/profile-recovery.mjs", "packaged recovery engine is missing");
 assert(resources.get("resources/native") === "native", "native resources are not packaged");
+if ((values.platform ?? process.platform) === 'darwin' && (values.arch ?? process.arch) === 'arm64') {
+  const history = await readJson('native/history/build.json');
+  const binary = await readFile(resolve(values.resources ?? resolve(root, 'resources'), 'native/history/agentsview'));
+  assert(createHash('sha256').update(binary).digest('hex') === history.binarySha256, 'Bundled history engine is missing or differs from the tested build');
+  await access(resolve(values.resources ?? resolve(root, 'resources'), 'native/history/LICENSE'), constants.R_OK);
+}
 assert(resources.get("cli") === "cli", "packaged CLI loader directory is missing");
 assert(resources.get("dist-cli") === "dist-cli", "packaged compiled CLI directory is missing");
 assert(resources.get("resources/bin") === "bin", "packaged CLI launchers are missing");

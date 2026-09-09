@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_SETTINGS, validateSettingsPatch } from '../src/shared/settings'
-import { resetSettingsAtRevision, searchSettingsCatalog } from '../src/renderer/src/settings-workspace'
+import { DEFAULT_SETTINGS, validateSettingsPatch, resolveSettings, sparseSettings } from '../src/shared/settings'
+import { resetSettingsAtRevision, searchSettingsCatalog, SETTINGS_SECTION_PRESENTATION } from '../src/renderer/src/settings-workspace'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Icon } from '../src/renderer/src/components/Icon'
 import { TERMINAL_THEMES, TERMINAL_THEME_NAMES } from '../src/renderer/src/terminal-themes'
 
 describe('settings workspace catalog', () => {
-  it('finds actual application commands and fixed privacy capabilities', () => {
+  it('renders a nonempty icon for every settings destination', () => {
+    for (const section of SETTINGS_SECTION_PRESENTATION) {
+      expect(renderToStaticMarkup(Icon({ name: section.icon })), section.id).toMatch(/<(path|rect|circle|polyline|line)/)
+    }
+  })
+  it('finds actual application commands and privacy controls', () => {
     expect(searchSettingsCatalog('Quick Open').map((group) => group.section.id)).toEqual(['shortcuts'])
-    expect(searchSettingsCatalog('credential').map((group) => group.section.id)).toEqual(['privacy'])
+    expect(searchSettingsCatalog('external agent access').map((group) => group.section.id)).toEqual(['privacy'])
+    for (const query of ['Skills', 'Hindsight', 'documents', 'backup']) expect(searchSettingsCatalog(query).some(group => group.section.id === 'project')).toBe(true)
     expect(searchSettingsCatalog('not a real preference')).toEqual([])
   })
 
@@ -33,6 +41,7 @@ describe('settings reset response ordering', () => {
       revision,
       reset: () => reset.promise,
       currentRevision: () => revision,
+      currentSettings: () => ({ ...DEFAULT_SETTINGS, terminalFontSize: 18 }),
       sync
     })
 
@@ -42,4 +51,25 @@ describe('settings reset response ordering', () => {
     await expect(pending).resolves.toBe(false)
     expect(sync).not.toHaveBeenCalled()
   })
+})
+
+
+it('accepts its own reset broadcast without overwriting an unrelated newer preference', async () => {
+  const sync = vi.fn()
+  const current = { ...DEFAULT_SETTINGS, editorMinimap: true }
+  await expect(resetSettingsAtRevision({ request: { keys: ['uiScale'] }, revision: 1, reset: async () => DEFAULT_SETTINGS, currentRevision: () => 2, currentSettings: () => current, sync })).resolves.toBe(true)
+  expect(sync).not.toHaveBeenCalled()
+  expect(current.editorMinimap).toBe(true)
+})
+
+it('persists appearance and automation choices and rejects unsupported values', () => {
+  const preferences = { recordBrowserHistory: false, externalAgentAccess: false, interfaceFont: 'system', interfaceMotion: 'reduced', interfaceDensity: 'comfortable', navigationLabels: 'labels', toolPanelSide: 'left', browserAutoPreview: false } as const
+  const resolved = resolveSettings(preferences)
+  expect(resolveSettings(sparseSettings(resolved))).toEqual(resolved)
+  expect(resolved).toMatchObject(preferences)
+  expect(() => validateSettingsPatch({ interfaceDensity: 'tiny' })).toThrow()
+  expect(() => validateSettingsPatch({ interfaceFont: 'unavailable' })).toThrow()
+  expect(() => validateSettingsPatch({ interfaceMotion: 'fast' })).toThrow()
+  expect(() => validateSettingsPatch({ navigationLabels: 'off' })).toThrow()
+  expect(() => validateSettingsPatch({ browserAutoPreview: 'yes' })).toThrow()
 })

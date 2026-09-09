@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, symlinkSync, mkdirSync, realpathSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -74,4 +74,16 @@ it.skipIf(!process.env.DONWELLS_BACKLOG_BINARY)('rechecks the project-selected n
  selected=undefined
  expect((await service.inspect(f.repo)).tools.find(tool=>tool.id==='backlog')?.available).toBe(false)
  expect(paths).toEqual([f.repo,f.repo]);expect(f.launches).toEqual([])
+})
+
+it('keeps task ownership when a registered project uses a symlink path', async () => {
+ const f=await fixture(),alias=join(f.root,'project-alias');symlinkSync(f.repo,alias,'dir')
+ const original=f.store.listRepos()[0]!;f.store.removeRepo(original.id);f.store.addImportedRepo({...original,path:alias},{panes:{}})
+ const service=new ProjectTaskCoordination(f.store,f.terminals,'',new AgentRegistry({env:{PATH:''}}))
+ expect((await service.inspect(f.repo)).authority).toBeNull()
+ await service.setAuthority(alias,true)
+ expect(f.store.listRepos()[0]?.taskAuthority).toBe('backlog.md')
+ await service.setAuthority(f.repo,false)
+ expect((await service.inspect(alias)).authority).toBeNull()
+ expect(f.launches).toEqual([])
 })

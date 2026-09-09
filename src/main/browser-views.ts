@@ -1,4 +1,4 @@
-import { session, WebContentsView, type BrowserWindow } from 'electron'
+import { Menu, shell, clipboard, session, WebContentsView, type BrowserWindow } from 'electron'
 import { registerBrowserShortcuts } from './browser-shortcuts'
 import { browserPartition, configureBrowserPermissions, allowedNavigation } from './browser-permissions'
 import type { BrowserViewRequest, BrowserViewState } from '@shared/browser-view'
@@ -12,7 +12,7 @@ export class BrowserViews {
   private closed = false
   private epoch = 0
   private creates = new Map<string, number>()
-  constructor(private window: BrowserWindow, private verify: (key: string) => Promise<string>) {
+  constructor(private window: BrowserWindow, private verify: (key: string) => Promise<string>, private resolveUrl: (key: string, url: string) => Promise<string> = async (_key, url) => url) {
     window.on('closed', () => this.close())
     window.webContents.on('render-process-gone', () => this.clear())
     window.webContents.on('did-start-navigation', (_event, _url, inPlace, main) => { if (main && !inPlace) this.clear() })
@@ -34,6 +34,12 @@ export class BrowserViews {
     const item = this.views.get(key)
     if (!item || item.view.webContents.isDestroyed()) throw new Error('Open this project preview before starting browser testing')
     return { id: item.view.webContents.id, url: item.view.webContents.getURL() }
+  }
+  async clearSiteData(key: string) {
+    const checkout = await this.verify(key)
+    await session.fromPartition(browserPartition(checkout)).clearData({
+      dataTypes: ['cookies', 'cache', 'fileSystems', 'indexedDB', 'localStorage', 'serviceWorkers', 'webSQL', 'backgroundFetch']
+    })
   }
   async evaluate(key: string, js: string) {
     await this.verify(key)
@@ -65,6 +71,25 @@ export class BrowserViews {
         if (this.views.get(key) !== current || this.window.isDestroyed() || wc.isDestroyed()) return
         this.window.webContents.send('browser:view', { key, instance, type, event, state: this.state(view) })
       }
+      wc.on('context-menu', (_event, params) => {
+        const link = allowedNavigation(params.linkURL) ? params.linkURL : undefined
+        Menu.buildFromTemplate([
+          ...(link ? [
+            { label: 'Open link', click: () => { void wc.loadURL(link).catch(() => undefined) } },
+            { label: 'Open in default browser', click: () => { void shell.openExternal(link) } },
+            { label: 'Copy link address', click: () => clipboard.writeText(link) },
+            { type: 'separator' as const }
+          ] : []),
+          { role: 'cut', enabled: params.editFlags.canCut },
+          { role: 'copy', enabled: params.editFlags.canCopy },
+          { role: 'paste', enabled: params.editFlags.canPaste },
+          { role: 'selectAll' },
+          { type: 'separator' },
+          { label: 'Back', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() },
+          { label: 'Forward', enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() },
+          { label: 'Reload', click: () => wc.reload() }
+        ]).popup({ window: this.window })
+      })
       wc.setWindowOpenHandler(() => ({ action: 'deny' }))
       wc.on('will-navigate', (event, url) => { if (!allowedNavigation(url)) event.preventDefault() })
       wc.on('will-redirect', (event, url) => { if (!allowedNavigation(url)) event.preventDefault() })
@@ -78,7 +103,7 @@ export class BrowserViews {
       wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => emit('did-fail-load', { errorCode, errorDescription, validatedURL, isMainFrame }))
       wc.on('render-process-gone', (_event, details) => emit('did-fail-load', { errorDescription: 'Browser process exited: ' + details.reason, isMainFrame: true }))
       wc.on('found-in-page', (_event, result) => { const id = current.find.get(result.requestId); if (id !== undefined) emit('found-in-page', { result: { ...result, requestId: id } }) })
-      wc.on('focus', () => emit('focus'))
+      wc.on('focus', () => { if (view.getVisible()) emit('focus') })
       registerBrowserShortcuts(wc, this.window.webContents)
       return this.state(view)
     }
@@ -86,7 +111,7 @@ export class BrowserViews {
     const { view } = item, wc = view.webContents
     switch (request.op) {
       case 'dispose': this.views.delete(key); this.window.contentView.removeChildView(view); wc.close({ waitForBeforeUnload: false }); return
-      case 'navigate': if (!allowedNavigation(request.url)) throw new Error('Browser requires HTTP(S)'); return wc.loadURL(request.url)
+      case 'navigate': if (!allowedNavigation(request.url)) throw new Error('Browser requires HTTP(S)'); return wc.loadURL(await this.resolveUrl(key, request.url))
       case 'reload': wc.reload(); return
       case 'stop': wc.stop(); return
       case 'back': if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); return

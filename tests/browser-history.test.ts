@@ -81,3 +81,20 @@ describe('BrowserHistoryStore', () => {
     expect(store.list()).toEqual([])
   })
 })
+
+
+it('stops recording immediately without deleting saved history, then resumes', () => {
+  const directory = temporaryDirectory()
+  let enabled = true
+  const store = new BrowserHistoryStore(directory, undefined, undefined, () => enabled)
+  store.record({ url: 'https://saved.test/', title: 'Saved' })
+  const before = readFileSync(store.path, 'utf8')
+  enabled = false
+  store.record({ url: 'https://private.test/', title: 'Private' })
+  expect(readFileSync(store.path, 'utf8')).toBe(before)
+  expect(store.list().map(entry => entry.url)).toEqual(['https://saved.test/'])
+  store.clear()
+  expect(store.record({ url: 'https://private.test/', title: 'Still private' })).toEqual([])
+  enabled = true
+  expect(store.record({ url: 'https://new.test/', title: 'New' })).toHaveLength(1)
+})

@@ -1,3 +1,5 @@
+import { restoreProjectMemoryDraft } from './project-memory-editor'
+import { restoreGuiDrafts } from './gui-drafts'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
@@ -263,12 +265,15 @@ type AppState = {
   paletteMode: 'commands' | 'files'
   settingsOpen: boolean
   runsOpen: boolean
+  agentComposerOpen: boolean
   runsSection: RunsSection
 
   /** which settings section the modal shows (nav rail selection; deep-linkable) */
   settingsSection: SettingsSection
   /** app chrome (upstream shell state) */
   sidebarOpen: boolean
+  railCollapsed: boolean
+  projectListPercent: number
   sidebarWidth: number
   rightSidebarWidth: number
   rightSidebarOpen: boolean
@@ -297,7 +302,7 @@ type AppState = {
   togglePane(worktreePath: string, kind: 'explorer' | 'git-status'): void
   closePane(worktreePath: string, key: string): Promise<boolean>
   saveDocking(worktreePath: string, layout: WorkspaceLayout): Promise<void>
-  arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): void
+  arrangeWorkspace(worktreePath: string, preset: WorkspacePreset): Promise<void>
   hidePaneView(worktreePath: string, key: string): void
   openWorkspaceModule(worktreePath: string, kind: 'explorer' | 'git-status' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'): void
   requestClosePane(worktreePath: string, key: string): void
@@ -326,7 +331,7 @@ type AppState = {
   openDiff(worktreePath: string, relPath: string, comparison?: DiffComparison): void
   /** Switch an open editor pane to another file (tab switch semantics). */
   retargetPreview(worktreePath: string, paneKey: string, relPath: string): Promise<void>
-  openBrowser(worktreePath: string, url: string): Promise<void>
+  openBrowser(worktreePath: string, url?: string): Promise<void>
   noteBrowserNavigation(worktreePath: string, url: string): void
   writePreview(worktreePath: string, relPath: string, content: string): Promise<FileContent>
   /** Acknowledgements never advance the external-write epoch. */
@@ -354,11 +359,13 @@ type AppState = {
   syncSettings(settings: AppSettings): void
   setSettings(patch: Partial<AppSettings>): Promise<{ ok: true } | { ok: false; error: string }>
   setSidebarOpen(open: boolean): void
+  setRailCollapsed(value: boolean): void
+  setProjectListPercent(value: number): void
   setSidebarWidth(w: number): void
   setRightSidebarWidth(w: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): number | null
   setRightSidebarOpen(open: boolean): void
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'): void
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer', toggle?: boolean): void
   setCreateOpen(open: boolean): void
 
   toggleRepoCollapsed(repoId: string): void
@@ -393,7 +400,7 @@ async function restoreSession(
     layouts: Record<string, LayoutNode>
   } = { panes: {}, activePane: {}, activeTerminal: {}, terminalOrder: {}, terminals: {}, layouts: {} }
   const liveSessions = await window.donwells.terminalSessions()
-  const restoredPreviews: Record<string, Record<string, FileContent & { v: number }>> = {}
+  const restoredPreviews: AppState['previews'] = {}
   const liveById = new Map(liveSessions.map((session) => [session.id, session]))
   const worktreePaths = new Set(repos.flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)))
   const savedRepos = saved?.repos ?? {}
@@ -418,7 +425,7 @@ async function restoreSession(
               }
               if (Object.keys(files).length >= 12) { valid.push(pane); continue }
               const content = await previewFileContent(worktreePath, pane.file)
-              files[pane.file] = { ...content, v: 0 }
+              files[pane.file] = { ...content, v: 0, mode: defaultPreviewMode(pane.file, state.settings ?? useAppStore.getState().settings) }
             } catch (cause) {
               state.error = `Could not restore ${pane.file}: ${String(cause)}. Any protected draft remains in Recover.`
               valid.push(pane)
@@ -542,6 +549,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activePane: {},
   activeTerminal: {},
   sidebarOpen: true,
+  railCollapsed: false,
+  projectListPercent: 35,
   sidebarWidth: 224,
   rightSidebarWidth: 350,
   rightSidebarOpen: false,
@@ -553,6 +562,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paletteMode: 'commands',
   settingsOpen: false,
   runsOpen: false,
+  agentComposerOpen: false,
   runsSection: 'orchestration',
   settingsSection: 'agents',
   runningAgents: {},
@@ -561,6 +571,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   async load() {
     set({ loading: true, initializationError: null })
     try {
+      await restoreGuiDrafts()
+      restoreProjectMemoryDraft()
       const settingsRevision = get().settingsRevision
       const [repos, agents, agentRuns, settings, wsSession] = await Promise.all([
         window.donwells.listRepos(),
@@ -595,8 +607,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ui = saved?.ui
       if (ui) {
         set({
-          sidebarWidth: ui.sidebarWidth ?? get().sidebarWidth,
+          railCollapsed: ui.railCollapsed === true,
+          projectListPercent: typeof ui.projectListPercent === 'number' && Number.isFinite(ui.projectListPercent) ? Math.max(15, Math.min(75, ui.projectListPercent)) : 35,
+          sidebarWidth: typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth) ? Math.max(220, Math.min(620, ui.sidebarWidth)) : get().sidebarWidth,
           rightSidebarWidth: ui.rightSidebarWidth ?? get().rightSidebarWidth,
+          sidebarOpen: typeof ui.sidebarOpen === 'boolean' ? ui.sidebarOpen : get().sidebarOpen,
+          rightSidebarOpen: typeof ui.rightSidebarOpen === 'boolean' ? ui.rightSidebarOpen : get().rightSidebarOpen,
+          rightSidebarTab: ui.rightSidebarTab && ['explorer', 'git', 'memory', 'recovery', 'search', 'computer'].includes(ui.rightSidebarTab) ? ui.rightSidebarTab : get().rightSidebarTab,
+          runsOpen: typeof ui.runsOpen === 'boolean' ? ui.runsOpen : get().runsOpen,
+          runsSection: ui.runsSection && ['agents', 'automations', 'orchestration'].includes(ui.runsSection) ? ui.runsSection : get().runsSection,
         })
       }
       if (repos.length > 0) void get().refreshStatuses()
@@ -752,6 +771,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (sessions.some((session) => session.worktreePath === worktreePath && !session.exited)) throw new Error('Close the live terminals in this worktree first.')
         if (agents.some((run) => run.workspacePath === worktreePath && run.liveness !== 'exited')) throw new Error('Stop or reconcile active agents in this worktree first.')
         const summary = await window.donwells.removeWorktree(repo.repo.id, worktreePath, force)
+        const removingActive = get().activeWorktreePath === worktreePath
         const files = Object.keys(get().previews[worktreePath] ?? {})
         invalidatePreviewRequestsUnder(worktreePath)
         set((state) => ({
@@ -760,6 +780,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           error: null
         }))
         get().pruneRemovedRepos()
+        if (removingActive) get().setActiveWorktree(summary.worktrees.find(worktree => worktree.isMain)?.path ?? summary.worktrees[0]?.path ?? null)
         for (const file of files) disposePreviewModel(worktreePath, file)
       })
       return { ok: true as const }
@@ -930,8 +951,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     return persistSessionSoon()
   },
 
-  arrangeWorkspace(worktreePath, preset) {
-    get().saveDocking(worktreePath, workspacePreset(preset, get().panes[worktreePath] ?? [], get().activePane[worktreePath]))
+  async arrangeWorkspace(worktreePath, preset) {
+    try {
+      if (preset === 'build' && !get().panes[worktreePath]?.some(pane => pane.kind === 'browser')) await get().openBrowser(worktreePath)
+      get().saveDocking(worktreePath, workspacePreset(preset, get().panes[worktreePath] ?? [], get().activePane[worktreePath]))
+    } catch (error) { get().setError(String(error)) }
   },
 
   hidePaneView(worktreePath, key) {
@@ -955,13 +979,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   requestClosePane(worktreePath: string, key: string) {
     const target = get().panes[worktreePath]?.find((pane) => pane.key === key)
     const terminal = target?.sessionId ? get().terminals[target.sessionId] : undefined
-    if (target?.sessionId && terminal && !terminal.session.exited) {
+    const agent = target?.sessionId ? get().runningAgents[target.sessionId] : undefined
+    if (target?.sessionId && ((terminal && !terminal.session.exited) || (agent && agent.liveness !== 'exited'))) {
       set({
         closeRequest: {
           worktreePath,
           key,
           sessionId: target.sessionId,
-          label: target.label ?? terminal.session.title ?? 'Terminal'
+          label: target.label ?? terminal?.session.title ?? 'Terminal'
         }
       })
       return
@@ -1430,6 +1455,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return { ...shared, panes, layouts }
       })
       persistSessionSoon()
+      if (typeof document !== 'undefined' && get().activeWorktreePath === worktreePath && get().activePane[worktreePath] === key) void focusPaneTarget()
       return true
     } catch (error) {
       set({ error: String(error) })
@@ -1604,11 +1630,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   /** Open (or retarget) the worktree's single embedded browser pane. */
-  openBrowser(worktreePath: string, url: string) {
+  async openBrowser(worktreePath: string, url?: string) {
     if (!get().repos.some((repo) => repo.worktrees.some((worktree) => worktree.path === worktreePath))) {
       throw new Error(`No workspace owns ${worktreePath}`)
     }
-    const normalized = normalizeBrowserUrl(url)
+    const current = get()
+    const existingUrl = current.panes[worktreePath]?.find(pane => pane.kind === 'browser')?.url
+    const ports = [...new Set(current.scans[worktreePath]?.ports.map(server => server.port) ?? [])]
+    const detectedUrl = current.settings.browserAutoPreview && ports.length === 1 ? `http://localhost:${ports[0]}` : undefined
+    const normalized = normalizeBrowserUrl(url ?? existingUrl ?? detectedUrl ?? current.settings.browserHomeUrl)
     const key = 'browser:tab'
     set((s) => {
       const panes = { ...s.panes }
@@ -1628,6 +1658,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { panes, layouts, activePane: { ...s.activePane, [worktreePath]: key } }
     })
+    get().setActivePane(worktreePath, key)
     return persistSessionSoon()
   },
 
@@ -1855,6 +1886,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPaletteOpen(open: boolean, mode?: 'commands' | 'files') {
     set((state) => ({ paletteOpen: open, paletteMode: mode ?? state.paletteMode }))
+    if (!open && typeof document !== 'undefined') void focusPaneTarget()
   },
 
   setGitCommitDraft(worktreePath: string, value: string) {
@@ -1864,6 +1896,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSettingsOpen(open: boolean) {
     set({ settingsOpen: open })
+    if (!open && typeof document !== 'undefined') void focusPaneTarget()
   },
 
   openSettings(section: SettingsSection) {
@@ -1872,33 +1905,46 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openRuns(section: RunsSection = get().runsSection) {
     set({ runsOpen: true, runsSection: section, settingsOpen: false })
+    persistSessionSoon()
   },
 
   setRunsOpen(open: boolean) {
     const wasOpen = get().runsOpen
     set({ runsOpen: open })
+    persistSessionSoon()
     if (wasOpen && !open && typeof document !== 'undefined') void focusPaneTarget()
   },
 
   setSidebarOpen(open: boolean) {
     set({ sidebarOpen: open })
+    persistSessionSoon()
   },
 
   setRightSidebarOpen(open: boolean) {
     const wasOpen = get().rightSidebarOpen
     if (open && !wasOpen) { get().setRightSidebarTab(get().rightSidebarTab); return }
     set({ rightSidebarOpen: open })
+    persistSessionSoon()
     if (wasOpen && !open && typeof document !== 'undefined') requestAnimationFrame(() => {
       if (!get().rightSidebarOpen) void focusPaneTarget()
     })
   },
 
+  setRailCollapsed(value: boolean) {
+    set({ railCollapsed: value }); persistSessionSoon()
+  },
+  setProjectListPercent(value: number) {
+    if (!Number.isFinite(value)) return
+    set({ projectListPercent: Math.max(15, Math.min(75, value)) }); persistSessionSoon()
+  },
   setSidebarWidth(w: number) {
-    set({ sidebarWidth: Math.min(500, Math.max(220, Math.round(w))) })
+    if (!Number.isFinite(w)) return
+    set({ sidebarWidth: Math.min(620, Math.max(220, Math.round(w))) })
     persistSessionSoon()
   },
 
   setRightSidebarWidth(w: number) {
+    if (!Number.isFinite(w)) return
     set({ rightSidebarWidth: Math.min(620, Math.max(240, Math.round(w))) })
     persistSessionSoon()
   },
@@ -1924,8 +1970,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     return clamped
   },
 
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer') {
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer', toggle = false) {
+    const state = get()
+    if (toggle && !state.runsOpen && state.rightSidebarOpen && state.rightSidebarTab === tab) {
+      get().setRightSidebarOpen(false)
+      return
+    }
+    set({ runsOpen: false })
+    const path = state.activeWorktreePath
+    const key = `${tab === 'git' ? 'git-status' : tab}:${path}`
+    if (path && state.panes[path]?.some(pane => pane.key === key)) {
+      get().setActivePane(path, key)
+      set({ rightSidebarOpen: false })
+      persistSessionSoon()
+      if (typeof document !== 'undefined') void focusPaneTarget()
+      return
+    }
     set({ rightSidebarOpen: true, rightSidebarTab: tab })
+    persistSessionSoon()
     if (typeof document !== 'undefined') requestAnimationFrame(() => {
       const state = get()
       if (state.rightSidebarOpen && state.rightSidebarTab === tab && !document.querySelector('dialog[open]')) {
@@ -1989,7 +2051,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveWorktree(path: string | null) {
-    set({ activeWorktreePath: path, runsOpen: false })
+    const owner = path ? get().repos.find(repo => repo.worktrees.some(worktree => worktree.path === path)) : undefined
+    if (path && !owner) return
+    set({ activeWorktreePath: path, ...(owner ? { activeRepoId: owner.repo.id } : {}), runsOpen: false })
     if (path) {
       void get().refreshExplorer(path)
       // upstream activation-terminal-prep: every worktree gets a shell ready on first visit.
@@ -2120,7 +2184,7 @@ function workspaceSnapshot(): WorkspaceSession {
     workspaceNav: normalizeWorkspaceNavigation(s.workspaceNavigation, s.repos),
     gitCommitDrafts: Object.fromEntries(Object.entries(s.gitCommitDrafts).filter(([path]) => worktreePaths.has(path))),
     fileSearchMru: Object.fromEntries(Object.entries(s.fileSearchMru).filter(([path]) => worktreePaths.has(path))),
-    ui: { sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth }
+    ui: { railCollapsed: s.railCollapsed, projectListPercent: s.projectListPercent, sidebarWidth: s.sidebarWidth, rightSidebarWidth: s.rightSidebarWidth, sidebarOpen: s.sidebarOpen, rightSidebarOpen: s.rightSidebarOpen, rightSidebarTab: s.rightSidebarTab, runsOpen: s.runsOpen, runsSection: s.runsSection }
   }
   return snapshot
 }

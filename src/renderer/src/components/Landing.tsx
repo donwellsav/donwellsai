@@ -29,9 +29,8 @@ export function Landing() {
     }
   }
 
-  const openWorkspace = (repoId: string, path: string): void => {
+  const openWorkspace = (_repoId: string, path: string): void => {
     const state = useAppStore.getState()
-    state.setActiveRepo(repoId)
     state.setActiveWorktree(path)
   }
 

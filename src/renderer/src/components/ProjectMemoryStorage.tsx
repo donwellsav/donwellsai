@@ -21,14 +21,14 @@ export function ProjectMemoryStorage({ onChanged }: { onChanged: () => void }) {
     try {
       const result = await window.donwells.projectMemoryStorageAction(action)
       setStatus(result.status)
-      setMessage(result.exportPath ? `Export saved: ${result.exportPath}` : action === 'migrate' ? 'Shared memory now uses SQLite.' : action === 'reverse' ? 'Current memory now uses JSON.' : 'Preserved JSON memory restored.')
+      setMessage(result.exportPath ? `Export saved: ${result.exportPath}` : action === 'migrate' ? 'Memory storage upgraded.' : action === 'reverse' ? 'Memory storage restored to the portable format.' : 'Preserved JSON memory restored.')
     } catch (error) {
       setMessage(String(error))
       try { setStatus(await window.donwells.projectMemoryStorageStatus()) } catch { /* Keep the original action error visible. */ }
     } finally { setBusy(false); onChanged() }
   }
   return <details className="memory-storage">
-    <summary>Memory storage · {status?.backend ?? 'checking'}</summary>
+    <summary>Memory storage and recovery</summary>
     <p>Applies to all project memories in this app profile. Terminal sessions keep running.</p>
     {status?.backend === 'json' && <p>Upgrade to SQLite with a verified backup of the current JSON store.</p>}
     {status?.backend === 'preparing' && <p>An upgrade is unfinished. Resume it or return to the preserved JSON source.</p>}
@@ -38,11 +38,13 @@ export function ProjectMemoryStorage({ onChanged }: { onChanged: () => void }) {
     {status?.error && <p className="memory-error" role="alert">{status.error}</p>}
     {status?.backupPath && <p className="memory-storage-path">Backup · {status.backupBytes?.toLocaleString()} bytes<br />{status.backupPath}</p>}
     <div className="memory-storage-actions">
-      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void check()}>Check storage</button>
-      {(status?.backend === 'json' || status?.backend === 'preparing') && <button className="btn btn-primary btn-sm" disabled={busy || status.backend === 'json' && !!status.error} onClick={() => void act('migrate')}>{status.backend === 'preparing' ? 'Resume upgrade' : 'Upgrade to SQLite'}</button>}
+      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void check()}>Refresh health</button>
+      {(status?.backend === 'json' || status?.backend === 'preparing') && <button className="btn btn-primary btn-sm" disabled={busy || status.backend === 'json' && !!status.error} onClick={() => void act('migrate')}>{status.backend === 'preparing' ? 'Resume upgrade' : 'Upgrade memory storage'}</button>}
       {(status?.backend === 'preparing' || status?.backend === 'aborting') && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void act('abort')}>Return to preserved JSON</button>}
       {status?.backend === 'sqlite' && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void act('export')}>Export current memory</button>}
+      <details><summary>Advanced storage format</summary>
       {(status?.backend === 'sqlite' || status?.backend === 'reversing') && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void act('reverse')}>{status.backend === 'reversing' ? 'Resume return to JSON' : 'Return current memory to JSON'}</button>}
+      </details>
     </div>
     <p className="memory-storage-path" role="status">{busy ? 'Working…' : message}</p>
   </details>

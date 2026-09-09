@@ -67,7 +67,7 @@ try {
   await page.keyboard.press('Enter')
   await until(() => page.evaluate(async id => (await window.donwells.attachTerminal(id)).scrollback.includes('DONWELLS_GUI_OK'), session), 'fresh terminal output')
   report.checks.realTerminalInput = true
-  for (const label of ['Files', 'Changes', 'Project memory', 'Recover unsaved files']) {
+  for (const label of ['Files', 'Git', 'Project memory', 'Recover unsaved files']) {
     const button = page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true })
     await button.focus(); await page.keyboard.press('Enter')
     await until(async () => await button.getAttribute('aria-pressed') === 'true', label + ' opens by keyboard')
@@ -109,11 +109,11 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.flexlayout__tabset').length === 2)
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+w' : 'Control+w')
   await page.getByRole('button', { name: 'Layout', exact: true }).click()
-  await page.getByText('Hidden (1)', { exact: true }).waitFor()
+  const restoreView = page.getByRole('menuitem', { name: /^Restore / })
+  await restoreView.waitFor()
   assert.deepEqual((await invoke('terminal.list')).map(item => item.id).sort(), sessionIds)
-  await page.getByText('Hidden (1)', { exact: true }).click()
-  await page.locator('.workspace-hidden-views button').click()
-  await page.getByText('Hidden (1)', { exact: true }).waitFor({ state: 'detached' })
+  await restoreView.click()
+  await page.getByRole('menu', { name: 'Layout', exact: true }).waitFor({ state: 'detached' })
   for (let move = 0; move < 100; move++) {
     await arrange(move % 2 ? 'Pair' : 'Focus')
   }
@@ -237,7 +237,8 @@ try {
   assert.equal(new Set(restoredKeys).size, restoredKeys.length)
   report.checks.corruptLayoutWarnsAndRecoversWithoutDuplicateResources = true
   await page.getByRole('button', { name: 'Layout', exact: true }).click()
-  await page.getByText('Hidden (1)', { exact: true }).waitFor()
+  const restoreView = page.getByRole('menuitem', { name: /^Restore / })
+  await restoreView.waitFor()
   await page.getByRole('button', { name: 'Layout', exact: true }).click()
   await page.getByText('Unsaved · Recoverable', { exact: true }).waitFor()
   assert.equal((await invoke('ui.editor.read', { worktreePath: workspacePath, relPath: 'README.md' })).content, before.content)
@@ -276,7 +277,7 @@ try {
   report.checks.reducedMotion = await page.evaluate(() => [...document.querySelectorAll('.workspace-frame button')].every(element => { const style = getComputedStyle(element); return style.animationName === 'none' && style.transitionDuration.split(',').every(value => parseFloat(value) === 0) }))
   assert(report.checks.reducedMotion)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
-  for (const [label, kind] of [['Files', 'explorer'], ['Changes', 'git-status'], ['Project memory', 'memory'], ['Recover unsaved files', 'recovery']]) {
+  for (const [label, kind] of [['Files', 'explorer'], ['Git', 'git-status'], ['Project memory', 'memory'], ['Recover unsaved files', 'recovery']]) {
     await page.getByRole('navigation', { name: 'Workspace tools' }).getByRole('button', { name: label, exact: true }).click()
     await page.getByRole('button', { name: 'Move panel into workspace', exact: true }).click()
     await page.locator(`[data-pane-kind="${kind}"]`).waitFor()

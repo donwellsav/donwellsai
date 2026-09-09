@@ -9,12 +9,12 @@ import { isMarkdownFile, useAppStore } from './store'
 import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
 import { focusPaneTarget, getNavigationCapabilities, navigateHistory, switchNavigationMru } from './navigation-controller'
-import { moveWorkspacePane, restoreWorkspaceLayout } from './workspace-layout'
+import { moveWorkspacePane, restoreWorkspaceLayout, workspaceTabKeys } from './workspace-layout'
 import { nextWaitingSession } from '@shared/agent-presentation'
 import { openProjectSetup } from './project-setup'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
-  'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'>
+  'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'> & Partial<Pick<ReturnType<typeof useAppStore.getState>, 'previews'>>
 
 /** A global action never targets a workspace outside the selected project. */
 export function pinnedWorktree(state: CommandContext = useAppStore.getState()): string | null {
@@ -27,7 +27,8 @@ export function pinnedWorktree(state: CommandContext = useAppStore.getState()): 
 export function commandUnavailableReason(id: AppCommandId, state: CommandContext = useAppStore.getState()): string | undefined {
   const target = pinnedWorktree(state)
   const active = state.activeWorktreePath
-  const visible = active && !state.runsOpen && state.repos.some((repo) => repo.worktrees.some((worktree) => worktree.path === active))
+  const registered = active && state.repos.some((repo) => repo.worktrees.some((worktree) => worktree.path === active))
+  const visible = registered && !state.runsOpen
   const pane = visible ? state.panes[active]?.find((item) => item.key === state.activePane[active]) : undefined
   switch (id) {
     case 'new-worktree':
@@ -47,18 +48,20 @@ export function commandUnavailableReason(id: AppCommandId, state: CommandContext
     case 'switch-mru-previous':
       return getNavigationCapabilities().canSwitchMru ? undefined : 'Open another location in this project first.'
     case 'show-project-search':
-      return visible ? undefined : 'Open a registered workspace to search.'
+      return registered ? undefined : 'Open a registered workspace to search.'
+    case 'show-computer-control':
+      return registered ? undefined : 'Open a registered workspace to use computer control.'
     case 'show-project-memory':
-      return visible ? undefined : 'Open a registered workspace to view project memory.'
+      return registered ? undefined : 'Open a registered workspace to view project memory.'
     case 'show-editor-recovery':
       return undefined
     case 'quick-open':
     case 'toggle-explorer':
-      return visible ? undefined : 'Open a workspace to browse files.'
+      return registered ? undefined : 'Open a workspace to browse files.'
     case 'toggle-git-status':
-      return visible && state.repos.some((repo) => repo.repo.kind !== 'folder' && repo.worktrees.some((worktree) => worktree.path === active)) ? undefined : 'Open a Git workspace for source control.'
+      return registered && state.repos.some((repo) => repo.repo.kind !== 'folder' && repo.worktrees.some((worktree) => worktree.path === active)) ? undefined : 'Open a Git workspace for source control.'
     case 'find':
-      return pane?.kind === 'terminal' ? undefined : 'Focus a terminal, or use the active view’s Find control.'
+      return pane?.kind === 'terminal' || pane?.kind === 'preview' && pane.file && isMarkdownFile(pane.file) && active && state.previews?.[active]?.[pane.file]?.mode === 'preview' ? undefined : 'Focus a terminal, or use the active view’s Find control.'
     case 'stop-active-process':
       return pane?.sessionId ? undefined : 'Focus a terminal process first.'
     case 'layout-focus':
@@ -82,30 +85,28 @@ export function commandUnavailableReason(id: AppCommandId, state: CommandContext
     default:
       if (id.startsWith('select-tab-')) {
         const index = Number(id.slice('select-tab-'.length)) - 1
-        return visible && state.panes[active]?.[index] ? undefined : 'That workspace tab is not open.'
+        return visible && numberedTabs(active)[index] ? undefined : 'That workspace tab is not open.'
       }
       return undefined
   }
 }
 
+function numberedTabs(path: string): string[] {
+  const state = useAppStore.getState(), panes = state.panes[path] ?? []
+  return workspaceTabKeys(restoreWorkspaceLayout(state.docking[path], panes, state.layouts[path]).layout, panes, state.activePane[path])
+}
 function selectTab(commandId: AppCommandId): boolean {
   if (!commandId.startsWith('select-tab-')) return false
-  const index = Number(commandId.slice('select-tab-'.length)) - 1
-  const state = useAppStore.getState()
-  const worktreePath = pinnedWorktree()
-  if (!worktreePath || index < 0 || index > 8) return true
-  const tabs = (state.panes[worktreePath] ?? []).filter(
-    (pane) => pane.kind === 'terminal' || pane.kind === 'preview' || pane.kind === 'browser' || pane.kind === 'diff'
-  )
-  const pane = tabs[index]
-  if (pane) { state.setActivePane(worktreePath, pane.key); void focusPaneTarget() }
+  const state = useAppStore.getState(), path = state.activeWorktreePath
+  const key = path ? numberedTabs(path)[Number(commandId.slice('select-tab-'.length)) - 1] : undefined
+  if (path && key) { state.setActivePane(path, key); void focusPaneTarget() }
   return true
 }
 
 /** Menu, command-palette, and keyboard commands all enter through this dispatcher. */
 export function dispatchAppCommand(action: string): void {
   const command = appCommand(action)
-  if (!command) return
+  if (!command || !commandAllowedWhileModalOpen(command)) return
   const state = useAppStore.getState()
   const unavailable = commandUnavailableReason(command.id, state)
   if (unavailable) {
@@ -175,6 +176,7 @@ export function dispatchAppCommand(action: string): void {
       const paneKey = worktreePath ? state.activePane[worktreePath] : undefined
       const pane = worktreePath ? state.panes[worktreePath]?.find((candidate) => candidate.key === paneKey) : undefined
       if (pane?.kind === 'terminal' && pane.sessionId) requestTerminalFind(pane.sessionId)
+      else if (pane?.file) window.dispatchEvent(new CustomEvent('donwells:document-find', { detail: { worktreePath, file: pane.file } }))
       break
     }
     case 'focus-next-pane':
@@ -212,19 +214,17 @@ export function dispatchAppCommand(action: string): void {
     case 'close-active-pane': {
       const worktreePath = state.activeWorktreePath
       const paneKey = worktreePath ? state.activePane[worktreePath] : undefined
-      if (worktreePath && paneKey) state.hidePaneView(worktreePath, paneKey)
+      if (worktreePath && paneKey) state.requestClosePane(worktreePath, paneKey)
       break
     }
     case 'toggle-sidebar':
       state.setSidebarOpen(!state.sidebarOpen)
       break
     case 'toggle-explorer':
-      if (state.rightSidebarOpen && state.rightSidebarTab === 'explorer') state.setRightSidebarOpen(false)
-      else state.setRightSidebarTab('explorer')
+      state.setRightSidebarTab('explorer', true)
       break
     case 'toggle-git-status':
-      if (state.rightSidebarOpen && state.rightSidebarTab === 'git') state.setRightSidebarOpen(false)
-      else state.setRightSidebarTab('git')
+      state.setRightSidebarTab('git', true)
       break
     case 'toggle-markdown-preview': {
       const worktreePath = state.activeWorktreePath
@@ -258,6 +258,9 @@ export function dispatchAppCommand(action: string): void {
       state.setRightSidebarTab('search')
       requestAnimationFrame(() => [...document.querySelectorAll<HTMLInputElement>('.project-search input[type=search]')].find(input => input.offsetParent !== null)?.focus())
       break
+    case 'show-computer-control':
+      state.setRightSidebarTab('computer')
+      break
     case 'show-project-memory':
       state.setRightSidebarTab('memory')
       break
@@ -281,6 +284,7 @@ export function dispatchAppCommand(action: string): void {
 function commandAllowedWhileModalOpen(command: AppCommand): boolean {
   const state = useAppStore.getState()
   if (state.settingsOpen || state.createOpen || state.deleteTarget || state.closeRequest) return false
+  if (typeof document !== 'undefined' && document.querySelector('dialog[open]:not(.palette-dialog)')) return false
   return !state.paletteOpen || command.allowWhilePaletteOpen === true
 }
 

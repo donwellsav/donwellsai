@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from 'react'
+import { guiDraftMap } from '../../gui-drafts'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { AppSettings, SettingKey } from '@shared/types'
 import {
   SettingsValidationError,
@@ -7,6 +8,8 @@ import {
   validateSettingsPatch
 } from '@shared/settings'
 import type { SettingControl, SettingMetadata, SettingsDraft } from '@shared/settings'
+
+const inputDrafts = guiDraftMap<{ raw: string; base: AppSettings[SettingKey] }>('settings-inputs')
 
 const LIFECYCLE_LABELS = {
   live: 'Applies now',
@@ -54,13 +57,7 @@ export function SettingsField({
           <h3 id={titleId}>{metadata.label}</h3>
           {metadata.lifecycle !== 'live' && <span className="settings-badge">{LIFECYCLE_LABELS[metadata.lifecycle]}</span>}
         </div>
-        <p id={descriptionId}>{metadata.description}</p>
-        {(!isDefault || inheritedValue) && (
-          <div className="settings-default-line">
-            {!isDefault && <span>Default: {formatSettingValue(metadata.default)}</span>}
-            {inheritedValue && <span>Effective: {inheritedValue}</span>}
-          </div>
-        )}
+        <p id={descriptionId}>{metadata.description}{inheritedValue && <span className="settings-inherited-value"> Using {inheritedValue}.</span>}</p>
       </div>
       <div className="settings-field-action">
         {children}
@@ -70,7 +67,7 @@ export function SettingsField({
             type="button"
             disabled={resetting}
             onClick={onReset}
-            aria-label={`Reset ${metadata.label} to default`}
+            aria-label={`Reset ${metadata.label} to default`} title={`Restore ${metadata.label} to ${formatSettingValue(metadata.default)}`}
           >
             {resetting ? 'Resetting…' : 'Reset to default'}
           </button>
@@ -98,7 +95,7 @@ export function SettingsSwitch({
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-label={label}
+        aria-label={label} title={`${checked ? 'Turn off' : 'Turn on'} ${label}`}
         disabled={disabled}
         className={`settings-switch${checked ? ' is-on' : ''}`}
         onClick={() => onChange(!checked)}
@@ -152,37 +149,51 @@ export function SettingsDraftInput({
   control,
   value,
   revision,
+  suggestions,
   onCommit
 }: {
   metadata: SettingMetadata
   control: Extract<SettingControl, { type: 'text' | 'number' }>
   value: AppSettings[SettingKey]
   revision: number
+  suggestions?: readonly { value: string; label: string }[]
   onCommit(patch: Partial<AppSettings>): Promise<void>
 }) {
-  const [raw, setRaw] = useState(() => value === null ? '' : String(value))
+  const recovered = inputDrafts.get(metadata.key)
+  const [raw, setRaw] = useState(() => recovered?.raw ?? (value === null ? '' : String(value)))
+  const [custom, setCustom] = useState(() => !suggestions?.some(option => option.value === (recovered?.raw ?? value)))
+  const baseValue = useRef(recovered ? recovered.base : value)
   const [baseRevision, setBaseRevision] = useState(revision)
-  const [dirty, setDirty] = useState(false)
+  const [dirty, setDirty] = useState(Boolean(recovered && recovered.raw !== (value === null ? '' : String(value))))
   const [busy, setBusy] = useState(false)
   const [stale, setStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => { if (dirty) inputDrafts.set(metadata.key, { raw, base: baseValue.current }); else inputDrafts.delete(metadata.key) }, [metadata.key, raw, dirty])
+
   useEffect(() => {
     if (dirty) {
-      if (revision !== baseRevision) setStale(true)
+      if (!Object.is(value, baseValue.current)) setStale(true)
+      else if (!stale) setBaseRevision(revision)
       return
     }
+    baseValue.current = value
     setRaw(value === null ? '' : String(value))
     setBaseRevision(revision)
     setStale(false)
     setError(null)
-  }, [baseRevision, dirty, revision, value])
+  }, [baseRevision, dirty, revision, value, stale])
 
-  const commit = async (revisionAtCommit = baseRevision): Promise<void> => {
-    if (!dirty || busy) return
+  const suggestedValue = suggestions?.some(option => option.value === value) ?? false
+  useEffect(() => {
+    if (!dirty) setCustom(!suggestedValue)
+  }, [dirty, suggestedValue, value])
+
+  const commit = async (revisionAtCommit = baseRevision, choice?: string): Promise<void> => {
+    if ((!dirty && choice === undefined) || busy) return
     const draft: SettingsDraft = {
       key: metadata.key,
-      value: parseDraft(control, raw),
+      value: parseDraft(control, choice ?? raw),
       baseRevision: revisionAtCommit
     }
     setBusy(true)
@@ -207,6 +218,7 @@ export function SettingsDraftInput({
   }
 
   const reload = (): void => {
+    baseValue.current = value
     setRaw(value === null ? '' : String(value))
     setBaseRevision(revision)
     setDirty(false)
@@ -216,8 +228,15 @@ export function SettingsDraftInput({
 
   return (
     <div className="settings-draft-control" data-settings-dirty={dirty ? 'true' : undefined} aria-busy={busy}>
-      <div className="settings-input-wrap">
+      {suggestions?.length ? <select className="settings-select" aria-label={metadata.label} title="Choose an installed agent, or use a custom command" value={custom ? '' : raw} disabled={busy} onChange={event => {
+          setCustom(event.currentTarget.value === '')
+          const choice = event.currentTarget.value
+          setError(null)
+          if (choice) { setRaw(choice); setDirty(true); void commit(baseRevision, choice) }
+        }}>{suggestions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}<option value="">Custom command…</option></select> : null}
+      {(!suggestions?.length || custom) && <div className="settings-input-wrap">
         <input
+          title={suggestions?.length ? "Command and arguments used to start your agent" : undefined}
           className={`settings-input${error ? ' is-invalid' : ''}`}
           type={control.type === 'number' ? 'number' : 'text'}
           min={control.type === 'number' ? control.min : undefined}
@@ -225,7 +244,7 @@ export function SettingsDraftInput({
           step={control.type === 'number' ? control.step : undefined}
           maxLength={control.type === 'text' ? control.maxLength : undefined}
           placeholder={control.type === 'text' ? control.placeholder : control.nullable ? 'Inherit' : undefined}
-          aria-label={metadata.label}
+          aria-label={suggestions?.length ? "Custom agent command" : metadata.label}
           aria-invalid={Boolean(error)}
           disabled={busy}
           value={raw}
@@ -251,7 +270,7 @@ export function SettingsDraftInput({
         {metadata.key === 'uiScale' && (
           <span className="settings-input-suffix">{Number.isFinite(Number(raw)) ? `${Math.round(Number(raw) * 100)}%` : '—'}</span>
         )}
-      </div>
+      </div>}
       {dirty && (
         <div className="settings-draft-actions">
           <span>{busy ? 'Saving…' : 'Unsaved change'}</span>

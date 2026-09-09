@@ -25,6 +25,12 @@ export async function configureAgentMemory(options: {
       if (keys.length !== 2 || typeof value.revision !== 'string' || !value.revision || value.revision.length > 256 || /[\x00-\x1f\x7f]/.test(value.revision)) throw new Error('Invalid memory configuration replacement request')
     } else throw new Error('Invalid memory configuration replacement request')
   }
+  const server = { command: executable, args: [cliPath, 'memory-mcp', '--workspace', workspacePath, '--harness', provider, '--user-data', userDataDir], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  if (provider === 'codex') {
+    const literal = (value: string | string[]) => JSON.stringify(value).replace(/\x7f/g, '\\u007f')
+    return { path: 'session', changed: false, launchArgs: ['-c', `mcp_servers.donwells-project-memory={command=${literal(server.command)},args=${literal(server.args)},env={ELECTRON_RUN_AS_NODE="1"},env_vars=${literal(['DONWELLS_AGENT_HOOK_RUN_ID', 'DONWELLS_AGENT_HOOK_SESSION_ID', 'DONWELLS_AGENT_HOOK_TOKEN'])}}`] }
+  }
+  if (provider === 'claude') return { path: 'session', changed: false, launchArgs: ['--mcp-config', JSON.stringify({ mcpServers: { 'donwells-project-memory': server } })] }
   if (provider === 'hermes') {
     const args = options.launchArgs ?? []
     if (!Array.isArray(args) || args.length > 256 || args.some(arg => typeof arg !== 'string' || arg.length > 4096 || arg.includes('\0'))) throw new Error('Invalid Hermes launch arguments')
@@ -50,7 +56,6 @@ export async function configureAgentMemory(options: {
   if (provider !== 'omp' && provider !== 'kimi' && provider !== 'deepseek-harness') throw new Error('Native memory setup is not yet available for this provider')
   const directory = provider === 'omp' ? '.omp' : provider === 'kimi' ? '.kimi-code' : '.dsh'
   const path = `${directory}/${provider === 'deepseek-harness' ? 'donwells-memory.patch.json' : 'mcp.json'}`
-  const server = { command: executable, args: [cliPath, 'memory-mcp', '--workspace', workspacePath, '--harness', provider, '--user-data', userDataDir], env: { ELECTRON_RUN_AS_NODE: '1' } }
   const exists = async (relative: string): Promise<boolean> => {
     try { await lstat(join(workspacePath, relative)); return true }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error }

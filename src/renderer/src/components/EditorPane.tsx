@@ -49,6 +49,17 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
   const [recoveryStatus, setRecoveryStatus] = useState<EditorRecoveryPersistenceStatus>({ phase: 'idle' })
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false)
   const [reloading, setReloading] = useState(false)
+  const [copyStatus, setCopyStatus] = useState('')
+  const [comparison, setComparison] = useState<{ disk: string; buffer: string } | null>(null)
+  const comparisonHost = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!comparison || !comparisonHost.current) return
+    const original = monaco.editor.createModel(comparison.disk)
+    const modified = monaco.editor.createModel(comparison.buffer)
+    const editor = monaco.editor.createDiffEditor(comparisonHost.current, { readOnly: true, automaticLayout: true, originalEditable: false, originalAriaLabel: 'Current disk snapshot', modifiedAriaLabel: 'Unsaved editor snapshot' })
+    editor.setModel({ original, modified })
+    return () => { editor.dispose(); original.dispose(); modified.dispose() }
+  }, [comparison])
   const [reloadError, setReloadError] = useState<string | null>(null)
   const [editorMountError, setEditorMountError] = useState<string | null>(null)
   const [mountAttempt, setMountAttempt] = useState(0)
@@ -160,13 +171,15 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
           model,
           save,
           recovery: {
-            waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath })
+            waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath }),
+            protects: snapshot => recovery.protects({ workspacePath: worktreePath, relPath }, snapshot)
           }
         }
         cacheEditorDocument(worktreePath, relPath, editorDocument)
       } else {
         editorDocument.recovery ??= {
-          waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath })
+          waitForPersistence: () => recovery.waitForDocument({ workspacePath: worktreePath, relPath }),
+            protects: snapshot => recovery.protects({ workspacePath: worktreePath, relPath }, snapshot)
         }
         const update = editorDocument.save.observeExternal(diskPreview, diskPreview.v)
         if (update === 'adopted' && editorDocument.model.getValue() !== diskPreview.content) {
@@ -566,10 +579,27 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
             <button type="button" className="editor-status-action" onClick={retryRecovery}>Retry recovery</button>
           )}
           {(phase === 'failed' || phase === 'conflict' || (phase === 'readonly' && hasUnsaved)) && (
-            <button type="button" className="editor-status-action" onClick={() => setReloadConfirmationOpen(true)}>Reload</button>
+            <><button type="button" className="editor-status-action" onClick={() => {
+              const current = documentRef.current
+              if (!current) return
+              const buffer = current.model.getValue()
+              void persistRecoveryCheckpoint(current, editorRef.current).then(() => window.donwells.readFile(worktreePath, relPath)).then(file => {
+                if (file.binary || file.truncated) throw new Error(file.binary ? 'Disk file is no longer text; your draft is retained' : 'Disk file is too large for a complete comparison')
+                setComparison({ disk: file.content, buffer })
+              }).catch(error => setCopyStatus(`Comparison failed; your draft is retained. ${String(error)}`))
+            }}>Compare with disk</button><button type="button" className="editor-status-action" onClick={() => {
+              const buffer = documentRef.current?.model.getValue()
+              if (buffer === undefined) { setCopyStatus('Editor buffer unavailable'); return }
+              void navigator.clipboard.writeText(buffer).then(() => setCopyStatus('Unsaved text copied'), error => setCopyStatus(`Copy failed: ${String(error)}`))
+            }}>Copy unsaved text</button><button type="button" className="editor-status-action" onClick={() => setReloadConfirmationOpen(true)}>Reload</button><span role="status">{copyStatus}</span></>
           )}
         </div>
       )}
+      {comparison && <ModalDialog labelledBy="editor-compare-title" className="modal editor-comparison-modal" onClose={() => setComparison(null)}>
+        <h3 id="editor-compare-title" className="modal-title">Disk snapshot ↔ unsaved text</h3>
+        <div ref={comparisonHost} style={{ width: '100%', height: '65dvh', flexShrink: 0 }} />
+        <div className="modal-footer"><button className="btn btn-secondary btn-sm" onClick={() => setComparison(null)}>Close comparison</button></div>
+      </ModalDialog>}
       {reloadConfirmationOpen && (
         <ModalDialog className="modal delete-modal" labelledBy="editor-reload-title" onClose={() => !reloading && setReloadConfirmationOpen(false)}>
           <h3 id="editor-reload-title" className="modal-title">Discard unsaved changes?</h3>

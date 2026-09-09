@@ -13,7 +13,7 @@ type MarkdownRenderCheckpoint = Readonly<{
 }>
 
 type MarkdownViewRefs = Readonly<{
-  hostRef: RefObject<HTMLDivElement | null>
+  hostRef: RefObject<HTMLElement | null>
   scrollRef: RefObject<HTMLDivElement | null>
 }>
 

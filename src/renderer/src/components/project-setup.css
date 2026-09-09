@@ -207,11 +207,6 @@
   gap: 8px;
 }
 
-.project-setup-actions .btn {
-  height: 36px;
-  padding-inline: 14px;
-  font-size: 14px;
-}
 
 @media (max-width: 560px) {
   .project-setup-form {

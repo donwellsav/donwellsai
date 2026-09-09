@@ -4,23 +4,27 @@ import { isObject } from '@shared/command-catalog'
 import type { PersistedLayoutNode } from '@shared/types'
 
 export type WorkspaceLayout = { version: 1; model: IJsonModel; hidden: string[] }
-export type WorkspacePreset = 'focus' | 'pair' | 'build' | 'review'
+export type WorkspacePreset = 'focus' | 'pair' | 'stack' | 'grid' | 'build' | 'review'
 type PaneReference = { key: string; kind: string; label?: string; file?: string; url?: string }
 type Group = IJsonRowNode | IJsonTabSetNode
-const globals = { tabEnableClose: true, tabEnableFloat: false, tabEnablePopout: false, tabEnableRenderOnDemand: false, tabSetEnableClose: false, tabSetEnableMaximize: true, tabSetMinWidth: 120, tabSetMinHeight: 90 }
+const globals = { tabEnableClose: false, tabEnableFloat: false, tabEnablePopout: false, tabEnableRenderOnDemand: false, tabSetEnableClose: false, tabSetEnableMaximize: true, tabSetMinWidth: 120, tabSetMinHeight: 90 }
 export function workspacePaneLabel(pane: PaneReference): string {
-  return pane.label || ({ explorer: 'Files', 'git-status': 'Changes', memory: 'Project memory', recovery: 'Recover unsaved files', search: 'Project search', computer: 'Computer control', environments: 'Project environments' } as Record<string, string>)[pane.kind] || (pane.file ? pane.file.split('/').pop()! : pane.kind === 'browser' ? 'Preview' : pane.kind === 'terminal' ? 'Terminal' : pane.kind)
+  return pane.label || ({ explorer: 'Files', 'git-status': 'Git', memory: 'Memory', recovery: 'Recovery', search: 'Search', computer: 'Computer control', environments: 'Project environments' } as Record<string, string>)[pane.kind] || (pane.file ? pane.file.split('/').pop()! : pane.kind === 'browser' ? 'Browser' : pane.kind === 'terminal' ? 'Terminal' : pane.kind)
 }
 const tab = (pane: PaneReference): IJsonTabNode => ({ type: 'tab', id: pane.key, name: workspacePaneLabel(pane), component: 'pane' })
 const group = (panes: readonly PaneReference[], active?: string): IJsonTabSetNode => ({ type: 'tabset', selected: Math.max(0, panes.findIndex(pane => pane.key === active)), children: panes.map(tab) })
 
 export function workspacePreset(preset: WorkspacePreset, panes: readonly PaneReference[], active?: string): WorkspaceLayout {
   let left = [...panes], right: PaneReference[] = []
-  if (preset === 'pair' && panes.length > 1) { right = [panes.find(pane => pane.key !== active && pane.kind === 'terminal') ?? panes[1]!]; left = panes.filter(pane => pane !== right[0]) }
+  if ((preset === 'pair' || preset === 'stack') && panes.length > 1) { right = [panes.find(pane => pane.key !== active && pane.kind === 'terminal') ?? panes[1]!]; left = panes.filter(pane => pane !== right[0]) }
   if (preset === 'build') { right = panes.filter(pane => pane.kind === 'browser'); left = panes.filter(pane => pane.kind !== 'browser') }
   if (preset === 'review') { left = panes.filter(pane => pane.kind === 'diff'); right = panes.filter(pane => pane.kind !== 'diff') }
-  const children = [left.length ? group(left, active) : null, right.length ? group(right) : null].filter((node): node is IJsonTabSetNode => node !== null)
-  return { version: 1, hidden: [], model: { global: globals, borders: [], layout: { type: 'row', children: children.length ? children : [group([])] } } }
+  let children: Group[] = [left.length ? group(left, active) : null, right.length ? group(right, active) : null].filter((node): node is IJsonTabSetNode => node !== null)
+  if (preset === 'grid') {
+    const groups = panes.slice(0, 4).map((pane, index) => group(index === 3 ? panes.slice(3) : [pane], active))
+    children = groups.length > 2 ? [{ type: 'row', children: groups.slice(0, 2) }, { type: 'row', children: groups.slice(2) }] : groups
+  }
+  return { version: 1, hidden: [], model: { global: { ...globals, rootOrientationVertical: preset === 'stack' || (preset === 'grid' && panes.length > 2) }, borders: [], layout: { type: 'row', children: children.length ? children : [group([])] } } }
 }
 
 /** Load only known pane references and geometry. Saved data cannot supply components, popouts or executable configuration. */
@@ -33,6 +37,7 @@ export function restoreWorkspaceLayout(value: unknown, panes: readonly PaneRefer
   const hidden = valid && Array.isArray(value.hidden) ? [...new Set(value.hidden.filter((key): key is string => typeof key === 'string' && known.has(key)))] : []
   if (valid && (!Array.isArray(value.hidden) || hidden.length !== value.hidden.length)) recovered = true
   const hiddenKeys = new Set(hidden)
+  let maximizedRestored = false
   const weight = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.min(1000, Math.max(1, value)) : 50
   const clean = (node: unknown, depth = 0): Group | null => {
     if (!isObject(node) || depth > 12 || ++count > 256 || !Array.isArray(node.children)) { recovered = true; return null }
@@ -45,7 +50,9 @@ export function restoreWorkspaceLayout(value: unknown, panes: readonly PaneRefer
         used.add(child.id); children.push(tab(known.get(child.id)!))
       }
       if (node.children.length > 256) recovered = true
-      return children.length ? { type: 'tabset', weight: weight(node.weight), selected: Math.max(0, children.findIndex(child => isObject(selected) && child.id === selected.id)), children } : null
+      const maximized = children.length > 0 && node.maximized === true && !maximizedRestored
+      if (maximized) maximizedRestored = true
+      return children.length ? { type: 'tabset', weight: weight(node.weight), ...(maximized ? { maximized: true } : {}), selected: Math.max(0, children.findIndex(child => isObject(selected) && child.id === selected.id)), children } : null
     }
     if (node.type !== 'row') { recovered = true; return null }
     if (node.children.length > 256) recovered = true
@@ -111,4 +118,12 @@ export function resizeWorkspaceSplit(layout: WorkspaceLayout, index: number, per
   weights[boundary.index + 1] = total - weights[boundary.index]!
   model.doAction(Actions.adjustWeights(boundary.row.getId(), weights))
   return { ...layout, model: model.toJson() }
+}
+
+/** Numbered shortcuts follow visible tabs in the active dock group. */
+export function workspaceTabKeys(layout: WorkspaceLayout, panes: readonly PaneReference[], active?: string): string[] {
+  const model = Model.fromJson(restoreWorkspaceLayout(layout, panes).layout.model)
+  const parent = active ? model.getNodeById(active)?.getParent() : undefined
+  const group = parent instanceof TabSetNode ? parent : model.getActiveTabset()
+  return group?.getChildren().map(node => node.getId()) ?? []
 }

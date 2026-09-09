@@ -1,6 +1,6 @@
 import { appendTail, cleanupOwnedSmokeDaemon } from './helpers/smoke-processes.mjs'
 // Headless smoke test: builds are run by `pnpm smoke` (build first, then this).
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -20,6 +20,10 @@ const electronBinary = join(
       : 'electron'
 )
 const userData = mkdtempSync(join(tmpdir(), 'donwells-smoke-'))
+writeFileSync(join(userData, 'donwells-data.json'), JSON.stringify({
+  schemaVersion: 2, repos: [], settings: {},
+  windowState: { x: -100000, y: -100000, width: 1000, height: 700, maximized: false }
+}))
 
 const exitResult = Promise.withResolvers()
 const app = spawn(electronBinary, [root], {

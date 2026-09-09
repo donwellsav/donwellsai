@@ -412,3 +412,21 @@ it('refreshes correction and erasure across two already loaded JSON services', a
   await expect(second.projectMemoryHistory({ workspacePath: linkedWorktree, id: created.id })).rejects.toThrow('not found')
   expect((await second.projectMemoryList({ workspacePath: linkedWorktree, includeArchived: true })).total).toBe(0)
 })
+
+
+it('pages all memories through JSON and SQLite without losing the final page', async () => {
+  const service = new ProjectMemoryService(temporaryRoot(), resolver(), { now: clock() })
+  for (let index = 0; index < 105; index++) await service.projectMemoryCreate({ workspacePath: mainWorkspace, kind: 'decision', title: `Decision ${index}`, content: 'Paging evidence', attribution: { harness: 'codex' } })
+  for (const backend of ['json', 'sqlite']) {
+    if (backend === 'sqlite') await service.projectMemoryStorageAction('migrate')
+    const first = await service.projectMemoryList({ workspacePath: mainWorkspace, limit: 100 })
+    const last = await service.projectMemoryList({ workspacePath: mainWorkspace, limit: 100, offset: 100 })
+    expect(first.hasMore).toBe(true)
+    expect(last.hasMore).toBe(false)
+    expect(last.entries).toHaveLength(5)
+    expect(new Set([...first.entries, ...last.entries].map(entry => entry.id)).size).toBe(105)
+    expect((await service.projectMemoryList({ workspacePath: mainWorkspace, offset: 105 })).entries).toEqual([])
+    await expect(service.projectMemoryList({ workspacePath: mainWorkspace, offset: -1 })).rejects.toThrow('offset')
+    await expect(service.projectMemoryList({ workspacePath: mainWorkspace, offset: 0.5 })).rejects.toThrow('offset')
+  }
+})

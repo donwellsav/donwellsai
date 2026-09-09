@@ -23,6 +23,19 @@ afterEach(() => {
 })
 
 describe('Store', () => {
+  it('keeps window geometry across workspace saves and rejects malformed stored bounds', () => {
+    const store = new Store(tmp())
+    const bounds = { x: -1400, y: 40, width: 1100, height: 720, maximized: true }
+    store.setWindowState(bounds)
+    store.setWorkspaceSession({ activeRepoId: null, repos: {} })
+    expect(new Store(dirname(store.path)).getWindowState()).toEqual(bounds)
+    const copy = store.getWindowState()!
+    copy.width = 1
+    expect(store.getWindowState()).toEqual(bounds)
+    writeFileSync(store.path, JSON.stringify({ ...readEnvelope(store), windowState: { ...bounds, width: '1100' } }))
+    expect(new Store(dirname(store.path)).getWindowState()).toBeUndefined()
+  })
+
   it('round-trips repos and sparse settings through an owner-only file', () => {
     const store = new Store(tmp())
     store.addRepo({ id: 'r1', path: '/tmp/one', addedAt: 't1' })
@@ -68,6 +81,7 @@ describe('Store', () => {
     }))
 
     const store = new Store(dir)
+    expect(store.getSettings().markdownPreviewDefault).toBe(true)
     expect(store.getSettings()).toMatchObject({
       theme: 'dark',
       terminalFontSize: 17,
@@ -89,6 +103,16 @@ describe('Store', () => {
       terminalTheme: 'dracula',
       editorMinimap: true
     })
+  })
+
+  it('preserves an explicit legacy Markdown reading preference', () => {
+    for (const markdownPreviewDefault of [false, true]) {
+      const dir = tmp()
+      writeFileSync(join(dir, 'donwells-data.json'), JSON.stringify({ schemaVersion: 1, repos: [], settings: { markdownPreviewDefault } }))
+      const store = new Store(dir)
+      expect(store.getSettings().markdownPreviewDefault).toBe(markdownPreviewDefault)
+      expect(new Store(dir).getSettings().markdownPreviewDefault).toBe(markdownPreviewDefault)
+    }
   })
 
   it('rejects an invalid patch atomically without changing memory or disk', () => {

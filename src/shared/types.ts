@@ -164,6 +164,7 @@ export type TerminalThemeName = 'donwells' | 'tomorrow-night' | 'dracula' | 'sol
 
 /** Stable settings route ids used by the UI and runtime command contract. */
 export type SettingsSection =
+  | 'project'
   | 'agents'
   | 'editor'
   | 'source-control'
@@ -188,6 +189,14 @@ export type AppSettings = {
   agentCommand: string
   theme: 'system' | 'dark' | 'light'
   uiScale: number
+  interfaceFont: 'geist' | 'system'
+  interfaceMotion: 'system' | 'reduced'
+  interfaceDensity: 'compact' | 'comfortable'
+  navigationLabels: 'icons' | 'labels'
+  toolPanelSide: 'left' | 'right'
+  browserAutoPreview: boolean
+  recordBrowserHistory: boolean
+  externalAgentAccess: boolean
   terminalRenderer: 'xterm' | 'ghostty'
   terminalFontFamily: string
   terminalFontSize: number
@@ -241,6 +250,7 @@ export type PersistedState = {
   schemaVersion: 2
   repos: Repo[]
   settings: Partial<AppSettings>
+  windowState?: { x: number; y: number; width: number; height: number; maximized: boolean }
   /**
    * Retired worktree names per repo id — a deleted name never returns in the
    * same repo namespace (upstream worktree-name-retirement rule). Monotonic.
@@ -257,7 +267,7 @@ export type PersistedState = {
     activeRepoId: string | null
     navigationHistory?: PersistedNavigationHistoryV1
     /** persisted chrome widths (panel resizing) */
-    ui?: { sidebarWidth?: number; rightSidebarWidth?: number }
+    ui?: { railCollapsed?: boolean; projectListPercent?: number; sidebarWidth?: number; rightSidebarWidth?: number; sidebarOpen?: boolean; rightSidebarOpen?: boolean; rightSidebarTab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'; runsOpen?: boolean; runsSection?: RunsSection }
     /** User-owned workspace organization; hidden entries remain registered and restorable. */
     workspaceNav?: {
       collapsedRepoIds?: string[]
@@ -411,6 +421,8 @@ export type AgentMemorySetupResult = { path: string; changed: boolean; backupPat
 export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
+  projectBrowserArtifactReveal(workspacePath: string, path: string, sha256: string): Promise<void>
+  projectDoctorSetup(workspacePath: string, field: string, revision: string | null): Promise<import('./project-doctor').ProjectDoctorReport>
   projectDoctorConfigure(workspacePath: string, config: import('./project-doctor').ProjectToolConfiguration, revision: string | null): Promise<import('./project-doctor').ProjectDoctorReport>
   projectDoctorRetry(workspacePath: string, id: string): Promise<import('./project-tools').ToolServiceState>
   projectToolsList(workspacePath: string): Promise<import('./project-tools').ToolServiceState[]>
@@ -463,8 +475,12 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   gitHistory(worktreePath: string, options?: { cursor?: string; limit?: number }): Promise<GitHistoryPage>
   gitDiff(worktreePath: string, relPath: string): Promise<string>
   /** Empty ref selects the index. null means absent, not an unreadable object. */
+  revealWorkspaceEntry(worktreePath: string, relPath: string): Promise<void>
+  workspacePreviewUrl(worktreePath: string, relPath: string): Promise<string>
   readFileAtRef(worktreePath: string, relPath: string, ref?: string): Promise<{ content: string | null }>
 
+  guiDraftsRead(): Promise<Array<[string, string]>>
+  guiDraftsWrite(name: string, entries: string): Promise<void>
   getSettings(): Promise<AppSettings>
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>
   resetSettings(request: SettingsResetRequest): Promise<AppSettings>
@@ -489,6 +505,7 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   agentDismiss(sessionId: string): Promise<void>
   openExternal(url: string): Promise<void>
   pickDirectory(): Promise<string | null>
+  pickProjectKitPath(kind: 'export' | 'archive' | 'destination'): Promise<string | null>
 
   /** Sentinel secrets (safeStorage-backed). */
   secretSet(key: string, value: string): Promise<void>

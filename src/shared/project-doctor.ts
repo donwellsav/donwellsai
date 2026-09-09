@@ -57,7 +57,7 @@ export function parseProjectToolConfiguration(value: unknown): ProjectToolConfig
   for (const key of ['historyOmpRoots', 'historyDshRoots', 'historyHermesRoots', 'historyKimiRoots'] as const) {
     const selected = value[key] ?? []
     if (!Array.isArray(selected) || selected.length > 16 || selected.some(path => typeof path !== 'string' || !path.startsWith('/') || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))) throw new Error('Select at most 16 absolute native session roots per harness')
-    if (selected.length) result[key] = [...new Set(selected)]
+    if (value[key] !== undefined) result[key] = [...new Set(selected)]
   }
   result.referenceRoots = [...new Set(roots)]
   result.disabled = [...new Set(disabled)]
@@ -65,6 +65,7 @@ export function parseProjectToolConfiguration(value: unknown): ProjectToolConfig
 }
 
 export type ProjectDoctorReport = {
+  discoveredHistoryRoots?: Pick<ProjectToolConfiguration, 'historyOmpRoots' | 'historyDshRoots' | 'historyHermesRoots' | 'historyKimiRoots'>
   workspacePath: string
   configuration: ProjectToolConfiguration
   revision: string | null
@@ -99,3 +100,6 @@ export function projectDoctorDiagnostics(report: ProjectDoctorReport): string {
     resources: report.resources.map(resource => ({ field: resource.field, bytes: resource.bytes, needsAttention: Boolean(resource.problem) }))
   }, null, 2)
 }
+
+// Only distributions accepted by their runtime owners are offered as automatic setup.
+export const PROJECT_AUTOMATIC_TOOL_FILES = { qmdPackage: '@tobilu/qmd', lancePackage: '@lancedb/lancedb', browserPackage: '@playwright/mcp', browserExecutable: 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', codeGraphBinary: 'codebase-memory-mcp', computerBinary: 'cua-driver', backlogBinary: 'backlog', embeddingModel: '', rerankingModel: '' } as const

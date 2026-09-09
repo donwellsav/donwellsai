@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile, stat, rm, rename, realpath, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -156,3 +156,42 @@ it('resumes DSH only from its native archive home and keeps the original UUID', 
   db.close()
   expect((await f.service.get(f.project, hit.id)).resume).toBeNull()
 })
+
+it('discovers existing native session folders and respects home overrides without scanning unrelated directories', async () => {
+  const { discoverNativeSessionRoots } = await import('../src/main/project-session-history')
+  const { mkdtemp, mkdir, rm, symlink } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const root = await mkdtemp(join(tmpdir(), 'history-discovery-'))
+  try {
+    const home = join(root, 'home'), project = join(root, 'project'), checkout = join(root, 'checkout')
+    for (const path of [join(home, '.omp/agent/sessions'), join(home, '.kimi/sessions'), join(home, '.kimi-code/sessions'), join(root, 'custom-hermes/sessions'), join(project, '.dsh/sessions'), join(home, 'unrelated'), join(checkout, '.omp/agent/sessions')]) await mkdir(path, { recursive: true })
+    await symlink(join(home, '.kimi/sessions'), join(root, 'kimi-alias'))
+    const actual = discoverNativeSessionRoots([project, checkout, checkout], home, { HERMES_HOME: join(root, 'custom-hermes'), KIMI_DIR: join(root, 'kimi-alias') })
+    expect(actual.omp).toHaveLength(2)
+    expect(actual.omp[1]).toContain('checkout/.omp/agent/sessions')
+    expect(actual.hermes[0]).toContain('custom-hermes/sessions')
+    expect(actual['deepseek-harness'][0]).toContain('project/.dsh/sessions')
+    expect(actual.kimi).toHaveLength(2)
+    expect(JSON.stringify(actual)).not.toContain('unrelated')
+    expect(discoverNativeSessionRoots(project, home, { OMP_DIR: '/missing/explicit-root' }).omp).toEqual([])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.skipIf(process.platform !== 'darwin' || process.arch !== 'arm64')('uses the bundled engine with automatic roots and preserves project isolation', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bundled-history-'))); fixtures.push(root)
+  const project = join(root, 'project'), checkout = join(root, 'checkout'), sessions = join(checkout, '.omp/agent/sessions')
+  await mkdir(project)
+  await mkdir(join(sessions, 'checkout'), { recursive: true })
+  for (const key of ['OMP_DIR', 'PI_CODING_AGENT_SESSION_DIR', 'DEEPSEEK_HARNESS_SESSIONS_DIR', 'HERMES_SESSIONS_DIR', 'KIMI_SHARE_DIR', 'KIMI_CODE_HOME', 'KIMI_DIR']) vi.stubEnv(key, join(root, 'absent'))
+  const service = new ProjectSessionHistory({ binary: join(process.cwd(), 'resources/native/history/agentsview'), cache: join(root, 'cache'), roots: {} }, path => resolveProjectToolScope(path, async path => ({ path, projectPath: project })))
+  try {
+    for (const [id, cwd, text] of [['local', checkout, 'AUTOMATICROOTCANARY'], ['foreign', join(root, 'other'), 'FOREIGNROOTCANARY']]) {
+      await writeFile(join(sessions, 'checkout', id + '.jsonl'), [
+        { type: 'session', version: 3, id, timestamp: '2026-09-09T00:00:00Z', cwd },
+        { type: 'message', id: id + '-message', timestamp: '2026-09-09T00:00:01Z', message: { role: 'user', content: [{ type: 'text', text }] } }
+      ].map(value => JSON.stringify(value)).join('\n') + '\n')
+    }
+    expect((await service.search(checkout, 'AUTOMATICROOTCANARY')).hits).toHaveLength(1)
+    expect((await service.search(checkout, 'FOREIGNROOTCANARY')).hits).toEqual([])
+  } finally { await service.close(); vi.unstubAllEnvs() }
+}, 30000)
