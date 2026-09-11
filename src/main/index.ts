@@ -62,6 +62,7 @@ import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { CollaborationService } from './collaboration/collaboration-service'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
+import { createDaemonJobRunner } from './autonomous/daemon-job-runner'
 
 
 configureDesktopPath()
@@ -532,13 +533,29 @@ function registerIpc(): void {
   })
 
   // --- Autonomous Agent IPC ---
-  ipcMain.handle('autonomous:start', (_e, goal: string) => {
+  ipcMain.handle('autonomous:start', async (_e, goal: string, job?: { workspacePath: string; command: string }) => {
+    if (!job || !job.workspacePath || !job.command) {
+      throw new Error('Autonomous run requires a registered workspace and agent command')
+    }
+    const workspacePath = await resolveRegisteredWorkspace(job.workspacePath)
     const { autonomousAgent } = getServices()
-    return autonomousAgent.run(goal, async (action) => {
-      // Simple auto-approve for now - later can wire to UI prompts
-      logger.info({ action: action.description }, 'autonomous: executing action')
-      return 'executed'
-    })
+    const result = await autonomousAgent.run(
+      goal,
+      async (action) => {
+        // Action approvals are wired to UI prompts in R2.3.
+        logger.info({ action: action.description }, 'autonomous: executing action')
+        return 'executed'
+      },
+      { workspacePath, command: job.command, runner: createDaemonJobRunner(terminalBus) }
+    )
+    return {
+      success: result.success,
+      finalResult: result.finalResult,
+      iterations: result.iterations.length,
+      totalTokens: result.totalTokens,
+      totalDurationMs: result.totalDurationMs,
+      stoppedReason: result.stoppedReason,
+    }
   })
   ipcMain.handle('autonomous:stop', () => {
     const { autonomousAgent } = getServices()

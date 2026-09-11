@@ -4,7 +4,7 @@ import { logger } from '@shared/logger'
 interface AutonomousAgentState {
   status: 'idle' | 'running' | 'paused' | 'stopped' | 'error'
   iterations: number
-  totalTokens: number
+  totalTokens: number | null
   durationMs: number
   stopped: boolean
 }
@@ -87,7 +87,8 @@ export function AutonomousAgentPanel() {
               {state.status === 'running' ? '● Running' : '⏸ Paused'}
             </span>
             <span className="text-muted">
-              {state.iterations} iterations · {Math.round(state.totalTokens / 1000)}K tokens
+              {state.iterations} iterations ·{' '}
+              {state.totalTokens === null ? 'tokens unavailable' : `${Math.round(state.totalTokens / 1000)}K tokens`}
             </span>
           </div>
 

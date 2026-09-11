@@ -213,7 +213,8 @@ const api: IpcApi = {
   sessionTemplateCreate: (template: Parameters<typeof import('../main/templates/session-template-manager').SessionTemplateManager.prototype.create>[0]) => ipcRenderer.invoke('sessionTemplate:create', template),
   sessionTemplateDelete: (id: string) => ipcRenderer.invoke('sessionTemplate:delete', id),
   // Autonomous agent
-  autonomousStart: (goal: string) => ipcRenderer.invoke('autonomous:start', goal),
+  autonomousStart: (goal: string, job?: { workspacePath: string; command: string }) =>
+    ipcRenderer.invoke('autonomous:start', goal, job),
   autonomousStop: () => ipcRenderer.invoke('autonomous:stop'),
   autonomousState: () => ipcRenderer.invoke('autonomous:state'),
   // Plugins

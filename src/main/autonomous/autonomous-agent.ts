@@ -6,7 +6,7 @@ export interface AutonomousAgentConfig {
   maxIterations: number
   /** Maximum total duration in ms. */
   maxDurationMs: number
-  /** Maximum tokens to consume. */
+  /** Maximum tokens to consume (only enforced when usage is reported). */
   maxTokens: number
   /** Whether to require user approval before executing actions. */
   requireApproval: boolean
@@ -18,6 +18,31 @@ export interface AutonomousAgentConfig {
   iterationIntervalMs: number
 }
 
+/** One autonomous iteration handed to the injected job runner. */
+export interface AutonomousJobRequest {
+  prompt: string
+  workspacePath: string
+  command: string
+  iteration: number
+}
+
+/** What a job runner reports back for one iteration. */
+export interface AutonomousJobOutcome {
+  output: string
+  exitCode?: number
+  /** Null when the provider does not surface usage — 'unavailable', never a guess. */
+  tokensUsed: number | null
+}
+
+export type AutonomousJobRunner = (request: AutonomousJobRequest) => Promise<AutonomousJobOutcome>
+
+/** Per-run job context: where to run, what to launch, and how to launch it. */
+export interface AutonomousRunJob {
+  workspacePath: string
+  command: string
+  runner: AutonomousJobRunner
+}
+
 export interface AgentIteration {
   index: number
   startTime: number
@@ -27,7 +52,8 @@ export interface AgentIteration {
   actions: AgentAction[]
   result?: string
   error?: string
-  tokensUsed: number
+  goalAchieved?: boolean
+  tokensUsed: number | null
 }
 
 export interface AgentAction {
@@ -42,7 +68,8 @@ export interface AgentAction {
 export interface AutonomousAgentResult {
   success: boolean
   iterations: AgentIteration[]
-  totalTokens: number
+  /** Null while no iteration reported usage — displayed as unavailable. */
+  totalTokens: number | null
   totalDurationMs: number
   finalResult: string
   stoppedReason?: 'completed' | 'max_iterations' | 'max_duration' | 'max_tokens' | 'error' | 'user_stopped'
@@ -58,16 +85,45 @@ const DEFAULT_CONFIG: AutonomousAgentConfig = {
   iterationIntervalMs: 1000,
 }
 
+const MAX_REASONING_CHARS = 2000
+const HISTORY_WINDOW = 5
+
+export const AUTONOMOUS_MARKER_CONTRACT =
+  'End your reply with exactly two lines:\nGOAL: achieved|not_achieved\nSUMMARY: <one line describing what you did>'
+
+/**
+ * Parses the required completion markers from agent output.
+ * Completion is only ever decided by this contract — never substring guessing.
+ */
+export function parseGoalMarker(output: string): { achieved: boolean; summary?: string } {
+  const marker = /^GOAL:\s*(achieved|not_achieved)\b/mi.exec(output)
+  const summary = /^SUMMARY:\s*(.+)$/mi.exec(output)
+  return {
+    achieved: marker?.[1]?.toLowerCase() === 'achieved',
+    summary: summary?.[1]?.trim(),
+  }
+}
+
+function buildIterationPrompt(goal: string, iterations: AgentIteration[]): string {
+  const prior = iterations.slice(-HISTORY_WINDOW).filter(i => i.result !== undefined || i.error !== undefined)
+  if (prior.length === 0) return `${goal}\n\n${AUTONOMOUS_MARKER_CONTRACT}`
+  const history = prior
+    .map(i => `Iteration ${i.index + 1}: ${i.error !== undefined ? `ERROR ${i.error}` : i.result}`)
+    .join('\n')
+  return `${goal}\n\nPrevious results:\n${history}\n\n${AUTONOMOUS_MARKER_CONTRACT}`
+}
+
 /**
  * Autonomous agent loop.
  *
- * Runs an agent in a loop until a goal is achieved or limits are reached.
+ * Runs a configured agent command as a bounded daemon job per iteration
+ * until the agent reports `GOAL: achieved` or a limit is reached.
  * Supports safety checks, iteration limits, and token budgets.
  */
 export class AutonomousAgent extends EventEmitter {
   private config: AutonomousAgentConfig
   private iterations: AgentIteration[] = []
-  private totalTokens = 0
+  private tokenSum: number | null = null
   private startTime = 0
   private stopped = false
 
@@ -77,12 +133,17 @@ export class AutonomousAgent extends EventEmitter {
   }
 
   /**
-   * Runs the autonomous agent loop.
+   * Runs the autonomous agent loop. Without a job context the run stops
+   * immediately with an explicit error — no simulated iterations.
    */
-  async run(goal: string, actionHandler: (action: AgentAction) => Promise<string>): Promise<AutonomousAgentResult> {
+  async run(
+    goal: string,
+    actionHandler: (action: AgentAction) => Promise<string>,
+    job?: AutonomousRunJob
+  ): Promise<AutonomousAgentResult> {
     this.startTime = Date.now()
     this.iterations = []
-    this.totalTokens = 0
+    this.tokenSum = null
     this.stopped = false
 
     logger.info({ goal, maxIterations: this.config.maxIterations }, 'autonomous-agent: started')
@@ -98,11 +159,11 @@ export class AutonomousAgent extends EventEmitter {
           return this.buildResult('max_duration', 'Maximum duration reached')
         }
 
-        if (this.totalTokens >= this.config.maxTokens) {
+        if (this.tokenSum !== null && this.tokenSum >= this.config.maxTokens) {
           return this.buildResult('max_tokens', 'Maximum tokens reached')
         }
 
-        const iteration = await this.runIteration(goal, actionHandler)
+        const iteration = await this.runIteration(goal, job)
         this.iterations.push(iteration)
 
         this.emit('iteration', iteration)
@@ -111,9 +172,8 @@ export class AutonomousAgent extends EventEmitter {
           return this.buildResult('error', iteration.error)
         }
 
-        if (iteration.result?.toLowerCase().includes('goal achieved') ||
-            iteration.result?.toLowerCase().includes('task complete')) {
-          return this.buildResult('completed', iteration.result)
+        if (iteration.goalAchieved) {
+          return this.buildResult('completed', iteration.result ?? 'Goal achieved')
         }
 
         // Brief pause between iterations
@@ -141,13 +201,13 @@ export class AutonomousAgent extends EventEmitter {
    */
   getState(): {
     iterations: number
-    totalTokens: number
+    totalTokens: number | null
     durationMs: number
     stopped: boolean
   } {
     return {
       iterations: this.iterations.length,
-      totalTokens: this.totalTokens,
+      totalTokens: this.tokenSum,
       durationMs: Date.now() - this.startTime,
       stopped: this.stopped,
     }
@@ -155,7 +215,7 @@ export class AutonomousAgent extends EventEmitter {
 
   private async runIteration(
     goal: string,
-    actionHandler: (action: AgentAction) => Promise<string>
+    job: AutonomousRunJob | undefined
   ): Promise<AgentIteration> {
     const iteration: AgentIteration = {
       index: this.iterations.length,
@@ -163,20 +223,40 @@ export class AutonomousAgent extends EventEmitter {
       goal,
       reasoning: '',
       actions: [],
-      tokensUsed: 0,
+      tokensUsed: null,
     }
 
-    // This is a simplified version - in production, this would:
-    // 1. Build a prompt with the goal + history
-    // 2. Call the LLM to get reasoning + actions
-    // 3. Execute each action
-    // 4. Return results
+    if (!job) {
+      iteration.error = 'Autonomous job runner is not configured'
+      iteration.endTime = Date.now()
+      return iteration
+    }
 
-    iteration.reasoning = `Working towards: ${goal}`
-    iteration.tokensUsed = 100 // Placeholder
-    this.totalTokens += iteration.tokensUsed
+    try {
+      const outcome = await job.runner({
+        prompt: buildIterationPrompt(goal, this.iterations),
+        workspacePath: job.workspacePath,
+        command: job.command,
+        iteration: iteration.index,
+      })
+
+      const marker = parseGoalMarker(outcome.output)
+      iteration.reasoning = outcome.output.trim().slice(0, MAX_REASONING_CHARS)
+      iteration.result = marker.summary ?? iteration.reasoning
+      iteration.goalAchieved = marker.achieved
+      iteration.tokensUsed = outcome.tokensUsed
+      if (outcome.tokensUsed !== null) {
+        this.tokenSum = (this.tokenSum ?? 0) + outcome.tokensUsed
+      }
+      if (outcome.exitCode !== undefined && outcome.exitCode !== 0) {
+        iteration.error = `Agent job exited with code ${outcome.exitCode}`
+      }
+    } catch (error) {
+      iteration.error = error instanceof Error ? error.message : String(error)
+      logger.error({ err: error, iteration: iteration.index }, 'autonomous-agent: iteration failed')
+    }
+
     iteration.endTime = Date.now()
-
     return iteration
   }
 
@@ -187,7 +267,7 @@ export class AutonomousAgent extends EventEmitter {
     const result: AutonomousAgentResult = {
       success: stoppedReason === 'completed',
       iterations: this.iterations,
-      totalTokens: this.totalTokens,
+      totalTokens: this.tokenSum,
       totalDurationMs: Date.now() - this.startTime,
       finalResult,
       stoppedReason,

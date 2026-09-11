@@ -554,9 +554,19 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   sessionTemplateDelete(id: string): Promise<void>
 
   /** Autonomous agent operations */
-  autonomousStart(goal: string): Promise<{ accepted: boolean; reason?: string }>
+  autonomousStart(
+    goal: string,
+    job?: { workspacePath: string; command: string }
+  ): Promise<{
+    success: boolean
+    finalResult: string
+    iterations: number
+    totalTokens: number | null
+    totalDurationMs: number
+    stoppedReason?: string
+  }>
   autonomousStop(): Promise<void>
-  autonomousState(): Promise<{ running: boolean; iteration: number; currentGoal?: string }>
+  autonomousState(): Promise<{ iterations: number; totalTokens: number | null; durationMs: number; stopped: boolean }>
 
   /** Plugin operations */
   pluginList(): Promise<PluginStateView[]>
