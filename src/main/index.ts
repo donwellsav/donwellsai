@@ -550,7 +550,17 @@ function registerIpc(): void {
   // --- Perf & Analytics IPC handlers (registered ONCE above, lines 550-570) ---
   ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
 
-  // --- Perf & Analytics IPC handlers ---
+  // --- Event Store IPC (session replay) ---
+  ipcMain.handle('events:query', (_e, filter: { sessionId?: string; type?: string; since?: number }) => {
+    const es = getServices().eventStore
+    return es.query(filter)
+  })
+  ipcMain.handle('events:append', (_e, event: DomainEvent) => {
+    const es = getServices().eventStore
+    return es.append(event)
+  })
+
+  // --- Perf & Analytics IPC ---
   ipcMain.handle('perf:getStats', () => getPerfStats())
   ipcMain.handle('analytics:track', (
     _e,
