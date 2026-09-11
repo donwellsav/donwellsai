@@ -528,4 +528,22 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   setAttention(state: AttentionState): void
 
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
+
+  /** Performance monitoring queries */
+  perfGetStats(): Promise<{
+    ipcCalls: number
+    ipcAvg: number
+    ipcP95: number
+    renders: number
+    renderAvg: number
+    renderP95: number
+    memoryMB: number | null
+  }>
+
+  /** Track an analytics event from the renderer. */
+  analyticsTrack(
+    name: string,
+    category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error',
+    properties?: Record<string, string | number | boolean | null>
+  ): Promise<void>
 }

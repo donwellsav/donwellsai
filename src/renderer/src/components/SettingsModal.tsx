@@ -181,6 +181,7 @@ function PrivacySection() {
   }
   return <section className="settings-preference-group" aria-label="Saved browser data">
     <h3>Saved browser data</h3>
+    <h3>Saved browser data</h3>
     <p>Clear saved addresses across this profile. Cookies, website sign-ins and project files are kept.</p>
     <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setError(''); setCleared(''); setConfirm({ kind: 'history' }) }}>Clear browsing history…</button>
     <p>Remove cookies, cached files and website storage for the current checkout’s built-in browser. This can sign you out of websites.</p>

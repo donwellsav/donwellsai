@@ -47,14 +47,17 @@ import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
 import { registerProjectSearchHandlers } from './project-search-ipc'
+import { createServer } from 'node:http'
 import { configureDesktopPath } from '@shared/child-process/process-environment'
 import { AgentRegistry } from './agents/registry'
 import * as Sentry from '@sentry/electron/main'
 import { logger } from '@shared/logger'
 import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from './auto-updater'
 import { initServices, getServices } from './services'
+import { getPluginRegistry } from './plugins/plugin-registry'
+import type { AnalyticsEvent } from '@shared/analytics'
 import { EventStore } from './events/event-store'
-import { initPerfMonitor } from '@shared/perf-monitor'
+import { initPerfMonitor, getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { CollaborationService } from './collaboration/collaboration-service'
@@ -156,6 +159,7 @@ function publishSettings(settings: AppSettings): AppSettings {
 
 /** Route a menu/accelerator action to the renderer; the store decides what it does. */
 function menuAction(action: string): void {
+  getServices().analytics.trackUI(action)
   send('menu:action', { action })
 }
 
@@ -310,12 +314,14 @@ function registerIpc(): void {
   ipcMain.handle('createProject', async (_e, request: Parameters<IpcApi['createProject']>[0]) => {
     const summary = await createProject(request, (path) => git.addRepo(path))
     send('worktree:changed', { repoId: summary.repo.id })
+    getServices().analytics.track('project:create', 'project', { repoId: summary.repo.id })
     return summary
   })
 
   ipcMain.handle('addRepo', async (_e, dir: string) => {
     const summary = await git.addRepo(dir)
     send('worktree:changed', { repoId: summary.repo.id })
+    getServices().analytics.trackUI('repo:add', { repoId: summary.repo.id })
     return summary
   })
 
@@ -323,6 +329,7 @@ function registerIpc(): void {
     git.removeRepo(repoId)
     // RPC (or any client) may remove repos behind the renderer's back — let it prune.
     send('worktree:changed', { repoId })
+    getServices().analytics.trackUI('repo:remove', { repoId })
     return true
   })
   ipcMain.handle('refreshRepo', (_e, repoId: string) => {
@@ -499,7 +506,84 @@ function registerIpc(): void {
   collaboration.onStatusChange((connected, reason) => {
     send('collaboration:status', { roomName: collaboration.config.roomName, connected, reason })
   })
+  // --- Plugin system: IPC handlers ---
+  ipcMain.handle('plugin:list', () => getPluginRegistry().getAllPlugins().map(p => p.manifest))
+  ipcMain.handle('plugin:unload', (_e, pluginId: string) => getPluginRegistry().unload(pluginId))
+  ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
+
+  // --- Perf + Analytics IPC ---
+  ipcMain.handle('perf:metrics', () => {
+    return { active: false, stats: getPerfStats() }
+  })
+  ipcMain.handle('analytics:track', (_e, event: string, category: string, props: Record<string, string | number | boolean | null>) => {
+    const { analytics } = getServices()
+    analytics.track(event, category as AnalyticsEvent['category'], props)
+  })
+
   ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
+
+  // --- Perf & Analytics IPC handlers ---
+  ipcMain.handle('perf:getStats', () => getPerfStats())
+  ipcMain.handle('analytics:track', (
+    _e,
+    name: string,
+    category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error',
+    properties?: Record<string, string | number | boolean | null>
+  ) => {
+    getServices().analytics.track(name, category, properties)
+  })
+}
+
+// Wrap ipcMain.handle to auto-time every IPC call for perf monitoring
+const originalIpcHandle = ipcMain.handle.bind(ipcMain)
+ipcMain.handle = (channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
+  return originalIpcHandle(channel, (event, ...args) => {
+    const finish = startIpcTimer(channel)
+    try {
+      return (listener as (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown)(event, ...args)
+    } finally {
+      finish()
+    }
+  })
+}
+
+// --- Debug HTTP server (localhost only) ---
+let perfServer: ReturnType<typeof createServer> | null = null
+
+function startPerfServer(): void {
+  if (perfServer) return
+  if (app.isPackaged && !process.env['DONWELLS_PERF_SERVER']) return
+
+  perfServer = createServer((req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`)
+
+    if (url.pathname === '/api/perf') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
+      })
+      res.end(JSON.stringify(getPerfStats()))
+      return
+    }
+
+    if (url.pathname === '/api/analytics/status') {
+      const collector = getServices().analytics
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ enabled: collector.isEnabled(), pending: collector.pendingCount }))
+      return
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not found' }))
+  })
+
+  perfServer.listen(0, '127.0.0.1', () => {
+    const addr = perfServer?.address()
+    if (addr && typeof addr !== 'string') {
+      logger.info({ port: addr.port }, 'perf-server: listening')
+    }
+  })
 }
 
 function createWindow(): void {
@@ -576,6 +660,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  getServices().analytics.track('app:ready', 'app')
   store = new Store()
   browserHistory = new BrowserHistoryStore(app.getPath('userData'), undefined, undefined, () => store.getSettings().recordBrowserHistory)
   ipcMain.handle('browser:view', (event, request) => {
@@ -670,6 +755,7 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   createWindow()
+  startPerfServer()
   // Tray presence + attention badge; skipped headless (smoke runs).
   if (process.env['DONWELLS_SMOKE'] !== '1' && process.platform !== 'linux') {
     trayService = new TrayService()
@@ -912,6 +998,8 @@ app.on('will-quit', (event) => {
   rpcServer?.stop()
   operationalRuns?.stop()
   trayService?.stop()
+  perfServer?.close()
+  perfServer = null
 })
 
 app.on('window-all-closed', () => {

@@ -14,6 +14,8 @@ import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { CollaborationService } from './collaboration/collaboration-service'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
+import { PluginRegistry } from './plugins/plugin-registry'
+import { PluginLoader } from './plugins/plugin-loader'
 
 export interface DonwellsServices {
   eventStore: EventStore
@@ -49,6 +51,13 @@ export function initServices(): DonwellsServices {
     roomName: 'default',
     userId: 'local',
   })
+
+  const pluginRegistry = new PluginRegistry()
+  const pluginLoader = new PluginLoader({
+    pluginDir: join(app.getPath('userData'), 'plugins'),
+    autoActivate: true,
+  })
+  void pluginLoader.loadAll().catch((err) => logger.error({ err }, 'plugin-loader: init failed'))
 
   const autonomousAgent = new AutonomousAgent({
     maxIterations: 100,

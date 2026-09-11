@@ -204,6 +204,8 @@ const api: IpcApi = {
     return () => ipcRenderer.removeListener('ui:command', listener)
   },
   resolveUiCommand: (id, result) => ipcRenderer.send('ui:command:result', id, result),
+  perfGetStats: () => ipcRenderer.invoke('perf:getStats'),
+  analyticsTrack: (name: string, category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error', properties?: Record<string, string | number | boolean | null>) => ipcRenderer.invoke('analytics:track', name, category, properties),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)
     ipcRenderer.on(channel, listener)
