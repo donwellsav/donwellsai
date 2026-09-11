@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -158,5 +158,81 @@ describe('plugin loader consent-gated activation (R1.3)', () => {
     expect(existsSync(sentinel)).toBe(false)
     const views = await loader.list()
     expect(views[0].enabled).toBe(false)
+  })
+})
+
+describe('install & remove (R1.4)', () => {
+  function makeInstallHarness(): {
+    loader: PluginLoader
+    sourceRoot: string
+    pluginDir: string
+    trashRoot: string
+  } {
+    const root = makePluginRoot()
+    const sourceRoot = join(root, 'src')
+    mkdirSync(sourceRoot, { recursive: true })
+    const pluginDir = join(root, 'plugins')
+    const trashRoot = join(root, 'trash')
+    const loader = new PluginLoader({ pluginDir, trashRoot })
+    return { loader, sourceRoot, pluginDir, trashRoot }
+  }
+
+  it('install copies the folder but stays inactive until enabled', async () => {
+    const { loader, sourceRoot, pluginDir } = makeInstallHarness()
+    const id = nextId()
+    const sentinel = writePlugin(sourceRoot, id)
+
+    await expect(loader.install(join(sourceRoot, id))).resolves.toMatchObject({ id, version: '1.0.0' })
+
+    expect(existsSync(join(pluginDir, id, 'package.json'))).toBe(true)
+    expect(existsSync(sentinel)).toBe(false)
+    const views = await loader.list()
+    expect(views).toHaveLength(1)
+    expect(views[0].enabled).toBe(false)
+    expect(views[0].active).toBe(false)
+  })
+
+  it('a second install of the same id rejects instead of overwriting', async () => {
+    const { loader, sourceRoot } = makeInstallHarness()
+    const id = nextId()
+    writePlugin(sourceRoot, id)
+    await loader.install(join(sourceRoot, id))
+    await expect(loader.install(join(sourceRoot, id))).rejects.toThrow(/Plugin already installed/)
+  })
+
+  it('install rejects manifests whose id is not a plain path segment', async () => {
+    const { loader, sourceRoot } = makeInstallHarness()
+    const dir = join(sourceRoot, 'weird')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ id: '../escape', name: 'weird', version: '1.0.0', main: 'index.js', type: 'module' })
+    )
+    writeFileSync(join(dir, 'index.js'), 'export const commands = {}')
+    await expect(loader.install(dir)).rejects.toThrow(/Plugin id is not installable/)
+  })
+
+  it('remove revokes consent, unloads, and trashes the folder recoverably', async () => {
+    const { loader, sourceRoot, pluginDir, trashRoot } = makeInstallHarness()
+    const id = nextId()
+    writePlugin(sourceRoot, id)
+    await loader.install(join(sourceRoot, id))
+    await loader.enable(id)
+    expect(getPluginRegistry().getPlugin(id)).toBeDefined()
+
+    await loader.remove(id)
+
+    expect(getPluginRegistry().getPlugin(id)).toBeUndefined()
+    expect(existsSync(join(pluginDir, id))).toBe(false)
+    expect(readdirSync(trashRoot)).toHaveLength(1)
+    expect(JSON.parse(readFileSync(activationFile(pluginDir), 'utf-8'))).toEqual({ enabled: [] })
+    const views = await loader.list()
+    expect(views).toHaveLength(0)
+  })
+
+  it('remove of an unknown plugin rejects before touching anything', async () => {
+    const { loader, trashRoot } = makeInstallHarness()
+    await expect(loader.remove('nope-r14')).rejects.toThrow(/Plugin not found: nope-r14/)
+    expect(existsSync(trashRoot)).toBe(false)
   })
 })

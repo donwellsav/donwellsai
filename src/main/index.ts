@@ -514,6 +514,15 @@ function registerIpc(): void {
   ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
   ipcMain.handle('plugin:enable', (_e, pluginId: string) => getServices().pluginLoader.enable(pluginId))
   ipcMain.handle('plugin:disable', (_e, pluginId: string) => getServices().pluginLoader.disable(pluginId))
+  ipcMain.handle('plugin:install', async (_e, sourceDirPath: string) => {
+    try {
+      return await getServices().pluginLoader.install(sourceDirPath)
+    } catch (err) {
+      logger.error({ err }, 'plugin-loader: install failed')
+      throw err
+    }
+  })
+  ipcMain.handle('plugin:remove', (_e, pluginId: string) => getServices().pluginLoader.remove(pluginId))
 
   // --- Session Templates IPC ---
   ipcMain.handle('sessionTemplate:list', () => {

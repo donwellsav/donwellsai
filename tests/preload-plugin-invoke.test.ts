@@ -58,3 +58,16 @@ describe('preload autonomous action decision wire (R2.3)', () => {
     expect(invoke).toHaveBeenCalledWith('autonomous:action-decision', 'act-2', false)
   })
 })
+
+describe('preload plugin install/remove wire (R1.4)', () => {
+  it('routes pluginInstall and pluginRemove through their channels', async () => {
+    await import('../src/preload/index')
+    const api = exposed['donwells'] as Pick<IpcApi, 'pluginInstall' | 'pluginRemove'>
+
+    api.pluginInstall('/tmp/my-plugin')
+    expect(invoke).toHaveBeenCalledWith('plugin:install', '/tmp/my-plugin')
+
+    api.pluginRemove('p1')
+    expect(invoke).toHaveBeenCalledWith('plugin:remove', 'p1')
+  })
+})

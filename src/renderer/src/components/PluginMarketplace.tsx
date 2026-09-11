@@ -10,11 +10,6 @@ interface PluginRow {
   active: boolean
 }
 
-interface PluginMarketplaceProps {
-  onInstall: (pluginId: string) => Promise<void>
-  onUninstall: (pluginId: string) => Promise<void>
-}
-
 function toRow(view: PluginStateView): PluginRow {
   return {
     id: view.manifest.id,
@@ -32,9 +27,11 @@ function toRow(view: PluginStateView): PluginRow {
  * Lists plugins discovered in the local plugin directory with their truthful
  * three-way state: installed (discovered on disk), enabled (user consented),
  * active (module loaded right now). Enable/Disable is the consent gate;
- * nothing runs that the user has not enabled.
+ * nothing runs that the user has not enabled. "Install from folder" copies a
+ * validated plugin folder in (inactive until enabled); Remove revokes consent
+ * and moves the folder to the trash, so it stays recoverable.
  */
-export function PluginMarketplace({ onUninstall }: PluginMarketplaceProps) {
+export function PluginMarketplace() {
   const [plugins, setPlugins] = useState<PluginRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -80,10 +77,25 @@ export function PluginMarketplace({ onUninstall }: PluginMarketplaceProps) {
     }
   }, [setRowState])
 
-  const handleUninstall = useCallback(async (plugin: PluginRow) => {
-    await onUninstall(plugin.id)
-    refresh()
-  }, [onUninstall, refresh])
+  const handleInstall = useCallback(async () => {
+    try {
+      const dir = await window.donwells.pickDirectory()
+      if (!dir) return
+      await window.donwells.pluginInstall(dir)
+      refresh()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to install plugin')
+    }
+  }, [refresh])
+
+  const handleRemove = useCallback(async (plugin: PluginRow) => {
+    try {
+      await window.donwells.pluginRemove(plugin.id)
+      refresh()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : `Failed to remove ${plugin.name}`)
+    }
+  }, [refresh])
 
   const filtered = plugins.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -104,6 +116,7 @@ export function PluginMarketplace({ onUninstall }: PluginMarketplaceProps) {
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Search plugins"
         />
+        <button className="btn btn-secondary btn-sm" onClick={handleInstall}>Install from folder…</button>
       </div>
 
       {error && <p className="text-xs text-destructive p-2">{error}</p>}
@@ -126,12 +139,12 @@ export function PluginMarketplace({ onUninstall }: PluginMarketplaceProps) {
               ) : (
                 <button className="btn btn-primary btn-xs" onClick={() => handleEnable(plugin)}>Enable</button>
               )}
-              <button className="btn btn-secondary btn-xs" onClick={() => handleUninstall(plugin)}>Remove</button>
+              <button className="btn btn-secondary btn-xs" onClick={() => handleRemove(plugin)}>Remove</button>
             </div>
           </div>
         ))}
         {filtered.length === 0 && (
-          <p className="text-xs text-muted p-2">No plugins found. Place a plugin folder under the plugins directory to discover it here.</p>
+          <p className="text-xs text-muted p-2">No plugins found. Use “Install from folder…” to add one, or place a plugin folder under the plugins directory to discover it here.</p>
         )}
       </div>
     </div>

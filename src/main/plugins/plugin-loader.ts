@@ -1,13 +1,16 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { logger } from '../../shared/logger'
+import { moveToTrash } from '../worktree-trash'
 import { PluginManifest, PluginModule, getPluginRegistry } from './plugin-registry'
 import type { PluginStateView } from '../../shared/types'
 
 export interface PluginLoaderOptions {
   /** Directory to scan for plugins. */
   pluginDir: string
+  /** Recoverable destination for removed plugin folders (R1.4). */
+  trashRoot?: string
   /**
    * @deprecated Kept for API compatibility. Activation is now user-consented:
    * a discovered plugin executes only after the user enables it (R1.3).
@@ -16,6 +19,9 @@ export interface PluginLoaderOptions {
 }
 
 const ACTIVATION_FILE = '.donwells-activation.json'
+
+/** Installable ids become directory names, so they must be plain path segments. */
+const SAFE_PLUGIN_ID = /^[A-Za-z0-9._-]+$/
 
 /**
  * Loads plugins from a directory with consent-gated activation.
@@ -142,6 +148,49 @@ export class PluginLoader {
       }
     }
     this.writeActivation(this.readActivation().filter((id) => id !== pluginId))
+  }
+
+  /**
+   * Copies a validated plugin folder into the plugin directory (R1.4). The
+   * install is DISABLED until the user enables it — copying never executes code.
+   */
+  async install(sourceDirPath: string): Promise<PluginManifest> {
+    const manifestPath = join(sourceDirPath, 'package.json')
+    if (!existsSync(manifestPath)) {
+      throw new Error(`No package.json in ${sourceDirPath}`)
+    }
+
+    const manifest = this.validateManifest(JSON.parse(readFileSync(manifestPath, 'utf-8')), sourceDirPath)
+    if (!SAFE_PLUGIN_ID.test(manifest.id) || manifest.id === '.' || manifest.id === '..') {
+      throw new Error(`Plugin id is not installable: ${manifest.id}`)
+    }
+
+    const target = join(this.options.pluginDir, manifest.id)
+    if (existsSync(target)) {
+      throw new Error(`Plugin already installed: ${manifest.id}`)
+    }
+
+    mkdirSync(this.options.pluginDir, { recursive: true })
+    cpSync(sourceDirPath, target, { recursive: true })
+    logger.info({ plugin: manifest.id, target }, 'plugin-loader: plugin installed (inactive until enabled)')
+    return manifest
+  }
+
+  /**
+   * Revokes consent, unloads, then moves the plugin folder to the trash root
+   * so removal is recoverable (R1.4).
+   */
+  async remove(pluginId: string): Promise<void> {
+    const found = this.discover().find((entry) => entry.manifest.id === pluginId)
+    if (!found) throw new Error(`Plugin not found: ${pluginId}`)
+
+    await this.disable(pluginId)
+
+    if (!this.options.trashRoot) {
+      throw new Error('Plugin trash root not configured')
+    }
+    moveToTrash(found.path, this.options.trashRoot)
+    logger.info({ plugin: pluginId }, 'plugin-loader: plugin folder moved to trash')
   }
 
   async loadPlugin(pluginPath: string): Promise<void> {

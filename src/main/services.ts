@@ -56,6 +56,8 @@ export function initServices(): DonwellsServices {
   registerPluginCapabilities(eventStore)
   const pluginLoader = new PluginLoader({
     pluginDir: join(app.getPath('userData'), 'plugins'),
+    // Removed plugins land here recoverably (R1.4), same convention as worktrees.
+    trashRoot: join(app.getPath('userData'), 'trash'),
   })
   // Consent-gated: loadAll imports only plugins the user has enabled (R1.3).
   void pluginLoader.loadAll().catch((err) => logger.error({ err }, 'plugin-loader: init failed'))

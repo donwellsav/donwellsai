@@ -577,6 +577,8 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   pluginUnload(id: string): Promise<void>
   pluginEnable(pluginId: string): Promise<void>
   pluginDisable(pluginId: string): Promise<void>
+  pluginInstall(sourceDirPath: string): Promise<PluginStateView['manifest']>
+  pluginRemove(pluginId: string): Promise<void>
 
   /** Event store queries (session replay) */
   eventStoreQuery(filter: { sessionId?: string; type?: string; since?: number }): Promise<Array<Record<string, unknown>>>
