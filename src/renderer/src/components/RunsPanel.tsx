@@ -1,12 +1,15 @@
+import { useState } from 'react'
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
 import { CollaborationPanel } from './CollaborationPanel'
+import { SessionReplay } from './SessionReplay'
 import { AgentsSection } from './runs/AgentsSection'
 import { ParallelRunsSection } from './runs/ParallelRunsSection'
 import { ScheduledRunsSection } from './runs/ScheduledRunsSection'
 import './runs/runs.css'
 
 export function RunsPanel() {
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null)
   const draftKey = useAppStore(state => state.activeWorktreePath ?? state.activeRepoId ?? '')
   const section = useAppStore((state) => state.runsSection)
   const openRuns = useAppStore((state) => state.openRuns)
@@ -38,6 +41,14 @@ export function RunsPanel() {
         )}
       </div>
       <CollaborationPanel />
+      {/* Session Replay */}
+      {replaySessionId && (
+        <SessionReplay
+          events={[]}
+          sessionId={replaySessionId}
+          onClose={() => setReplaySessionId(null)}
+        />
+      )}
     </section>
   )
 }

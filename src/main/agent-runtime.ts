@@ -162,17 +162,7 @@ export class AgentRuntime {
     if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
       throw new Error(`${provider.name} executable is unavailable`)
     }
-    // Compress intent context if it's too large
-    if (intent?.text) {
-      const intentTokens = intent.text.length / 4
-      if (intentTokens > 1000) {
-        const msgs: Message[] = [{ role: 'user', content: intent.text }]
-        const compressed = compressContext(msgs, { maxTokens: 800, preserveCount: 1, minKept: 1 })
-        if (compressed.compressed) {
-          logger.info({ original: intent.text.length, compressed: compressed.messages[0].content.length }, 'context-compression: applied')
-        }
-      }
-    }
+
 
     if (provider && ['codex', 'claude'].includes(provider.id) && this.options.nativeMcpArgs) {
       launch ??= { executable: this.registry.findExecutable(normalizedCommand)!, args: [] }
