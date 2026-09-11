@@ -566,6 +566,26 @@ function registerIpc(): void {
     return autonomousAgent.getState()
   })
 
+  // Autonomous iterations are durable evidence for replay (R4.1). Registered
+  // once here — this handler setup runs a single time on app startup.
+  getServices().autonomousAgent.on('iteration', (iteration) => {
+    const es = getServices().eventStore
+    void es
+      .append({
+        id: `autonomous-${iteration.index}-${Date.now()}`,
+        type: 'autonomous:iteration',
+        aggregateId: 'autonomous-run',
+        aggregateType: 'autonomous',
+        timestamp: Date.now(),
+        version: iteration.index + 1,
+        payload: {
+          goalAchieved: iteration.goalAchieved === true,
+          error: iteration.error?.slice(0, 2000)
+        }
+      })
+      .catch((err) => logger.error({ err }, 'event-store: autonomous iteration append failed'))
+  })
+
   // --- Perf & Analytics IPC handlers (registered ONCE above, lines 550-570) ---
   ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
 

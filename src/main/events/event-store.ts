@@ -3,6 +3,25 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { logger } from '../../shared/logger'
 
+/**
+ * Segment validators (R4.1): aggregateType is joined directly into the store
+ * path, so directory names must be plain filesystem-safe segments. Ids may
+ * contain ':' because real producers use ids like '<sessionId>:start'.
+ */
+const SAFE_ID = /^[A-Za-z0-9._:-]+$/
+const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/
+
+function isSafeId(value: string): boolean {
+  return SAFE_ID.test(value) && value !== '.' && value !== '..'
+}
+
+function isSafeSegment(value: string): boolean {
+  return SAFE_SEGMENT.test(value) && value !== '.' && value !== '..'
+}
+
+/** Serialized payload cap for appended events. */
+const MAX_PAYLOAD_CHARS = 65536
+
 export interface DomainEvent {
   id: string
   type: string
@@ -53,6 +72,7 @@ export class EventStore {
    * don't interleave.
    */
   async append(event: DomainEvent): Promise<void> {
+    this.validate(event)
     const { aggregateType, aggregateId } = event
     const dir = this.aggregateDir(aggregateType)
     await mkdir(dir, { recursive: true })
@@ -71,6 +91,25 @@ export class EventStore {
 
     this.writeQueue.set(`${aggregateType}:${aggregateId}`, nextWrite)
     await nextWrite
+  }
+
+  /**
+   * Rejects hostile ids/segments before any directory is created, and caps
+   * payload size so one event cannot balloon the store (R4.1).
+   */
+  private validate(event: DomainEvent): void {
+    if (!event || typeof event !== 'object') {
+      throw new Error('event-store: invalid event')
+    }
+    if (!isSafeId(event.id)) {
+      throw new Error(`event-store: unsafe event id: ${event.id}`)
+    }
+    if (!isSafeId(event.aggregateId)) {
+      throw new Error(`event-store: unsafe aggregate id: ${event.aggregateId}`)
+    }
+    if (JSON.stringify(event.payload ?? {}).length > MAX_PAYLOAD_CHARS) {
+      throw new Error('event-store: payload exceeds 64 KiB')
+    }
   }
 
   /**
@@ -183,6 +222,9 @@ export class EventStore {
   }
 
   private aggregateDir(type: string): string {
+    if (!isSafeSegment(type)) {
+      throw new Error(`event-store: unsafe aggregate type: ${type}`)
+    }
     return join(this.options.baseDir, type)
   }
 

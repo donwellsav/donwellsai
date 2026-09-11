@@ -26,6 +26,14 @@ export type AgentEventType =
   | 'agent:registered'
   | 'agent:unregistered'
   | 'agent:provider_changed'
+  | 'agent:start'
+  | 'agent:complete'
+  | 'agent:iterate'
+
+/**
+ * Autonomous loop events emitted by the daemon-job runner (R4.1).
+ */
+export type AutonomousEventType = 'autonomous:iteration' | 'autonomous:completed'
 
 export type UIEventType =
   | 'ui:command_executed'

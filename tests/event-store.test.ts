@@ -165,4 +165,66 @@ describe('EventStore', () => {
     const hash = await store.computeIntegrityHash('session')
     expect(hash).toMatch(/^[a-f0-9]{64}$/)
   })
+
+  describe('input hardening (R4.1)', () => {
+    it('rejects an escaping aggregate type without creating a directory', async () => {
+      await expect(
+        store.append({
+          id: 'x-1', type: 'agent:start', aggregateId: 'x', aggregateType: '../evil',
+          timestamp: 1, version: 1, payload: {}
+        })
+      ).rejects.toThrow(/unsafe aggregate type/)
+      expect((await readdir(baseDir)).length).toBe(0)
+    })
+
+    it('rejects an escaping aggregate id', async () => {
+      await expect(
+        store.append({
+          id: 'x-2', type: 'agent:start', aggregateId: '../../etc/passwd', aggregateType: 'agent',
+          timestamp: 1, version: 1, payload: {}
+        })
+      ).rejects.toThrow(/unsafe aggregate id/)
+    })
+
+    it('rejects a dot-dot event id', async () => {
+      await expect(
+        store.append({
+          id: '..', type: 'agent:start', aggregateId: 'x', aggregateType: 'agent',
+          timestamp: 1, version: 1, payload: {}
+        })
+      ).rejects.toThrow(/unsafe event id/)
+    })
+
+    it('accepts ids containing colons (real producer format)', async () => {
+      await store.append({
+        id: 's-9:start', type: 'agent:start', aggregateId: 's-9', aggregateType: 'agent',
+        timestamp: 1, version: 1, payload: { command: 'echo hi' }
+      })
+      const events = await store.query({ sessionId: 's-9' })
+      expect(events).toHaveLength(1)
+    })
+
+    it('rejects oversized payloads', async () => {
+      await expect(
+        store.append({
+          id: 'big-1', type: 'agent:complete', aggregateId: 's-9', aggregateType: 'agent',
+          timestamp: 1, version: 1, payload: { blob: 'a'.repeat(70000) }
+        })
+      ).rejects.toThrow(/payload exceeds 64 KiB/)
+    })
+
+    it('round-trips a queryable agent timeline', async () => {
+      await store.append({
+        id: 'run-1:start', type: 'agent:start', aggregateId: 'run-1', aggregateType: 'agent',
+        timestamp: 1, version: 1, payload: { command: 'echo hi' }
+      })
+      await store.append({
+        id: 'run-1:complete', type: 'agent:complete', aggregateId: 'run-1', aggregateType: 'agent',
+        timestamp: 2, version: 1, payload: {}
+      })
+      const events = await store.query({ sessionId: 'run-1' })
+      expect(events).toHaveLength(2)
+      expect(events.map((e) => e.type)).toEqual(['agent:start', 'agent:complete'])
+    })
+  })
 })
