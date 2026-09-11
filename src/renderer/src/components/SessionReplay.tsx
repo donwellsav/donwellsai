@@ -20,6 +20,7 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   'agent:start': 'text-blue-500',
   'agent:complete': 'text-green-500',
   'agent:error': 'text-red-500',
+  'autonomous:iteration': 'text-yellow-500',
   'agent:iterate': 'text-yellow-500',
   'default': 'text-gray-500',
 }

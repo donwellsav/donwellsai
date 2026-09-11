@@ -30,7 +30,7 @@ type AgentDraft = { command: string; directLaunch: boolean; args: string[]; comm
 const agentDrafts = guiDraftMap<AgentDraft>('agent-launches')
 const agentTargets = guiDraftMap<string>('agent-targets')
 
-export function AgentsSection() {
+export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionId: string) => void }) {
   const runningAgents = useAppStore((state) => state.runningAgents)
   const presets = useAppStore((state) => state.agents)
   const repos = useAppStore((state) => state.repos)
@@ -298,7 +298,7 @@ export function AgentsSection() {
 
       </div>
 
-      <details className="agent-command-field"><summary>Autonomous agent</summary><AutonomousAgentPanel /></details>
+      <details className="agent-command-field"><summary>Autonomous agent</summary><AutonomousAgentPanel onReplaySession={onReplaySession} /></details>
 
       {composerOpen && <ModalDialog className="modal op-setup-dialog" labelledBy="agent-launcher-title" onClose={() => { if (!launching && !configuringMemory) useAppStore.setState({ agentComposerOpen: false }) }}>
       <div className="op-composer-title"><h3 id="agent-launcher-title" className="modal-title">New agent</h3><button type="button" className="icon-btn" aria-label="Close agent setup" title="Close setup and keep your draft" disabled={launching || configuringMemory} onClick={() => useAppStore.setState({ agentComposerOpen: false })}><Icon name="x" size={14} /></button></div>
@@ -426,6 +426,7 @@ export function AgentsSection() {
 
       {sessionMenu && menuRun && <PopupMenu anchor={sessionMenu.anchor} title="Session actions" onClose={() => setSessionMenu(null)} items={menuRun.liveness === 'exited' ? [
         { key: 'retry', label: agentPresentation(menuRun).status === 'failed' ? 'Retry' : 'Run again', disabled: operation !== null, onSelect: () => { void retry(menuRun) } },
+        { key: 'replay', label: 'Replay session', disabled: operation !== null || !onReplaySession, onSelect: () => { setSessionMenu(null); if (onReplaySession) onReplaySession(menuRun.sessionId) } },
         { key: 'dismiss', label: 'Dismiss history…', disabled: operation !== null, onSelect: () => { setConfirmationError(null); setConfirmation({ kind: 'dismiss', run: menuRun }) } }
       ] : [
         { key: 'stop', label: menuRun.activity === 'stopping' ? 'Stopping…' : menuRun.liveness === 'unverifiable' ? 'Try to stop…' : 'Stop agent…', disabled: operation !== null || menuRun.activity === 'stopping', onSelect: () => { setConfirmationError(null); setConfirmation({ kind: 'stop', run: menuRun }) } }

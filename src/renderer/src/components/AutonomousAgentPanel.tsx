@@ -56,7 +56,7 @@ function verdictFor(result: AutonomousRunResult): string {
  * Progress comes from the main process state poll; token counts are shown
  * only when the provider reports usage, otherwise explicitly unavailable.
  */
-export function AutonomousAgentPanel() {
+export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (sessionId: string) => void }) {
   const repos = useAppStore((state) => state.repos)
   const presets = useAppStore((state) => state.agents)
   const activeWorktreePath = useAppStore((state) => state.activeWorktreePath)
@@ -200,7 +200,12 @@ export function AutonomousAgentPanel() {
           <p className="text-xs text-muted">
             {result.iterations} iterations · {formatDuration(result.totalDurationMs)} · {formatTokens(result.totalTokens)}
           </p>
-          <button className="btn btn-secondary btn-xs" onClick={() => { setPhase('idle'); setResult(null); setRunState(null) }}>New goal</button>
+          <div className="flex items-center gap-2">
+            <button className="btn btn-secondary btn-xs" onClick={() => { setPhase('idle'); setResult(null); setRunState(null) }}>New goal</button>
+            {onReplaySession && (
+              <button className="btn btn-secondary btn-xs" title="Scrub the recorded iteration events for autonomous runs" onClick={() => onReplaySession('autonomous-run')}>Replay iterations</button>
+            )}
+          </div>
         </div>
       )}
 

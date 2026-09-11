@@ -33,7 +33,7 @@ export function RunsPanel() {
       </header>
       <div id="runs-content" role={section === 'agents' ? 'region' : 'tabpanel'} aria-label={section === 'agents' ? 'Agent sessions' : undefined} aria-labelledby={section === 'agents' ? undefined : `runs-tab-${section}`} tabIndex={0} className="runs-body op-runs-body">
         {section === 'agents' ? (
-          <AgentsSection key={draftKey} />
+          <AgentsSection key={draftKey} onReplaySession={setReplaySessionId} />
         ) : section === 'orchestration' ? (
           <ParallelRunsSection />
         ) : (
