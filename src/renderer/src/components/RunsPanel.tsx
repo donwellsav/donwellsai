@@ -44,7 +44,6 @@ export function RunsPanel() {
       {/* Session Replay */}
       {replaySessionId && (
         <SessionReplay
-          events={[]}
           sessionId={replaySessionId}
           onClose={() => setReplaySessionId(null)}
         />

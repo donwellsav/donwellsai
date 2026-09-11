@@ -146,6 +146,16 @@ export class EventStore {
   /**
    * Replays events through a reducer function.
    */
+  async query(filter: { sessionId?: string; type?: string; since?: number }): Promise<DomainEvent[]> {
+    const all = await this.readAll()
+    return all.filter((e) => {
+      if (filter.sessionId && e.aggregateId !== filter.sessionId) return false
+      if (filter.type && e.type !== filter.type) return false
+      if (filter.since && e.timestamp < filter.since) return false
+      return true
+    })
+  }
+
   async replay<T>(
     aggregateType: string,
     aggregateId: string,
