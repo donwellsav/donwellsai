@@ -8,7 +8,7 @@ Editor, files, changes, browser, knowledge and resources are movable retained mo
 
 ## Current repair continuation — September 8
 
-Use the existing app checkout on `codex/inspection-repairs`; verify actual HEAD and local changes. The user authorized execution of the [nine-row repair plan](../superpowers/plans/2026-09-08-inspection-repairs.md). That checklist owns current defect and release qualification. Earlier package/host acceptance below is historical and does not close the newly reproduced replay, language-tool, settings, ignore or artifact defects. Residual `native/lume` policy/reference files are retained history; no remote runtime is supported.
+The nine-row [inspection-repair plan](../superpowers/plans/2026-09-08-inspection-repairs.md) was executed and delivered on `main` as release 0.5.1 (commit `1f0304c`), with the full suite green (650 passing, 0 failing). The working branch is `main`; `codex/inspection-repairs` is historical and no longer the working branch. Earlier package/host acceptance below is historical and does not close any newly reproduced defect unless reopened with evidence. Residual `native/lume` policy/reference files are retained history; no remote runtime is supported.
 
 ## Historical state at transfer
 
@@ -78,7 +78,7 @@ Remaining: 21F's physical native keyboard/pointer/selection/Metal qualification 
 
 ## Task22 — final current-source installed app
 
-Delivered 2026-09-08. Final artifact: `dist/donwells-0.5.0-mac-arm64.dmg` (SHA256 8ad3c856979a8d8e5bb0e53ca46ddd9f6d7888da807cd7b98ee11eb5b696e1f6, hdiutil-verified) from current source, installed isolated at `/tmp/donwells-22-final/donwells.app` — the user's own installation was never touched. Representative keyboard workflow incl. PDF preview passed on the installed copy; update/rollback continuity 0.4.0↔0.5.0 verified (`installed-update-0.5.0.json`); shipped recovery launcher transferred workspace+memory classes hash-identically and the recovered profile returned the identical project+fact (`installed-recovery-0.5.0.json`). Signing: ad hoc, no Developer ID, no notarization — reported, not hidden. Full record: `architecture/second-pass-22/final-0.5.0.md`. The 5172c81 candidate remains historical.
+Delivered 2026-09-08. Final artifact: `dist/donwells-0.5.0-mac-arm64.dmg` (SHA256 8ad3c856979a8d8e5bb0e53ca46ddd9f6d7888da807cd7b98ee11eb5b696e1f6, hdiutil-verified) from current source, installed isolated at `/tmp/donwells-22-final/donwells.app` — the user's own installation was never touched. Representative keyboard workflow incl. PDF preview passed on the installed copy; update/rollback continuity 0.4.0↔0.5.0 verified (`installed-update-0.5.0.json`); shipped recovery launcher transferred workspace+memory classes hash-identically and the recovered profile returned the identical project+fact (`installed-recovery-0.5.0.json`). Signing: ad hoc, no Developer ID, no notarization — reported, not hidden. Full record: `architecture/second-pass-22/final-0.5.0.md`. The 5172c81 candidate remains historical. **Superseded on 2026-09-11: the current release is 0.5.1 on `main` (commit `1f0304c`), built from the completed September 8 repair source.**
 
 ## Completion and continuation
 

@@ -1,4 +1,4 @@
-Current continuation: [September 8 inspection repairs](docs/superpowers/plans/2026-09-08-inspection-repairs.md), in the existing app checkout on `codex/inspection-repairs`. Verify actual HEAD/status. Earlier transfer records below are historical; do not restore removed remote work.
+Current continuation: none. The September 8 inspection-repair checklist ([docs/superpowers/plans/2026-09-08-inspection-repairs.md](docs/superpowers/plans/2026-09-08-inspection-repairs.md)) has been implemented and delivered on `main` as release 0.5.1 with a green suite (650 passing, 0 failing); the repair branch `codex/inspection-repairs` is historical and no longer the working branch. Verify actual HEAD/status. Earlier transfer records below are historical; do not restore removed remote work.
 
 # donwells.ai handoff — start here
 

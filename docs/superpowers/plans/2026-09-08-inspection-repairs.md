@@ -263,6 +263,8 @@ All tests must pass apart from explicitly reviewed environment skips; do not ret
 
 ## Current release candidate and remaining acceptance
 
+> **CLOSED — delivered as 0.5.1 on `main` (commit `1f0304c`).** The outstanding final visual renderer-switch/restart desktop check was completed on 2026-09-11 and the full suite is green (650 passing, 0 failing / 17 skipped). The repair branch `codex/inspection-repairs` and this candidate are historical; the packaged release moved to 0.5.1. Historical candidate record below is retained as evidence.
+
 - Runtime source commit: `207361e3670c7465d4c19255109f09468f84675d`. Later checklist-only commits do not change the packaged runtime.
 - Candidate: [donwells-0.5.0-mac-arm64.dmg](/Users/muzikfirst/Documents/donwellsai/donwellsai/dist/donwells-0.5.0-mac-arm64.dmg).
 - SHA-256: `7c849a96169f0e7dd179f59566442f26541196cfa33bc75c3a5133fa65d457df`.

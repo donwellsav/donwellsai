@@ -6,9 +6,9 @@ donwells.ai is a local desktop workspace for parallel agent development across G
 
 The donwells.ai workbench combines persistent workspace organization and split terminals with Explorer, Quick Open, Monaco, rich Markdown, source control, snapshot-bound review notes, and bounded image/PDF viewers. Settings cover agents, editor, source control, browser and media, appearance, terminals, shortcuts, notifications, privacy, and advanced behavior. Semantic light/dark themes and native interface scaling apply without restarting.
 
-## 0.5.0
+## 0.5.1
 
-The current app is local-only. Projects stay in left navigation; native Ghostty and Xterm attach to daemon-owned terminals. Project language tools use the checkout’s legacy tsserver or TypeScript 7 native LSP entry. September 8 inspection repairs and their qualification status are tracked in [the repair checklist](docs/superpowers/plans/2026-09-08-inspection-repairs.md).
+The current app is local-only. Projects stay in left navigation; native Ghostty and Xterm attach to daemon-owned terminals. Project language tools use the checkout’s legacy tsserver or TypeScript 7 native LSP entry. This is the 0.5.1 release built from the repaired September 8 source; the nine-row [inspection-repair checklist](docs/superpowers/plans/2026-09-08-inspection-repairs.md) was implemented and the full test suite is green (650 passing, 0 failing).
 
 ## Historical 0.4.0 changes
 

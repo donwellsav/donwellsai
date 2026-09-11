@@ -5,3 +5,5 @@ dist-cli
 *.log
 .DS_Store
 resources/native/
+storybook-static
+test-results
