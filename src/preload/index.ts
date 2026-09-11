@@ -206,6 +206,22 @@ const api: IpcApi = {
   resolveUiCommand: (id, result) => ipcRenderer.send('ui:command:result', id, result),
   perfGetStats: () => ipcRenderer.invoke('perf:getStats'),
   analyticsTrack: (name: string, category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error', properties?: Record<string, string | number | boolean | null>) => ipcRenderer.invoke('analytics:track', name, category, properties),
+  // Session templates
+  sessionTemplateList: () => ipcRenderer.invoke('sessionTemplate:list'),
+  sessionTemplateGet: (id: string) => ipcRenderer.invoke('sessionTemplate:get', id),
+  sessionTemplateCreate: (template: Parameters<typeof import('../main/templates/session-template-manager').SessionTemplateManager.prototype.create>[0]) => ipcRenderer.invoke('sessionTemplate:create', template),
+  sessionTemplateDelete: (id: string) => ipcRenderer.invoke('sessionTemplate:delete', id),
+  // Autonomous agent
+  autonomousStart: (goal: string) => ipcRenderer.invoke('autonomous:start', goal),
+  autonomousStop: () => ipcRenderer.invoke('autonomous:stop'),
+  autonomousState: () => ipcRenderer.invoke('autonomous:state'),
+  // Plugins
+  pluginList: () => ipcRenderer.invoke('plugin:list'),
+  pluginInvoke: (id: string, method: string, args?: unknown) => ipcRenderer.invoke('plugin:invoke', id, method, args),
+  pluginUnload: (id: string) => ipcRenderer.invoke('plugin:unload', id),
+  // Event store
+  eventStoreQuery: (filter: { sessionId?: string; type?: string; since?: number }) => ipcRenderer.invoke('events:query', filter),
+  eventStoreAppend: (event: unknown) => ipcRenderer.invoke('events:append', event),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)
     ipcRenderer.on(channel, listener)

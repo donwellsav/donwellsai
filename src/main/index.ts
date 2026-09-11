@@ -547,15 +547,7 @@ function registerIpc(): void {
     return autonomousAgent.getState()
   })
 
-  // --- Perf + Analytics IPC ---
-  ipcMain.handle('perf:metrics', () => {
-    return { active: false, stats: getPerfStats() }
-  })
-  ipcMain.handle('analytics:track', (_e, event: string, category: string, props: Record<string, string | number | boolean | null>) => {
-    const { analytics } = getServices()
-    analytics.track(event, category as AnalyticsEvent['category'], props)
-  })
-
+  // --- Perf & Analytics IPC handlers (registered ONCE above, lines 550-570) ---
   ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
 
   // --- Perf & Analytics IPC handlers ---

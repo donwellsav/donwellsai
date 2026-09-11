@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { logger } from '@shared/logger'
 import { EventStore } from './events/event-store'
-import { initPerfMonitor } from '@shared/perf-monitor'
+import { initPerfMonitor, getPerfStats } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { CollaborationService } from './collaboration/collaboration-service'
@@ -19,14 +19,13 @@ import { PluginLoader } from './plugins/plugin-loader'
 
 export interface DonwellsServices {
   eventStore: EventStore
-  perfMonitor: ReturnType<typeof initPerfMonitor>
   analytics: AnalyticsCollector
   sessionTemplates: SessionTemplateManager
   collaboration: CollaborationService
   autonomousAgent: AutonomousAgent
 }
 
-let services: DonwellsServices | null = null
+let services: DonwellsServices | undefined = undefined
 
 export function initServices(): DonwellsServices {
   if (services) return services
@@ -37,9 +36,7 @@ export function initServices(): DonwellsServices {
     baseDir: join(app.getPath('userData'), 'events'),
   })
 
-  const perfMonitor = initPerfMonitor(process.env['DONWELLS_PERF'] === '1')
-
-  const analytics = new AnalyticsCollector({
+    const analytics = new AnalyticsCollector({
     enabled: process.env['DONWELLS_ANALYTICS'] === '1',
   })
 
@@ -72,7 +69,6 @@ export function initServices(): DonwellsServices {
 
   services = {
     eventStore,
-    perfMonitor,
     analytics,
     sessionTemplates,
     collaboration,

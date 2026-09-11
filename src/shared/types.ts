@@ -546,4 +546,24 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
     category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error',
     properties?: Record<string, string | number | boolean | null>
   ): Promise<void>
+
+  /** Session template operations */
+  sessionTemplateList(): Promise<Array<{ id: string; name: string; description: string; category: string }>>
+  sessionTemplateGet(id: string): Promise<{ id: string; name: string; description: string; category: string } | null>
+  sessionTemplateCreate(template: { id: string; name: string; description: string; category: string; systemPrompt?: string }): Promise<{ id: string }>
+  sessionTemplateDelete(id: string): Promise<void>
+
+  /** Autonomous agent operations */
+  autonomousStart(goal: string): Promise<{ accepted: boolean; reason?: string }>
+  autonomousStop(): Promise<void>
+  autonomousState(): Promise<{ running: boolean; iteration: number; currentGoal?: string }>
+
+  /** Plugin operations */
+  pluginList(): Promise<Array<{ id: string; name: string; description: string; active: boolean }>>
+  pluginInvoke(id: string, method: string, args?: unknown): Promise<unknown>
+  pluginUnload(id: string): Promise<void>
+
+  /** Event store queries (session replay) */
+  eventStoreQuery(filter: { sessionId?: string; type?: string; since?: number }): Promise<Array<Record<string, unknown>>>
+  eventStoreAppend(event: Record<string, unknown>): Promise<void>
 }
