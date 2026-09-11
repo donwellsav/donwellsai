@@ -298,6 +298,8 @@ export function AgentsSection() {
 
       </div>
 
+      <details className="agent-command-field"><summary>Autonomous agent</summary><AutonomousAgentPanel /></details>
+
       {composerOpen && <ModalDialog className="modal op-setup-dialog" labelledBy="agent-launcher-title" onClose={() => { if (!launching && !configuringMemory) useAppStore.setState({ agentComposerOpen: false }) }}>
       <div className="op-composer-title"><h3 id="agent-launcher-title" className="modal-title">New agent</h3><button type="button" className="icon-btn" aria-label="Close agent setup" title="Close setup and keep your draft" disabled={launching || configuringMemory} onClick={() => useAppStore.setState({ agentComposerOpen: false })}><Icon name="x" size={14} /></button></div>
       <form className="agent-launcher" aria-labelledby="agent-launcher-title" onSubmit={(event) => {
