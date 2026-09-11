@@ -44,3 +44,17 @@ describe('preload plugin wire (R1.1/R1.3)', () => {
     expect(invoke).toHaveBeenCalledWith('plugin:disable', 'consent-plugin')
   })
 })
+
+describe('preload autonomous action decision wire (R2.3)', () => {
+  it('routes autonomousActionDecide through the autonomous:action-decision channel', async () => {
+    await import('../src/preload/index')
+    const api = exposed['donwells'] as Pick<IpcApi, 'autonomousActionDecide'>
+
+    api.autonomousActionDecide('act-1', true)
+    expect(invoke).toHaveBeenCalledWith('autonomous:action-decision', 'act-1', true)
+
+    invoke.mockClear()
+    api.autonomousActionDecide('act-2', false)
+    expect(invoke).toHaveBeenCalledWith('autonomous:action-decision', 'act-2', false)
+  })
+})

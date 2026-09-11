@@ -10,6 +10,7 @@ import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { restoreWindowBounds } from './window-bounds'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { resolveProjectToolScope } from './project-tools'
 import { ProjectDoctor } from './project-doctor'
 import { parseProjectToolConfiguration } from '@shared/project-doctor'
@@ -62,7 +63,7 @@ import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { CollaborationService } from './collaboration/collaboration-service'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
-import { createDaemonJobRunner } from './autonomous/daemon-job-runner'
+import { createDaemonJobRunner, executeJobCommand } from './autonomous/daemon-job-runner'
 
 
 configureDesktopPath()
@@ -533,6 +534,9 @@ function registerIpc(): void {
   })
 
   // --- Autonomous Agent IPC ---
+  // Gated autonomous actions awaiting the user's Allow/Deny decision (R2.3).
+  const pendingAutonomousActions = new Map<string, (approved: boolean) => void>()
+
   ipcMain.handle('autonomous:start', async (_e, goal: string, job?: { workspacePath: string; command: string }) => {
     if (!job || !job.workspacePath || !job.command) {
       throw new Error('Autonomous run requires a registered workspace and agent command')
@@ -542,9 +546,41 @@ function registerIpc(): void {
     const result = await autonomousAgent.run(
       goal,
       async (action) => {
-        // Action approvals are wired to UI prompts in R2.3.
-        logger.info({ action: action.description }, 'autonomous: executing action')
-        return 'executed'
+        if (action.type !== 'shell') {
+          return `unsupported action type: ${action.type}`
+        }
+        if (!action.approved) {
+          const actionId = `act-${randomUUID()}`
+          const approved = await new Promise<boolean>((resolve) => {
+            let settled = false
+            let timer: ReturnType<typeof setTimeout>
+            const finish = (value: boolean): void => {
+              if (settled) return
+              settled = true
+              clearTimeout(timer)
+              pendingAutonomousActions.delete(actionId)
+              resolve(value)
+            }
+            timer = setTimeout(() => finish(false), 120_000)
+            pendingAutonomousActions.set(actionId, finish)
+            send('autonomous:action-request', {
+              actionId,
+              type: action.type,
+              description: action.description
+            })
+          })
+          if (!approved) {
+            return 'not approved'
+          }
+          action.approved = true
+        }
+        const command = String(action.params.command ?? action.description)
+        try {
+          const outcome = await executeJobCommand(terminalBus, workspacePath, command)
+          return `executed (exit ${outcome.exitCode ?? 'unknown'}): ${outcome.output.trim().slice(0, 400)}`
+        } catch (error) {
+          return `execution failed: ${error instanceof Error ? error.message : String(error)}`
+        }
       },
       { workspacePath, command: job.command, runner: createDaemonJobRunner(terminalBus) }
     )
@@ -564,6 +600,13 @@ function registerIpc(): void {
   ipcMain.handle('autonomous:state', () => {
     const { autonomousAgent } = getServices()
     return autonomousAgent.getState()
+  })
+
+  ipcMain.handle('autonomous:action-decision', (_e, actionId: string, approved: boolean) => {
+    const finish = pendingAutonomousActions.get(actionId)
+    if (!finish) return false
+    finish(approved === true)
+    return true
   })
 
   // Autonomous iterations are durable evidence for replay (R4.1). Registered

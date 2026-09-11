@@ -384,6 +384,8 @@ export type MainEvents = {
   'browser:shortcut': { action: BrowserShortcutAction; guestId: number }
   /** Settings mutated by an RPC/CLI client — renderer re-applies live. */
   'settings:changed': { settings: AppSettings }
+  /** The autonomous loop needs a decision on a gated action. */
+  'autonomous:action-request': { actionId: string; type: string; description: string }
 }
 
 /** One browser-pane control command (agent control over runtime RPC). */
@@ -566,6 +568,7 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
     stoppedReason?: string
   }>
   autonomousStop(): Promise<void>
+  autonomousActionDecide(actionId: string, approved: boolean): Promise<boolean>
   autonomousState(): Promise<{ iterations: number; totalTokens: number | null; durationMs: number; stopped: boolean }>
 
   /** Plugin operations */

@@ -216,6 +216,8 @@ const api: IpcApi = {
   autonomousStart: (goal: string, job?: { workspacePath: string; command: string }) =>
     ipcRenderer.invoke('autonomous:start', goal, job),
   autonomousStop: () => ipcRenderer.invoke('autonomous:stop'),
+  autonomousActionDecide: (actionId: string, approved: boolean) =>
+    ipcRenderer.invoke('autonomous:action-decision', actionId, approved),
   autonomousState: () => ipcRenderer.invoke('autonomous:state'),
   // Plugins
   pluginList: () => ipcRenderer.invoke('plugin:list'),

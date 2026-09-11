@@ -68,6 +68,7 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
   const [runState, setRunState] = useState<AutonomousRunState | null>(null)
   const [result, setResult] = useState<AutonomousRunResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
+  const [pendingAction, setPendingAction] = useState<{ actionId: string; type: string; description: string } | null>(null)
 
   const availablePresets = useMemo(
     () => presets.filter((preset) => preset.available).sort((left, right) => left.name.localeCompare(right.name)),
@@ -91,6 +92,14 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
     void poll()
     const interval = setInterval(() => void poll(), 1000)
     return () => { cancelled = true; clearInterval(interval) }
+  }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'running') {
+      setPendingAction(null)
+      return
+    }
+    return window.donwells.on('autonomous:action-request', setPendingAction)
   }, [phase])
 
   const start = async () => {
@@ -190,6 +199,28 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
           >
             Stop after current iteration
           </button>
+        </div>
+      )}
+
+      {phase === 'running' && pendingAction && (
+        <div className="input space-y-2 p-2" role="alert">
+          <p className="text-xs">
+            Agent requests: <strong>{pendingAction.type}</strong> — {pendingAction.description}
+          </p>
+          <div className="flex gap-2">
+            <button
+              className="btn btn-primary btn-xs"
+              onClick={() => { void window.donwells.autonomousActionDecide(pendingAction.actionId, true); setPendingAction(null) }}
+            >
+              Allow
+            </button>
+            <button
+              className="btn btn-secondary btn-xs"
+              onClick={() => { void window.donwells.autonomousActionDecide(pendingAction.actionId, false); setPendingAction(null) }}
+            >
+              Deny
+            </button>
+          </div>
         </div>
       )}
 

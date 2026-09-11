@@ -89,7 +89,31 @@ const MAX_REASONING_CHARS = 2000
 const HISTORY_WINDOW = 5
 
 export const AUTONOMOUS_MARKER_CONTRACT =
-  'End your reply with exactly two lines:\nGOAL: achieved|not_achieved\nSUMMARY: <one line describing what you did>'
+  'End your reply with exactly two lines:\nGOAL: achieved|not_achieved\nSUMMARY: <one line describing what you did>\n' +
+  'If you need the host to run something for you, emit lines BEFORE the final markers:\nACTION: shell <single-line command>'
+
+const MAX_ACTION_LINES_PER_ITERATION = 10
+
+/**
+ * Parses host-action requests from agent output. Only `ACTION: <type> <payload>`
+ * lines count — anything else in the transcript is prose, not a request.
+ */
+export function parseActionLines(output: string): AgentAction[] {
+  const actions: AgentAction[] = []
+  const pattern = /^ACTION:\s*([A-Za-z_][A-Za-z0-9_-]*)\s+(.+)$/gim
+  for (const match of output.matchAll(pattern)) {
+    if (actions.length >= MAX_ACTION_LINES_PER_ITERATION) break
+    const type = match[1].toLowerCase()
+    const payload = match[2].trim()
+    actions.push({
+      type,
+      description: payload.slice(0, 200),
+      params: type === 'shell' ? { command: payload } : { payload },
+      approved: false,
+    })
+  }
+  return actions
+}
 
 /**
  * Parses the required completion markers from agent output.
@@ -108,7 +132,19 @@ function buildIterationPrompt(goal: string, iterations: AgentIteration[]): strin
   const prior = iterations.slice(-HISTORY_WINDOW).filter(i => i.result !== undefined || i.error !== undefined)
   if (prior.length === 0) return `${goal}\n\n${AUTONOMOUS_MARKER_CONTRACT}`
   const history = prior
-    .map(i => `Iteration ${i.index + 1}: ${i.error !== undefined ? `ERROR ${i.error}` : i.result}`)
+    .map(i => {
+      const lines = [`Iteration ${i.index + 1}: ${i.error !== undefined ? `ERROR ${i.error}` : i.result}`]
+      for (const action of i.actions) {
+        const outcome =
+          action.error !== undefined
+            ? `error ${action.error}`
+            : action.approved
+              ? `done: ${action.result ?? ''}`
+              : `not approved: ${action.result ?? 'the user did not approve'}`
+        lines.push(`  ACTION ${action.type} "${action.description.slice(0, 80)}": ${outcome}`)
+      }
+      return lines.join('\n')
+    })
     .join('\n')
   return `${goal}\n\nPrevious results:\n${history}\n\n${AUTONOMOUS_MARKER_CONTRACT}`
 }
@@ -163,7 +199,7 @@ export class AutonomousAgent extends EventEmitter {
           return this.buildResult('max_tokens', 'Maximum tokens reached')
         }
 
-        const iteration = await this.runIteration(goal, job)
+        const iteration = await this.runIteration(goal, job, actionHandler)
         this.iterations.push(iteration)
 
         this.emit('iteration', iteration)
@@ -215,7 +251,8 @@ export class AutonomousAgent extends EventEmitter {
 
   private async runIteration(
     goal: string,
-    job: AutonomousRunJob | undefined
+    job: AutonomousRunJob | undefined,
+    actionHandler: (action: AgentAction) => Promise<string>
   ): Promise<AgentIteration> {
     const iteration: AgentIteration = {
       index: this.iterations.length,
@@ -250,6 +287,24 @@ export class AutonomousAgent extends EventEmitter {
       }
       if (outcome.exitCode !== undefined && outcome.exitCode !== 0) {
         iteration.error = `Agent job exited with code ${outcome.exitCode}`
+      }
+      if (!iteration.error) {
+        iteration.actions = parseActionLines(outcome.output)
+        for (const action of iteration.actions) {
+          if (this.stopped) {
+            action.error = 'Stopped before the action was handled'
+            break
+          }
+          const gated =
+            this.config.requireApproval && this.config.requireApprovalFor.includes(action.type)
+          action.approved = !gated
+          try {
+            action.result = await actionHandler(action)
+          } catch (error) {
+            action.error = error instanceof Error ? error.message : String(error)
+            action.approved = false
+          }
+        }
       }
     } catch (error) {
       iteration.error = error instanceof Error ? error.message : String(error)

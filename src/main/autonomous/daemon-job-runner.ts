@@ -20,21 +20,55 @@ export interface DaemonJobRunnerOptions {
 }
 
 /**
+ * Opens a finite daemon job for one command, polls it to completion, and
+ * always closes the session. Shared by the iteration runner and by approved
+ * host actions so every executed command goes through the same confined path.
+ */
+export async function executeJobCommand(
+  terminals: DaemonClient,
+  workspacePath: string,
+  command: string,
+  options: DaemonJobRunnerOptions = {}
+): Promise<AutonomousJobOutcome> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1000
+  const maxPollMs = options.maxPollMs ?? 10 * 60 * 1000
+  const session = await terminals.openJob(workspacePath, command)
+  try {
+    const deadline = Date.now() + maxPollMs
+    for (;;) {
+      const result = await terminals.jobResult(session.id)
+      if (result.exited) {
+        // DaemonJobResult carries {exited, exitCode, output, sequence} only — the finite-job
+        // path has no per-run token meter. Provider usage is analyzed per session elsewhere
+        // (project-analytics), never as a live job field, so 'unavailable' is the honest value.
+        return { output: result.output, exitCode: result.exitCode, tokensUsed: null }
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Autonomous job exceeded ${maxPollMs}ms without exiting`)
+      }
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
+    }
+  } finally {
+    try {
+      await terminals.close(session.id)
+    } catch (err) {
+      logger.error({ err, sessionId: session.id }, 'autonomous-runner: close failed')
+    }
+  }
+}
+
+/**
  * Runs each autonomous iteration as a finite daemon job.
  *
  * The agent command receives the prompt inline when it fits the 16KiB
  * command cap; otherwise the prompt is written under the workspace's
  * `.donwells/autonomous/` directory (0700 dir / 0600 file) and the
- * command reads it back. Token usage is surfaced as null until a real
- * provider usage source is wired (unavailable, never guessed).
+ * command reads it back.
  */
 export function createDaemonJobRunner(
   terminals: DaemonClient,
   options: DaemonJobRunnerOptions = {}
 ): (request: AutonomousJobRequest) => Promise<AutonomousJobOutcome> {
-  const pollIntervalMs = options.pollIntervalMs ?? 1000
-  const maxPollMs = options.maxPollMs ?? 10 * 60 * 1000
-
   return async (request: AutonomousJobRequest): Promise<AutonomousJobOutcome> => {
     const inlineCommand = `${request.command} ${shellQuote(request.prompt)}`
     let command = inlineCommand
@@ -47,28 +81,6 @@ export function createDaemonJobRunner(
       command = `${request.command} $(cat ${shellQuote(relPath)})`
     }
 
-    const session = await terminals.openJob(request.workspacePath, command)
-    try {
-      const deadline = Date.now() + maxPollMs
-      for (;;) {
-        const result = await terminals.jobResult(session.id)
-        if (result.exited) {
-          // DaemonJobResult carries {exited, exitCode, output, sequence} only — the finite-job
-          // path has no per-run token meter. Provider usage is analyzed per session elsewhere
-          // (project-analytics), never as a live job field, so 'unavailable' is the honest value.
-          return { output: result.output, exitCode: result.exitCode, tokensUsed: null }
-        }
-        if (Date.now() >= deadline) {
-          throw new Error(`Autonomous job exceeded ${maxPollMs}ms without exiting`)
-        }
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
-      }
-    } finally {
-      try {
-        await terminals.close(session.id)
-      } catch (err) {
-        logger.error({ err, sessionId: session.id }, 'autonomous-runner: close failed')
-      }
-    }
+    return executeJobCommand(terminals, request.workspacePath, command, options)
   }
 }

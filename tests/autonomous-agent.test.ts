@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   AutonomousAgent,
+  parseActionLines,
   parseGoalMarker,
+  type AgentAction,
   type AutonomousAgentConfig,
   type AutonomousJobOutcome,
   type AutonomousJobRequest
@@ -179,5 +181,90 @@ describe('parseGoalMarker', () => {
 
   it('does not treat not_achieved as achieved', () => {
     expect(parseGoalMarker('GOAL: not_achieved').achieved).toBe(false)
+  })
+})
+
+describe('action routing (R2.3)', () => {
+  const routingOutcome = (n: number): AutonomousJobOutcome => ({
+    output:
+      n === 1
+        ? 'ACTION: shell echo hi\nGOAL: not_achieved\nSUMMARY: s'
+        : 'GOAL: achieved\nSUMMARY: fin',
+    exitCode: 0,
+    tokensUsed: null
+  })
+
+  it('parses ACTION lines from real output, capped at ten', () => {
+    const parsed = parseActionLines('ACTION: shell ls -la')
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]).toMatchObject({
+      type: 'shell',
+      description: 'ls -la',
+      params: { command: 'ls -la' },
+      approved: false
+    })
+    expect(parseActionLines('plain text')).toEqual([])
+    const many = Array.from({ length: 11 }, (_, i) => `ACTION: shell cmd-${i}`).join('\n')
+    expect(parseActionLines(many)).toHaveLength(10)
+  })
+
+  it('routes non-gated actions through the handler and feeds results back', async () => {
+    const seen: AgentAction[] = []
+    const record = async (action: AgentAction): Promise<string> => {
+      seen.push({ ...action })
+      return 'ok'
+    }
+    const { agent, calls, job } = makeRun(routingOutcome, { requireApproval: false })
+    const result = await agent.run('ship it', record, job)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ type: 'shell', approved: true })
+    expect(seen[0].params.command).toBe('echo hi')
+    expect(result.iterations[0].actions[0].result).toBe('ok')
+    expect(calls[1].prompt).toContain('ACTION shell')
+    expect(calls[1].prompt).toContain('done: ok')
+  })
+
+  it('presents gated actions unapproved and honours an approval decision', async () => {
+    let sawApproved: boolean | undefined
+    const approve = async (action: AgentAction): Promise<string> => {
+      sawApproved = action.approved
+      action.approved = true
+      return 'approved run'
+    }
+    const { agent, calls, job } = makeRun(routingOutcome, {
+      requireApproval: true,
+      requireApprovalFor: ['shell']
+    })
+    const result = await agent.run('ship it', approve, job)
+    expect(sawApproved).toBe(false)
+    expect(result.iterations[0].actions[0].approved).toBe(true)
+    expect(calls[1].prompt).toContain('done: approved run')
+  })
+
+  it('keeps denied actions unapproved and says so in the next prompt', async () => {
+    const deny = async (action: AgentAction): Promise<string> => {
+      action.approved = false
+      return 'the user did not approve'
+    }
+    const { agent, calls, job } = makeRun(routingOutcome, {
+      requireApproval: true,
+      requireApprovalFor: ['shell']
+    })
+    const result = await agent.run('ship it', deny, job)
+    expect(result.iterations[0].actions[0].approved).toBe(false)
+    expect(calls[1].prompt).toContain('not approved')
+  })
+
+  it('records handler failures on the action without failing the iteration', async () => {
+    const thrower = async (): Promise<string> => {
+      throw new Error('boom')
+    }
+    const { agent, calls, job } = makeRun(routingOutcome, { requireApproval: false })
+    const result = await agent.run('ship it', thrower, job)
+    expect(result.iterations[0].actions[0].error).toBe('boom')
+    expect(result.iterations[0].actions[0].approved).toBe(false)
+    expect(result.iterations[0].error).toBeUndefined()
+    expect(result.stoppedReason).not.toBe('error')
+    expect(calls.length).toBeGreaterThanOrEqual(2)
   })
 })
