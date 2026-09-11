@@ -220,7 +220,8 @@ const api: IpcApi = {
   pluginList: () => ipcRenderer.invoke('plugin:list'),
   pluginInvoke: (id: string, method: string, args?: unknown) =>
     ipcRenderer.invoke('plugin:invoke', pluginCommandId(id, method), ...(args === undefined ? [] : [args])),
-  pluginUnload: (id: string) => ipcRenderer.invoke('plugin:unload', id),
+  pluginUnload: (id: string) => ipcRenderer.invoke('plugin:unload', id),  pluginEnable: (id: string) => ipcRenderer.invoke('plugin:enable', id),
+  pluginDisable: (id: string) => ipcRenderer.invoke('plugin:disable', id),
   // Event store
   eventStoreQuery: (filter: { sessionId?: string; type?: string; since?: number }) => ipcRenderer.invoke('events:query', filter),
   eventStoreAppend: (event: unknown) => ipcRenderer.invoke('events:append', event),

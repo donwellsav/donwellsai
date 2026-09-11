@@ -20,10 +20,10 @@ vi.mock('electron', () => ({
   }
 }))
 
-describe('preload plugin invoke wire (R1.1)', () => {
+describe('preload plugin wire (R1.1/R1.3)', () => {
   it('sends plugin:invoke with the composed commandId and passthrough args', async () => {
     await import('../src/preload/index')
-    const api = exposed['donwells'] as Pick<IpcApi, 'pluginInvoke'>
+    const api = exposed['donwells'] as Pick<IpcApi, 'pluginInvoke' | 'pluginEnable' | 'pluginDisable'>
 
     api.pluginInvoke('rpc-plugin', 'run', { x: 1 })
     expect(invoke).toHaveBeenCalledWith('plugin:invoke', 'rpc-plugin.run', { x: 1 })
@@ -31,5 +31,16 @@ describe('preload plugin invoke wire (R1.1)', () => {
     invoke.mockClear()
     api.pluginInvoke('rpc-plugin', 'ping')
     expect(invoke).toHaveBeenCalledWith('plugin:invoke', 'rpc-plugin.ping')
+  })
+
+  it('routes enable/disable through the plugin:enable and plugin:disable channels', async () => {
+    await import('../src/preload/index')
+    const api = exposed['donwells'] as Pick<IpcApi, 'pluginEnable' | 'pluginDisable'>
+
+    api.pluginEnable('consent-plugin')
+    expect(invoke).toHaveBeenCalledWith('plugin:enable', 'consent-plugin')
+
+    api.pluginDisable('consent-plugin')
+    expect(invoke).toHaveBeenCalledWith('plugin:disable', 'consent-plugin')
   })
 })

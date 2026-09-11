@@ -559,11 +559,35 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   autonomousState(): Promise<{ running: boolean; iteration: number; currentGoal?: string }>
 
   /** Plugin operations */
-  pluginList(): Promise<Array<{ id: string; name: string; description: string; active: boolean }>>
+  pluginList(): Promise<PluginStateView[]>
   pluginInvoke(id: string, method: string, args?: unknown): Promise<unknown>
   pluginUnload(id: string): Promise<void>
+  pluginEnable(pluginId: string): Promise<void>
+  pluginDisable(pluginId: string): Promise<void>
 
   /** Event store queries (session replay) */
   eventStoreQuery(filter: { sessionId?: string; type?: string; since?: number }): Promise<Array<Record<string, unknown>>>
   eventStoreAppend(event: Record<string, unknown>): Promise<void>
+}
+
+/**
+ * Structural view of a discovered plugin for renderer code (mirrors the main
+ * process PluginManifest without importing a main-only module).
+ */
+export interface PluginStateView {
+  manifest: {
+    id: string
+    name: string
+    version: string
+    description?: string
+    author?: string
+    main: string
+    apiVersion: string
+    permissions?: string[]
+    commands?: Array<{ id: string; title: string; description?: string }>
+  }
+  /** User has consented to this plugin running (persisted activation). */
+  enabled: boolean
+  /** Plugin module is imported and registered right now. */
+  active: boolean
 }

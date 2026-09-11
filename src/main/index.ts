@@ -507,9 +507,11 @@ function registerIpc(): void {
     send('collaboration:status', { roomName: collaboration.config.roomName, connected, reason })
   })
   // --- Plugin system: IPC handlers ---
-  ipcMain.handle('plugin:list', () => getPluginRegistry().getAllPlugins().map(p => p.manifest))
+  ipcMain.handle('plugin:list', () => getServices().pluginLoader.list())
   ipcMain.handle('plugin:unload', (_e, pluginId: string) => getPluginRegistry().unload(pluginId))
   ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
+  ipcMain.handle('plugin:enable', (_e, pluginId: string) => getServices().pluginLoader.enable(pluginId))
+  ipcMain.handle('plugin:disable', (_e, pluginId: string) => getServices().pluginLoader.disable(pluginId))
 
   // --- Session Templates IPC ---
   ipcMain.handle('sessionTemplate:list', () => {

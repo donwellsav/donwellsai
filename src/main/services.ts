@@ -25,6 +25,7 @@ export interface DonwellsServices {
   voiceService: VoiceService
   collaboration: CollaborationService
   autonomousAgent: AutonomousAgent
+  pluginLoader: PluginLoader
 }
 
 let services: DonwellsServices | undefined = undefined
@@ -55,8 +56,8 @@ export function initServices(): DonwellsServices {
   registerPluginCapabilities(eventStore)
   const pluginLoader = new PluginLoader({
     pluginDir: join(app.getPath('userData'), 'plugins'),
-    autoActivate: true,
   })
+  // Consent-gated: loadAll imports only plugins the user has enabled (R1.3).
   void pluginLoader.loadAll().catch((err) => logger.error({ err }, 'plugin-loader: init failed'))
 
   const voiceService = new VoiceService()
@@ -78,6 +79,7 @@ export function initServices(): DonwellsServices {
     voiceService,
     collaboration,
     autonomousAgent,
+    pluginLoader,
   }
 
   logger.info('services: ready')
