@@ -12,6 +12,7 @@ import { pinnedWorktree } from '../../commands'
 import { useAppStore } from '../../store'
 import { Icon } from '../Icon'
 import { CapabilityMatrix } from '../CapabilityMatrix'
+import { TemplatePicker } from '../TemplatePicker'
 import { ModalDialog } from '../ModalDialog'
 import { formatRunTime } from './RunStatus'
 import { AcpSessions } from './AcpSessions'
@@ -56,6 +57,7 @@ export function AgentsSection() {
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [directLaunch, setDirectLaunch] = useState(draft?.directLaunch ?? false)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [args, setArgs] = useState<string[]>(draft?.args ?? [])
   const [commandTouched, setCommandTouched] = useState(draft?.commandTouched ?? false)
   const [launching, setLaunching] = useState(false)
@@ -311,6 +313,9 @@ export function AgentsSection() {
               }}><option value="" disabled>Custom command (Advanced)</option>{availablePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
             </label>
             <CapabilityMatrix />
+            <label className="modal-field">Session template
+              <TemplatePicker onSelect={setSelectedTemplateId} selectedId={selectedTemplateId ?? undefined} />
+            </label>
           </>
         ) : (
           <div className="agent-launcher-note" role="status">
