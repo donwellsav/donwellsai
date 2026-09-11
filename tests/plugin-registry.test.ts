@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { PluginRegistry, registerAppCapability } from '../src/main/plugins/plugin-registry'
+import { pluginCommandId } from '../src/shared/plugin-command'
 
 describe('PluginRegistry', () => {
   let registry: PluginRegistry
@@ -114,5 +115,31 @@ describe('PluginRegistry', () => {
     expect(deactivated).toBe(true)
     expect(registry.getPlugin('unload-plugin')).toBeUndefined()
     await expect(registry.invokeCommand('unload-plugin.foo')).rejects.toThrow()
+  })
+
+  describe('invoke wire contract (R1.1)', () => {
+    it('pluginCommandId composes the registry key format', () => {
+      expect(pluginCommandId('rpc', 'run')).toBe('rpc.run')
+    })
+
+    it('commands resolve only via the composed pluginId.method id', async () => {
+      const manifest = {
+        id: 'rpc-plugin',
+        name: 'RPC Plugin',
+        version: '1.0.0',
+        main: 'index.js',
+        apiVersion: '1.0.0' as const
+      }
+      await registry.load(manifest, {
+        commands: {
+          run: (args: unknown) => ({ echoed: args })
+        }
+      })
+
+      await expect(registry.invokeCommand(pluginCommandId('rpc-plugin', 'run'), { x: 1 })).resolves.toEqual({
+        echoed: { x: 1 }
+      })
+      await expect(registry.invokeCommand('rpc-plugin')).rejects.toThrow(/Unknown plugin command/)
+    })
   })
 })

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
+import { pluginCommandId } from '../shared/plugin-command'
 
 const api: IpcApi = {
   guiDraftsRead: () => ipcRenderer.invoke('guiDraftsRead'),
@@ -217,7 +218,8 @@ const api: IpcApi = {
   autonomousState: () => ipcRenderer.invoke('autonomous:state'),
   // Plugins
   pluginList: () => ipcRenderer.invoke('plugin:list'),
-  pluginInvoke: (id: string, method: string, args?: unknown) => ipcRenderer.invoke('plugin:invoke', id, method, args),
+  pluginInvoke: (id: string, method: string, args?: unknown) =>
+    ipcRenderer.invoke('plugin:invoke', pluginCommandId(id, method), ...(args === undefined ? [] : [args])),
   pluginUnload: (id: string) => ipcRenderer.invoke('plugin:unload', id),
   // Event store
   eventStoreQuery: (filter: { sessionId?: string; type?: string; since?: number }) => ipcRenderer.invoke('events:query', filter),

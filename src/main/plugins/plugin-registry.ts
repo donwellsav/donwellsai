@@ -1,4 +1,5 @@
 import { logger } from '../../shared/logger'
+import { pluginCommandId } from '../../shared/plugin-command'
 
 export interface PluginManifest {
   id: string
@@ -78,7 +79,7 @@ export class PluginRegistry {
 
     // Register commands
     for (const [method, handler] of Object.entries(module.commands ?? {})) {
-      const commandId = `${manifest.id}.${method}`
+      const commandId = pluginCommandId(manifest.id, method)
       this.commandHandlers.set(commandId, (...args: unknown[]) => Promise.resolve(handler(...args)))
     }
 
@@ -100,7 +101,7 @@ export class PluginRegistry {
 
     // Unregister commands
     for (const method of Object.keys(plugin.module.commands ?? {})) {
-      this.commandHandlers.delete(`${pluginId}.${method}`)
+      this.commandHandlers.delete(pluginCommandId(pluginId, method))
     }
 
     this.plugins.delete(pluginId)
