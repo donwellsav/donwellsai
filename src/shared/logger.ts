@@ -1,6 +1,7 @@
 import pino from 'pino'
 
 const IS_ELECTRON_MAIN = (process as { type?: string }).type === 'browser'
+const IS_RUN_AS_NODE = process.env['ELECTRON_RUN_AS_NODE'] === '1'
 
 const logLevel = (() => {
   // 1. Explicit env override
@@ -27,7 +28,7 @@ const isDev = logLevel === 'debug' || logLevel === 'trace'
  */
 const logger = pino({
   level: logLevel,
-  transport: IS_ELECTRON_MAIN
+  transport: IS_ELECTRON_MAIN || IS_RUN_AS_NODE
     ? undefined
     : isDev
       ? {
