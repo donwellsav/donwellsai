@@ -8,6 +8,7 @@ import type { NativeTerminalRequest, NativeTerminalResult } from '@shared/native
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { terminalThemeOf } from '../renderer/src/terminal-themes'
+import { logger } from '@shared/logger'
 
 type Entry = { id: string; instance: string; sessionId: string; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
 type Binding = { request(json: string, handle?: Buffer): string; listen(callback: (json: string) => void): void }
@@ -81,7 +82,7 @@ export class NativeTerminals {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     this.entries.delete(entry.sessionId)
     try { this.call(entry, 'destroy') }
-    catch (error) { console.error('Native terminal surface cleanup failed:', error) }
+    catch (error) { logger.error({ err: error }, 'Native terminal surface cleanup failed') }
   }
   private clear() { for (const entry of this.entries.values()) this.dispose(entry) }
   private replay(entry: Entry) {
@@ -112,7 +113,7 @@ export class NativeTerminals {
       }
       if (event.type === 'focus') this.publish(entry, { focused: event.focused === true && this.window.isFocused() && this.window.isVisible() })
       if (event.type === 'url' && typeof event.url === 'string' && /^https?:\/\//i.test(event.url)) void shell.openExternal(event.url)
-    } catch (error) { console.error('Native terminal event failed:', error) }
+    } catch (error) { logger.error({ err: error }, 'Native terminal event failed') }
   }
   async request(request: NativeTerminalRequest): Promise<NativeTerminalResult> {
     if (this.closed || this.window.isDestroyed()) throw new Error('Native terminal window closed')

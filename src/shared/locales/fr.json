@@ -1,0 +1,31 @@
+{
+  "app": {
+    "title": "Donwells.ai",
+    "tagline": "Espace de travail de développement alimenté par IA"
+  },
+  "nav": {
+    "agents": "Agents",
+    "projects": "Projets",
+    "settings": "Paramètres",
+    "help": "Aide"
+  },
+  "agent": {
+    "start": "Démarrer l'Agent",
+    "stop": "Arrêter l'Agent",
+    "status": "Statut",
+    "idle": "Inactif",
+    "running": "En cours",
+    "error": "Erreur"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "language": "Langue",
+    "theme": "Thème",
+    "provider": "Fournisseur"
+  },
+  "errors": {
+    "generic": "Quelque chose s'est mal passé",
+    "retry": "Réessayer",
+    "dismiss": "Ignorer"
+  }
+}

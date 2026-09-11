@@ -1,0 +1,31 @@
+{
+  "app": {
+    "title": "Donwells.ai",
+    "tagline": "KI-gestützter Entwicklungs-Arbeitsbereich"
+  },
+  "nav": {
+    "agents": "Agenten",
+    "projects": "Projekte",
+    "settings": "Einstellungen",
+    "help": "Hilfe"
+  },
+  "agent": {
+    "start": "Agent starten",
+    "stop": "Agent stoppen",
+    "status": "Status",
+    "idle": "Leerlauf",
+    "running": "Läuft",
+    "error": "Fehler"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "language": "Sprache",
+    "theme": "Thema",
+    "provider": "Anbieter"
+  },
+  "errors": {
+    "generic": "Etwas ist schief gelaufen",
+    "retry": "Erneut versuchen",
+    "dismiss": "Schließen"
+  }
+}

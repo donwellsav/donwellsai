@@ -1,5 +1,6 @@
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
+import { CollaborationPanel } from './CollaborationPanel'
 import { AgentsSection } from './runs/AgentsSection'
 import { ParallelRunsSection } from './runs/ParallelRunsSection'
 import { ScheduledRunsSection } from './runs/ScheduledRunsSection'
@@ -36,6 +37,7 @@ export function RunsPanel() {
           <ScheduledRunsSection />
         )}
       </div>
+      <CollaborationPanel />
     </section>
   )
 }

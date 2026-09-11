@@ -14,6 +14,7 @@ import {
 } from '@shared/settings'
 import type { SettingMetadata } from '@shared/settings'
 import { useAppStore } from '../store'
+import { LanguageSelector } from './settings/LanguageSelector'
 import { SETTINGS_SECTION_PRESENTATION, resetSettingsAtRevision, searchSettingsCatalog } from '../settings-workspace'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
@@ -382,6 +383,7 @@ export function SettingsModal({ open }: { open: boolean }) {
     if (target === 'appearance' || target === 'terminal') return <>
       {(target === 'appearance' ? [
         ['Theme', ['theme']],
+        ['Language', ['language']],
         ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
         ['Layout', ['navigationLabels', 'toolPanelSide']]
       ] as const : [
@@ -396,7 +398,8 @@ export function SettingsModal({ open }: { open: boolean }) {
           <SettingsList metadata={fields} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={key => void resetOne(key)} />
         </section>
       })}
-      {!query && target === 'appearance' && <div className="settings-typography-links">
+      <LanguageSelector />
+          {!query && target === 'appearance' && <div className="settings-typography-links">
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => openSection('editor')}>Editor typography</button>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => openSection('terminal')}>Terminal typography</button>
       </div>}

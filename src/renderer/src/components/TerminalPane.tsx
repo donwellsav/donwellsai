@@ -95,7 +95,8 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         theme: terminalThemeOf(settings.terminalTheme),
         scrollback: settings.scrollback ?? 10000,
         scrollOnUserInput: true,
-        rightClickSelectsWord: false
+        rightClickSelectsWord: false,
+        screenReaderMode: true
       })
       const fit = new FitAddon()
       term.loadAddon(fit)

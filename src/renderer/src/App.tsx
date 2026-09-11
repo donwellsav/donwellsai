@@ -1,5 +1,6 @@
 import { Icon } from './components/Icon'
 import { useEffect } from 'react'
+import { ErrorBoundary } from 'react-error-boundary'
 
 import { WorkspaceShell } from './components/WorkspaceShell'
 import { Workbench } from './components/Workbench'
@@ -22,6 +23,23 @@ import { useProjectMemoryEditor } from './project-memory-editor'
 import { startEditorRecoveryController } from './editor-recovery'
 import { useNavigationHistoryController } from './navigation-controller'
 import { ProjectSetupDialog } from './components/ProjectSetupDialog'
+
+
+function ErrorFallback({ error, resetErrorBoundary }: { error: unknown; resetErrorBoundary: () => void }) {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    <div className="app-layout">
+      <div className="landing">
+        <div className="landing-inner">
+          <h1 className="landing-title">Something went wrong</h1>
+          <p className="landing-sub">donwells.ai encountered an error. Your projects are safe.</p>
+          <pre className="lifecycle-error" role="alert">{message}</pre>
+          <button className="btn btn-primary" onClick={resetErrorBoundary}>Retry</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 
 export function App() {
@@ -113,14 +131,16 @@ export function App() {
 
   if (loading) {
     return (
-      <div className="app-layout">
-        <div className="landing">
-          <div className="landing-inner">
-            <div className="landing-logo" aria-label="donwells.ai">dw</div>
-            <p className="landing-sub">Loading donwells.ai…</p>
+      <ErrorBoundary FallbackComponent={ErrorFallback} onReset={() => void load()}>
+        <div className="app-layout">
+          <div className="landing">
+            <div className="landing-inner">
+              <div className="landing-logo" aria-label="donwells.ai">dw</div>
+              <p className="landing-sub">Loading donwells.ai…</p>
+            </div>
           </div>
         </div>
-      </div>
+      </ErrorBoundary>
     )
   }
 
@@ -138,27 +158,30 @@ export function App() {
   }
 
   return (
-    <div className="app-layout">
-      <WorkspaceShell leftPanel={rightSidebarOpen && !runsOpen && settings.toolPanelSide === 'left' ? <RightSidebar key="tool-panel" /> : undefined}>
-        <div key="workspace-stage" className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`} tabIndex={-1}>
-          <Workbench />
-          {!activeWorktreePath && <Landing />}
-          <BrowserHosts />
-        </div>
-        {runsOpen && <RunsPanel />}
-        {rightSidebarOpen && !runsOpen && settings.toolPanelSide !== 'left' && <RightSidebar key="tool-panel" />}
-      </WorkspaceShell>
+    <ErrorBoundary FallbackComponent={ErrorFallback} onReset={() => void useAppStore.getState().load()}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+      <div className="app-layout">
+        <WorkspaceShell leftPanel={rightSidebarOpen && !runsOpen && settings.toolPanelSide === 'left' ? <RightSidebar key="tool-panel" /> : undefined}>
+          <div key="workspace-stage" id="main-content" className={`workspace-stage${runsOpen ? ' workspace-stage-hidden' : ''}`} tabIndex={-1}>
+            <Workbench />
+            {!activeWorktreePath && <Landing />}
+            <BrowserHosts />
+          </div>
+          {runsOpen && <RunsPanel />}
+          {rightSidebarOpen && !runsOpen && settings.toolPanelSide !== 'left' && <RightSidebar key="tool-panel" />}
+        </WorkspaceShell>
 
-      {error && (
-        <div className="toast error" role="alert"><span>{error}</span><button type="button" className="icon-btn" aria-label="Dismiss error" onClick={() => useAppStore.getState().setError(null)}><Icon name="x" /></button></div>
-      )}
-      <CommandPalette open={paletteOpen} />
-      <SettingsModal open={settingsOpen} />
-      <CreateWorktreeModal />
-      <ProjectSetupDialog />
-      <DeleteWorktreeModal />
-      <TerminalCloseDialog />
-      <ProjectMemoryEditor />
-    </div>
+        {error && (
+          <div className="toast error" role="alert" aria-live="assertive"><span>{error}</span><button type="button" className="icon-btn" aria-label="Dismiss error" onClick={() => useAppStore.getState().setError(null)}><Icon name="x" /></button></div>
+        )}
+        <CommandPalette open={paletteOpen} />
+        <SettingsModal open={settingsOpen} />
+        <CreateWorktreeModal />
+        <ProjectSetupDialog />
+        <DeleteWorktreeModal />
+        <TerminalCloseDialog />
+        <ProjectMemoryEditor />
+      </div>
+    </ErrorBoundary>
   )
 }

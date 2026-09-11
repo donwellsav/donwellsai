@@ -11,6 +11,7 @@ import type { AgentMemorySetupResult, RunningAgent } from '@shared/types'
 import { pinnedWorktree } from '../../commands'
 import { useAppStore } from '../../store'
 import { Icon } from '../Icon'
+import { CapabilityMatrix } from '../CapabilityMatrix'
 import { ModalDialog } from '../ModalDialog'
 import { formatRunTime } from './RunStatus'
 import { AcpSessions } from './AcpSessions'
@@ -301,13 +302,16 @@ export function AgentsSection() {
         {overlaps.length > 0 && <section aria-label="Overlapping session ownership"><p role="status"><strong>{overlaps.length} session(s) may overlap.</strong></p>{overlaps.map(run => <div key={run.sessionId}><p>{agentProviderName(run)}: {run.task?.intent || 'Intent unspecified'} · {run.task?.files.join(', ') || 'File scope unspecified'}</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => void openTerminal(run)}>Open owner terminal</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'git')}>Review checkout changes</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'memory')}>Review or save handoff</button></div>)}</section>}
 
         {availablePresets.length > 0 ? (
-          <label className="modal-field">Agent
-            <select className="input" aria-label="Agent type" value={selectedPreset?.id ?? ''} onChange={event => {
-              const preset = availablePresets.find(item => item.id === event.target.value)
-              if (!preset) return
-              setCommand(preset.executablePath ?? preset.command); setDirectLaunch(true); setArgs([]); setCommandTouched(true); setLaunchError(null)
-            }}><option value="" disabled>Custom command (Advanced)</option>{availablePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
-          </label>
+          <>
+            <label className="modal-field">Agent
+              <select className="input" aria-label="Agent type" value={selectedPreset?.id ?? ''} onChange={event => {
+                const preset = availablePresets.find(item => item.id === event.target.value)
+                if (!preset) return
+                setCommand(preset.executablePath ?? preset.command); setDirectLaunch(true); setArgs([]); setCommandTouched(true); setLaunchError(null)
+              }}><option value="" disabled>Custom command (Advanced)</option>{availablePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
+            </label>
+            <CapabilityMatrix />
+          </>
         ) : (
           <div className="agent-launcher-note" role="status">
             <strong>No supported agent was found.</strong>

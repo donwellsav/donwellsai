@@ -1,0 +1,31 @@
+{
+  "app": {
+    "title": "Donwells.ai",
+    "tagline": "AI駆動の開発ワークスペース"
+  },
+  "nav": {
+    "agents": "エージェント",
+    "projects": "プロジェクト",
+    "settings": "設定",
+    "help": "ヘルプ"
+  },
+  "agent": {
+    "start": "エージェントを開始",
+    "stop": "エージェントを停止",
+    "status": "ステータス",
+    "idle": "アイドル",
+    "running": "実行中",
+    "error": "エラー"
+  },
+  "settings": {
+    "title": "設定",
+    "language": "言語",
+    "theme": "テーマ",
+    "provider": "プロバイダー"
+  },
+  "errors": {
+    "generic": "問題が発生しました",
+    "retry": "再試行",
+    "dismiss": "閉じる"
+  }
+}

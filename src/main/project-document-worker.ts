@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { Writable } from 'node:stream'
 import { runProcess } from '@shared/child-process/run-process'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import { logger } from '@shared/logger'
 import { WorktreeFiles, validateRelativePath } from './worktree-files'
 import { openProjectDocumentIndex, type DocumentIndexConfiguration, type IndexedDocument } from './project-document-index'
 
@@ -178,4 +179,4 @@ async function main() {
   process.stdin.on('end', () => { void close().finally(() => process.exit(0)) })
 }
 
-void main().catch(error => { console.error(String(error)); process.exit(1) })
+void main().catch(error => { logger.fatal({ err: error }, 'project-document-worker failed'); process.exit(1) })

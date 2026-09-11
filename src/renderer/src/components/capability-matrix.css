@@ -1,0 +1,48 @@
+.capability-matrix {
+  margin-top: 12px;
+}
+
+.capability-matrix-table {
+  margin-top: 12px;
+  overflow-x: auto;
+  background: var(--card);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.capability-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.capability-matrix th,
+.capability-matrix td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.capability-matrix thead th {
+  color: var(--muted-fg);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.capability-matrix tbody th {
+  font-weight: 600;
+}
+
+.capability-yes {
+  color: var(--status-success);
+}
+
+.capability-no {
+  color: var(--muted-fg);
+  opacity: 0.5;
+}
+
+.capability-text {
+  font-size: 12px;
+  color: var(--muted-fg);
+}

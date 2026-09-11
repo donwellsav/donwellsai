@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { closeSync, lstatSync, mkdirSync, openSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { logger } from '@shared/logger'
 import type { McpServer } from '@agentclientprotocol/sdk'
 import type { AcpAgentSnapshot, AcpObservation, AcpPromptRecord, AgentExecutable, AuthenticatedAgentSession, AgentModeSwitchReceipt } from '@shared/agent-runtime'
 import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
@@ -107,7 +108,7 @@ export class AcpSessions {
     })
     this.switching.add(sessionId)
     const finish = (result: AgentModeSwitchReceipt) => this.transaction(db => db.prepare("UPDATE requests SET record=? WHERE run_id='@switch' AND id=?").run(JSON.stringify(result), requestId))
-    void Promise.resolve().then(execute).then(result => finish({ ...record, ...result, state: 'completed' }), error => finish({ ...record, state: 'uncertain', error: String(error).slice(0, 1024) })).catch(error => console.error('Mode-switch outcome could not be persisted:', error)).finally(() => this.switching.delete(sessionId))
+    void Promise.resolve().then(execute).then(result => finish({ ...record, ...result, state: 'completed' }), error => finish({ ...record, state: 'uncertain', error: String(error).slice(0, 1024) })).catch(error => logger.error({ err: error }, 'Mode-switch outcome could not be persisted')).finally(() => this.switching.delete(sessionId))
     return record
   }
 

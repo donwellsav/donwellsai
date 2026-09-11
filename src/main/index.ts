@@ -49,12 +49,35 @@ import { registerMediaPreviewHandlers } from './media-preview'
 import { registerProjectSearchHandlers } from './project-search-ipc'
 import { configureDesktopPath } from '@shared/child-process/process-environment'
 import { AgentRegistry } from './agents/registry'
+import * as Sentry from '@sentry/electron/main'
+import { logger } from '@shared/logger'
+import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from './auto-updater'
+import { initServices, getServices } from './services'
+import { EventStore } from './events/event-store'
+import { initPerfMonitor } from '@shared/perf-monitor'
+import { AnalyticsCollector } from '@shared/analytics'
+import { SessionTemplateManager } from './templates/session-template-manager'
+import { CollaborationService } from './collaboration/collaboration-service'
+import { AutonomousAgent } from './autonomous/autonomous-agent'
+
 
 configureDesktopPath()
+
+// Crash reporting — opt-in via env, DSN must be configured
+if (process.env['DONWELLS_SENTRY_DSN']) {
+  Sentry.init({
+    dsn: process.env['DONWELLS_SENTRY_DSN'],
+    release: `donwells@${packageMetadata.version}`,
+    environment: process.env['NODE_ENV'] || 'production',
+  })
+}
 
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
 app.setName('donwells.ai')
+  initServices()
+
+// New services initialized via initServices() above
 // Test seam: isolated userData dir for the smoke harness.
 if (process.env['DONWELLS_USER_DATA']) {
   app.setPath('userData', process.env['DONWELLS_USER_DATA'])
@@ -86,10 +109,13 @@ const guiDrafts = new Map<string, string>()
 const pendingGuiSaves = new Set<Promise<unknown>>()
 function acknowledgeGuiDraft<T>(name: string, key: string, action: () => Promise<T>): Promise<T> {
   const entries = () => JSON.parse(guiDrafts.get(name) ?? '[]') as Array<[string, unknown]>
-  const submitted = JSON.stringify(entries().find(row => row[0] === key)?.[1])
+  const sortedStringify = (v: unknown) => JSON.stringify(v, (_, val) =>
+    typeof val === 'object' && val !== null && !Array.isArray(val) ?
+      Object.keys(val).sort().reduce((s, k) => { s[k] = val[k]; return s }, {} as Record<string, unknown>) : val)
+  const submitted = sortedStringify(entries().find(row => row[0] === key)?.[1])
   const pending = Promise.resolve().then(action).then(result => {
     const current = entries()
-    if (JSON.stringify(current.find(row => row[0] === key)?.[1]) === submitted) guiDrafts.set(name, JSON.stringify(current.filter(row => row[0] !== key)))
+    if (sortedStringify(current.find(row => row[0] === key)?.[1]) === submitted) guiDrafts.set(name, JSON.stringify(current.filter(row => row[0] !== key)))
     return result
   }).finally(() => pendingGuiSaves.delete(pending))
   pendingGuiSaves.add(pending)
@@ -452,6 +478,27 @@ function registerIpc(): void {
   ipcMain.on('browser:router-ready', (event) => commandRouter.ready('browser:command', event.sender))
   ipcMain.on('ui:router-ready', (event) => commandRouter.ready('ui:command', event.sender))
   ipcMain.on('browser:command:result', (event, id: string, result) => commandRouter.resolve('browser:command', id, result, event.sender))
+
+  // --- Collaboration: main-process IPC handlers ---
+  const collaboration = getServices().collaboration
+  ipcMain.handle('collaborationInfo', () => ({
+    roomName: collaboration.config.roomName,
+    userId: collaboration.config.userId,
+    userName: collaboration.config.userName || collaboration.config.userId,
+    connected: collaboration.getConnected(),
+  }))
+  ipcMain.handle('collaborationGetCollaborators', () => collaboration.getCollaborators())
+  ipcMain.handle('collaborationUpdatePresence', (_e, state: Parameters<typeof collaboration.updatePresence>[0]) => {
+    collaboration.updatePresence(state)
+  })
+
+  // Forward collaboration events to renderer
+  collaboration.onPresenceChange((collaborators) => {
+    send('collaboration:presence', { roomName: collaboration.config.roomName, collaborators })
+  })
+  collaboration.onStatusChange((connected, reason) => {
+    send('collaboration:status', { roomName: collaboration.config.roomName, connected, reason })
+  })
   ipcMain.on('ui:command:result', (event, id: string, result) => commandRouter.resolve('ui:command', id, result, event.sender))
 }
 
@@ -550,21 +597,43 @@ app.whenReady().then(() => {
       data: (sessionId, data, sequence) => {
         nativeTerminals?.data(sessionId, data, sequence)
         send('terminal:data', { sessionId, data, sequence })
-        void operationalRuns?.onDaemonEvent('data', sessionId, data).catch((error) => console.error('Run output persistence failed:', error))
+        void operationalRuns?.onDaemonEvent('data', sessionId, data).catch((error) => logger.error({ err: error }, 'Run output persistence failed'))
       },
       exit: (sessionId, exitCode) => {
         nativeTerminals?.exited(sessionId)
         send('terminal:exit', { sessionId, exitCode })
-        void operationalRuns?.onDaemonEvent('exit', sessionId, '', exitCode).catch((error) => console.error('Run completion persistence failed:', error))
+        void operationalRuns?.onDaemonEvent('exit', sessionId, '', exitCode).catch((error) => logger.error({ err: error, sessionId, exitCode }, 'Run completion persistence failed'))
       },
       title: (sessionId, title) => send('terminal:title', { sessionId, title }),
       agent: (run) => {
         agentRuntime.observe(run)
         send('agent:changed', { run })
+        // Record agent:start event
+        const es = getServices().eventStore
+        void es.append({
+          id: `${run.sessionId}:start`,
+          type: 'agent:start',
+          aggregateId: run.sessionId,
+          aggregateType: 'agent',
+          timestamp: Date.now(),
+          version: 1,
+          payload: { command: run.command, workspace: run.workspacePath, intent: run.task?.intent }
+        }).catch((err: Error) => logger.error({ err }, 'event-store: failed to record start'))
       },
       agentDismissed: (sessionId) => {
         agentRuntime.observeDismissed(sessionId)
         send('agent:dismissed', { sessionId })
+        // Record agent:complete event
+        const es = getServices().eventStore
+        void es.append({
+          id: `${sessionId}:complete`,
+          type: 'agent:complete',
+          aggregateId: sessionId,
+          aggregateType: 'agent',
+          timestamp: Date.now(),
+          version: 1,
+          payload: { sessionId }
+        }).catch((err: Error) => logger.error({ err }, 'event-store: failed to record complete'))
       }
     },
     join(__dirname, 'terminal-daemon-entry.js')
@@ -596,7 +665,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
   operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
   void terminalBus.connect().catch((e) => {
-    console.error('terminal daemon connect failed:', e)
+    logger.fatal({ err: e }, 'terminal daemon connect failed')
   })
   registerIpc()
   buildMenu()
@@ -626,7 +695,7 @@ app.whenReady().then(() => {
   // Renderer-driven, preference-gated native attention effects.
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
-  void operationalRuns.resume().catch((error) => console.error('Run recovery failed:', error))
+  void operationalRuns.resume().catch((error) => logger.error({ err: error }, 'Run recovery failed'))
   ipcMain.handle('scheduledRunsList', () => operationalRuns.scheduledRunsList())
   ipcMain.handle('scheduledRunSave', (_e, ...args: Parameters<IpcApi['scheduledRunSave']>) => acknowledgeGuiDraft('scheduled-composer', 'draft', () => operationalRuns.scheduledRunSave(...args)))
   ipcMain.handle('scheduledRunSetEnabled', (_e, ...args: Parameters<IpcApi['scheduledRunSetEnabled']>) => operationalRuns.scheduledRunSetEnabled(...args))
@@ -650,6 +719,14 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('skillPackagesList', (_e, ...args: Parameters<IpcApi['skillPackagesList']>) => skills.list(...args))
   ipcMain.handle('skillPackagesPrepare', (_e, ...args: Parameters<IpcApi['skillPackagesPrepare']>) => skills.prepare(...args))
+
+  // Auto-updater — opt-in, throttled, preference-gated download
+  initAutoUpdater(mainWindow!)
+  ipcMain.handle('autoUpdaterCheck', () => checkForUpdates())
+  ipcMain.handle('autoUpdaterDownload', () => downloadUpdate())
+  ipcMain.handle('autoUpdaterQuitAndInstall', () => quitAndInstall())
+  // Check for updates 30s after launch (throttled internally)
+  setTimeout(() => { void checkForUpdates() }, 30_000)
   ipcMain.handle('skillPackagesApply', (_e, ...args: Parameters<IpcApi['skillPackagesApply']>) => skills.apply(...args))
   ipcMain.handle('skillPackagesRead', (_e, ...args: Parameters<IpcApi['skillPackagesRead']>) => skills.read(...args))
   ipcMain.handle('skillPackagesPrepareUpdate', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareUpdate']>) => skills.prepareUpdate(...args))
@@ -803,10 +880,10 @@ app.whenReady().then(() => {
     }
   )
   rpcServer = rpc
-  void rpc.start().catch((e) => console.error('runtime rpc failed to start:', e))
+  void rpc.start().catch((e) => logger.fatal({ err: e }, 'runtime rpc failed to start'))
   if (process.env['DONWELLS_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
-      console.log('smoke:ready')
+      logger.info('smoke:ready')
       void runSmokeProbe(git, mainWindow!).then((ok) => {
         app.exit(ok ? 0 : 1)
       })

@@ -84,7 +84,8 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   notificationActivityIndicator: true,
   notificationFlashWindow: true,
   keyboardShortcutOverrides: Object.freeze({}),
-  statusPollMs: 5000
+  statusPollMs: 5000,
+  language: 'en'
 })
 
 function oneOf<const T extends readonly unknown[]>(options: T): (value: unknown) => value is T[number] {
@@ -162,6 +163,12 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     description: 'Follow the system, or choose light or dark.',
     default: DEFAULT_SETTINGS.theme, lifecycle: 'live', scope: 'global',
     control: { type: 'select', options: stringOptions(themeOptions) }, validate: oneOf(themeOptions)
+  },
+  language: {
+    key: 'language', section: 'appearance', label: 'Language',
+    description: 'Interface language.',
+    default: DEFAULT_SETTINGS.language, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'en', label: 'English' }, { value: 'es', label: 'Español' }, { value: 'fr', label: 'Français' }, { value: 'de', label: 'Deutsch' }, { value: 'ja', label: '日本語' }] }, validate: oneOf(['en', 'es', 'fr', 'de', 'ja'] as const)
   },
   uiScale: {
     key: 'uiScale', section: 'appearance', label: 'Window zoom',

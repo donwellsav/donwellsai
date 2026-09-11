@@ -3,6 +3,7 @@
 // (addRepo/createWorktree/list/removeWorktree) and PtyManager (spawn → write →
 // data round-trip → close → remove) — against a real temp git repo, then prints
 // `smoke:ok <details>` / `smoke:fail <reason>` and exits 0/1.
+import { logger } from '@shared/logger'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -105,17 +106,17 @@ export async function runSmokeProbe(git: GitWorktrees, window: BrowserWindow): P
     await window.webContents.executeJavaScript(`window.donwells.guiDraftsWrite('smoke-recovery', '[]')`)
     results.push('renderer-crash-draft-recovery')
     results.push('acknowledged-draft-not-replayed')
-    console.log('smoke:ok ' + results.join(' | '))
+    logger.info({ results }, 'smoke:ok')
     return true
   } catch (err) {
-    console.log('smoke:fail ' + (err instanceof Error ? err.message : String(err)))
+    logger.error({ err }, 'smoke:fail')
     return false
   } finally {
     if (pty && smokeSessionId && pty.has(smokeSessionId)) {
       try {
         await pty.close(smokeSessionId)
       } catch (error) {
-        console.log('smoke:cleanup-fail ' + (error instanceof Error ? error.message : String(error)))
+        logger.warn({ error }, 'smoke:cleanup-fail')
         return false
       }
     }

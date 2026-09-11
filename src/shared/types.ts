@@ -13,6 +13,7 @@ import type { OperationalRunsApi } from './operational-runs'
 import type { AgentDeliveryApi } from './agent-delivery'
 import type { AgentStartResult } from './agent-runtime'
 import type { DiffReviewApi } from './diff-review'
+import type { CollaborationApi } from './collaboration'
 import type {
   AgentPreset as RuntimeAgentPreset,
   RunningAgent as RuntimeRunningAgent
@@ -234,6 +235,8 @@ export type AppSettings = {
   keyboardShortcutOverrides: Record<string, string>
   /** Worktree/git status poll interval; 0 disables polling. */
   statusPollMs: number
+  /** UI language code (IETF BCP 47). */
+  language: string
 }
 
 export type SettingKey = keyof AppSettings
@@ -371,6 +374,10 @@ export type MainEvents = {
   'agent:changed': { run: RunningAgent }
   'agent:dismissed': { sessionId: string }
   'project-memory:changed': { projectKey: string }
+  /** Collaboration presence updated. */
+  'collaboration:presence': { roomName: string; collaborators: import('./collaboration').Collaborator[] }
+  /** Collaboration status changed (connected/disconnected). */
+  'collaboration:status': { roomName: string; connected: boolean; reason?: string }
   /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
   'menu:action': { action: string }
   /** BrowserWindow accelerator forwarded while focus is inside a guest. */
@@ -418,7 +425,7 @@ export type UiCommand =
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
 export type AgentMemorySetupResult = { path: string; changed: boolean; backupPath?: string; launchArgs?: string[]; setupArgs?: string[]; replacement?: { revision: string; current: unknown; proposed: unknown } }
-export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
+export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & CollaborationApi & {
   projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
   projectBrowserArtifactReveal(workspacePath: string, path: string, sha256: string): Promise<void>
@@ -512,6 +519,11 @@ export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowl
   secretGet(key: string): Promise<string | null>
   secretDelete(key: string): Promise<void>
   secretAvailable(): Promise<boolean>
+  // Auto-updater IPC surface
+  autoUpdaterCheck(): Promise<boolean>
+  autoUpdaterDownload(): Promise<void>
+  autoUpdaterQuitAndInstall(): Promise<void>
+
   /** Independently controls the current attention marker and background-window flash. */
   setAttention(state: AttentionState): void
 

@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-/** Detached terminal owner and its least-authority per-run hook emitter. */
+import { logger } from '@shared/logger'
 import { normalizeAgentHookMessage } from '@shared/agent-runtime'
 import { runAgentHookEmitterFromEnvironment } from './agent-hook'
 import { TerminalDaemon, newAuthToken } from './terminal-daemon'
@@ -7,7 +6,7 @@ import { TerminalDaemon, newAuthToken } from './terminal-daemon'
 // The daemon must NEVER run as a GUI Electron app — spawned wrong (without
 // ELECTRON_RUN_AS_NODE=1) it registers a Dock icon / stray window for the user.
 if (process.type !== undefined) {
-  console.error('terminal-daemon: refusing GUI-mode start — spawn with ELECTRON_RUN_AS_NODE=1')
+  logger.fatal('terminal-daemon: refusing GUI-mode start — spawn with ELECTRON_RUN_AS_NODE=1')
   process.exit(1)
 }
 
@@ -26,11 +25,11 @@ async function main(): Promise<void> {
     authToken: process.env['DONWELLS_DAEMON_TOKEN'] ?? newAuthToken()
   })
   await daemon.start()
-  console.log('terminal-daemon:ready')
+  logger.info('terminal-daemon:ready')
   const handleSignal = (): void => {
     void daemon.stopIfIdle().then((stopped) => {
       if (stopped) process.exit(0)
-      else console.log('terminal-daemon:refuse-shutdown (owned sessions)')
+      else logger.info('terminal-daemon:refuse-shutdown (owned sessions)')
     })
   }
   process.on('SIGTERM', handleSignal)
@@ -39,6 +38,6 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  console.error('terminal-daemon:start-failed', error instanceof Error ? error.message : String(error))
+  logger.fatal({ err: error }, 'terminal-daemon:start-failed')
   process.exitCode = 1
 })
