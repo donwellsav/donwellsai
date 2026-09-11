@@ -56,7 +56,7 @@ import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from
 import { initServices, getServices } from './services'
 import { getPluginRegistry } from './plugins/plugin-registry'
 import type { AnalyticsEvent } from '@shared/analytics'
-import { EventStore } from './events/event-store'
+import { EventStore, type DomainEvent } from './events/event-store'
 import { initPerfMonitor, getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
@@ -527,6 +527,24 @@ function registerIpc(): void {
   ipcMain.handle('sessionTemplate:delete', (_e, id: string) => {
     const { sessionTemplates } = getServices()
     return sessionTemplates.delete(id)
+  })
+
+  // --- Autonomous Agent IPC ---
+  ipcMain.handle('autonomous:start', (_e, goal: string) => {
+    const { autonomousAgent } = getServices()
+    return autonomousAgent.run(goal, async (action) => {
+      // Simple auto-approve for now - later can wire to UI prompts
+      logger.info({ action: action.description }, 'autonomous: executing action')
+      return 'executed'
+    })
+  })
+  ipcMain.handle('autonomous:stop', () => {
+    const { autonomousAgent } = getServices()
+    autonomousAgent.stop()
+  })
+  ipcMain.handle('autonomous:state', () => {
+    const { autonomousAgent } = getServices()
+    return autonomousAgent.getState()
   })
 
   // --- Perf + Analytics IPC ---
