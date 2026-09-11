@@ -152,7 +152,16 @@ export function AgentsSection() {
     setLaunching(true)
     setLaunchError(null)
     try {
-      const result = await runAgent(targetPath, launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed, intent || intendedFiles.length || externalId ? { intent, files: intendedFiles, ...(externalId ? {externalId} : {}) } : undefined)
+      const result = await runAgent(
+        targetPath,
+        launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed,
+        {
+          intent: intent || '',
+          files: intendedFiles,
+          ...(externalId ? { externalId } : {}),
+          ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
+        }
+      )
       if (!result.ok) {
         setLaunchError(result.error)
         return

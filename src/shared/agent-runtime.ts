@@ -293,13 +293,13 @@ export function agentProviderForExecutable(path: string): AgentProviderDefinitio
 export type AgentSessionCredential = { runId: string; sessionId: string; token: string }
 
 /** Advisory session metadata, never a filesystem lock or a second task ledger. */
-export type AgentTaskIntent = { intent: string; files: string[]; externalId?: string }
+export type AgentTaskIntent = { intent: string; files: string[]; externalId?: string; templateId?: string }
 export function parseAgentTaskIntent(value: unknown): AgentTaskIntent {
-  if (!isRecord(value) || Object.keys(value).some(key => !['intent', 'files', 'externalId'].includes(key))) throw new Error('Invalid task intent')
+  if (!isRecord(value) || Object.keys(value).some(key => !['intent', 'files', 'externalId', 'templateId'].includes(key))) throw new Error('Invalid task intent')
   if (typeof value.intent !== 'string' || value.intent.length > 2000 || /[\u0000-\u001f]/.test(value.intent)) throw new Error('Invalid task description')
   if (!Array.isArray(value.files) || value.files.length > 64 || value.files.some(file => typeof file !== 'string' || !file || file.length > 4096 || /[\\\u0000-\u001f]/.test(file) || file.startsWith('/') || file.split('/').some(part => part === '..' || part === '.' || part === ''))) throw new Error('Task files must be relative project paths')
   if (value.externalId !== undefined && (typeof value.externalId !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*-[0-9]+(?:\.[0-9]+)*$/.test(value.externalId))) throw new Error('Invalid external task ID')
-  return { intent: value.intent, files: [...new Set(value.files as string[])], ...(value.externalId ? {externalId: value.externalId as string} : {}) }
+  return { intent: value.intent, files: [...new Set(value.files as string[])], ...(value.externalId ? {externalId: value.externalId as string} : {}), ...(value.templateId ? {templateId: value.templateId as string} : {}) }
 }
 
 export function overlappingAgentIntents(runs: readonly RunningAgent[], workspacePath: string, files: readonly string[]): RunningAgent[] {

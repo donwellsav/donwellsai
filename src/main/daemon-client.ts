@@ -465,14 +465,37 @@ export class DaemonClient {
     if (launch) await this.requireCapability('agent-argv-v1', 'starting an agent with explicit arguments')
     await this.requireCapability(AGENT_RUNS, 'starting an agent run')
     await this.requireCapability(SEQUENCED_OUTPUT, 'starting an agent run')
+
+    // Resolve session template if specified
+    let resolvedCommand = command
+    let resolvedEnv: Record<string, string> | undefined
+    if (task?.templateId) {
+      try {
+        const { getServices } = await import('./services')
+        const templates = getServices().sessionTemplates
+        if (templates) {
+          const template = await templates.get(task.templateId)
+          if (template?.systemPrompt) {
+            resolvedCommand = template.systemPrompt + '\\n\\n---\\n\\n' + command
+          }
+          if (template?.env) {
+            resolvedEnv = template.env
+          }
+        }
+      } catch {
+        // Template not found — proceed without it
+      }
+    }
+
     const response = await this.request<{ run: unknown; session: TerminalSession }>('agent.open', {
       cwd,
-      command,
+      command: resolvedCommand,
       ...(providerId ? { providerId } : {}),
       ...(launch ? { launch } : {}),
       ...(task ? { task } : {}),
       cols,
-      rows
+      rows,
+      ...(resolvedEnv ? { env: resolvedEnv } : {}),
     })
     return { run: requireRunningAgent(response.run), session: response.session }
   }
