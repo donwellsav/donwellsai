@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Icon } from './Icon'
+import { useAppStore } from '../store'
 
 /**
  * Provider capability matrix UI.
