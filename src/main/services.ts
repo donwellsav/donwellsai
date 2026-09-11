@@ -8,6 +8,7 @@
 import { join } from 'node:path'
 import { app } from 'electron'
 import { logger } from '@shared/logger'
+import { VoiceService } from './voice/voice-service'
 import { EventStore } from './events/event-store'
 import { initPerfMonitor, getPerfStats } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
@@ -21,6 +22,7 @@ export interface DonwellsServices {
   eventStore: EventStore
   analytics: AnalyticsCollector
   sessionTemplates: SessionTemplateManager
+  voiceService: VoiceService
   collaboration: CollaborationService
   autonomousAgent: AutonomousAgent
 }
@@ -57,6 +59,8 @@ export function initServices(): DonwellsServices {
   })
   void pluginLoader.loadAll().catch((err) => logger.error({ err }, 'plugin-loader: init failed'))
 
+  const voiceService = new VoiceService()
+
   const autonomousAgent = new AutonomousAgent({
     maxIterations: 100,
     maxDurationMs: 3600000,
@@ -71,6 +75,7 @@ export function initServices(): DonwellsServices {
     eventStore,
     analytics,
     sessionTemplates,
+    voiceService,
     collaboration,
     autonomousAgent,
   }

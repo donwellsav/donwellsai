@@ -27,6 +27,7 @@ import {
 } from './settings/SettingsControls'
 import { ShortcutEditor } from './settings/ShortcutEditor'
 import { SkillsManager } from './settings/SkillsManager'
+import { PluginMarketplace } from './PluginMarketplace'
 import { ProjectToolsSettings } from './settings/ProjectToolsSettings'
 
 type ResetConfirmation = { kind: 'section'; section: SettingsSection; label: string } | { kind: 'all' }
@@ -414,7 +415,7 @@ export function SettingsModal({ open }: { open: boolean }) {
           if (!path) return
           if (route === 'search') useAppStore.setState({ contentSearch: { ...state.contentSearch, source: 'session' } })
           state.openWorkspaceModule(path, route); setOpen(false)
-        }} /><details className="project-settings-group"><summary>Agent skills</summary><SkillsManager /></details><details className="project-settings-group"><summary>Backup and restore</summary><ProjectKitSettings key={useAppStore.getState().activeWorktreePath} /></details></>}
+        }} /><details className="project-settings-group"><summary>Agent skills</summary><SkillsManager /></details><details className="project-settings-group"><summary>Plugins</summary><PluginMarketplace onInstall={async (id: string) => { await window.donwells.pluginInvoke(id, 'install') }} onUninstall={async (id: string) => { await window.donwells.pluginUnload(id) }} /></details><details className="project-settings-group"><summary>Backup and restore</summary><ProjectKitSettings key={useAppStore.getState().activeWorktreePath} /></details></>}
         {target === 'privacy' && <PrivacySection />}
         {target === 'advanced' && <><ProjectMemoryStorage onChanged={useProjectMemoryEditor.getState().refresh} /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
       </div>
