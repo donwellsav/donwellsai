@@ -75,6 +75,13 @@ export type AgentSkillConsumer =
       reason: string
     }
 
+/**
+ * Declarative mirror of configureAgentMemory's wiring set (R3).
+ * direct = native MCP config or launch args; acp = memory arrives via the ACP
+ * session launcher; none = no automatic memory wiring exists.
+ */
+export type AgentMemorySupport = 'direct' | 'acp' | 'none'
+
 export type AgentPreset = {
   id: AgentProviderId
   name: string
@@ -84,6 +91,7 @@ export type AgentPreset = {
   readiness?: { installed: boolean; launchable: 'unverified' | 'unavailable'; authenticated: 'unknown'; memoryConnected: false }
   hookSupport: AgentHookSupport
   skillConsumer: AgentSkillConsumer
+  memorySupport: AgentMemorySupport
 }
 
 export type RunningAgent = {
@@ -127,6 +135,7 @@ export type AgentProviderDefinition = {
   command: string
   hookSupport: AgentHookSupport
   skillConsumer: AgentSkillConsumer
+  memorySupport: AgentMemorySupport
 }
 
 const UNSUPPORTED_HOOK_REASON = 'No documented per-run hook adapter is registered for this CLI.'
@@ -143,7 +152,8 @@ export const AGENT_PROVIDER_DEFINITIONS: readonly AgentProviderDefinition[] = [
       events: ['working', 'waiting', 'permission', 'completed'],
       documentationUrl: 'https://developers.openai.com/codex/hooks'
     },
-    skillConsumer: { supported: true, root: '.agents/skills', discovery: 'native' }
+    skillConsumer: { supported: true, root: '.agents/skills', discovery: 'native' },
+    memorySupport: 'direct'
   },
   {
     id: 'claude',
@@ -155,14 +165,16 @@ export const AGENT_PROVIDER_DEFINITIONS: readonly AgentProviderDefinition[] = [
       events: ['working', 'waiting', 'permission', 'completed', 'failed'],
       documentationUrl: 'https://code.claude.com/docs/en/hooks'
     },
-    skillConsumer: { supported: true, root: '.claude/skills', discovery: 'native' }
+    skillConsumer: { supported: true, root: '.claude/skills', discovery: 'native' },
+    memorySupport: 'direct'
   },
   {
     id: 'pi',
     name: 'Pi',
     command: 'pi',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'none'
   },
   {
     id: 'opencode',
@@ -174,50 +186,58 @@ export const AGENT_PROVIDER_DEFINITIONS: readonly AgentProviderDefinition[] = [
       events: ['working', 'waiting', 'permission', 'completed', 'failed'],
       documentationUrl: 'https://opencode.ai/docs/plugins/'
     },
-    skillConsumer: { supported: true, root: '.opencode/skills', discovery: 'native' }
+    skillConsumer: { supported: true, root: '.opencode/skills', discovery: 'native' },
+    memorySupport: 'acp'
   },
   {
     id: 'cursor-agent',
     name: 'Cursor Agent',
     command: 'cursor-agent',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'none'
   },
   {
     id: 'qwen-code',
     name: 'Qwen Code',
     command: 'qwen-code',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'none'
   },
   {
     id: 'goose',
     name: 'Goose',
     command: 'goose',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'none'
   },
   {
     id: 'omp',
     name: 'Oh My Pi',
     command: 'omp',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'direct'
   },
   {
     id: 'hermes', name: 'Hermes', command: 'hermes',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'direct'
   },
   {
     id: 'kimi', name: 'Kimi CLI', command: 'kimi',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'direct'
   },
   {
     id: 'deepseek-harness', name: 'DeepSeek Harness', command: 'dsh',
     hookSupport: { support: 'unavailable', events: [], reason: UNSUPPORTED_HOOK_REASON },
-    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON }
+    skillConsumer: { supported: false, reason: UNSUPPORTED_SKILL_REASON },
+    memorySupport: 'direct'
   },
 
 ]

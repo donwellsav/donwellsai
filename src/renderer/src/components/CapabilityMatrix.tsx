@@ -1,94 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { Icon } from './Icon'
 import { useAppStore } from '../store'
+import { buildCapabilityRows } from '../../../shared/capability-matrix'
 
 /**
  * Provider capability matrix UI.
  *
- * Shows a comparison of what each agent provider supports.
- * Data is static for now; can be extended with runtime capability detection.
+ * Renders the live AgentPreset list the main process derives from
+ * AGENT_PROVIDER_DEFINITIONS + PATH discovery (R3). A dash means the
+ * provider binary is not installed at all — distinct from a minus, which
+ * means "installed, but the host does not wire this capability".
  */
 
-type Capability = {
-  id: string
-  label: string
-  description: string
-}
-
-type ProviderCapability = {
-  provider: string
-  capabilities: Record<string, boolean | string>
-}
-
-const CAPABILITIES: Capability[] = [
-  { id: 'models', label: 'Models', description: 'Supported model providers' },
-  { id: 'tools', label: 'Tool Use', description: 'Function calling and tool execution' },
-  { id: 'context', label: 'Context', description: 'Maximum context window' },
-  { id: 'streaming', label: 'Streaming', description: 'Real-time response streaming' },
-  { id: 'multimodal', label: 'Multimodal', description: 'Image and file input support' },
-  { id: 'subagents', label: 'Subagents', description: 'Can spawn subagents' },
-]
-
-const PROVIDERS: ProviderCapability[] = [
-  {
-    provider: 'OpenCode',
-    capabilities: {
-      models: 'OpenAI, Anthropic, Google, Local',
-      tools: true,
-      context: '128K-1M',
-      streaming: true,
-      multimodal: true,
-      subagents: true,
-    },
-  },
-  {
-    provider: 'Claude Code',
-    capabilities: {
-      models: 'Anthropic',
-      tools: true,
-      context: '200K',
-      streaming: true,
-      multimodal: true,
-      subagents: true,
-    },
-  },
-  {
-    provider: 'Codex',
-    capabilities: {
-      models: 'OpenAI',
-      tools: true,
-      context: '128K-200K',
-      streaming: true,
-      multimodal: true,
-      subagents: false,
-    },
-  },
-  {
-    provider: 'Gemini CLI',
-    capabilities: {
-      models: 'Google',
-      tools: true,
-      context: '1M',
-      streaming: true,
-      multimodal: true,
-      subagents: false,
-    },
-  },
-  {
-    provider: 'Kimi Code',
-    capabilities: {
-      models: 'Moonshot',
-      tools: true,
-      context: '128K',
-      streaming: true,
-      multimodal: false,
-      subagents: false,
-    },
-  },
-]
+const CAPABILITIES = [
+  { id: 'installed', label: 'Installed', description: 'Binary found on PATH' },
+  { id: 'hooks', label: 'Hooks', description: 'Per-run status hooks' },
+  { id: 'skills', label: 'Skills', description: 'Workspace skill discovery' },
+  { id: 'memory', label: 'Memory', description: 'Shared project memory wiring' },
+] as const
 
 export function CapabilityMatrix() {
   const [expanded, setExpanded] = useState(false)
+  const agents = useAppStore((state) => state.agents)
+  const rows = useMemo(() => buildCapabilityRows(agents), [agents])
 
   return (
     <div className="capability-matrix">
@@ -116,29 +50,57 @@ export function CapabilityMatrix() {
               </tr>
             </thead>
             <tbody>
-              {PROVIDERS.map(({ provider, capabilities }) => (
-                <tr key={provider}>
-                  <th scope="row">{provider}</th>
-                  {CAPABILITIES.map(cap => {
-                    const val = capabilities[cap.id]
-                    return (
-                      <td key={cap.id}>
-                        {val === true ? (
-                          <span className="capability-yes" aria-label={`${cap.label}: supported`}>
-                            <Icon name="check" size={14} />
-                          </span>
-                        ) : val === false ? (
-                          <span className="capability-no" aria-label={`${cap.label}: not supported`}>
-                            <Icon name="minus" size={14} />
-                          </span>
-                        ) : (
-                          <span className="capability-text">{val}</span>
-                        )}
-                      </td>
-                    )
-                  })}
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={CAPABILITIES.length + 1}>Loading providers…</td>
                 </tr>
-              ))}
+              ) : (
+                rows.map(row => (
+                  <tr key={row.provider}>
+                    <th scope="row">
+                      {row.provider}
+                      {row.note ? (
+                        <span className="capability-text" title={row.note}>
+                          {' '}
+                          ({row.note})
+                        </span>
+                      ) : null}
+                    </th>
+                    <td>
+                      {row.installed ? (
+                        <span className="capability-yes" aria-label="Installed: supported">
+                          <Icon name="check" size={14} />
+                        </span>
+                      ) : (
+                        <span className="capability-no" aria-label="Installed: not installed">
+                          <Icon name="minus" size={14} />
+                        </span>
+                      )}
+                    </td>
+                    {(['hooks', 'skills', 'memory'] as const).map(capId => {
+                      const cap = CAPABILITIES.find(c => c.id === capId)!
+                      const value = row[capId]
+                      return (
+                        <td key={capId}>
+                          {!row.installed ? (
+                            <span className="capability-text" aria-label={`${cap.label}: not installed`}>
+                              —
+                            </span>
+                          ) : value ? (
+                            <span className="capability-yes" aria-label={`${cap.label}: supported`}>
+                              <Icon name="check" size={14} />
+                            </span>
+                          ) : (
+                            <span className="capability-no" aria-label={`${cap.label}: not supported`}>
+                              <Icon name="minus" size={14} />
+                            </span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
