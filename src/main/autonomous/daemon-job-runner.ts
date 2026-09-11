@@ -53,6 +53,9 @@ export function createDaemonJobRunner(
       for (;;) {
         const result = await terminals.jobResult(session.id)
         if (result.exited) {
+          // DaemonJobResult carries {exited, exitCode, output, sequence} only — the finite-job
+          // path has no per-run token meter. Provider usage is analyzed per session elsewhere
+          // (project-analytics), never as a live job field, so 'unavailable' is the honest value.
           return { output: result.output, exitCode: result.exitCode, tokensUsed: null }
         }
         if (Date.now() >= deadline) {
