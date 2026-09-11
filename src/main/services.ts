@@ -46,6 +46,7 @@ export function initServices(): DonwellsServices {
   const sessionTemplates = new SessionTemplateManager({
     userDir: join(app.getPath('userData'), 'templates'),
   })
+  void sessionTemplates.load().catch((err) => logger.error({ err }, 'session-templates: load failed'))
 
   const collaboration = new CollaborationService({
     roomName: 'default',

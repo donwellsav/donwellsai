@@ -511,6 +511,24 @@ function registerIpc(): void {
   ipcMain.handle('plugin:unload', (_e, pluginId: string) => getPluginRegistry().unload(pluginId))
   ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
 
+  // --- Session Templates IPC ---
+  ipcMain.handle('sessionTemplate:list', () => {
+    const { sessionTemplates } = getServices()
+    return sessionTemplates.getAll()
+  })
+  ipcMain.handle('sessionTemplate:get', (_e, id: string) => {
+    const { sessionTemplates } = getServices()
+    return sessionTemplates.get(id)
+  })
+  ipcMain.handle('sessionTemplate:create', (_e, template: Parameters<typeof import('./templates/session-template-manager').SessionTemplateManager.prototype.create>[0]) => {
+    const { sessionTemplates } = getServices()
+    return sessionTemplates.create(template)
+  })
+  ipcMain.handle('sessionTemplate:delete', (_e, id: string) => {
+    const { sessionTemplates } = getServices()
+    return sessionTemplates.delete(id)
+  })
+
   // --- Perf + Analytics IPC ---
   ipcMain.handle('perf:metrics', () => {
     return { active: false, stats: getPerfStats() }
