@@ -1,14 +1,19 @@
 import pino from 'pino'
 
-const IS_ELECTRON_MAIN = (process as { type?: string }).type === 'browser'
-const IS_RUN_AS_NODE = process.env['ELECTRON_RUN_AS_NODE'] === '1'
+// A sandboxed Electron renderer has no `process` global. Probe once, lazily.
+const nodeProcess: NodeJS.Process | undefined = typeof process !== 'undefined' ? process : undefined
+const processEnv: NodeJS.ProcessEnv = nodeProcess?.env ?? {}
+const IS_ELECTRON_MAIN = (nodeProcess as { type?: string } | undefined)?.type === 'browser'
+const IS_RUN_AS_NODE = processEnv['ELECTRON_RUN_AS_NODE'] === '1'
+// pino transports need worker threads; unavailable in renderers, so they log synchronously.
+const IS_NODE_CONTEXT = nodeProcess !== undefined
 
 const logLevel = (() => {
   // 1. Explicit env override
-  const envLevel = process.env['DONWELLS_LOG_LEVEL']
+  const envLevel = processEnv['DONWELLS_LOG_LEVEL']
   if (envLevel) return envLevel
   // 2. Production vs development
-  if (process.env['NODE_ENV'] === 'production') return 'info'
+  if (processEnv['NODE_ENV'] === 'production') return 'info'
   return 'debug'
 })()
 
@@ -28,17 +33,15 @@ const isDev = logLevel === 'debug' || logLevel === 'trace'
  */
 const logger = pino({
   level: logLevel,
-  transport: IS_ELECTRON_MAIN || IS_RUN_AS_NODE
-    ? undefined
-    : isDev
-      ? {
-          target: 'pino-pretty',
-          options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
-        }
-      : undefined,
+  transport: IS_NODE_CONTEXT && !IS_ELECTRON_MAIN && !IS_RUN_AS_NODE && isDev
+    ? {
+        target: 'pino-pretty',
+        options: { colorize: true, translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
+      }
+    : undefined,
   base: {
     app: 'donwells',
-    version: typeof process !== 'undefined' ? process.env['npm_package_version'] : undefined,
+    version: processEnv['npm_package_version'],
   },
   timestamp: pino.stdTimeFunctions.isoTime,
   serializers: {

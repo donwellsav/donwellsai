@@ -669,7 +669,6 @@ function startPerfServer(): void {
     if (url.pathname === '/api/perf') {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-store'
       })
       res.end(JSON.stringify(getPerfStats()))
