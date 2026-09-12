@@ -57,7 +57,6 @@ import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from
 import { initServices, getServices } from './services'
 import { getPluginRegistry } from './plugins/plugin-registry'
 import type { AnalyticsEvent } from '@shared/analytics'
-import { EventStore, type DomainEvent } from './events/event-store'
 import { initPerfMonitor, getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
@@ -625,11 +624,6 @@ function registerIpc(): void {
     const es = getServices().eventStore
     return es.query(filter)
   })
-  ipcMain.handle('events:append', (_e, event: DomainEvent) => {
-    const es = getServices().eventStore
-    return es.append(event)
-  })
-
   // --- Perf & Analytics IPC ---
   ipcMain.handle('perf:getStats', () => getPerfStats())
   ipcMain.handle('analytics:track', (

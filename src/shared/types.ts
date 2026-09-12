@@ -581,7 +581,6 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
 
   /** Event store queries (session replay) */
   eventStoreQuery(filter: { sessionId?: string; type?: string; since?: number }): Promise<Array<Record<string, unknown>>>
-  eventStoreAppend(event: Record<string, unknown>): Promise<void>
 }
 
 /**

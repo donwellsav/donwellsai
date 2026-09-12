@@ -225,7 +225,6 @@ const api: IpcApi = {
   pluginRemove: (id: string) => ipcRenderer.invoke('plugin:remove', id),
   // Event store
   eventStoreQuery: (filter: { sessionId?: string; type?: string; since?: number }) => ipcRenderer.invoke('events:query', filter),
-  eventStoreAppend: (event: unknown) => ipcRenderer.invoke('events:append', event),
   on: <K extends keyof MainEvents>(channel: K, cb: (payload: MainEvents[K]) => void) => {
     const listener = (_e: unknown, payload: MainEvents[K]) => cb(payload)
     ipcRenderer.on(channel, listener)
