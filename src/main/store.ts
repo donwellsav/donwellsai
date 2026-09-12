@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import {
   SETTINGS_SCHEMA_VERSION,
+  SettingsValidationError,
   resolveSettings,
   settingsKeysForSection,
   sparseSettings,
@@ -216,7 +217,14 @@ export class Store {
       try {
         settings = sparseSettings(resolveSettings(envelope.settings))
       } catch (error) {
-        throw new StoreLoadError('corrupt', this.path, 'Persisted settings contain an invalid value', error)
+        if (!(error instanceof SettingsValidationError) || error.key !== 'language') {
+          throw new StoreLoadError('corrupt', this.path, 'Persisted settings contain an invalid value', error)
+        }
+        // The language key was retired with the English-only cutover.
+        // Discard it, resave, and reject genuinely unknown keys.
+        const settingsRecord = { ...(envelope.settings as Record<string, unknown>) }
+        delete settingsRecord.language
+        settings = sparseSettings(resolveSettings(settingsRecord))
       }
     }
 
@@ -224,7 +232,7 @@ export class Store {
     state.schemaVersion = SETTINGS_SCHEMA_VERSION
     state.repos = repos
     state.settings = settings
-    return { state, migrated: schemaVersion === 1 }
+    return { state, migrated: schemaVersion !== SETTINGS_SCHEMA_VERSION || 'language' in ((envelope.settings as Record<string, unknown>) ?? {}) }
   }
 
   /** Write a complete next snapshot before publishing it to in-memory readers. */
