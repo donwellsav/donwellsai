@@ -79,13 +79,13 @@ if (process.env['DONWELLS_SENTRY_DSN']) {
 // Unpackaged runs resolve userData from app name; pin it so `electron out/main/index.js`
 // lands in donwells.ai, not Electron's default dir.
 app.setName('donwells.ai')
-  initServices()
 
-// New services initialized via initServices() above
-// Test seam: isolated userData dir for the smoke harness.
+// Test seam: isolated userData dir for the smoke harness. Must run BEFORE
+// initServices(): the feature tier binds app.getPath('userData') at construction.
 if (process.env['DONWELLS_USER_DATA']) {
   app.setPath('userData', process.env['DONWELLS_USER_DATA'])
 }
+initServices()
 
 // Single instance (upstream parity): a second app instance would fight the first
 // for the RPC socket path and discovery file. Focus the existing window instead.
@@ -645,10 +645,11 @@ function registerIpc(): void {
 // Wrap ipcMain.handle to auto-time every IPC call for perf monitoring
 const originalIpcHandle = ipcMain.handle.bind(ipcMain)
 ipcMain.handle = (channel: string, listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
-  return originalIpcHandle(channel, (event, ...args) => {
+  return originalIpcHandle(channel, async (event, ...args) => {
     const finish = startIpcTimer(channel)
     try {
-      return (listener as (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown)(event, ...args)
+      // Await so async handlers measure completion, not dispatch overhead.
+      return await listener(event, ...args)
     } finally {
       finish()
     }
@@ -1101,7 +1102,9 @@ app.on('will-quit', (event) => {
     return
   }
   // daemon rule: never kill the daemon or its PTYs on app exit — sessions survive.
-  // The RPC socket is UI-adjacent: closing it is correct (CLI reconnects via discovery).
+  // An idle daemon (proven zero sessions) is the exception: shutdownIfIdle asks it
+  // to exit itself, reclaiming the socket/runtime files only when nothing is owned.
+  void terminalBus?.shutdownIfIdle().catch((err) => logger.debug({ err }, 'idle daemon reaped refused'))
   void workspacePreview.close()
   rpcServer?.stop()
   operationalRuns?.stop()

@@ -422,6 +422,19 @@ dialog::backdrop { background: var(--backdrop); }
 .modal-field { display: flex; flex-direction: column; gap: 5px; }
 .modal-field label { font-size: 12px; font-weight: 500; color: var(--muted-fg); }
 .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.attention-inbox-modal { width: min(560px, calc(100vw - 2rem)); }
+.attention-inbox-summary { margin: 0; font-size: 12px; color: var(--muted-fg); }
+.attention-inbox-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.attention-inbox-list li { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.attention-inbox-list li.unread { border-color: var(--agent-question); }
+.attention-inbox-list li.read { opacity: 0.65; }
+.attention-inbox-entry-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.attention-inbox-entry-head strong { color: var(--foreground); }
+.attention-inbox-entry-head span { color: var(--muted-fg); white-space: nowrap; }
+.attention-inbox-list p { margin: 0; font-size: 12px; color: var(--muted-fg); overflow-wrap: anywhere; }
+.attention-inbox-command { font-size: 11px; color: var(--foreground); background: var(--muted); border-radius: 6px; padding: 4px 6px; overflow-wrap: anywhere; }
+.attention-inbox-workspace { font-size: 11px; }
+.attention-inbox-retention { margin: 0; font-size: 11px; color: var(--muted-fg); }
 .kbd {
   border: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
   border-radius: 4px;

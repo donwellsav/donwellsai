@@ -89,8 +89,14 @@ export class EventStore {
       throw error
     })
 
-    this.writeQueue.set(`${aggregateType}:${aggregateId}`, nextWrite)
-    await nextWrite
+    const key = `${aggregateType}:${aggregateId}`
+    this.writeQueue.set(key, nextWrite)
+    try {
+      await nextWrite
+    } finally {
+      // Keep only queued writers: settled tails would retain one promise per aggregate forever.
+      if (this.writeQueue.get(key) === nextWrite) this.writeQueue.delete(key)
+    }
   }
 
   /**
@@ -113,6 +119,25 @@ export class EventStore {
   }
 
   /**
+   * Parses one JSONL line, tolerating a torn final write: append is not
+   * atomic, so a kill mid-append leaves a partial tail. The last line of a
+   * file may be truncated by an interrupted append; older corrupt lines are
+   * skipped (with one log) rather than poisoning every aggregate read.
+   */
+  private parseLine(line: string, file: string, allowTruncatedTail: boolean): DomainEvent | null {
+    try {
+      return JSON.parse(line) as DomainEvent
+    } catch (error) {
+      if (allowTruncatedTail) {
+        logger.warn({ err: error, file }, 'event-store: skipped truncated tail line')
+      } else {
+        logger.error({ err: error, file }, 'event-store: skipped unreadable line')
+      }
+      return null
+    }
+  }
+
+  /**
    * Reads all events for a specific aggregate.
    */
   async readAggregate(aggregateType: string, aggregateId: string): Promise<DomainEvent[]> {
@@ -122,12 +147,12 @@ export class EventStore {
     const events: DomainEvent[] = []
     for (const file of files) {
       const content = await readFile(file, 'utf-8')
-      for (const line of content.split('\n')) {
-        if (!line.trim()) continue
-        const event = JSON.parse(line) as DomainEvent
-        if (event.aggregateId === aggregateId) {
-          events.push(event)
-        }
+      const lines = content.split('\n')
+      for (let index = 0; index < lines.length; index++) {
+        const line = lines[index]
+        if (!line?.trim()) continue
+        const event = this.parseLine(line, file, index === lines.length - 1)
+        if (event && event.aggregateId === aggregateId) events.push(event)
       }
     }
 
@@ -144,9 +169,12 @@ export class EventStore {
     const events: DomainEvent[] = []
     for (const file of files) {
       const content = await readFile(file, 'utf-8')
-      for (const line of content.split('\n')) {
-        if (!line.trim()) continue
-        events.push(JSON.parse(line) as DomainEvent)
+      const lines = content.split('\n')
+      for (let index = 0; index < lines.length; index++) {
+        const line = lines[index]
+        if (!line?.trim()) continue
+        const event = this.parseLine(line, file, index === lines.length - 1)
+        if (event) events.push(event)
       }
     }
 
@@ -171,9 +199,12 @@ export class EventStore {
       const files = await this.listFiles(typeDir)
       for (const file of files) {
         const content = await readFile(file, 'utf-8')
-        for (const line of content.split('\n')) {
-          if (!line.trim()) continue
-          events.push(JSON.parse(line) as DomainEvent)
+        const lines = content.split('\n')
+        for (let index = 0; index < lines.length; index++) {
+          const line = lines[index]
+          if (!line?.trim()) continue
+          const event = this.parseLine(line, file, index === lines.length - 1)
+          if (event) events.push(event)
         }
       }
     }

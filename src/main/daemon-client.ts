@@ -611,7 +611,7 @@ export class DaemonClient {
   }
 
   write(sessionId: string, data: string): void {
-    void this.writeAcknowledged(sessionId, data).catch(() => {})
+    void this.writeAcknowledged(sessionId, data).catch((err) => logger.warn({ err, sessionId }, 'terminal keystroke dropped: daemon write failed'))
   }
 
   async writeAcknowledged(sessionId: string, data: string): Promise<void> {
@@ -623,7 +623,7 @@ export class DaemonClient {
   }
 
   interrupt(sessionId: string): void {
-    void this.request('session.interrupt', { sessionId }).catch(() => {})
+    void this.request('session.interrupt', { sessionId }).catch((err) => logger.warn({ err, sessionId }, 'terminal interrupt dropped: daemon write failed'))
   }
 
   /** Resolve only after the daemon confirms the owned PTY has exited. */

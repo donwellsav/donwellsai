@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ErrorBoundary } from 'react-error-boundary'
 import { Actions, DockLocation, PopupMenu, Layout, Model, TabNode, TabSetNode, type Action } from 'flexlayout-react'
 import { isMarkdownFile, useAppStore, type Pane } from '../store'
 import { restoreWorkspaceLayout, workspacePaneLabel, type WorkspaceLayout, type WorkspacePreset } from '../workspace-layout'
@@ -27,33 +28,45 @@ function WorkspacePane({ worktreePath, pane, visible, sidebar }: { worktreePath:
   return <div className="pane" data-pane-key={pane.key} data-pane-kind={pane.kind} tabIndex={-1}
     onFocus={() => { if (!sidebar) useAppStore.getState().setActivePane(worktreePath, paneKey) }}
     onMouseDown={() => { if (!sidebar) useAppStore.getState().setActivePane(worktreePath, paneKey) }}>
-    {pane.kind === 'browser' && pane.url ? <div className="browser-pane-slot" data-browser-worktree={worktreePath} /> :
-      <div className={`pane-body-terminal${visible ? '' : ' terminal-hidden'}`}>
-        {pane.kind === 'terminal' && !terminal ? <div className="empty-note" role="status">
-          <strong>Previous terminal unavailable</strong>
-          <p>This saved session could not be reattached. A new terminal starts a separate shell; it does not resume the previous agent.</p>
-          <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openTerminal(worktreePath)}>Open new terminal</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}>Remove unavailable reference</button>
-        </div> : pane.kind === 'preview' && pane.file && !preview ? <div className="empty-note" role="status">
-          <strong>File preview unavailable</strong><p>{pane.file}</p>
-          <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openPreview(worktreePath, pane.file!)}>Retry file</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openWorkspaceModule(worktreePath, 'recovery')}>Recover unsaved files</button>
-        </div> : pane.kind === 'terminal' && terminal ? <TerminalPane sessionId={terminal.session.id} cols={terminal.cols} rows={terminal.rows} isActive={visible} />
-          : pane.kind === 'preview' && pane.file ? <MediaPreviewRouter worktreePath={worktreePath} relPath={pane.file} />
-          : pane.kind === 'diff' && pane.file ? <DiffPane worktreePath={worktreePath} relPath={pane.file} comparison={pane.comparison} />
-          : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} active={visible} location={sidebar ? 'sidebar' : 'workspace'} />
-          : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
-          : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
-          : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
-          : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
-          : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} />
-          : pane.kind === 'environments' ? <div className="empty-note" role="status">
-            <strong>Project environments removed</strong>
-            <p>Project environments were removed from Donwells. This view can be closed.</p>
-            <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}>Close this view</button>
-          </div>
-          : pane.kind === 'browser' ? <div className="empty-note"><button className="btn btn-secondary" onClick={() => void useAppStore.getState().openBrowser(worktreePath).catch(error => useAppStore.getState().setError(String(error)))}>Open project preview</button></div> : null}
-      </div>}
+    {/* One crashing pane must not drop live terminals/editors in sibling panes (root boundary only covers the whole app). */}
+    <ErrorBoundary
+      resetKeys={[worktreePath, pane.key, pane.kind]}
+      fallbackRender={({ error, resetErrorBoundary }: { error: unknown; resetErrorBoundary: () => void }) => (
+        <div className="empty-note" role="alert">
+          <strong>This view failed to render</strong>
+          <p>{error instanceof Error ? error.message : String(error)}</p>
+          <button className="btn btn-secondary btn-sm" onClick={resetErrorBoundary}>Retry view</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}>Close this view</button>
+        </div>
+      )}>
+      {pane.kind === 'browser' && pane.url ? <div className="browser-pane-slot" data-browser-worktree={worktreePath} /> :
+        <div className={`pane-body-terminal${visible ? '' : ' terminal-hidden'}`}>
+          {pane.kind === 'terminal' && !terminal ? <div className="empty-note" role="status">
+            <strong>Previous terminal unavailable</strong>
+            <p>This saved session could not be reattached. A new terminal starts a separate shell; it does not resume the previous agent.</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openTerminal(worktreePath)}>Open new terminal</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}>Remove unavailable reference</button>
+          </div> : pane.kind === 'preview' && pane.file && !preview ? <div className="empty-note" role="status">
+            <strong>File preview unavailable</strong><p>{pane.file}</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openPreview(worktreePath, pane.file!)}>Retry file</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openWorkspaceModule(worktreePath, 'recovery')}>Recover unsaved files</button>
+          </div> : pane.kind === 'terminal' && terminal ? <TerminalPane sessionId={terminal.session.id} cols={terminal.cols} rows={terminal.rows} isActive={visible} />
+            : pane.kind === 'preview' && pane.file ? <MediaPreviewRouter worktreePath={worktreePath} relPath={pane.file} />
+            : pane.kind === 'diff' && pane.file ? <DiffPane worktreePath={worktreePath} relPath={pane.file} comparison={pane.comparison} />
+            : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} active={visible} location={sidebar ? 'sidebar' : 'workspace'} />
+            : pane.kind === 'git-status' ? <GitPane worktreePath={worktreePath} />
+            : pane.kind === 'memory' ? <ProjectMemoryPanel workspacePath={worktreePath} />
+            : pane.kind === 'search' ? <ProjectSearch workspacePath={worktreePath} active={visible} />
+            : pane.kind === 'computer' ? <ComputerControlPanel workspacePath={worktreePath} />
+            : pane.kind === 'recovery' ? <RecoveryPanel workspacePath={worktreePath} />
+            : pane.kind === 'environments' ? <div className="empty-note" role="status">
+              <strong>Project environments removed</strong>
+              <p>Project environments were removed from Donwells. This view can be closed.</p>
+              <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().requestClosePane(worktreePath, pane.key)}>Close this view</button>
+            </div>
+            : pane.kind === 'browser' ? <div className="empty-note"><button className="btn btn-secondary" onClick={() => void useAppStore.getState().openBrowser(worktreePath).catch(error => useAppStore.getState().setError(String(error)))}>Open project preview</button></div> : null}
+        </div>}
+    </ErrorBoundary>
   </div>
 }
 

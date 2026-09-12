@@ -23,6 +23,9 @@ import { useProjectMemoryEditor } from './project-memory-editor'
 import { startEditorRecoveryController } from './editor-recovery'
 import { useNavigationHistoryController } from './navigation-controller'
 import { ProjectSetupDialog } from './components/ProjectSetupDialog'
+import { AttentionInbox } from './components/AttentionInbox'
+import { refreshAttentionInbox, useAttentionInboxMount } from './attention-inbox'
+import type { AttentionInboxApi } from '@shared/attention-inbox'
 
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: unknown; resetErrorBoundary: () => void }) {
@@ -41,6 +44,9 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: unknown; resetErr
   )
 }
 
+// Stable mount identity for the attention controller; window.donwells is the
+// preload capability object, structurally narrowed to the inbox slice.
+const attentionInboxApi: AttentionInboxApi = window.donwells
 
 export function App() {
   const load = useAppStore((s) => s.load)
@@ -76,6 +82,8 @@ export function App() {
     // The native runtime is the authority for every agent lifecycle transition.
     const offAgentChanged = window.donwells.on('agent:changed', ({ run }) => {
       useAppStore.getState().applyAgentRun(run)
+      // The daemon recorded the presentation transition; mirror it in the inbox badge.
+      void refreshAttentionInbox()
     })
     const offAgentDismissed = window.donwells.on('agent:dismissed', ({ sessionId }) => {
       useAppStore.getState().applyAgentDismissed(sessionId)
@@ -128,6 +136,7 @@ export function App() {
 
   useEffect(() => installAppShortcuts(), [])
 
+  useAttentionInboxMount(attentionInboxApi)
 
   if (loading) {
     return (
@@ -181,6 +190,7 @@ export function App() {
         <DeleteWorktreeModal />
         <TerminalCloseDialog />
         <ProjectMemoryEditor />
+        <AttentionInbox />
       </div>
     </ErrorBoundary>
   )

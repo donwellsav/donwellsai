@@ -55,7 +55,9 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
     if (!ready) return
     let last = ''
     // Native surfaces can occlude Chromium and pause animation frames. Hide them before waiting for another frame.
-    const schedule = () => measure()
+    // rAF-coalesce bursts (MutationObserver batches DOM churn into one callback): the scan is a full-document query.
+    let frame = 0
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => measure()) }
     const measure = () => {
       const node = host.current
       if (!node) return
@@ -76,7 +78,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
     mutation.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style','class','open','aria-hidden','data-native-resize'] })
     window.addEventListener('resize',schedule); window.addEventListener('scroll',schedule,true); document.addEventListener('visibilitychange',schedule)
     schedule()
-    return () => { resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); document.removeEventListener('visibilitychange',schedule) }
+    return () => { cancelAnimationFrame(frame); resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); document.removeEventListener('visibilitychange',schedule) }
   }, [ready,isActive,error,truncated,runsOpen,inbox.overlayOpen,sessionId])
 
   useEffect(() => {

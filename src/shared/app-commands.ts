@@ -45,6 +45,7 @@ export type AppCommandId =
   | 'settings'
   | 'show-agents'
   | 'next-waiting-session'
+  | 'show-attention-inbox'
   | 'show-project-search'
   | 'show-project-memory'
   | 'show-computer-control'
@@ -68,6 +69,7 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'show-computer-control', label: 'Computer control', category: 'View', defaultAccelerators: [], palette: true },
   { id: 'show-project-search', label: 'Search project…', category: 'View', defaultAccelerators: ['Mod+Shift+F'], palette: true, rendererOnly: true },
   { id: 'next-waiting-session', label: 'Next waiting session', category: 'Agent', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'show-attention-inbox', label: 'Show attention inbox', category: 'View', defaultAccelerators: ['Mod+Shift+A'], palette: true, rendererOnly: true },
   { id: 'new-project', label: 'New project…', category: 'File', defaultAccelerators: ['Mod+Shift+N'], palette: true },
   { id: 'add-repo', label: 'Open existing folder…', category: 'File', defaultAccelerators: ['Mod+O'], palette: true },
   { id: 'new-worktree', label: 'New worktree', category: 'Workspace', defaultAccelerators: ['Mod+N'], palette: true },

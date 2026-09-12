@@ -139,7 +139,7 @@ self.MonacoEnvironment = {
   }
 }
 // Debug/agent handle: tooling (CDP probes, CLI eval) can read live models.
-;(window as unknown as Record<string, unknown>).monaco = monaco
+if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).monaco = monaco
 
 monaco.editor.defineTheme('donwells-dark', {
   base: 'vs-dark',

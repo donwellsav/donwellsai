@@ -892,7 +892,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const cardPanes = [...(panes[worktreePath] ?? [])]
       const existing = cardPanes.findIndex((p) => p.kind === kind)
       const activePane = { ...s.activePane }
-      const prev = activePane[worktreePath]
       if (existing !== -1) {
         cardPanes.splice(existing, 1)
         panes[worktreePath] = cardPanes
@@ -907,7 +906,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (kind === 'explorer') void get().refreshExplorer(worktreePath)
         if (kind === 'git-status') void get().refreshStatuses()
       }
-      void prev
       return { panes, activePane }
     })
     persistSessionSoon()
@@ -1394,7 +1392,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       let content: FileContent | undefined = get().previews[worktreePath]?.[relPath]
       if (!content) {
         const request = beginPreviewRequest(worktreePath, relPath)
-        content = await previewFileContent(worktreePath, relPath)
+        try {
+          content = await previewFileContent(worktreePath, relPath)
+        } catch (error) {
+          // Release ownership on failure; a stale token would block future opens of this file.
+          if (previewRequests.get(request.key) === request.token) previewRequests.delete(request.key)
+          throw error
+        }
         if (previewRequests.get(request.key) !== request.token) return false
         previewRequests.delete(request.key)
       }
@@ -1489,7 +1493,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       let content: FileContent | undefined = get().previews[worktreePath]?.[relPath]
       if (!content) {
         const request = beginPreviewRequest(worktreePath, relPath)
-        content = await previewFileContent(worktreePath, relPath)
+        try {
+          content = await previewFileContent(worktreePath, relPath)
+        } catch (error) {
+          if (previewRequests.get(request.key) === request.token) previewRequests.delete(request.key)
+          throw error
+        }
         if (previewRequests.get(request.key) !== request.token) return
         previewRequests.delete(request.key)
       }
@@ -1719,9 +1728,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (pruned) layouts[worktreePath] = pruned
         else delete layouts[worktreePath]
       }
-      persistSessionSoon()
       return { panes, previews, documentNavigation, activePane, layouts }
     })
+    persistSessionSoon()
     // models for files no longer shown anywhere get disposed (memory ceiling)
     for (const f of closedFiles) disposePreviewModel(worktreePath, f)
     return true
@@ -1742,7 +1751,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       activePane: drop(s.activePane),
       activeTerminal: drop(s.activeTerminal),
       terminalOrder: drop(s.terminalOrder),
-      terminals: s.terminals,
       layouts: drop(s.layouts),
       docking: drop(s.docking),
       statuses: drop(s.statuses),

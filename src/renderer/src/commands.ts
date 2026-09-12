@@ -12,6 +12,7 @@ import { focusPaneTarget, getNavigationCapabilities, navigateHistory, switchNavi
 import { moveWorkspacePane, restoreWorkspaceLayout, workspaceTabKeys } from './workspace-layout'
 import { nextWaitingSession } from '@shared/agent-presentation'
 import { openProjectSetup } from './project-setup'
+import { openAttentionInbox } from './attention-inbox'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
   'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'> & Partial<Pick<ReturnType<typeof useAppStore.getState>, 'previews'>>
@@ -272,6 +273,9 @@ export function dispatchAppCommand(action: string): void {
       break
     case 'show-scheduled-runs':
       state.openRuns('automations')
+      break
+    case 'show-attention-inbox':
+      openAttentionInbox()
       break
     case 'settings':
       state.openSettings(state.settingsSection)

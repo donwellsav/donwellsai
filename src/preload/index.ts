@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
+import type { SessionTemplate } from '../shared/session-template'
 import { pluginCommandId } from '../shared/plugin-command'
 
 const api: IpcApi = {
@@ -205,7 +206,7 @@ const api: IpcApi = {
   // Session templates
   sessionTemplateList: () => ipcRenderer.invoke('sessionTemplate:list'),
   sessionTemplateGet: (id: string) => ipcRenderer.invoke('sessionTemplate:get', id),
-  sessionTemplateCreate: (template: Parameters<typeof import('../main/templates/session-template-manager').SessionTemplateManager.prototype.create>[0]) => ipcRenderer.invoke('sessionTemplate:create', template),
+  sessionTemplateCreate: (template: SessionTemplate) => ipcRenderer.invoke('sessionTemplate:create', template),
   sessionTemplateDelete: (id: string) => ipcRenderer.invoke('sessionTemplate:delete', id),
   // Autonomous agent
   autonomousStart: (goal: string, job?: { workspacePath: string; command: string }) =>

@@ -7,7 +7,7 @@ import { parseAgentExecutable } from '@shared/agent-runtime'
 import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
@@ -72,6 +72,13 @@ function parseRpcInput<T>(parse: (input: unknown) => T, input: unknown): T {
   } catch (error) {
     throw new RpcFailure('INVALID_ARGUMENTS', failureMessage(error))
   }
+}
+
+/** Constant-time token check — same contract the daemon's hello gate enforces. */
+function tokensMatch(candidate: string, expected: string): boolean {
+  const a = Buffer.from(candidate, 'utf-8')
+  const b = Buffer.from(expected, 'utf-8')
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 export type RpcDeps = {
@@ -204,7 +211,8 @@ export class RuntimeRpcServer {
         }
         if (!authed) {
           if (msg['method'] === 'auth.hello'
-            && msg['authToken'] === this.authToken
+            && typeof msg['authToken'] === 'string'
+            && tokensMatch(msg['authToken'], this.authToken)
             && typeof msg['id'] === 'string'
             && msg['id'].length > 0
             && msg['id'].length <= 256) {
