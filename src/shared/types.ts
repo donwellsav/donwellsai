@@ -240,8 +240,6 @@ export type AppSettings = {
   keyboardShortcutOverrides: Record<string, string>
   /** Worktree/git status poll interval; 0 disables polling. */
   statusPollMs: number
-  /** UI language code (IETF BCP 47). */
-  language: string
 }
 
 export type SettingKey = keyof AppSettings

@@ -384,7 +384,6 @@ export function SettingsModal({ open }: { open: boolean }) {
     if (target === 'appearance' || target === 'terminal') return <>
       {(target === 'appearance' ? [
         ['Theme', ['theme']],
-        ['Language', ['language']],
         ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
         ['Layout', ['navigationLabels', 'toolPanelSide']]
       ] as const : [
