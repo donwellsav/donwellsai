@@ -6,7 +6,6 @@ import '@fontsource-variable/geist-mono'
 import '@xterm/xterm/css/xterm.css'
 import './main.css'
 import { App } from './App'
-import { useAppStore } from './store'
 
 if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({

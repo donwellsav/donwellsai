@@ -13,7 +13,6 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import {
   SETTINGS_SCHEMA_VERSION,
-  SettingsValidationError,
   resolveSettings,
   settingsKeysForSection,
   sparseSettings,
@@ -210,21 +209,29 @@ export class Store {
 
     const repos = validateRepos(envelope.repos, this.path)
     validateOptionalOwnedState(envelope, this.path)
+    let migrated = schemaVersion === 1
     let settings: Partial<AppSettings>
     if (schemaVersion === 1) {
       settings = migrateLegacySettings(envelope.settings, this.path)
     } else {
-      try {
-        settings = sparseSettings(resolveSettings(envelope.settings))
-      } catch (error) {
-        if (!(error instanceof SettingsValidationError) || error.key !== 'language') {
-          throw new StoreLoadError('corrupt', this.path, 'Persisted settings contain an invalid value', error)
-        }
-        // The language key was retired with the English-only cutover.
-        // Discard it, resave, and reject genuinely unknown keys.
+      // The language key was retired with the English-only cutover.
+      // Trim it up front, then validate strictly: every unknown key other
+      // than the retired one still fails closed.
+      const retiredLanguage = typeof envelope.settings === 'object'
+        && envelope.settings !== null
+        && !Array.isArray(envelope.settings)
+        && 'language' in (envelope.settings as Record<string, unknown>)
+      let settingsInput: unknown = envelope.settings
+      if (retiredLanguage) {
         const settingsRecord = { ...(envelope.settings as Record<string, unknown>) }
         delete settingsRecord.language
-        settings = sparseSettings(resolveSettings(settingsRecord))
+        settingsInput = settingsRecord
+        migrated = true
+      }
+      try {
+        settings = sparseSettings(resolveSettings(settingsInput))
+      } catch (error) {
+        throw new StoreLoadError('corrupt', this.path, 'Persisted settings contain an invalid value', error)
       }
     }
 
@@ -232,7 +239,7 @@ export class Store {
     state.schemaVersion = SETTINGS_SCHEMA_VERSION
     state.repos = repos
     state.settings = settings
-    return { state, migrated: schemaVersion !== SETTINGS_SCHEMA_VERSION || 'language' in ((envelope.settings as Record<string, unknown>) ?? {}) }
+    return { state, migrated }
   }
 
   /** Write a complete next snapshot before publishing it to in-memory readers. */
