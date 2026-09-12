@@ -27,14 +27,4 @@ The files in `notices/` were taken from the exact core dependency archives, exce
 
 ## Focused check
 
-After building an isolated package:
-
-```sh
-node tests/acceptance/native-terminal.mjs \
-  --app /absolute/package/donwells.app/Contents/MacOS/donwells \
-  --playwright /absolute/existing/playwright/index.mjs \
-  --agent /absolute/path/to/omp \
-  --evidence /absolute/new/evidence-directory
-```
-
-This dispatches AppKit events through the actual native view, verifies search, app shortcuts, switching and recovery, and exercises a real agent without submitting a model request. It uses disposable projects and a separate app profile. It does not establish physical keyboard/pointing behavior or rendered Metal pixel quality on a locked desktop.
+The native path is verified by dispatching AppKit events through the actual native view: search, app shortcuts, switching and recovery, plus a real agent run without submitting a model request, on disposable projects and a separate app profile. It does not establish physical keyboard/pointing behavior or rendered Metal pixel quality on a locked desktop. The previous automated acceptance harness (`tests/acceptance/native-terminal.mjs`) was deleted on 2026-09-11 with the rest of `tests/` and `docs/`; no replacement exists yet.

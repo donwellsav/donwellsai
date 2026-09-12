@@ -1,4 +1,0 @@
-$ node scripts/check-package.mjs --resources /tmp/donwells-strengthen-22-install/current-final/donwells.app/Contents/Resources
-187 installed production dependency notices verified.
-Package identity, native unpacking, CLI, icons, and notices are ready.
-718 application files and 34 external resources match the current build.

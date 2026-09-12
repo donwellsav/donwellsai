@@ -1,2 +1,0 @@
-Package identity, native unpacking, CLI, icons, and notices are ready.
-718 application files and 31 external resources match the current build.

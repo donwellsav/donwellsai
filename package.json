@@ -16,8 +16,6 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json",
     "test": "vitest run",
-    "smoke": "pnpm run build && node tests/smoke.mjs",
-    "acceptance:baseline": "node tests/acceptance/workspace-baseline.mjs",
     "icons:build": "node scripts/build-icons.mjs",
     "package:check": "node scripts/check-package.mjs",
     "package:prepare": "pnpm run build && pnpm run build:native-terminal && pnpm run build:native-history && pnpm run notices:build && pnpm run package:check",

@@ -2,12 +2,23 @@
 import { createHash } from 'node:crypto';
 import { access, readFile, stat, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { constants, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { constants, existsSync, readdirSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
-import { assertMatchingDirectory } from "../tests/helpers/package-evidence.mjs";
+// Self-contained: throws on symlinks, returns sorted relative file list of a directory.
+const relativeFiles = (directory) => {
+  const entries = readdirSync(directory, { recursive: true, withFileTypes: true });
+  const unsupported = entries.find((entry) => entry.isSymbolicLink());
+  if (unsupported) throw new Error(`Packaged resource symlink is not allowed: ${resolve(unsupported.parentPath, unsupported.name)}`);
+  return entries.filter((entry) => entry.isFile() && entry.name !== ".DS_Store")
+    .map((entry) => relative(directory, resolve(entry.parentPath, entry.name)))
+    .sort();
+};
+const assertMatchingDirectory = (source, shipped) => {
+  if (JSON.stringify(relativeFiles(source)) !== JSON.stringify(relativeFiles(shipped))) throw new Error(`Packaged resource file list differs: ${shipped}`);
+};
 
 const { values } = parseArgs({ options: { resources: { type: 'string' }, platform: { type: 'string' }, arch: { type: 'string' } } });
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));

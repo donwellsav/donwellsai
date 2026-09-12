@@ -1,9 +1,0 @@
-# Resource-preserving layout and restore
-
-Retained the existing FlexLayout portal hosts, editor document/recovery owner and main-owned browser views. The existing close gate already awaits dirty-editor handling and flushWorkspaceSession; no duplicate close hook was added. Inspected installed FlexLayout0.10.8 and the existing same-day docking research: no library replacement is needed for these application ownership bugs.
-
-Missing saved terminal/file references now survive restore instead of disappearing or creating replacement shells. Matching live/exited sessions retain their actual IDs; a foreign checkout's matching ID cannot attach or be stopped. Missing views explain their state and provide explicit new-terminal/file-retry/recovery actions. Stop process is absent for a missing resource. Shared closeTerminal only terminates a tracked session belonging to that checkout.
-
-Explorer create/rename dialog text, pending operation and error now live in the existing checkout-scoped Explorer state. Moving/hiding its view preserves the authored draft and in-flight mutation. Explicit Cancel or successful completion clears it; stale async completion cannot clear a replacement draft. Only one visible owner renders the dialog. This is in-process movement continuity; abrupt-crash recovery of Explorer dialogs is not claimed.
-
-41 focused lifecycle/layout/agent-UI tests passed, typecheck/build passed. The real disposable app restored missing terminal and file references, started no automatic replacement process, created one distinct shell only after Open new terminal, and retained a New file draft after moving Files from sidebar into the dock. Cancel cleared that draft. App and daemon cleanup passed. Existing cached editor/terminal/browser movement remains intact; Task08 separately owns lost-process/connection recovery.

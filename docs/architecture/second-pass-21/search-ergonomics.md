@@ -1,7 +1,0 @@
-# Task21 search ergonomics increment
-
-The populated All search previously spent the compact 125% viewport on per-source setup/status rows and left no result area. Query, total result count and selected-source errors now remain above results; infrequent source/index/history/analytics controls and the All-source breakdown use one native disclosure. Active indexing and query stop controls stay visible. Results retain readable text and their own scrolling area. No shell headers or dependencies added.
-
-Actual compact 1100×720 results area at125% grew from0 to267 CSS pixels. First result begins at47.4% of available panel height; wide1600×1000 starts at22.8%. Native capture and DOM-edge checks establish that the earlier cropped Playwright zoom screenshot was a capture issue rather than global shell overflow. Keyboard source opening and the actual selected-symbol editor action both pass; closing source controls suspends graph activity, preserves its query and permits reopening the same action.
-
-Before/after receipts and the actual compact capture accompany this note. The runner supplies the already-admitted code graph binary and waits for native disclosure toggle events; its earlier missing-service and immediate-toggle assertions are not reported as product regressions. App and owned daemon exited cleanly. Renderer typecheck passed. Physical native-input and remaining integrated-module journeys still belong to Task21; this increment does not close the whole card.

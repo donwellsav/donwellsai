@@ -1,1 +1,0 @@
-Require a clean build and a concrete smoke-test receipt.

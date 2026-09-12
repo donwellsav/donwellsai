@@ -1,9 +1,0 @@
-{
-  "ledgerSha256": "eccdf57dc3db43bc414a8a66b74fbeba4dc44964f0e184abed09249ad9173aa0",
-  "zeroBasedRecords": {
-    "nativeFormTypeErrorBeforeEdit": 70,
-    "nativeFixtureEdit": 75,
-    "nativeZeroConsoleErrorsAfterEdit": 106
-  },
-  "orderVerified": true
-}

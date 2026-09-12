@@ -1,9 +1,0 @@
-{
-  "repository": "tobil/qmd-query-expansion-1.7B-gguf",
-  "revision": "7816de0b72572c6c860ca1eddf97ba9e7fb8cc65",
-  "file": "qmd-query-expansion-1.7B-q4_k_m.gguf",
-  "sha256": "000dfb1c06efa6a049e9f64ba921c3740e2454f62abab6fa10e77bd30bb2bcc0",
-  "bytes": 1282438912,
-  "license": "mit",
-  "baseModel": "Qwen3-1.7B"
-}

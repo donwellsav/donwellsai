@@ -1,7 +1,0 @@
-{
-  "scenario": "unexpected packaged external CLI file",
-  "exitCode": 1,
-  "rejectedExpectedReason": true,
-  "stdout": "187 installed production dependency notices verified.\nPackage identity, native unpacking, CLI, icons, and notices are ready.\n",
-  "stderr": "file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/helpers/package-evidence.mjs:16\n  if (JSON.stringify(expected) !== JSON.stringify(actual)) throw new Error(`Packaged resource file list differs: ${shipped}`)\n                                                                 ^\n\nError: Packaged resource file list differs: /tmp/donwells-pass2-01/negative-resources/dist-cli\n    at assertMatchingDirectory (file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/tests/helpers/package-evidence.mjs:16:66)\n    at file:///Users/muzikfirst/Documents/donwellsai/terminal-foundation/scripts/check-package.mjs:92:31\n\nNode.js v24.16.0\n"
-}
