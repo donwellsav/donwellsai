@@ -13,7 +13,12 @@ import type { OperationalRunsApi } from './operational-runs'
 import type { AgentDeliveryApi } from './agent-delivery'
 import type { AgentStartResult } from './agent-runtime'
 import type { DiffReviewApi } from './diff-review'
-import type { CollaborationApi } from './collaboration'
+import type { ProjectTemporalKnowledgeApi } from './project-temporal-knowledge'
+import type { ProjectLanguageApi } from './project-language-tools'
+import type { ProjectKnowledgeApi } from './project-knowledge'
+import type { ProjectKitApi } from './project-export'
+import type { BrowserViewApi } from './browser-view'
+import type { ProjectSessionHistoryApi } from './project-session-history'
 import type {
   AgentPreset as RuntimeAgentPreset,
   RunningAgent as RuntimeRunningAgent
@@ -374,10 +379,6 @@ export type MainEvents = {
   'agent:changed': { run: RunningAgent }
   'agent:dismissed': { sessionId: string }
   'project-memory:changed': { projectKey: string }
-  /** Collaboration presence updated. */
-  'collaboration:presence': { roomName: string; collaborators: import('./collaboration').Collaborator[] }
-  /** Collaboration status changed (connected/disconnected). */
-  'collaboration:status': { roomName: string; connected: boolean; reason?: string }
   /** Menu/accelerator actions routed to the renderer (palette, new worktree, ...) */
   'menu:action': { action: string }
   /** BrowserWindow accelerator forwarded while focus is inside a guest. */
@@ -427,7 +428,7 @@ export type UiCommand =
 export type UiCommandResult = { ok: true; result: unknown } | { ok: false; error: string }
 
 export type AgentMemorySetupResult = { path: string; changed: boolean; backupPath?: string; launchArgs?: string[]; setupArgs?: string[]; replacement?: { revision: string; current: unknown; proposed: unknown } }
-export type IpcApi = import('./project-temporal-knowledge').ProjectTemporalKnowledgeApi & import('./project-language-tools').ProjectLanguageApi & import('./project-knowledge').ProjectKnowledgeApi & import('./project-export').ProjectKitApi & import('./browser-view').BrowserViewApi & import('./project-session-history').ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & CollaborationApi & {
+export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectKnowledgeApi & ProjectKitApi & BrowserViewApi & ProjectSessionHistoryApi & ProjectHandoffApi & ProjectCreationApi & ProjectMemoryApi & RecoveryApi & AttentionInboxApi & AppearanceApi & BrowserHistoryApi & FileWorkspaceApi & MediaPreviewApi & SkillPackagesApi & OperationalRunsApi & AgentDeliveryApi & DiffReviewApi & {
   projectDoctorPreviewBackup(workspacePath: string, name: string): Promise<import('./project-doctor').ProjectToolConfiguration>
   projectDoctorInspect(workspacePath: string): Promise<import('./project-doctor').ProjectDoctorReport>
   projectBrowserArtifactReveal(workspacePath: string, path: string, sha256: string): Promise<void>

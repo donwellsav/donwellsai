@@ -620,7 +620,7 @@ function TerminalSearch({ search, onClose }: { search: React.RefObject<SearchAdd
   )
 }
 
-// expose diagnostics once per module load
-if (typeof window !== 'undefined') {
+// expose diagnostics once per module load (dev builds only, like window.__store)
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   window.__paneLog = paneLog
 }

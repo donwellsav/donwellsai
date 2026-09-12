@@ -26,6 +26,7 @@ import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { readTerminalRuntime, localRuntimePaths } from './local-runtime'
+import { logger } from '@shared/logger'
 
 /** App-side transport for the detached terminal daemon. */
 
@@ -476,14 +477,15 @@ export class DaemonClient {
         if (templates) {
           const template = await templates.get(task.templateId)
           if (template?.systemPrompt) {
-            resolvedCommand = template.systemPrompt + '\\n\\n---\\n\\n' + command
+            resolvedCommand = template.systemPrompt + '\n\n---\n\n' + command
           }
           if (template?.env) {
             resolvedEnv = template.env
           }
         }
-      } catch {
-        // Template not found — proceed without it
+      } catch (err) {
+        // Template unresolved — the launch proceeds without it; record so the loss is visible.
+        logger.warn({ err, templateId: task.templateId }, 'agent launch without session template')
       }
     }
 

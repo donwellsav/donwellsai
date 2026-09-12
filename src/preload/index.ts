@@ -27,11 +27,6 @@ const api: IpcApi = {
 
   nativeTerminal: request => ipcRenderer.invoke('native-terminal:request', request),
   onNativeTerminal: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/native-terminal').NativeTerminalEvent) => callback(message); ipcRenderer.on('native-terminal:event', listener); return () => ipcRenderer.removeListener('native-terminal:event', listener) },
-  collaborationInfo: () => ipcRenderer.invoke('collaborationInfo'),
-  collaborationGetCollaborators: () => ipcRenderer.invoke('collaborationGetCollaborators'),
-  collaborationUpdatePresence: (state: import('@shared/collaboration').PresenceState) => ipcRenderer.invoke('collaborationUpdatePresence', state),
-  onCollaborationPresence: (callback: (event: import('@shared/collaboration').CollaborationPresenceEvent) => void) => { const listener = (_event: Electron.IpcRendererEvent, payload: import('@shared/collaboration').CollaborationPresenceEvent) => callback(payload); ipcRenderer.on('collaboration:presence', listener); return () => ipcRenderer.removeListener('collaboration:presence', listener) },
-  onCollaborationStatus: (callback: (event: import('@shared/collaboration').CollaborationStatusEvent) => void) => { const listener = (_event: Electron.IpcRendererEvent, payload: import('@shared/collaboration').CollaborationStatusEvent) => callback(payload); ipcRenderer.on('collaboration:status', listener); return () => ipcRenderer.removeListener('collaboration:status', listener) },
   projectKitExport: (...args) => ipcRenderer.invoke('projectKitExport', ...args),
   projectKitReconnectLearned: (...args) => ipcRenderer.invoke('projectKitReconnectLearned', ...args),
   projectKitPreview: (...args) => ipcRenderer.invoke('projectKitPreview', ...args),

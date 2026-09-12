@@ -35,7 +35,7 @@ import {
 } from '@shared/operational-runs'
 import type { SkillPackageProviderId, SkillPackageSource } from '@shared/skill-packages'
 import type { Store } from './store'
-import type { GitWorktrees } from './git'
+import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
@@ -299,7 +299,7 @@ export class RuntimeRpcServer {
         return removed
       }
       case 'terminal.open':
-        return { session: await terminals.open(str('cwd')) }
+        return { session: await terminals.open(await verifyWorkspaceDirectory(store, str('cwd'))) }
       case 'terminal.write':
         terminals.write(str('sessionId'), str('data'))
         return {}

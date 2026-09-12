@@ -1,7 +1,7 @@
 import { opendir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   FileContent,
   FileEntry,
@@ -169,6 +169,11 @@ function canonicalDirectory(path: string): string {
   const real = realpathSync(path)
   if (!statSync(real).isDirectory()) throw new GitError(`Path is not a directory: ${path}`)
   return real
+}
+
+function containsDirectory(root: string, candidate: string): boolean {
+  const child = relative(root, candidate)
+  return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child))
 }
 
 async function classifyWorkspace(path: string): Promise<WorkspaceIdentity> {
@@ -929,6 +934,25 @@ export async function resolveRegisteredProjectWorkspace(store: Store, path: stri
 
 export async function verifyWorktreePath(store: Store, path: string): Promise<string> {
   return (await resolveWorkspacePath(store, path)).path
+}
+
+/** Terminal working directory authority: a registered workspace or any directory inside one. */
+export async function verifyWorkspaceDirectory(store: Store, path: string): Promise<string> {
+  const real = canonicalDirectory(path)
+  for (const repo of store.listRepos()) {
+    if (!existsSync(repo.path)) continue
+    const registered = realpathSync(repo.path)
+    if (containsDirectory(registered, real)) return real
+    if (repo.kind === 'folder') continue
+    try {
+      for (const worktree of await listRepoWorktrees(registered)) {
+        if (existsSync(worktree.path) && containsDirectory(realpathSync(worktree.path), real)) return real
+      }
+    } catch {
+      // A different registered repo may be offline; it must not authorize this path.
+    }
+  }
+  throw new GitError(`Unknown worktree: ${path}`)
 }
 
 async function requireGitWorktree(store: Store, path: string): Promise<string> {

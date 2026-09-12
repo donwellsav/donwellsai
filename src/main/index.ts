@@ -25,7 +25,7 @@ import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { RendererCommandRouter } from './renderer-command-router'
 import packageMetadata from '../../package.json'
 import { Store, idFromPath } from './store'
-import { GitWorktrees, verifyWorktreePath, resolveRegisteredProjectWorkspace } from './git'
+import { GitWorktrees, verifyWorktreePath, verifyWorkspaceDirectory, resolveRegisteredProjectWorkspace } from './git'
 import { scanWorktree } from './ports'
 import { DaemonClient } from './daemon-client'
 import { runSmokeProbe } from './smoke-probe'
@@ -61,7 +61,6 @@ import { EventStore, type DomainEvent } from './events/event-store'
 import { initPerfMonitor, getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
-import { CollaborationService } from './collaboration/collaboration-service'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
 import { createDaemonJobRunner, executeJobCommand } from './autonomous/daemon-job-runner'
 
@@ -357,8 +356,9 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('openTerminal', async (_e, worktreePath: string, cwd?: string) => {
-    if (!existsSync(worktreePath)) throw new Error(`path does not exist: ${worktreePath}`)
-    return terminalBus.open(cwd ?? worktreePath, 100, 30)
+    // A terminal inherits shell authority: the effective cwd must be inside a registered workspace.
+    const effectiveCwd = cwd ?? worktreePath
+    return terminalBus.open(await verifyWorkspaceDirectory(store, effectiveCwd), 100, 30)
   })
 
   ipcMain.handle('native-terminal:request', (event, request) => {
@@ -487,27 +487,6 @@ function registerIpc(): void {
   ipcMain.on('browser:router-ready', (event) => commandRouter.ready('browser:command', event.sender))
   ipcMain.on('ui:router-ready', (event) => commandRouter.ready('ui:command', event.sender))
   ipcMain.on('browser:command:result', (event, id: string, result) => commandRouter.resolve('browser:command', id, result, event.sender))
-
-  // --- Collaboration: main-process IPC handlers ---
-  const collaboration = getServices().collaboration
-  ipcMain.handle('collaborationInfo', () => ({
-    roomName: collaboration.config.roomName,
-    userId: collaboration.config.userId,
-    userName: collaboration.config.userName || collaboration.config.userId,
-    connected: collaboration.getConnected(),
-  }))
-  ipcMain.handle('collaborationGetCollaborators', () => collaboration.getCollaborators())
-  ipcMain.handle('collaborationUpdatePresence', (_e, state: Parameters<typeof collaboration.updatePresence>[0]) => {
-    collaboration.updatePresence(state)
-  })
-
-  // Forward collaboration events to renderer
-  collaboration.onPresenceChange((collaborators) => {
-    send('collaboration:presence', { roomName: collaboration.config.roomName, collaborators })
-  })
-  collaboration.onStatusChange((connected, reason) => {
-    send('collaboration:status', { roomName: collaboration.config.roomName, connected, reason })
-  })
   // --- Plugin system: IPC handlers ---
   ipcMain.handle('plugin:list', () => getServices().pluginLoader.list())
   ipcMain.handle('plugin:unload', (_e, pluginId: string) => getPluginRegistry().unload(pluginId))

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useAppStore } from '../store'
 import { Icon } from './Icon'
-import { CollaborationPanel } from './CollaborationPanel'
 import { SessionReplay } from './SessionReplay'
 import { AgentsSection } from './runs/AgentsSection'
 import { ParallelRunsSection } from './runs/ParallelRunsSection'
@@ -40,7 +39,6 @@ export function RunsPanel() {
           <ScheduledRunsSection />
         )}
       </div>
-      <CollaborationPanel />
       {/* Session Replay */}
       {replaySessionId && (
         <SessionReplay

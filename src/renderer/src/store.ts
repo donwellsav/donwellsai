@@ -2225,13 +2225,13 @@ export function flushWorkspaceSession(): Promise<void> {
   return persistSessionSoon()
 }
 
-// Dev/E2E seam (upstream's own convention, REBUILD_SPEC §9): window.__store exposes
-// the live store for driving tests and debugging — never referenced by product code.
+// Dev-only test/debug seam: drives the live store from Playwright and console.
+// Gated out of production bundles so shipped builds expose no store mutator.
 declare global {
   interface Window {
     __store?: typeof useAppStore
   }
 }
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   window.__store = useAppStore
 }
