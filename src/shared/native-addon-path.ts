@@ -17,8 +17,14 @@ function packageRoot(moduleDirectory: string): string {
 }
 
 export function resolveNativeRuntimeAddonPath(moduleDirectory: string, options: NativeAddonPathOptions = {}): string {
-  if (typeof options.resourcesPath === 'string' && options.resourcesPath.length > 0 && options.defaultApp !== true) {
-    return join(options.resourcesPath, 'native', 'runtime-identity.node')
+  if (typeof options.resourcesPath === 'string' && options.resourcesPath.length > 0) {
+    const packagedPath = join(options.resourcesPath, 'native', 'runtime-identity.node')
+    // A detached packaged daemon runs with ELECTRON_RUN_AS_NODE=1, which
+    // makes Electron report defaultApp=true even though resourcesPath points
+    // at the real app bundle. Prefer that shipped resource when present;
+    // development Electron resources do not contain the addon and fall back
+    // to the source package root below.
+    if (options.defaultApp !== true || existsSync(packagedPath)) return packagedPath
   }
   return join(packageRoot(moduleDirectory), 'resources', 'native', 'runtime-identity.node')
 }

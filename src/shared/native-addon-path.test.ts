@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveNativeRuntimeAddonPath } from './native-addon-path'
@@ -19,5 +21,17 @@ describe('native runtime addon path', () => {
     const resourcesPath = join(root, 'packaged resources')
     expect(resolveNativeRuntimeAddonPath(join(root, 'out', 'main', 'chunks'), { resourcesPath, defaultApp: false }))
       .toBe(join(resourcesPath, 'native', 'runtime-identity.node'))
+  })
+
+  it('uses shipped resources when a detached packaged daemon reports defaultApp', () => {
+    const resourcesPath = mkdtempSync(join(tmpdir(), 'native-addon-resources-'))
+    const expected = join(resourcesPath, 'native', 'runtime-identity.node')
+    try {
+      mkdirSync(join(resourcesPath, 'native'))
+      writeFileSync(expected, 'packaged fixture')
+      expect(resolveNativeRuntimeAddonPath(join(root, 'out', 'main', 'chunks'), { resourcesPath, defaultApp: true })).toBe(expected)
+    } finally {
+      rmSync(resourcesPath, { recursive: true, force: true })
+    }
   })
 })
