@@ -412,6 +412,34 @@ describe('new ACP process identity publication', () => {
     expect(sessions.list(directory)).toContainEqual(expect.objectContaining({ state: 'exited', processIdentity: null }))
   })
 
+  it('retries unverified startup termination until the child exits', async () => {
+    const directory = temporaryDirectory('acp-capture-retry-exit-')
+    let childPid = 0
+    let terminationAttempts = 0
+    terminationControl.override = async child => {
+      terminationAttempts += 1
+      if (terminationAttempts >= 2 && child.pid) process.kill(child.pid, 'SIGKILL')
+      return false
+    }
+    const authority: RuntimeIdentityAuthority = {
+      capture: pid => { childPid = pid; throw new Error('capture unavailable') },
+      verify: () => ({ status: 'indeterminate', reason: 'legacy-record', detail: 'process identity was not recorded' })
+    }
+    const changes: AcpAgentSnapshot[] = []
+    await expect(AcpAgent.start({
+      id: 'capture-retry-exit',
+      workspacePath: directory,
+      launch: { executable: process.execPath, args: ['-e', childScript] },
+      mcpServers: [],
+      identity: authority,
+      onChange: value => changes.push(value)
+    })).rejects.toThrow(/capture unavailable/)
+    expect(childPid).toBeGreaterThan(0)
+    expect(terminationAttempts).toBeGreaterThanOrEqual(2)
+    expect(processExists(childPid)).toBe(false)
+    expect(changes.at(-1)).toMatchObject({ state: 'exited', processIdentity: null })
+  })
+
   it('verifies child termination before rejecting the first snapshot callback', async () => {
     const directory = temporaryDirectory('acp-first-publish-failure-')
     let childPid = 0

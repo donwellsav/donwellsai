@@ -59,20 +59,44 @@ async function spawnedChildPid(child: ChildProcess): Promise<number> {
   }
 }
 
-async function waitForChildExit(child: ChildProcess): Promise<void> {
-  if (childHasExited(child) || !child.pid) return
-  const completion = Promise.withResolvers<void>()
-  const finish = (): void => {
+const STARTUP_CHILD_TERMINATION_ATTEMPTS = 8
+const STARTUP_CHILD_TERMINATION_RETRY_MS = 250
+
+async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (childHasExited(child) || !child.pid) return true
+  const completion = Promise.withResolvers<boolean>()
+  const timer = setTimeout(() => {
     child.off('exit', finish)
-    completion.resolve()
+    completion.resolve(false)
+  }, timeoutMs)
+  const finish = (): void => {
+    clearTimeout(timer)
+    child.off('exit', finish)
+    completion.resolve(true)
   }
   child.once('exit', finish)
   if (childHasExited(child)) finish()
-  await completion.promise
+  return completion.promise
 }
 
 async function requestChildTermination(child: ChildProcess): Promise<boolean> {
   return forceTerminateProcessTree(child).catch(() => false)
+}
+
+async function terminateUnverifiedChild(child: ChildProcess): Promise<{ terminated: boolean; exited: boolean }> {
+  let terminated = await requestChildTermination(child)
+  if (terminated) {
+    return { terminated: true, exited: await waitForChildExit(child, STARTUP_CHILD_TERMINATION_RETRY_MS) }
+  }
+  for (let attempt = 1; attempt < STARTUP_CHILD_TERMINATION_ATTEMPTS; attempt += 1) {
+    const exited = await waitForChildExit(child, STARTUP_CHILD_TERMINATION_RETRY_MS)
+    if (exited) return { terminated: false, exited: true }
+    terminated = await requestChildTermination(child)
+    if (terminated) {
+      return { terminated: true, exited: await waitForChildExit(child, STARTUP_CHILD_TERMINATION_RETRY_MS) }
+    }
+  }
+  return { terminated: false, exited: childHasExited(child) }
 }
 
 /** One process owner and protocol session; no PTY or implicit native-session attachment. */
@@ -138,7 +162,7 @@ export class AcpAgent {
       processIdentity = options.identity.capture(pid, { family: 'acp-agent' })
     } catch (error) {
       const detail = String(error).slice(0, 2048)
-      const terminated = await requestChildTermination(child)
+      const cleanup = await terminateUnverifiedChild(child)
       const publish = (state: 'starting' | 'uncertain' | 'exited', message: string): void => {
         try {
           options.onChange({
@@ -154,11 +178,10 @@ export class AcpAgent {
           })
         } catch { /* Capture failure remains the authoritative startup error. */ }
       }
-      if (terminated) publish('uncertain', detail)
+      if (cleanup.terminated) publish('uncertain', detail)
       else {
         publish('starting', (detail + ' ACP process termination could not be verified; retaining startup ownership until exit.').slice(0, 2048))
-        await waitForChildExit(child)
-        publish('exited', detail)
+        if (cleanup.exited) publish('exited', detail)
       }
       throw error
     }
@@ -166,8 +189,22 @@ export class AcpAgent {
     try {
       agent = new AcpAgent(options, path, child, processIdentity)
     } catch (error) {
-      const terminated = await requestChildTermination(child)
-      if (!terminated) await waitForChildExit(child)
+      const cleanup = await terminateUnverifiedChild(child)
+      if (!cleanup.terminated && !cleanup.exited) {
+        try {
+          options.onChange({
+            mode: 'acp',
+            id: options.id ?? randomUUID(),
+            workspacePath: path,
+            protocolSessionId: null,
+            processIdentity: null,
+            state: 'starting',
+            capabilities: {},
+            permissions: [],
+            detail: 'ACP startup cleanup could not be verified; retaining startup ownership until exit.'
+          })
+        } catch { /* Preserve the authoritative construction error. */ }
+      }
       throw error
     }
     const abort = () => { void agent.stop().catch(() => {}) }
