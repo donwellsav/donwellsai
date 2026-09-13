@@ -30,6 +30,7 @@
     "build:native-terminal": "node scripts/build-native-terminal.mjs",
     "build:native-history": "node scripts/build-native-history.mjs",
     "build:native-identity": "node scripts/build-runtime-identity.mjs",
+    "check:native-identity": "node scripts/check-runtime-identity.mjs",
     "test:native-identity": "pnpm run build:native-identity && vitest run src/main/runtime-identity-native.test.ts"
   },
   "dependencies": {

@@ -10,10 +10,12 @@
     "types": [
       "node"
     ],
+    "paths": { "@shared/*": ["./src/shared/*"] },
     "rootDir": "src",
     "outDir": "dist-cli"
   },
   "include": [
     "src/cli/**/*.ts"
-  ]
+  ],
+  "exclude": ["src/cli/**/*.test.ts"]
 }

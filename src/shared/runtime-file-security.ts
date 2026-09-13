@@ -103,8 +103,9 @@ export function createPrivateRuntimeFileReader(addon: NativeRuntimeFileAddon, ex
 }
 
 function loadNativeAddon(): NativeRuntimeFileAddon {
-  const packaged = typeof process.resourcesPath === 'string' && process.defaultApp !== true
-  const root = packaged ? process.resourcesPath : resolve(__dirname, '../..')
+  const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
+  const packaged = typeof electronProcess.resourcesPath === 'string' && electronProcess.defaultApp !== true
+  const root = packaged ? electronProcess.resourcesPath! : resolve(__dirname, '../..')
   const addonPath = packaged ? join('native', 'runtime-identity.node') : join('resources', 'native', 'runtime-identity.node')
   return createRequire(__filename)(join(root, addonPath)) as NativeRuntimeFileAddon
 }
