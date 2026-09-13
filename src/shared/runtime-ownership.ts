@@ -37,6 +37,7 @@ export type LegacyRecoveryInput = {
   evidencePath: string
   endpoint: string
 }
+export type LegacyRecoveryMatch = Pick<LegacyRecoveryInput, 'kind' | 'expectedFingerprint' | 'fileIdentity' | 'endpoint'>
 
 export type LegacyRecoveryRecord = LegacyRecoveryInput & {
   id: string
@@ -305,6 +306,28 @@ export class RuntimeOwnershipStore {
     }
   }
 
+  findLegacyRecovery(match: LegacyRecoveryMatch): LegacyRecoveryRecord | null {
+    assertKind(match.kind)
+    if (!HASH.test(match.expectedFingerprint)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery fingerprint was invalid')
+    const rows = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE kind=? AND expected_fingerprint=? AND state=?').all(match.kind, match.expectedFingerprint, 'committed') as Array<Record<string, unknown>>
+    for (const row of rows) {
+      let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
+      try { detail = JSON.parse(String(row['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+      if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint) continue
+      return {
+        id: String(row['id']),
+        kind: match.kind,
+        expectedFingerprint: String(row['expected_fingerprint']),
+        fileIdentity: detail.fileIdentity,
+        evidencePath: detail.evidencePath,
+        endpoint: detail.endpoint,
+        state: 'committed',
+        createdAt: String(row['created_at']),
+        updatedAt: String(row['updated_at'])
+      }
+    }
+    return null
+  }
   recordLegacyRecovery(input: LegacyRecoveryInput): LegacyRecoveryRecord {
     if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertKind(input.kind)
@@ -312,9 +335,18 @@ export class RuntimeOwnershipStore {
     const id = input.id ?? randomUUID()
     const existing = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE id=?').get(id) as Record<string, unknown> | undefined
     if (existing) {
-      const detail = JSON.parse(String(existing['detail_json'])) as { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
-      if (existing['kind'] !== input.kind || existing['expected_fingerprint'] !== input.expectedFingerprint || detail.evidencePath !== input.evidencePath) throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence')
-      return { ...input, id, state: 'committed', createdAt: String(existing['created_at']), updatedAt: String(existing['updated_at']) }
+      let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
+      try { detail = JSON.parse(String(existing['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+      if (existing['kind'] !== input.kind || existing['expected_fingerprint'] !== input.expectedFingerprint
+        || JSON.stringify(detail.fileIdentity) !== JSON.stringify(input.fileIdentity)
+        || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint) {
+        throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence or endpoint')
+      }
+      return {
+        id: String(existing['id']), kind: input.kind, expectedFingerprint: String(existing['expected_fingerprint']),
+        fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
+        state: 'committed', createdAt: String(existing['created_at']), updatedAt: String(existing['updated_at'])
+      }
     }
     const createdAt = now()
     this.db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(

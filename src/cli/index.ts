@@ -46,13 +46,13 @@ function recoveryKind(value: string | undefined): 'donwells-app' | 'terminal-dae
 
 async function runRuntimeRecovery(argv: readonly string[]): Promise<number> {
   if (argv.includes('--help') || argv.length === 0) {
-    console.log('Usage: donwells runtime-recovery <inspect|quarantine> [--kind app|terminal] [--user-data <directory>] [--confirm <sha256>]')
+    console.log('Usage: donwells runtime-recovery <inspect|quarantine> --kind app|terminal --user-data <exact-directory> [--confirm <sha256>]')
     return argv.length === 0 ? 2 : 0
   }
   try {
     const action = argv[0]
     if (action !== 'inspect' && action !== 'quarantine') throw new Error('runtime-recovery action must be inspect or quarantine')
-    let userData = defaultUserData()
+    let userData: string | undefined
     let kind: 'donwells-app' | 'terminal-daemon' | undefined
     let confirm: string | undefined
     for (let index = 1; index < argv.length; index++) {
@@ -70,7 +70,9 @@ async function runRuntimeRecovery(argv: readonly string[]): Promise<number> {
       else if (argument.startsWith('--confirm=')) confirm = argument.slice(10)
       else throw new Error('unknown runtime-recovery option: ' + argument)
     }
-    const runtimeKind = kind ?? 'donwells-app'
+    if (userData === undefined) throw new Error('runtime-recovery requires --user-data <exact-directory>')
+    if (kind === undefined) throw new Error('runtime-recovery requires --kind app|terminal')
+    const runtimeKind = kind
     if (action === 'inspect') {
       console.log(JSON.stringify({ ok: true, inspection: inspectRuntimeRecovery({ userDataDir: userData, kind: runtimeKind }) }, null, 2))
       return 0

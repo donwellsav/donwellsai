@@ -39,7 +39,7 @@ import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, type RuntimePublication } from './runtime-ownership'
 import { readRuntimeRecord } from './local-runtime'
 import { runtimeIdentityAuthority } from './runtime-identity'
 // Authenticated NDJSON; the CLI and UI share domain operations and argument validation.
@@ -130,6 +130,12 @@ export class RuntimeRpcServer {
   async start(): Promise<void> {
     if (this.server) throw new Error('Runtime RPC is already started')
     const authority = runtimeIdentityAuthority()
+    const reconciliation = await reconcileRuntimeOwner({
+      userDataDir: dirname(this.runtimeFile),
+      kind: 'donwells-app',
+      authority
+    })
+    if (reconciliation.action !== 'claim') return
     const publication = claimRuntimeOwner({
       userDataDir: dirname(this.runtimeFile),
       kind: 'donwells-app',

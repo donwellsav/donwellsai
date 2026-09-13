@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { localRuntimePaths, parseRuntimeRecordBytes } from '../main/local-runtime.js'
@@ -95,6 +96,39 @@ function writeEvidence(path: string, bytes: Buffer): void {
   }
 }
 
+function contactLegacyEndpoint(socketPath: string, authToken: string): boolean {
+  const probe = [
+    "const net = require('node:net')",
+    "const socketPath = process.argv[1]",
+    "const authToken = process.argv[2]",
+    "const socket = net.createConnection(socketPath)",
+    "let buffer = ''",
+    "const fail = () => { socket.destroy(); process.exit(1) }",
+    "const timer = setTimeout(fail, 750)",
+    "socket.once('error', fail)",
+    "socket.on('data', chunk => {",
+    "  buffer += chunk.toString('utf8')",
+    "  const newline = buffer.indexOf(String.fromCharCode(10))",
+    "  if (newline < 0) return",
+    "  try {",
+    "    const response = JSON.parse(buffer.slice(0, newline))",
+    "    if (response.id !== 'runtime-recovery' || response.ok !== true) return fail()",
+    "    clearTimeout(timer)",
+    "    socket.destroy()",
+    "    process.exit(0)",
+    "  } catch { fail() }",
+    "})",
+    "socket.once('connect', () => socket.write(JSON.stringify({ id: 'runtime-recovery', op: 'hello', authToken }) + String.fromCharCode(10)))"
+  ].join(String.fromCharCode(10))
+  try {
+    execFileSync(process.execPath, ['-e', probe, socketPath, authToken], { stdio: 'ignore', timeout: 1_500, windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    return true
+  } catch {
+    return false
+  }
+}
+
+
 export function quarantineLegacyRuntime(options: QuarantineOptions): QuarantineResult {
   const { inspection, bytes } = inspectWithBytes(options)
   if (inspection.verdict === 'current-owner') throw new RuntimeRecoveryError('RECOVERY_ACTIVE', 'a version-2 runtime owner is present')
@@ -106,7 +140,8 @@ export function quarantineLegacyRuntime(options: QuarantineOptions): QuarantineR
     throw new RuntimeRecoveryError('RECOVERY_CONFIRMATION', 'confirmation fingerprint did not match the locator bytes')
   }
   const legacy = JSON.parse(bytes.toString('utf8')) as { authToken: string }
-  if (options.canContactLegacy && options.canContactLegacy(inspection.endpoint, legacy.authToken)) {
+  const contact = options.canContactLegacy ?? contactLegacyEndpoint
+  if (contact(inspection.endpoint, legacy.authToken)) {
     throw new RuntimeRecoveryError('RECOVERY_LIVE', 'the legacy runtime endpoint is reachable; it was not quarantined')
   }
 

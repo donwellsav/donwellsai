@@ -1,6 +1,6 @@
 import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, type RuntimePublication } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
@@ -164,6 +164,12 @@ export class TerminalDaemon {
   async start(): Promise<void> {
     this.prepareRuntimeDirectory()
     const authority = runtimeIdentityAuthority()
+    const reconciliation = await reconcileRuntimeOwner({
+      userDataDir: dirname(this.paths.runtimeDir),
+      kind: 'terminal-daemon',
+      authority
+    })
+    if (reconciliation.action !== 'claim') return
     const publication = claimRuntimeOwner({
       userDataDir: dirname(this.paths.runtimeDir),
       kind: 'terminal-daemon',

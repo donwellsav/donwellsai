@@ -190,7 +190,19 @@ export class DaemonClient {
     if (record.status === 'current') {
       // Contact the advertised endpoint first; native identity alone is not liveness evidence.
       const connected = await this.tryConnect(record.record.socketPath, record.record.authToken, record.record).catch(() => false)
-      if (connected) return
+      if (connected) {
+        let ownership: RuntimeOwnershipStore | null = null
+        try {
+          ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+          ownership.resolveActive('terminal-daemon', record.record, record.sha256)
+          return
+        } catch {
+          // Endpoint contact is not sufficient: the exact locator must still resolve to an active row.
+          this.disconnect()
+        } finally {
+          ownership?.close()
+        }
+      }
 
       const verdict = runtimeIdentityAuthority().verify(record.record.processIdentity)
       if (verdict.status === 'valid') throw new Error('existing terminal daemon is live but did not complete authenticated contact; it was not replaced')

@@ -4,10 +4,11 @@ import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { RuntimeOwner } from '@shared/runtime-ownership'
 import { DaemonClient } from './daemon-client'
 import { localRuntimePaths, readRuntimeRecord } from './local-runtime'
 import { TerminalDaemon } from './terminal-daemon'
-type DaemonLifecycleProbe = { activePublication: () => unknown }
+type DaemonLifecycleProbe = { activePublication: () => { owner: RuntimeOwner; store: { release: (owner: RuntimeOwner) => boolean } } | null }
 type DaemonConnectProbe = { tryConnect: (socketPath: string, authToken: string, expected: { ownerId: string; ownerGeneration: number; socketPath: string; authToken: string; processIdentity: unknown }) => Promise<boolean> }
 
 const events = {
@@ -43,6 +44,28 @@ function readHello(socketPath: string, authToken: string): Promise<Record<string
   socket.once('connect', () => socket.write(JSON.stringify({ id: 'hello', op: 'hello', authToken }) + '\n'))
   return completion.promise
 }
+
+function expectHelloClosed(socketPath: string, authToken: string): Promise<void> {
+  const completion = Promise.withResolvers<void>()
+  const socket = createConnection(socketPath)
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const finish = (error?: Error): void => {
+    if (settled) return
+    settled = true
+    if (timer) clearTimeout(timer)
+    socket.removeAllListeners()
+    socket.destroy()
+    if (error) completion.reject(error)
+    else completion.resolve()
+  }
+  socket.once('connect', () => socket.write(JSON.stringify({ id: 'hello', op: 'hello', authToken }) + '\n'))
+  socket.once('error', () => finish())
+  socket.once('close', () => finish())
+  timer = setTimeout(() => finish(new Error('inactive owner accepted hello')), 1_000)
+  return completion.promise
+}
+
 
 describe('terminal runtime identity lifecycle', () => {
   it('does not resolve a preparing owner and publishes exact identity in hello', async () => {
@@ -96,4 +119,25 @@ describe('terminal runtime identity lifecycle', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it('rejects authenticated hello when the ownership row is no longer active', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'terminal-inactive-owner-'))
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-inactive-token-123456789' })
+    try {
+      await daemon.start()
+      const privateDaemon = daemon as unknown as DaemonLifecycleProbe
+      const publication = privateDaemon.activePublication()
+      expect(publication).not.toBeNull()
+      if (!publication) throw new Error('terminal owner was not active after start')
+      expect(publication.store.release(publication.owner)).toBe(true)
+      expect(privateDaemon.activePublication()).toBeNull()
+      const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+      expect(locator.status).toBe('current')
+      if (locator.status !== 'current') throw new Error('terminal locator was not published')
+      await expectHelloClosed(locator.record.socketPath, locator.record.authToken)
+    } finally {
+      await daemon.stopIfIdle()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
 })
