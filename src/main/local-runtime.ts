@@ -2,13 +2,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
-import type { ProcessIdentity } from '@shared/child-process/process-spec'
+import type { ProcessIdentity } from '../shared/child-process/process-spec'
 import {
   privateRuntimeFileReader,
   readPrivateRuntimeFile,
   type RuntimeFileIdentity,
   type RuntimeFileReader
-} from '@shared/runtime-file-security'
+} from '../shared/runtime-file-security'
 
 const MAX_RUNTIME_BYTES = 64 * 1024
 const MAX_FIELD_LENGTH = 16 * 1024

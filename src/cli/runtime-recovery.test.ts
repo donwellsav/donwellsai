@@ -13,11 +13,12 @@ function addon(bytes: Buffer, identity: Record<string, string> = { platform: 'po
   return { platform: process.platform, runtimeFileSecurityContractVersion: 1, readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity: identity }) }
 }
 
-async function startLegacyServer(endpoint: string, token: string): Promise<ChildProcess> {
+async function startLegacyServer(endpoint: string, token: string, kind: 'donwells-app' | 'terminal-daemon' = 'donwells-app'): Promise<ChildProcess> {
   const source = [
     "const net = require('node:net')",
     "const endpoint = process.argv[1]",
     "const token = process.argv[2]",
+    "const kind = process.argv[3]",
     "const server = net.createServer(socket => {",
     "  let input = ''",
     "  socket.setEncoding('utf8')",
@@ -26,13 +27,13 @@ async function startLegacyServer(endpoint: string, token: string): Promise<Child
     "    const newline = input.indexOf(String.fromCharCode(10))",
     "    if (newline < 0) return",
     "    const message = JSON.parse(input.slice(0, newline))",
-    "    const validShape = message.method === 'auth.hello' && message.op === undefined",
+    "    const validShape = kind === 'donwells-app' ? message.method === 'auth.hello' && message.op === undefined : message.op === 'hello' && message.method === undefined",
     "    socket.end(JSON.stringify({ id: message.id, ok: validShape && message.authToken === token }) + String.fromCharCode(10))",
     "  })",
     "})",
     "server.listen(endpoint, () => process.stdout.write('ready' + String.fromCharCode(10)))"
   ].join(String.fromCharCode(10))
-  const child = spawn(process.execPath, ['-e', source, endpoint, token], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, ['-e', source, endpoint, token, kind], { stdio: ['ignore', 'pipe', 'pipe'] })
   child.stdout?.setEncoding('utf8')
   const ready = Promise.withResolvers<void>()
   const onData = (chunk: string | Buffer): void => {
@@ -178,6 +179,27 @@ describe('legacy runtime recovery', () => {
     } finally {
       store.close()
       await stopLegacyServer(server)
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('uses the terminal hello wire protocol for live legacy daemon detection', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-recovery-terminal-live-')))
+    const runtimeDirectory = join(directory, 'terminal-daemon')
+    mkdirSync(runtimeDirectory, { mode: 0o700 })
+    const endpoint = join('/tmp', 'dw-legacy-terminal-' + process.pid + '.sock')
+    const token = 'legacy-terminal-token-123456'
+    const bytes = Buffer.from(JSON.stringify({ socketPath: endpoint, authToken: token, pid: 457 }))
+    writeFileSync(join(runtimeDirectory, 'runtime.json'), bytes, { mode: 0o600 })
+    const server = await startLegacyServer(endpoint, token, 'terminal-daemon')
+    const reader = createPrivateRuntimeFileReader(addon(bytes), process.platform)
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    try {
+      const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'terminal-daemon', reader })
+      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'terminal-daemon', reader, store, confirm: inspected.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_LIVE' }))
+    } finally {
+      store.close()
+      await stopLegacyServer(server)
+      rmSync(endpoint, { force: true })
       rmSync(directory, { recursive: true, force: true })
     }
   })
