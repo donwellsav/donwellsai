@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { isObject } from '../shared/command-catalog.js'
 import { RuntimeOwnershipError, RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
 import { localRuntimePaths, readRuntimeRecord } from '../main/local-runtime.js'
-
+import { canonicalPrivateDirectory } from '../shared/runtime-file-security.js'
 export type RpcEnvelope = { id: string; ok: boolean; result?: unknown; error?: string; code?: string; _meta: { ts: number; method: string } }
 export class CliFailure extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'CliFailure' }
@@ -18,7 +18,7 @@ export function defaultUserData(platform = process.platform, env = process.env, 
 }
 
 function runtimeOwner(userData: string): { socketPath: string; authToken: string } {
-  const paths = localRuntimePaths(userData, 'app')
+  const paths = localRuntimePaths(canonicalPrivateDirectory(userData, { requireCanonical: true }), 'app')
   const locator = readRuntimeRecord(paths.runtimeFile)
   if (locator.status === 'missing') throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + paths.runtimeFile + '; is donwells.ai running?')
   if (locator.status === 'invalid') throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file: ' + locator.reason)

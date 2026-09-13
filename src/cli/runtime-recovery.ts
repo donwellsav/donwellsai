@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { localRuntimePaths, parseRuntimeRecordBytes } from '../main/local-runtime.js'
-import { readPrivateRuntimeFile, type RuntimeFileReader } from '../shared/runtime-file-security.js'
+import { canonicalPrivateDirectory, readPrivateRuntimeFile, type RuntimeFileReader } from '../shared/runtime-file-security.js'
 import {
   type LegacyRecoveryRecord,
   type RuntimeOwnerKind,
@@ -27,7 +27,7 @@ export type RuntimeRecoveryInspection = {
   reason?: string
 }
 
-export type LegacyReachabilityProbe = (socketPath: string, authToken: string) => boolean
+export type LegacyReachabilityProbe = (kind: RuntimeOwnerKind, socketPath: string, authToken: string) => boolean
 
 export type QuarantineOptions = RuntimeRecoveryOptions & {
   store: RuntimeOwnershipStore
@@ -51,8 +51,8 @@ function runtimeFileFor(options: RuntimeRecoveryOptions): string {
 }
 
 function inspectWithBytes(options: RuntimeRecoveryOptions): { inspection: RuntimeRecoveryInspection; bytes: Buffer | null } {
-  const canonicalProfile = resolve(options.userDataDir)
-  const runtimeFile = runtimeFileFor(options)
+  const canonicalProfile = canonicalPrivateDirectory(options.userDataDir, { requireCanonical: true })
+  const runtimeFile = localRuntimePaths(canonicalProfile, options.kind === 'donwells-app' ? 'app' : 'terminal').runtimeFile
   let source
   try {
     source = readPrivateRuntimeFile(runtimeFile, 64 * 1024, options.reader)
@@ -78,29 +78,34 @@ export function inspectRuntimeRecovery(options: RuntimeRecoveryOptions): Runtime
 }
 
 function evidenceFor(options: QuarantineOptions, fingerprint: string): string {
-  const directory = join(resolve(options.userDataDir), 'runtime-recovery')
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const directory = join(canonicalPrivateDirectory(options.userDataDir, { requireCanonical: true }), 'runtime-recovery')
+  canonicalPrivateDirectory(directory, { create: true })
   return join(directory, options.kind + '-' + fingerprint + '.json')
 }
 
 function writeEvidence(path: string, bytes: Buffer): void {
-  if (existsSync(path)) {
-    if (!readFileSync(path).equals(bytes)) throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'existing recovery evidence differs from the confirmed bytes')
-    return
+  if (!existsSync(path)) {
+    try {
+      writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
   }
+  let evidence
   try {
-    writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' })
+    evidence = readPrivateRuntimeFile(path, 64 * 1024)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    if (!readFileSync(path).equals(bytes)) throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'recovery evidence changed during quarantine')
+    throw new RuntimeRecoveryError('RECOVERY_CHANGED', error instanceof Error ? error.message : String(error))
   }
+  if (!evidence.bytes.equals(bytes)) throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'recovery evidence differs from the confirmed bytes')
 }
 
-function contactLegacyEndpoint(socketPath: string, authToken: string): boolean {
+function contactLegacyEndpoint(kind: RuntimeOwnerKind, socketPath: string, authToken: string): boolean {
   const probe = [
     "const net = require('node:net')",
-    "const socketPath = process.argv[1]",
-    "const authToken = process.argv[2]",
+    "const kind = process.argv[1]",
+    "const socketPath = process.argv[2]",
+    "const authToken = process.argv[3]",
     "const socket = net.createConnection(socketPath)",
     "let buffer = ''",
     "const fail = () => { socket.destroy(); process.exit(1) }",
@@ -118,10 +123,13 @@ function contactLegacyEndpoint(socketPath: string, authToken: string): boolean {
     "    process.exit(0)",
     "  } catch { fail() }",
     "})",
-    "socket.once('connect', () => socket.write(JSON.stringify({ id: 'runtime-recovery', op: 'hello', authToken }) + String.fromCharCode(10)))"
+    "socket.once('connect', () => {",
+    "  const hello = kind === 'donwells-app' ? { id: 'runtime-recovery', method: 'auth.hello', authToken } : { id: 'runtime-recovery', op: 'hello', authToken }",
+    "  socket.write(JSON.stringify(hello) + String.fromCharCode(10))",
+    "})"
   ].join(String.fromCharCode(10))
   try {
-    execFileSync(process.execPath, ['-e', probe, socketPath, authToken], { stdio: 'ignore', timeout: 1_500, windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    execFileSync(process.execPath, ['-e', probe, kind, socketPath, authToken], { stdio: 'ignore', timeout: 1_500, windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     return true
   } catch {
     return false
@@ -141,13 +149,17 @@ export function quarantineLegacyRuntime(options: QuarantineOptions): QuarantineR
   }
   const legacy = JSON.parse(bytes.toString('utf8')) as { authToken: string }
   const contact = options.canContactLegacy ?? contactLegacyEndpoint
-  if (contact(inspection.endpoint, legacy.authToken)) {
+  if (contact(options.kind, inspection.endpoint, legacy.authToken)) {
     throw new RuntimeRecoveryError('RECOVERY_LIVE', 'the legacy runtime endpoint is reachable; it was not quarantined')
   }
 
   const evidencePath = evidenceFor(options, inspection.sha256)
   writeEvidence(evidencePath, bytes)
   options.afterEvidenceWrite?.()
+  const fresh = inspectWithBytes(options)
+  if (fresh.inspection.sha256 !== inspection.sha256 || JSON.stringify(fresh.inspection.fileIdentity) !== JSON.stringify(inspection.fileIdentity)) {
+    throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'runtime locator identity changed after evidence was written')
+  }
   const recovery = options.store.recordLegacyRecovery({
     id: options.kind + '-' + inspection.sha256,
     kind: options.kind,

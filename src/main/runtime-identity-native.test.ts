@@ -113,6 +113,7 @@ describe('native runtime identity adapter', () => {
       chmodSync(file, 0o600)
       symlinkSync(file, link)
       expect(addon.readPrivateRuntimeFile(link, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+      expect(addon.readPrivateRuntimeFile(directory, 1024)).toMatchObject({ ok: false, code: 'native-error' })
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

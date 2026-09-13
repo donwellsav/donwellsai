@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
+import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 export type RuntimeFileIdentity =
   | { platform: 'posix'; device: string; inode: string }
@@ -117,6 +118,26 @@ export function privateRuntimeFileReader(): RuntimeFileReader {
   return defaultReader
 }
 
+export function canonicalPrivateDirectory(path: string, options: { create?: boolean; requireCanonical?: boolean } = {}): string {
+  if (typeof path !== 'string' || path.length === 0 || path.includes('\0') || !isAbsolute(path)) {
+    throw new RuntimeFileSecurityError('access-denied', 'runtime directory must be absolute')
+  }
+  const resolved = resolve(path)
+  if (options.create) mkdirSync(resolved, { recursive: true, mode: 0o700 })
+  const link = lstatSync(resolved)
+  if (link.isSymbolicLink() || !link.isDirectory()) throw new RuntimeFileSecurityError('access-denied', 'runtime directory must not be a link')
+  const canonical = realpathSync.native(resolved)
+  const samePath = process.platform === 'win32' ? canonical.toLowerCase() === resolved.toLowerCase() : canonical === resolved
+  if (options.requireCanonical && !samePath) throw new RuntimeFileSecurityError('access-denied', 'runtime directory path was not canonical')
+  if (process.platform !== 'win32') {
+    if (options.create) chmodSync(canonical, 0o700)
+    const stat = statSync(canonical)
+    if ((process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o077) !== 0) {
+      throw new RuntimeFileSecurityError('access-denied', 'runtime directory must be owned by the current user and private')
+    }
+  }
+  return canonical
+}
 export function readPrivateRuntimeFile(path: string, maxBytes: number, reader: RuntimeFileReader = privateRuntimeFileReader()): RuntimeFileRead {
   return reader(path, maxBytes)
 }

@@ -1,10 +1,12 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
+import type { RuntimeFileReader } from './runtime-file-security'
 import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
@@ -142,6 +144,47 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 
+  it.runIf(process.platform !== 'win32')('rejects symlink authority files and pathname replacement during SQLite open', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-path-')))
+    const target = join(directory, 'target.sqlite')
+    const link = join(directory, 'linked.sqlite')
+    writeFileSync(target, Buffer.alloc(0), { mode: 0o600 })
+    symlinkSync(target, link)
+    expect(() => new RuntimeOwnershipStore(link)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
+
+    const databasePath = join(directory, 'swapped.sqlite')
+    const replacement = join(directory, 'replacement.sqlite')
+    writeFileSync(replacement, Buffer.alloc(0), { mode: 0o600 })
+    let reads = 0
+    const swappingReader: RuntimeFileReader = path => {
+      const bytes = readFileSync(path)
+      const stat = statSync(path)
+      const result = { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), fileIdentity: { platform: 'posix' as const, device: String(stat.dev), inode: String(stat.ino) } }
+      if (reads++ === 0) renameSync(replacement, path)
+      return result
+    }
+    try {
+      expect(() => new RuntimeOwnershipStore(databasePath, { fileReader: swappingReader })).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a portable Windows authority identity change during SQLite open', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-win-contract-')))
+    let reads = 0
+    const empty = Buffer.alloc(0)
+    const changingReader: RuntimeFileReader = () => ({
+      bytes: empty,
+      sha256: createHash('sha256').update(empty).digest('hex'),
+      fileIdentity: { platform: 'win32', volumeSerial: 'volume', fileId: reads++ === 0 ? 'first' : 'second' }
+    })
+    try {
+      expect(() => new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { fileReader: changingReader })).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('refuses indeterminate prior identity and locator mismatches', () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-indeterminate-'))
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))

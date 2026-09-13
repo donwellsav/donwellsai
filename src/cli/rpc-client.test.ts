@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
 import { createServer, type Server } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -28,10 +28,10 @@ async function listen(server: Server, path: string): Promise<void> {
 
 describe('CLI runtime resolution', () => {
   it.each(['ordinary', 'memory-mcp'])('calls %s only after exact active-owner resolution', async mode => {
-    const directory = mkdtempSync(join(tmpdir(), 'rpc-client-owner-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-owner-')))
     const paths = localRuntimePaths(directory, 'app')
     const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-    const endpoint = join(directory, 'donwells-app-' + mode + '.sock')
+    const endpoint = paths.socketPath
     const token = 'cli-token-' + mode + '-123456'
     const candidate = { kind: 'donwells-app' as const, ownerId: '88888888-8888-4888-8888-888888888888', identity: { ...identity, generation: '88888888-8888-4888-8888-888888888888:1' }, endpoint, authToken: token }
     const active = store.activate(store.prepareClaim(candidate, store.observe('donwells-app'), null), 'd'.repeat(64))
@@ -67,10 +67,10 @@ describe('CLI runtime resolution', () => {
   })
 
   it('rejects locator/row mismatch before opening the endpoint', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'rpc-client-mismatch-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-mismatch-')))
     const paths = localRuntimePaths(directory, 'app')
     const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-    const endpoint = join(directory, 'donwells-app-mismatch.sock')
+    const endpoint = paths.socketPath
     const ownerId = '99999999-9999-4999-8999-999999999999'
     const active = store.activate(store.prepareClaim({ kind: 'donwells-app', ownerId, identity: { ...identity, generation: ownerId + ':1' }, endpoint, authToken: 'row-token-123456' }, store.observe('donwells-app'), null), 'e'.repeat(64))
     const mismatchedLocator = { version: 2 as const, ownerId: active.ownerId, ownerGeneration: active.generation, socketPath: endpoint, authToken: 'wrong-token-123456', processIdentity: active.identity }

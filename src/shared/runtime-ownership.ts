@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { chmodSync, closeSync, mkdirSync, openSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { ProcessIdentity, ProcessIdentityVerdict } from './child-process/process-spec'
+import { canonicalPrivateDirectory, privateRuntimeFileReader, readPrivateRuntimeFile, type RuntimeFileReader } from './runtime-file-security'
 
 export type RuntimeOwnerKind = 'donwells-app' | 'terminal-daemon'
 export type RuntimeOwner = {
@@ -135,32 +136,43 @@ function now(): string {
   return new Date().toISOString()
 }
 
-type StoreOptions = { readOnly?: boolean }
+type StoreOptions = { readOnly?: boolean; fileReader?: RuntimeFileReader }
 
 export class RuntimeOwnershipStore {
+  readonly databasePath: string
   private readonly db: DatabaseSync
+  private readonly fileReader: RuntimeFileReader
   private readonly readOnly: boolean
-
-  constructor(readonly databasePath: string, options: StoreOptions = {}) {
+  constructor(databasePath: string, options: StoreOptions = {}) {
     this.readOnly = options.readOnly === true
-    const directory = dirname(databasePath)
-    if (!this.readOnly) mkdirSync(directory, { recursive: true, mode: 0o700 })
+    this.fileReader = options.fileReader ?? privateRuntimeFileReader()
+    const directory = canonicalPrivateDirectory(dirname(databasePath), { create: !this.readOnly })
+    this.databasePath = join(directory, basename(databasePath))
     try {
-      const descriptor = openSync(databasePath, this.readOnly ? 'r' : 'wx', 0o600)
+      const descriptor = openSync(this.databasePath, this.readOnly ? 'r' : 'wx', 0o600)
       closeSync(descriptor)
     } catch (error) {
       if (!this.readOnly && (error as NodeJS.ErrnoException).code === 'EEXIST') {
-        // Existing files are checked below.
+        // Existing files are checked through the native same-handle boundary below.
       } else {
         throw error
       }
     }
-    const stat = statSync(databasePath)
-    if (!stat.isFile() || (process.platform !== 'win32' && ((stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())))) {
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership database must be a private file')
+    let validatedIdentity: string
+    try {
+      validatedIdentity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
+    } catch (error) {
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
     }
-    if (!this.readOnly && process.platform !== 'win32') chmodSync(databasePath, 0o600)
-    this.db = this.readOnly ? new DatabaseSync(databasePath, { readOnly: true }) : new DatabaseSync(databasePath)
+    this.db = this.readOnly ? new DatabaseSync(this.databasePath, { readOnly: true }) : new DatabaseSync(this.databasePath)
+    try {
+      const openedIdentity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
+      if (openedIdentity !== validatedIdentity) throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database path changed while it was opened')
+    } catch (error) {
+      this.db.close()
+      if (error instanceof RuntimeOwnershipError) throw error
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
+    }
     if (this.readOnly) {
       this.db.exec('PRAGMA busy_timeout=1000')
     } else {
@@ -238,8 +250,21 @@ export class RuntimeOwnershipStore {
       this.db.close()
       throw error
     }
+    this.validateAuxiliaryFiles()
   }
 
+  private validateAuxiliaryFiles(): void {
+    for (const suffix of ['-wal', '-shm']) {
+      const path = this.databasePath + suffix
+      if (!existsSync(path)) continue
+      try {
+        readPrivateRuntimeFile(path, 8 * 1024 * 1024, this.fileReader)
+      } catch (error) {
+        this.db.close()
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
+      }
+    }
+  }
   close(): void {
     this.db.close()
   }

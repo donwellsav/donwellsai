@@ -4,6 +4,7 @@ import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import { existsSync } from 'node:fs'
 import { RuntimeOwnershipError, RuntimeOwnershipStore } from '@shared/runtime-ownership'
+import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { runtimeIdentityAuthority } from './runtime-identity'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
@@ -185,7 +186,7 @@ export class DaemonClient {
   }
 
   private async connectInner(): Promise<void> {
-    const paths = localRuntimePaths(this.userDataDir, 'terminal')
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir), 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'current') {
       // Contact the advertised endpoint first; native identity alone is not liveness evidence.

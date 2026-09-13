@@ -44,6 +44,7 @@ import { BrowserViews } from './browser-views'
 import { createComputerToolDefinition } from './project-computer-tools'
 import { createBrowserToolDefinition } from './project-browser-tools'
 import { ProjectLanguageTools } from './project-language-tools'
+import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { localRuntimePaths } from './local-runtime'
 import { applyWindowAppearance } from './appearance'
 import { registerMediaPreviewHandlers } from './media-preview'
@@ -1039,7 +1040,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectKitPreview', (_e, ...args: Parameters<IpcApi['projectKitPreview']>) => projectKit.projectKitPreview(...args))
   ipcMain.handle('projectKitImport', (_e, ...args: Parameters<IpcApi['projectKitImport']>) => projectKit.projectKitImport(...args))
   ipcMain.handle('projectKitReport', (_e, ...args: Parameters<IpcApi['projectKitReport']>) => projectKit.projectKitReport(...args))
-  const runtimePaths = localRuntimePaths(app.getPath('userData'), 'app')
+  const runtimePaths = localRuntimePaths(canonicalPrivateDirectory(app.getPath('userData'), { create: true }), 'app')
   const rpc = new RuntimeRpcServer(
     runtimePaths.socketPath,
     runtimePaths.runtimeFile,

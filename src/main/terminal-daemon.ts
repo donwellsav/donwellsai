@@ -31,6 +31,7 @@ import {
   type AgentHookBinding,
   type AgentLaunchPlan
 } from './agents/provider-hooks'
+import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { AcpSessions } from './agents/acp-sessions'
 import type { McpServer } from '@agentclientprotocol/sdk'
@@ -111,9 +112,10 @@ export class TerminalDaemon {
     shell?: string
     emitterCommand?: readonly string[]
   }) {
+    const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true })
     this.authToken = opts.authToken
-    this.paths = localRuntimePaths(opts.userDataDir, 'terminal')
-    this.acp = new AcpSessions(opts.userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
+    this.paths = localRuntimePaths(userDataDir, 'terminal')
+    this.acp = new AcpSessions(userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
     this.emitterCommand = opts.emitterCommand ?? [
       process.execPath,
       process.argv[1] ?? '',
