@@ -19,7 +19,8 @@ if (manifest.sha256 !== sha256) throw new Error('Runtime identity manifest hash 
 
 const addon = createRequire(import.meta.url)(addonPath)
 if (addon.platform !== process.platform || addon.identityContractVersion !== 1 || addon.runtimeFileSecurityContractVersion !== 1
-  || typeof addon.readProcessIdentity !== 'function' || typeof addon.readPrivateRuntimeFile !== 'function') {
+  || typeof addon.readProcessIdentity !== 'function' || typeof addon.readPrivateRuntimeFile !== 'function'
+  || typeof addon.withRuntimeAuthority !== 'function') {
   throw new Error('Runtime identity addon does not expose the required callable contract')
 }
 const directory = await mkdtemp(join(tmpdir(), 'runtime-identity-package-check-'))
@@ -31,6 +32,18 @@ try {
   if (observed?.ok !== true || !Buffer.isBuffer(observed.bytes) || !observed.bytes.equals(expected)
     || typeof observed.fileIdentity !== 'object' || observed.fileIdentity === null) {
     throw new Error('Runtime identity addon failed its private-file callable probe')
+  }
+  const authorityPath = join(directory, 'runtime-owners.sqlite')
+  await writeFile(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+  const authorityBytes = Buffer.from('authority-probe')
+  const authorityResult = addon.withRuntimeAuthority(authorityPath, false, 1024, observation => {
+    if (!Buffer.isBuffer(observation?.bytes) || observation.bytes.length !== 0 || typeof observation.fileIdentity !== 'object' || observation.fileIdentity === null) {
+      throw new Error('Runtime identity addon returned an invalid authority observation')
+    }
+    return { result: 'authority-ok', append: authorityBytes }
+  })
+  if (authorityResult !== 'authority-ok' || !(await readFile(authorityPath)).equals(authorityBytes)) {
+    throw new Error('Runtime identity addon failed its same-handle authority probe')
   }
   const processObservation = addon.readProcessIdentity(process.pid)
   if (typeof processObservation !== 'object' || processObservation === null || typeof processObservation.ok !== 'boolean') {

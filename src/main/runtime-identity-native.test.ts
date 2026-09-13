@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -23,8 +23,13 @@ type NativeAddon = {
   runtimeFileSecurityContractVersion: number
   readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
+  withRuntimeAuthority(
+    path: string,
+    readOnly: boolean,
+    maxBytes: number,
+    callback: (observation: { bytes: Buffer; fileIdentity: Record<string, string> }) => { result: unknown; append?: Buffer }
+  ): unknown
 }
-
 type SpawnResult = { child: ReturnType<typeof spawn> }
 
 async function waitForSpawn(child: ReturnType<typeof spawn>): Promise<SpawnResult> {
@@ -116,6 +121,27 @@ describe('native runtime identity adapter', () => {
       expect(second).toMatchObject({ ok: true, bytes })
       if (!first.ok || !second.ok) throw new Error('same-byte runtime files were unexpectedly rejected')
       expect(first.fileIdentity).not.toEqual(second.fileIdentity)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('keeps authority writes on the validated open handle across pathname replacement', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-open-handle-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const displacedPath = join(directory, 'validated.sqlite')
+    const attackerBytes = Buffer.from('attacker authority')
+    const trustedBytes = Buffer.from('trusted authority')
+    writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+    try {
+      const result = addon.withRuntimeAuthority(authorityPath, false, 1024, observation => {
+        renameSync(authorityPath, displacedPath)
+        writeFileSync(authorityPath, attackerBytes, { mode: 0o600 })
+        return { result: observation.fileIdentity, append: trustedBytes }
+      })
+      expect(result).toMatchObject({ platform: 'posix' })
+      expect(readFileSync(displacedPath)).toEqual(trustedBytes)
+      expect(readFileSync(authorityPath)).toEqual(attackerBytes)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

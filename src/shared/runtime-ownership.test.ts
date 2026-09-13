@@ -1,12 +1,11 @@
 // @vitest-environment node
-import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
-import type { RuntimeFileReader } from './runtime-file-security'
+import type { RuntimeAuthorityRunner } from './runtime-file-security'
 import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
@@ -30,6 +29,23 @@ function candidate(ownerId: string, endpoint = '/tmp/donwells-owner.sock', gener
 
 function stale(identityValue = identity): { status: 'stale'; reason: 'not-found' | 'pid-reused' | 'executable-mismatch' } {
   return { status: 'stale', reason: identityValue === identity ? 'not-found' : 'pid-reused' }
+}
+function rewriteAuthority(path: string, mutate: (db: DatabaseSync) => void): void {
+  const bytes = readFileSync(path)
+  const marker = Buffer.from('SQLite format 3\0')
+  const offset = bytes.lastIndexOf(marker)
+  if (offset < 0 || offset + 100 > bytes.length) throw new Error('authority fixture had no SQLite snapshot')
+  const encodedPageSize = bytes.readUInt16BE(offset + 16)
+  const pageSize = encodedPageSize === 1 ? 65_536 : encodedPageSize
+  const length = pageSize * bytes.readUInt32BE(offset + 28)
+  const db = new DatabaseSync(':memory:')
+  try {
+    db.deserialize(bytes.subarray(offset, offset + length))
+    mutate(db)
+    writeFileSync(path, Buffer.from(db.serialize()), { mode: 0o600 })
+  } finally {
+    db.close()
+  }
 }
 
 describe('compare-bound runtime ownership', () => {
@@ -124,12 +140,9 @@ describe('compare-bound runtime ownership', () => {
     const ownerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     store.prepareClaim(candidate(ownerId), store.observe('donwells-app'), null)
     store.close()
-    const database = new DatabaseSync(databasePath)
-    try {
+    rewriteAuthority(databasePath, database => {
       database.prepare('UPDATE runtime_owners SET kind = ? WHERE owner_id = ?').run('unknown-runtime', ownerId)
-    } finally {
-      database.close()
-    }
+    })
     expect(() => new RuntimeOwnershipStore(databasePath)).toThrowError(expect.objectContaining({ code: 'OWNER_CORRUPT' }))
 
     const secondPath = join(directory, 'malformed.sqlite')
@@ -137,12 +150,9 @@ describe('compare-bound runtime ownership', () => {
     const secondId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
     second.prepareClaim(candidate(secondId), second.observe('donwells-app'), null)
     second.close()
-    const malformed = new DatabaseSync(secondPath)
-    try {
+    rewriteAuthority(secondPath, malformed => {
       malformed.prepare('UPDATE runtime_owners SET auth_token = ? WHERE owner_id = ?').run('', secondId)
-    } finally {
-      malformed.close()
-    }
+    })
     try {
       expect(() => new RuntimeOwnershipStore(secondPath)).toThrowError(expect.objectContaining({ code: 'OWNER_CORRUPT' }))
     } finally {
@@ -150,7 +160,7 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 
-  it.runIf(process.platform !== 'win32')('rejects symlink authority files and pathname replacement during SQLite open', () => {
+  it.runIf(process.platform !== 'win32')('rejects symlink authority files and noncanonical profile paths', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-path-')))
     const target = join(directory, 'target.sqlite')
     const link = join(directory, 'linked.sqlite')
@@ -163,22 +173,7 @@ describe('compare-bound runtime ownership', () => {
     mkdirSync(profile, { mode: 0o700 })
     symlinkSync(profile, profileAlias)
     expect(() => new RuntimeOwnershipStore(join(profileAlias, 'runtime-owners.sqlite'))).toThrowError(expect.objectContaining({ code: 'access-denied' }))
-    const databasePath = join(directory, 'swapped.sqlite')
-    const replacement = join(directory, 'replacement.sqlite')
-    writeFileSync(replacement, Buffer.alloc(0), { mode: 0o600 })
-    let reads = 0
-    const swappingReader: RuntimeFileReader = path => {
-      const bytes = readFileSync(path)
-      const stat = statSync(path)
-      const result = { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), fileIdentity: { platform: 'posix' as const, device: String(stat.dev), inode: String(stat.ino) } }
-      if (reads++ === 0) renameSync(replacement, path)
-      return result
-    }
-    try {
-      expect(() => new RuntimeOwnershipStore(databasePath, { fileReader: swappingReader })).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
+    rmSync(directory, { recursive: true, force: true })
   })
 
   it.runIf(process.platform !== 'win32')('fails closed when the authority pathname changes after opening', () => {
@@ -195,18 +190,23 @@ describe('compare-bound runtime ownership', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it('rejects a portable Windows authority identity change during SQLite open', () => {
+  it('rejects a portable Windows authority identity change between operations', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-win-contract-')))
+    let bytes = Buffer.alloc(0)
     let reads = 0
-    const empty = Buffer.alloc(0)
-    const changingReader: RuntimeFileReader = () => ({
-      bytes: empty,
-      sha256: createHash('sha256').update(empty).digest('hex'),
-      fileIdentity: { platform: 'win32', volumeSerial: 'volume', fileId: reads++ === 0 ? 'first' : 'second' }
-    })
+    const changingRunner: RuntimeAuthorityRunner = (_path, _readOnly, _maximum, callback) => {
+      const response = callback({
+        bytes,
+        fileIdentity: { platform: 'win32', volumeSerial: 'volume', fileId: reads++ === 0 ? 'first' : 'second' }
+      })
+      if (response.append) bytes = Buffer.concat([bytes, response.append])
+      return response.result
+    }
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { authorityRunner: changingRunner })
     try {
-      expect(() => new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { fileReader: changingReader })).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
+      expect(() => store.observe('donwells-app')).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
     } finally {
+      store.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })

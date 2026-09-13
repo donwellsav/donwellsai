@@ -1,9 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, existsSync, openSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { basename, dirname, join } from 'node:path'
 import type { ProcessIdentity, ProcessIdentityVerdict } from './child-process/process-spec'
-import { canonicalPrivateDirectory, privateRuntimeFileReader, readPrivateRuntimeFile, type RuntimeFileReader } from './runtime-file-security'
+import { canonicalPrivateDirectory, runtimeAuthorityRunner, type RuntimeAuthorityRunner } from './runtime-file-security'
 
 export type RuntimeOwnerKind = 'donwells-app' | 'terminal-daemon'
 export type RuntimeOwner = {
@@ -138,181 +137,209 @@ function now(): string {
   return new Date().toISOString()
 }
 
-type StoreOptions = { readOnly?: boolean; fileReader?: RuntimeFileReader }
+type StoreOptions = { readOnly?: boolean; authorityRunner?: RuntimeAuthorityRunner }
+
+const AUTHORITY_MAGIC = Buffer.from('DWSQLA01')
+const FRAME_MAGIC = Buffer.from('DWFRAME1')
+const FRAME_HEADER_BYTES = FRAME_MAGIC.length + 4 + 32
+const MAX_AUTHORITY_BYTES = 8 * 1024 * 1024
+const SQLITE_MAGIC = Buffer.from('SQLite format 3\0')
+
+function legacySqliteLength(bytes: Buffer): number {
+  if (bytes.length < 100 || !bytes.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC)) return 0
+  const encodedPageSize = bytes.readUInt16BE(16)
+  const pageSize = encodedPageSize === 1 ? 65_536 : encodedPageSize
+  const pageCount = bytes.readUInt32BE(28)
+  const length = pageSize * pageCount
+  if (!Number.isSafeInteger(length) || pageSize < 512 || pageSize > 65_536 || pageCount < 1 || length > bytes.length) {
+    throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'legacy runtime authority database framing was invalid')
+  }
+  return length
+}
+
+function latestAuthoritySnapshot(bytes: Buffer): Buffer | null {
+  if (bytes.length === 0) return null
+  let snapshot: Buffer | null = null
+  let offset: number
+  if (bytes.subarray(0, AUTHORITY_MAGIC.length).equals(AUTHORITY_MAGIC)) {
+    offset = AUTHORITY_MAGIC.length
+  } else {
+    offset = legacySqliteLength(bytes)
+    if (offset === 0) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority framing was invalid')
+    snapshot = Buffer.from(bytes.subarray(0, offset))
+  }
+  while (offset < bytes.length) {
+    const remaining = bytes.length - offset
+    if (remaining < FRAME_HEADER_BYTES) break
+    if (!bytes.subarray(offset, offset + FRAME_MAGIC.length).equals(FRAME_MAGIC)) {
+      throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame marker was invalid')
+    }
+    const payloadLength = bytes.readUInt32BE(offset + FRAME_MAGIC.length)
+    if (payloadLength < 1 || payloadLength > MAX_AUTHORITY_BYTES) {
+      throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame length was invalid')
+    }
+    const frameEnd = offset + FRAME_HEADER_BYTES + payloadLength
+    if (frameEnd > bytes.length) break
+    const expected = bytes.subarray(offset + FRAME_MAGIC.length + 4, offset + FRAME_HEADER_BYTES)
+    const payload = bytes.subarray(offset + FRAME_HEADER_BYTES, frameEnd)
+    const actual = createHash('sha256').update(payload).digest()
+    if (!actual.equals(expected)) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame hash was invalid')
+    snapshot = Buffer.from(payload)
+    offset = frameEnd
+  }
+  if (!snapshot) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority had no committed snapshot')
+  return snapshot
+}
+
+function authorityFrame(payload: Buffer, emptyAuthority: boolean): Buffer {
+  const length = Buffer.allocUnsafe(4)
+  length.writeUInt32BE(payload.length)
+  return Buffer.concat([
+    ...(emptyAuthority ? [AUTHORITY_MAGIC] : []),
+    FRAME_MAGIC,
+    length,
+    createHash('sha256').update(payload).digest(),
+    payload
+  ])
+}
+
+function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
+  const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
+  if (version === 0 && !readOnly) {
+    db.exec(`
+      CREATE TABLE runtime_owners (
+        kind TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('preparing','active')),
+        identity_json TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        auth_token TEXT NOT NULL,
+        locator_sha256 TEXT,
+        claimed_at TEXT NOT NULL,
+        activated_at TEXT
+      );
+      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
+      CREATE TABLE runtime_owner_generations (
+        kind TEXT PRIMARY KEY,
+        last_generation INTEGER NOT NULL
+      );
+      CREATE TABLE runtime_ownership_audit (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        action TEXT NOT NULL,
+        prior_row_sha256 TEXT,
+        owner_id TEXT,
+        generation INTEGER,
+        detail_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE runtime_recovery_operations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        expected_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL,
+        detail_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      PRAGMA user_version=3;
+    `)
+  } else if (version === 1 && !readOnly) {
+    db.exec(`
+      CREATE TABLE runtime_owner_generations (
+        kind TEXT PRIMARY KEY,
+        last_generation INTEGER NOT NULL
+      );
+      INSERT INTO runtime_owner_generations(kind,last_generation)
+        SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
+      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
+      PRAGMA user_version=3;
+    `)
+  } else if (version === 2 && !readOnly) {
+    db.exec(`
+      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
+      PRAGMA user_version=3;
+    `)
+  } else if (version !== 3) {
+    throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
+  }
+}
+
+function validateDatabase(db: DatabaseSync): void {
+  const ownerRows = db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256 FROM runtime_owners').all() as Array<Record<string, unknown>>
+  for (const row of ownerRows) {
+    const owner = parseRow(row)
+    if (lastGeneration(db, owner.kind) !== owner.generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+  }
+  const generationRows = db.prepare('SELECT kind, last_generation FROM runtime_owner_generations').all() as Array<Record<string, unknown>>
+  for (const row of generationRows) {
+    const kind = String(row['kind'])
+    if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime generation kind was invalid')
+    lastGeneration(db, kind)
+  }
+}
 
 export class RuntimeOwnershipStore {
   readonly databasePath: string
-  private readonly db: DatabaseSync
-  private readonly fileReader: RuntimeFileReader
   private readonly readOnly: boolean
-  private authorityIdentity = ''
+  private readonly authorityRunner: RuntimeAuthorityRunner
+  private authorityIdentity: string | null = null
   private closed = false
+
   constructor(databasePath: string, options: StoreOptions = {}) {
     this.readOnly = options.readOnly === true
-    this.fileReader = options.fileReader ?? privateRuntimeFileReader()
+    this.authorityRunner = options.authorityRunner ?? runtimeAuthorityRunner()
     const directory = canonicalPrivateDirectory(dirname(databasePath), { create: !this.readOnly, requireCanonical: true })
     this.databasePath = join(directory, basename(databasePath))
+    this.withDatabase(!this.readOnly, db => {
+      initializeSchema(db, this.readOnly)
+      validateDatabase(db)
+    })
+  }
+
+  private withDatabase<T>(write: boolean, operation: (db: DatabaseSync) => T): T {
+    if (this.closed) throw new RuntimeOwnershipError('DATABASE_CLOSED', 'runtime ownership database is closed')
+    if (write && this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     try {
-      const descriptor = openSync(this.databasePath, this.readOnly ? 'r' : 'wx', 0o600)
-      closeSync(descriptor)
+      return this.authorityRunner(this.databasePath, this.readOnly, MAX_AUTHORITY_BYTES, observation => {
+        const identity = JSON.stringify(observation.fileIdentity)
+        if (this.authorityIdentity === null) this.authorityIdentity = identity
+        else if (identity !== this.authorityIdentity) throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database identity changed during use')
+        const snapshot = latestAuthoritySnapshot(observation.bytes)
+        const db = new DatabaseSync(':memory:')
+        try {
+          if (snapshot) db.deserialize(snapshot)
+          db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL')
+          const result = operation(db)
+          if (!write) return { result }
+          const serialized = Buffer.from(db.serialize())
+          return { result, append: authorityFrame(serialized, observation.bytes.length === 0) }
+        } finally {
+          db.close()
+        }
+      })
     } catch (error) {
-      if (!this.readOnly && (error as NodeJS.ErrnoException).code === 'EEXIST') {
-        // Existing files are checked through the native same-handle boundary below.
-      } else {
-        throw error
-      }
-    }
-    let validatedIdentity: string
-    try {
-      validatedIdentity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
-    } catch (error) {
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
-    }
-    this.db = this.readOnly ? new DatabaseSync(this.databasePath, { readOnly: true }) : new DatabaseSync(this.databasePath)
-    try {
-      const openedIdentity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
-      if (openedIdentity !== validatedIdentity) throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database path changed while it was opened')
-    } catch (error) {
-      this.db.close()
       if (error instanceof RuntimeOwnershipError) throw error
       throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
     }
-    this.authorityIdentity = validatedIdentity
-    if (this.readOnly) {
-      this.db.exec('PRAGMA busy_timeout=1000')
-    } else {
-      this.db.exec('PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
-    }
-    const version = Number((this.db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
-    if (version === 0 && !this.readOnly) {
-      this.db.exec(`
-        CREATE TABLE runtime_owners (
-          kind TEXT PRIMARY KEY,
-          owner_id TEXT NOT NULL,
-          generation INTEGER NOT NULL,
-          state TEXT NOT NULL CHECK(state IN ('preparing','active')),
-          identity_json TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          auth_token TEXT NOT NULL,
-          locator_sha256 TEXT,
-          claimed_at TEXT NOT NULL,
-          activated_at TEXT
-        );
-        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-        CREATE TABLE runtime_owner_generations (
-          kind TEXT PRIMARY KEY,
-          last_generation INTEGER NOT NULL
-        );
-        CREATE TABLE runtime_ownership_audit (
-          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-          kind TEXT NOT NULL,
-          action TEXT NOT NULL,
-          prior_row_sha256 TEXT,
-          owner_id TEXT,
-          generation INTEGER,
-          detail_json TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-        CREATE TABLE runtime_recovery_operations (
-          id TEXT PRIMARY KEY,
-          kind TEXT NOT NULL,
-          expected_fingerprint TEXT NOT NULL,
-          state TEXT NOT NULL,
-          detail_json TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-        PRAGMA user_version=3;
-      `)
-    } else if (version === 1 && !this.readOnly) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE TABLE runtime_owner_generations (
-          kind TEXT PRIMARY KEY,
-          last_generation INTEGER NOT NULL
-        );
-        INSERT INTO runtime_owner_generations(kind,last_generation)
-          SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
-        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-        PRAGMA user_version=3;
-        COMMIT;
-      `)
-    } else if (version === 2 && !this.readOnly) {
-      this.db.exec(`
-        BEGIN IMMEDIATE;
-        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-        PRAGMA user_version=3;
-        COMMIT;
-      `)
-    } else if (version !== 3) {
-      this.db.close()
-      throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
-    }
-    try {
-      const ownerRows = this.db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256 FROM runtime_owners').all() as Array<Record<string, unknown>>
-      for (const row of ownerRows) {
-        const owner = parseRow(row)
-        if (lastGeneration(this.db, owner.kind) !== owner.generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
-      }
-      const generationRows = this.db.prepare('SELECT kind, last_generation FROM runtime_owner_generations').all() as Array<Record<string, unknown>>
-      for (const row of generationRows) {
-        const kind = String(row['kind'])
-        if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime generation kind was invalid')
-        lastGeneration(this.db, kind)
-      }
-    } catch (error) {
-      this.db.close()
-      throw error
-    }
-    this.validateAuxiliaryFiles()
-    this.assertAuthorityFile()
   }
 
-  private assertAuthorityFile(): void {
-    try {
-      const identity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
-      if (identity !== this.authorityIdentity) {
-        this.db.close()
-        throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database identity changed during use')
-      }
-    } catch (error) {
-      try { this.db.close() } catch {}
-      if (error instanceof RuntimeOwnershipError) throw error
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
-    }
-    this.validateAuxiliaryFiles()
-  }
-
-  private validateAuxiliaryFiles(): void {
-    for (const suffix of ['-wal', '-shm']) {
-      const path = this.databasePath + suffix
-      if (!existsSync(path)) continue
-      try {
-        readPrivateRuntimeFile(path, 8 * 1024 * 1024, this.fileReader)
-      } catch (error) {
-        try { this.db.close() } catch {}
-        throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
-      }
-    }
-  }
   close(): void {
-    if (this.closed) return
     this.closed = true
-    this.db.close()
   }
 
   observe(kind: RuntimeOwnerKind): RuntimeOwnerObservation {
     assertKind(kind)
-    this.assertAuthorityFile()
-    const result = rowFromObservation(this.db, kind)
-    const generation = lastGeneration(this.db, kind)
-    if (result && result.owner.generation !== generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
-    this.assertAuthorityFile()
-    return result ? { status: 'present', owner: result.owner, rowSha256: result.rowSha256 } : { status: 'vacant', lastGeneration: generation }
+    return this.withDatabase(false, db => {
+      const result = rowFromObservation(db, kind)
+      const generation = lastGeneration(db, kind)
+      if (result && result.owner.generation !== generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+      return result ? { status: 'present', owner: result.owner, rowSha256: result.rowSha256 } : { status: 'vacant', lastGeneration: generation }
+    })
   }
 
   prepareClaim(candidate: Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'>, observed: RuntimeOwnerObservation, verdict: ProcessIdentityVerdict | null): RuntimeOwner {
-    if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertKind(candidate.kind)
     assertOwnerId(candidate.ownerId)
     if (!candidate.endpoint || !candidate.authToken) throw new RuntimeOwnershipError('INVALID_OWNER', 'runtime owner endpoint or token was empty')
@@ -323,11 +350,9 @@ export class RuntimeOwnershipStore {
     }
     if (observed.status === 'vacant' && verdict !== null) throw new RuntimeOwnershipError('OWNER_CHANGED', 'vacant runtime owner cannot have a prior verdict')
     const claimedAt = now()
-    this.assertAuthorityFile()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const current = rowFromObservation(this.db, candidate.kind)
-      const generationWatermark = lastGeneration(this.db, candidate.kind)
+    return this.withDatabase(true, db => {
+      const current = rowFromObservation(db, candidate.kind)
+      const generationWatermark = lastGeneration(db, candidate.kind)
       if (observed.status === 'vacant'
         ? current !== null || generationWatermark !== observed.lastGeneration
         : current === null || current.rowSha256 !== observed.rowSha256 || generationWatermark !== current.owner.generation) {
@@ -338,152 +363,115 @@ export class RuntimeOwnershipStore {
         throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime process identity generation did not match its owner row')
       }
       const owner: RuntimeOwner = { ...candidate, generation, state: 'preparing', locatorSha256: null }
-      this.db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?) ON CONFLICT(kind) DO UPDATE SET last_generation=excluded.last_generation').run(owner.kind, generation)
+      db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?) ON CONFLICT(kind) DO UPDATE SET last_generation=excluded.last_generation').run(owner.kind, generation)
       if (current) {
-        this.db.prepare(`UPDATE runtime_owners SET owner_id=?, generation=?, state=?, identity_json=?, endpoint=?, auth_token=?, locator_sha256=NULL, claimed_at=?, activated_at=NULL WHERE kind=?`).run(
+        db.prepare(`UPDATE runtime_owners SET owner_id=?, generation=?, state=?, identity_json=?, endpoint=?, auth_token=?, locator_sha256=NULL, claimed_at=?, activated_at=NULL WHERE kind=?`).run(
           owner.ownerId, owner.generation, owner.state, identityJson(owner.identity), owner.endpoint, owner.authToken, claimedAt, owner.kind)
       } else {
-        this.db.prepare(`INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,?,NULL)`).run(
+        db.prepare(`INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,?,NULL)`).run(
           owner.kind, owner.ownerId, owner.generation, owner.state, identityJson(owner.identity), owner.endpoint, owner.authToken, claimedAt)
       }
-      this.audit(owner.kind, 'prepare', observed.status === 'present' ? observed.rowSha256 : null, owner, { verdict: verdict?.status ?? null })
-      this.db.exec('COMMIT')
-      this.assertAuthorityFile()
+      this.audit(db, owner.kind, 'prepare', observed.status === 'present' ? observed.rowSha256 : null, owner, { verdict: verdict?.status ?? null })
       return owner
-    } catch (error) {
-      try { this.db.exec('ROLLBACK') } catch {}
-      throw error
-    }
+    })
   }
 
   activate(owner: RuntimeOwner, locatorSha256: string): RuntimeOwner {
-    if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertHash(locatorSha256)
     if (owner.state !== 'preparing') throw new RuntimeOwnershipError('OWNER_STATE', 'only a preparing owner can activate')
-    this.assertAuthorityFile()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const current = rowFromObservation(this.db, owner.kind)
+    return this.withDatabase(true, db => {
+      const current = rowFromObservation(db, owner.kind)
       if (!current || current.owner.ownerId !== owner.ownerId || current.owner.generation !== owner.generation || current.owner.state !== 'preparing') throw new RuntimeOwnershipError('OWNER_CHANGED', 'runtime owner changed before activation')
-      this.db.prepare('UPDATE runtime_owners SET state=?, locator_sha256=?, activated_at=? WHERE kind=? AND owner_id=? AND generation=?').run('active', locatorSha256, now(), owner.kind, owner.ownerId, owner.generation)
+      db.prepare('UPDATE runtime_owners SET state=?, locator_sha256=?, activated_at=? WHERE kind=? AND owner_id=? AND generation=?').run('active', locatorSha256, now(), owner.kind, owner.ownerId, owner.generation)
       const active = { ...owner, state: 'active' as const, locatorSha256 }
-      this.audit(owner.kind, 'activate', current.rowSha256, active, {})
-      this.db.exec('COMMIT')
-      this.assertAuthorityFile()
+      this.audit(db, owner.kind, 'activate', current.rowSha256, active, {})
       return active
-    } catch (error) {
-      try { this.db.exec('ROLLBACK') } catch {}
-      throw error
-    }
+    })
   }
 
   republishActive(owner: RuntimeOwner, expectedLocatorSha256: string | null, nextLocatorSha256: string): RuntimeOwner {
-    if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertHash(expectedLocatorSha256)
     assertHash(nextLocatorSha256)
-    this.assertAuthorityFile()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const current = rowFromObservation(this.db, owner.kind)
+    return this.withDatabase(true, db => {
+      const current = rowFromObservation(db, owner.kind)
       if (!current || current.owner.ownerId !== owner.ownerId || current.owner.generation !== owner.generation || current.owner.state !== 'active' || current.owner.locatorSha256 !== expectedLocatorSha256) throw new RuntimeOwnershipError('OWNER_CHANGED', 'runtime owner changed before republish')
-      this.db.prepare('UPDATE runtime_owners SET locator_sha256=? WHERE kind=? AND owner_id=? AND generation=?').run(nextLocatorSha256, owner.kind, owner.ownerId, owner.generation)
+      db.prepare('UPDATE runtime_owners SET locator_sha256=? WHERE kind=? AND owner_id=? AND generation=?').run(nextLocatorSha256, owner.kind, owner.ownerId, owner.generation)
       const active = { ...current.owner, locatorSha256: nextLocatorSha256 }
-      this.audit(owner.kind, 'republish', current.rowSha256, active, { expectedLocatorSha256 })
-      this.db.exec('COMMIT')
-      this.assertAuthorityFile()
+      this.audit(db, owner.kind, 'republish', current.rowSha256, active, { expectedLocatorSha256 })
       return active
-    } catch (error) {
-      try { this.db.exec('ROLLBACK') } catch {}
-      throw error
-    }
+    })
   }
 
   resolveActive(kind: RuntimeOwnerKind, locator: RuntimeLocator, locatorSha256: string): RuntimeOwner {
     assertHash(locatorSha256)
-    this.assertAuthorityFile()
-    const current = rowFromObservation(this.db, kind)
-    if (!current || current.owner.state !== 'active') throw new RuntimeOwnershipError('OWNER_UNAVAILABLE', 'no active runtime owner is recorded')
-    const owner = current.owner
-    if (owner.locatorSha256 !== locatorSha256 || locator.version !== 2 || locator.ownerId !== owner.ownerId || locator.ownerGeneration !== owner.generation || locator.socketPath !== owner.endpoint || locator.authToken !== owner.authToken || JSON.stringify(locator.processIdentity) !== identityJson(owner.identity)) {
-      throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime locator does not match the active owner')
-    }
-    this.assertAuthorityFile()
-    return owner
+    return this.withDatabase(false, db => {
+      const current = rowFromObservation(db, kind)
+      if (!current || current.owner.state !== 'active') throw new RuntimeOwnershipError('OWNER_UNAVAILABLE', 'no active runtime owner is recorded')
+      const owner = current.owner
+      if (owner.locatorSha256 !== locatorSha256 || locator.version !== 2 || locator.ownerId !== owner.ownerId || locator.ownerGeneration !== owner.generation || locator.socketPath !== owner.endpoint || locator.authToken !== owner.authToken || JSON.stringify(locator.processIdentity) !== identityJson(owner.identity)) {
+        throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime locator does not match the active owner')
+      }
+      return owner
+    })
   }
 
   release(owner: RuntimeOwner): boolean {
-    if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
-    this.assertAuthorityFile()
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const result = this.db.prepare('DELETE FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').run(owner.kind, owner.ownerId, owner.generation)
+    return this.withDatabase(true, db => {
+      const result = db.prepare('DELETE FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').run(owner.kind, owner.ownerId, owner.generation)
       const deleted = Number(result.changes) === 1
-      if (deleted) this.audit(owner.kind, 'release', rowHash(owner), owner, {})
-      this.db.exec('COMMIT')
-      this.assertAuthorityFile()
+      if (deleted) this.audit(db, owner.kind, 'release', rowHash(owner), owner, {})
       return deleted
-    } catch (error) {
-      try { this.db.exec('ROLLBACK') } catch {}
-      throw error
-    }
+    })
   }
 
   findLegacyRecovery(match: LegacyRecoveryMatch): LegacyRecoveryRecord | null {
     assertKind(match.kind)
     if (!HASH.test(match.expectedFingerprint)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery fingerprint was invalid')
-    this.assertAuthorityFile()
-    const rows = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE kind=? AND expected_fingerprint=? AND state=?').all(match.kind, match.expectedFingerprint, 'committed') as Array<Record<string, unknown>>
-    for (const row of rows) {
-      let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
-      try { detail = JSON.parse(String(row['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
-      if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint) continue
-      this.assertAuthorityFile()
-      return {
-        id: String(row['id']),
-        kind: match.kind,
-        expectedFingerprint: String(row['expected_fingerprint']),
-        fileIdentity: detail.fileIdentity,
-        evidencePath: detail.evidencePath,
-        endpoint: detail.endpoint,
-        state: 'committed',
-        createdAt: String(row['created_at']),
-        updatedAt: String(row['updated_at'])
+    return this.withDatabase(false, db => {
+      const rows = db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE kind=? AND expected_fingerprint=? AND state=?').all(match.kind, match.expectedFingerprint, 'committed') as Array<Record<string, unknown>>
+      for (const row of rows) {
+        let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
+        try { detail = JSON.parse(String(row['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+        if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint) continue
+        return {
+          id: String(row['id']), kind: match.kind, expectedFingerprint: String(row['expected_fingerprint']),
+          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
+          state: 'committed', createdAt: String(row['created_at']), updatedAt: String(row['updated_at'])
+        }
       }
-    }
-    this.assertAuthorityFile()
-    return null
+      return null
+    })
   }
+
   recordLegacyRecovery(input: LegacyRecoveryInput): LegacyRecoveryRecord {
-    if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertKind(input.kind)
     if (!HASH.test(input.expectedFingerprint)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery fingerprint was invalid')
     const id = input.id ?? randomUUID()
-    this.assertAuthorityFile()
-    const existing = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE id=?').get(id) as Record<string, unknown> | undefined
-    if (existing) {
-      let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
-      try { detail = JSON.parse(String(existing['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
-      if (existing['kind'] !== input.kind || existing['expected_fingerprint'] !== input.expectedFingerprint
-        || JSON.stringify(detail.fileIdentity) !== JSON.stringify(input.fileIdentity)
-        || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint) {
-        throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence or endpoint')
+    return this.withDatabase(true, db => {
+      const existing = db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE id=?').get(id) as Record<string, unknown> | undefined
+      if (existing) {
+        let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
+        try { detail = JSON.parse(String(existing['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+        if (existing['kind'] !== input.kind || existing['expected_fingerprint'] !== input.expectedFingerprint
+          || JSON.stringify(detail.fileIdentity) !== JSON.stringify(input.fileIdentity)
+          || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint) {
+          throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence or endpoint')
+        }
+        return {
+          id: String(existing['id']), kind: input.kind, expectedFingerprint: String(existing['expected_fingerprint']),
+          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
+          state: 'committed', createdAt: String(existing['created_at']), updatedAt: String(existing['updated_at'])
+        }
       }
-      this.assertAuthorityFile()
-      return {
-        id: String(existing['id']), kind: input.kind, expectedFingerprint: String(existing['expected_fingerprint']),
-        fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
-        state: 'committed', createdAt: String(existing['created_at']), updatedAt: String(existing['updated_at'])
-      }
-    }
-    const createdAt = now()
-    this.db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(
-      id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, endpoint: input.endpoint }), createdAt, createdAt)
-    this.assertAuthorityFile()
-    return { ...input, id, state: 'committed', createdAt, updatedAt: createdAt }
+      const createdAt = now()
+      db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(
+        id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, endpoint: input.endpoint }), createdAt, createdAt)
+      return { ...input, id, state: 'committed', createdAt, updatedAt: createdAt }
+    })
   }
 
-  private audit(kind: RuntimeOwnerKind, action: string, priorRowSha256: string | null, owner: RuntimeOwner, detail: Record<string, unknown>): void {
-    this.db.prepare('INSERT INTO runtime_ownership_audit(kind,action,prior_row_sha256,owner_id,generation,detail_json,created_at) VALUES(?,?,?,?,?,?,?)').run(
+  private audit(db: DatabaseSync, kind: RuntimeOwnerKind, action: string, priorRowSha256: string | null, owner: RuntimeOwner, detail: Record<string, unknown>): void {
+    db.prepare('INSERT INTO runtime_ownership_audit(kind,action,prior_row_sha256,owner_id,generation,detail_json,created_at) VALUES(?,?,?,?,?,?,?)').run(
       kind, action, priorRowSha256, owner.ownerId, owner.generation, JSON.stringify(detail), now())
   }
 }
