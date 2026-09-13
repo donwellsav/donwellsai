@@ -28,7 +28,7 @@ const temporaryManifestPath = manifestPath + '.tmp-' + process.pid
 try {
   writeFileSync(temporaryAddonPath, addonBytes, { mode: 0o644 })
   renameSync(temporaryAddonPath, addonPath)
-  const manifest = JSON.stringify({ identityContractVersion: 1, runtimeFileSecurityContractVersion: 1, platform: process.platform, arch: process.arch, sha256 }, null, 2) + '\n'
+  const manifest = JSON.stringify({ identityContractVersion: 1, runtimeFileSecurityContractVersion: 2, platform: process.platform, arch: process.arch, sha256 }, null, 2) + '\n'
   writeFileSync(temporaryManifestPath, manifest, { mode: 0o644 })
   renameSync(temporaryManifestPath, manifestPath)
 } finally {

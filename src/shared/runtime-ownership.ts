@@ -495,19 +495,20 @@ export class RuntimeOwnershipStore {
 
   private openDatabase(readOnly: boolean, databasePath = this.databasePath): DatabaseSync {
     const db = new DatabaseSync(databasePath, { readOnly })
-    db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=1000')
-    if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
-    return db
-  }
-  private checkpointWal(db: DatabaseSync): void {
-    let checkpoint: Record<string, unknown>
     try {
-      checkpoint = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as Record<string, unknown>
+      db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=1000')
+      if (!readOnly) {
+        const mode = db.prepare('PRAGMA journal_mode=DELETE').get() as Record<string, unknown>
+        if (String(mode['journal_mode']).toLowerCase() !== 'delete') {
+          throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership database could not enter rollback-journal mode')
+        }
+        db.exec('PRAGMA synchronous=FULL')
+      }
+      return db
     } catch (error) {
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership WAL checkpoint failed: ' + (error instanceof Error ? error.message : String(error)))
-    }
-    if (Number(checkpoint['busy']) !== 0 || Number(checkpoint['log']) !== 0 || Number(checkpoint['checkpointed']) !== 0) {
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership WAL checkpoint did not reach a durable empty state')
+      db.close()
+      if (error instanceof RuntimeOwnershipError) throw error
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership database setup failed: ' + (error instanceof Error ? error.message : String(error)))
     }
   }
 
@@ -526,8 +527,9 @@ export class RuntimeOwnershipStore {
         result = operation(db)
         if (write) {
           this.assertAuthorityIdentity()
-          db.exec('COMMIT')
-          this.checkpointWal(db)
+          try { db.exec('COMMIT') } catch (error) {
+            throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership transaction commit failed: ' + (error instanceof Error ? error.message : String(error)))
+          }
         }
       } finally {
         db.close()

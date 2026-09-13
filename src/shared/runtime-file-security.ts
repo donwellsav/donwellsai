@@ -94,7 +94,7 @@ function observationError(value: unknown): RuntimeFileSecurityError | null {
 
 export function createPrivateRuntimeFileReader(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeFileReader {
   if (addon.platform !== expectedPlatform) throw new Error('runtime file security addon platform mismatch')
-  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime file security addon contract mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 2) throw new Error('runtime file security addon contract mismatch')
   if (typeof addon.readPrivateRuntimeFile !== 'function') throw new Error('runtime file security addon is missing readPrivateRuntimeFile')
   const read = addon.readPrivateRuntimeFile as (path: string, maxBytes: number) => NativeRuntimeFileObservation
 
@@ -120,7 +120,7 @@ export function createPrivateRuntimeFileReader(addon: NativeRuntimeFileAddon, ex
 }
 export function createPrivateRuntimeFileIdentityReader(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeFileIdentityReader {
   if (addon.platform !== expectedPlatform) throw new Error('runtime file security addon platform mismatch')
-  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime file security addon contract mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 2) throw new Error('runtime file security addon contract mismatch')
   if (typeof addon.readPrivateRuntimeFileIdentity !== 'function') throw new Error('runtime file security addon is missing readPrivateRuntimeFileIdentity')
   const readIdentity = addon.readPrivateRuntimeFileIdentity as (path: string) => NativeRuntimeFileIdentityObservation
   return path => {
@@ -136,7 +136,7 @@ export function createPrivateRuntimeFileIdentityReader(addon: NativeRuntimeFileA
 }
 export function createPrivateRuntimeDirectoryValidator(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeDirectoryValidator {
   if (addon.platform !== expectedPlatform) throw new Error('runtime directory security addon platform mismatch')
-  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime directory security addon contract mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 2) throw new Error('runtime directory security addon contract mismatch')
   if (typeof addon.validatePrivateRuntimeDirectory !== 'function') throw new Error('runtime directory security addon is missing validatePrivateRuntimeDirectory')
   const validateDirectory = addon.validatePrivateRuntimeDirectory as (path: string) => NativeRuntimeDirectoryObservation
   return path => {
@@ -152,7 +152,7 @@ export function createPrivateRuntimeDirectoryValidator(addon: NativeRuntimeFileA
 }
 export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeAuthorityLock {
   if (addon.platform !== expectedPlatform) throw new Error('runtime authority addon platform mismatch')
-  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime authority addon contract mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 2) throw new Error('runtime authority addon contract mismatch')
   if (typeof addon.withRuntimeAuthorityLock !== 'function') throw new Error('runtime authority addon is missing withRuntimeAuthorityLock')
   const lock = addon.withRuntimeAuthorityLock as (path: string, callback: (stablePath: string) => unknown, readOnly?: boolean) => unknown
   return <T>(path: string, callback: (stablePath: string) => T, options: { readOnly?: boolean } = {}): T => {
@@ -179,7 +179,7 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
 
 export function createRuntimePathNoReplaceRename(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimePathNoReplaceRename {
   if (addon.platform !== expectedPlatform) throw new Error('runtime rename addon platform mismatch')
-  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime rename addon contract mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 2) throw new Error('runtime rename addon contract mismatch')
   if (typeof addon.renameRuntimePathNoReplace !== 'function') throw new Error('runtime rename addon is missing renameRuntimePathNoReplace')
   const renameNoReplace = addon.renameRuntimePathNoReplace as (sourcePath: string, destinationPath: string) => NativeRuntimePathRenameObservation
   return (sourcePath, destinationPath) => {

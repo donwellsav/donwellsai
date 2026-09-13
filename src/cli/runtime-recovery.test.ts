@@ -10,7 +10,7 @@ import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { inspectRuntimeRecovery, quarantineRuntime } from './runtime-recovery'
 
 function addon(bytes: Buffer, identity: Record<string, string> = { platform: 'posix', device: '1', inode: '2' }): NativeRuntimeFileAddon {
-  return { platform: process.platform, runtimeFileSecurityContractVersion: 1, readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity: identity }) }
+  return { platform: process.platform, runtimeFileSecurityContractVersion: 2, readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity: identity }) }
 }
 
 async function startLegacyServer(endpoint: string, token: string, kind: 'donwells-app' | 'terminal-daemon' = 'donwells-app'): Promise<ChildProcess> {
@@ -152,7 +152,7 @@ describe('legacy runtime recovery', () => {
     writeFileSync(runtimeFile, bytesA, { mode: 0o600 })
     let swapped = false
     const reader = createPrivateRuntimeFileReader({
-      platform: 'win32', runtimeFileSecurityContractVersion: 1,
+      platform: 'win32', runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => {
         if (!swapped) { swapped = true; return { ok: true, bytes: bytesA, fileIdentity: { platform: 'win32', volumeSerial: '1', fileId: 'A' } } }
         return { ok: true, bytes: bytesB, fileIdentity: { platform: 'win32', volumeSerial: '1', fileId: 'B' } }
@@ -176,7 +176,7 @@ describe('legacy runtime recovery', () => {
     writeFileSync(runtimeFile, bytes, { mode: 0o600 })
     let reads = 0
     const reader = createPrivateRuntimeFileReader({
-      platform: 'win32', runtimeFileSecurityContractVersion: 1,
+      platform: 'win32', runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity: { platform: 'win32', volumeSerial: '1', fileId: reads++ < 2 ? 'A' : 'B' } })
     }, 'win32')
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))

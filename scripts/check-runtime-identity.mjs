@@ -12,16 +12,16 @@ const manifest = JSON.parse(manifestBytes.toString('utf8'))
 const sha256 = createHash('sha256').update(addonBytes).digest('hex')
 
 if (manifest.identityContractVersion !== 1) throw new Error('Runtime identity contract version must be 1')
-if (manifest.runtimeFileSecurityContractVersion !== 1) throw new Error('Runtime file security contract version must be 1')
+if (manifest.runtimeFileSecurityContractVersion !== 2) throw new Error('Runtime file security contract version must be 2')
 if (manifest.platform !== process.platform) throw new Error('Runtime identity platform differs from the host platform')
 if (manifest.arch !== process.arch) throw new Error('Runtime identity architecture differs from the host architecture')
 if (manifest.sha256 !== sha256) throw new Error('Runtime identity manifest hash differs from the staged addon')
 
 const addon = createRequire(import.meta.url)(addonPath)
-if (addon.platform !== process.platform || addon.identityContractVersion !== 1 || addon.runtimeFileSecurityContractVersion !== 1
+if (addon.platform !== process.platform || addon.identityContractVersion !== 1 || addon.runtimeFileSecurityContractVersion !== 2
   || typeof addon.readProcessIdentity !== 'function' || typeof addon.readPrivateRuntimeFile !== 'function'
   || typeof addon.readPrivateRuntimeFileIdentity !== 'function' || typeof addon.validatePrivateRuntimeDirectory !== 'function'
-  || typeof addon.withRuntimeAuthorityLock !== 'function') {
+  || typeof addon.withRuntimeAuthorityLock !== 'function' || typeof addon.renameRuntimePathNoReplace !== 'function') {
   throw new Error('Runtime identity addon does not expose the required callable contract')
 }
 const directory = await mkdtemp(join(tmpdir(), 'runtime-identity-package-check-'))
@@ -50,6 +50,21 @@ try {
   })
   if (authorityResult !== 'authority-ok' || !(await readFile(authorityPath)).equals(authorityBytes)) {
     throw new Error('Runtime identity addon failed its canonical authority lock probe')
+  }
+  const renameSource = join(directory, 'rename-source')
+  const renameDestination = join(directory, 'rename-destination')
+  const firstSource = Buffer.from('first-source')
+  await writeFile(renameSource, firstSource, { mode: 0o600 })
+  const renamed = addon.renameRuntimePathNoReplace(renameSource, renameDestination)
+  if (renamed?.ok !== true || !(await readFile(renameDestination)).equals(firstSource)) {
+    throw new Error('Runtime identity addon failed its no-replace rename success probe')
+  }
+  const secondSource = Buffer.from('second-source')
+  await writeFile(renameSource, secondSource, { mode: 0o600 })
+  const occupied = addon.renameRuntimePathNoReplace(renameSource, renameDestination)
+  if (occupied?.ok !== false || occupied.code !== 'destination-exists'
+    || !(await readFile(renameSource)).equals(secondSource) || !(await readFile(renameDestination)).equals(firstSource)) {
+    throw new Error('Runtime identity addon failed its occupied no-replace rename probe')
   }
   const processObservation = addon.readProcessIdentity(process.pid)
   if (typeof processObservation !== 'object' || processObservation === null || typeof processObservation.ok !== 'boolean') {

@@ -42,7 +42,7 @@ function successfulAddon(
 ): NativeRuntimeFileAddon {
   return {
     platform,
-    runtimeFileSecurityContractVersion: 1,
+    runtimeFileSecurityContractVersion: 2,
     readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity })
   }
 }
@@ -119,12 +119,12 @@ describe('strict local runtime records', () => {
   it('preserves missing versus unsafe private-file results', () => {
     const missing = createPrivateRuntimeFileReader({
       platform: process.platform,
-      runtimeFileSecurityContractVersion: 1,
+      runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => ({ ok: false, code: 'not-found', message: 'absent' })
     }, process.platform)
     const denied = createPrivateRuntimeFileReader({
       platform: process.platform,
-      runtimeFileSecurityContractVersion: 1,
+      runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => ({ ok: false, code: 'access-denied', message: 'denied' })
     }, process.platform)
     expect(readRuntimeRecord('missing', missing)).toEqual({ status: 'missing' })

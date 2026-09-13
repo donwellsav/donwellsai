@@ -285,7 +285,7 @@ describe('compare-bound runtime ownership', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it('fails closed when a concurrent reader prevents the committed WAL checkpoint', () => {
+  it('rolls back without publishing when a concurrent reader prevents commit', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-checkpoint-busy-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
     const directLock: RuntimeAuthorityLock = (_path, callback) => callback(databasePath)
@@ -298,10 +298,8 @@ describe('compare-bound runtime ownership', () => {
       expect(() => store.prepareClaim(candidate('34343434-3434-4434-8434-343434343434'), observed, null)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
       reader.exec('ROLLBACK')
       reader.close()
-      const checkpoint = new DatabaseSync(databasePath)
-      try { expect(checkpoint.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()).toEqual({ busy: 0, log: 0, checkpointed: 0 }) } finally { checkpoint.close() }
       const recovered = new RuntimeOwnershipStore(databasePath, { readOnly: true })
-      try { expect(recovered.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: '34343434-3434-4434-8434-343434343434', state: 'preparing' } }) } finally { recovered.close() }
+      try { expect(recovered.observe('donwells-app')).toEqual({ status: 'vacant', lastGeneration: 0 }) } finally { recovered.close() }
     } finally {
       try { reader.close() } catch {}
       store.close()
@@ -361,7 +359,7 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 })
-  it('keeps the authority as WAL SQLite without a write-count lifetime cap', () => {
+  it('keeps the authority in rollback-journal mode without a write-count lifetime cap', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-sqlite-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
     try {
@@ -373,7 +371,7 @@ describe('compare-bound runtime ownership', () => {
       expect(readFileSync(databasePath).subarray(0, 16).toString('utf8')).toBe('SQLite format 3\0')
       const database = new DatabaseSync(databasePath, { readOnly: true })
       try {
-        expect(database.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+        expect(database.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
       } finally {
         database.close()
       }
@@ -407,6 +405,9 @@ describe('compare-bound runtime ownership', () => {
       } finally {
         store.close()
       }
+      const migrated = new DatabaseSync(databasePath, { readOnly: true })
+      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' }) } finally { migrated.close() }
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

@@ -38,7 +38,7 @@
 #endif
 
 #define IDENTITY_CONTRACT_VERSION 1
-#define RUNTIME_FILE_SECURITY_CONTRACT_VERSION 1
+#define RUNTIME_FILE_SECURITY_CONTRACT_VERSION 2
 #define MAX_IDENTITY_STRING 16384u
 #define MAX_NATIVE_MESSAGE 1024u
 #define MAX_PRIVATE_FILE_BYTES (16u * 1024u * 1024u)
@@ -1118,13 +1118,15 @@ static authority_file_handle open_authority_file(const char *path, int read_only
 
 static int authority_parts(const char *path, char *directory, size_t directory_capacity, char *basename, size_t basename_capacity);
 static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle);
+static int authority_has_recovery_sidecar(const char *path, const char *directory, const char *basename, authority_file_handle canonical);
 
 static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity, authority_file_handle *alias_handle) {
   char directory[MAX_IDENTITY_STRING];
   char basename[MAX_IDENTITY_STRING];
   int written;
-  if (authority_parts(path, directory, sizeof(directory), basename, sizeof(basename)) &&
-      find_existing_alias(directory, basename, canonical, 1, stable_path, capacity, alias_handle)) return 1;
+  (void)alias_handle;
+  if (!authority_parts(path, directory, sizeof(directory), basename, sizeof(basename)) ||
+      authority_has_recovery_sidecar(path, directory, basename, canonical)) return 0;
   written = snprintf(stable_path, capacity, "file:/dev/fd/%d?immutable=1", canonical);
   return written > 0 && (size_t)written < capacity;
 }
@@ -1179,6 +1181,39 @@ static int find_existing_alias(const char *directory, const char *basename, auth
   if (entries == NULL) return 0;
   while ((entry = readdir(entries)) != NULL) {
     if (open_matching_alias(directory, basename, entry->d_name, canonical, read_only, alias, capacity, alias_handle)) {
+      (void)closedir(entries);
+      return 1;
+    }
+  }
+  (void)closedir(entries);
+  return 0;
+}
+
+static int path_has_recovery_sidecar(const char *path) {
+  char sidecar[MAX_IDENTITY_STRING];
+  struct stat metadata;
+  static const char *suffixes[] = { "-wal", "-journal" };
+  size_t index;
+  for (index = 0; index < sizeof(suffixes) / sizeof(suffixes[0]); index++) {
+    int written = snprintf(sidecar, sizeof(sidecar), "%s%s", path, suffixes[index]);
+    if (written <= 0 || (size_t)written >= sizeof(sidecar)) return 1;
+    if (lstat(sidecar, &metadata) == 0 || errno != ENOENT) return 1;
+  }
+  return 0;
+}
+
+static int authority_has_recovery_sidecar(const char *path, const char *directory, const char *basename, authority_file_handle canonical) {
+  DIR *entries;
+  struct dirent *entry;
+  if (path_has_recovery_sidecar(path)) return 1;
+  entries = opendir(directory);
+  if (entries == NULL) return 1;
+  while ((entry = readdir(entries)) != NULL) {
+    char alias[MAX_IDENTITY_STRING];
+    authority_file_handle alias_handle = INVALID_AUTHORITY_FILE;
+    if (!open_matching_alias(directory, basename, entry->d_name, canonical, 1, alias, sizeof(alias), &alias_handle)) continue;
+    (void)close(alias_handle);
+    if (path_has_recovery_sidecar(alias)) {
       (void)closedir(entries);
       return 1;
     }

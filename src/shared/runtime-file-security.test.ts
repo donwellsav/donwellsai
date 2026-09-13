@@ -9,7 +9,7 @@ describe('runtime directory security boundary', () => {
     const calls: string[] = []
     const addon: NativeRuntimeFileAddon = {
       platform: 'win32',
-      runtimeFileSecurityContractVersion: 1,
+      runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => undefined,
       validatePrivateRuntimeDirectory: (path: string) => {
         calls.push(path)
@@ -24,7 +24,7 @@ describe('runtime directory security boundary', () => {
   it('preserves native directory policy failures as typed security errors', () => {
     const addon: NativeRuntimeFileAddon = {
       platform: 'win32',
-      runtimeFileSecurityContractVersion: 1,
+      runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => undefined,
       validatePrivateRuntimeDirectory: () => ({ ok: false, code: 'native-error', message: 'Users write ACE' })
     }
@@ -39,7 +39,7 @@ describe('runtime directory security boundary', () => {
   it('rejects an addon that omits the native directory operation', () => {
     const addon: NativeRuntimeFileAddon = {
       platform: 'win32',
-      runtimeFileSecurityContractVersion: 1,
+      runtimeFileSecurityContractVersion: 2,
       readPrivateRuntimeFile: () => undefined
     }
     expect(() => createPrivateRuntimeDirectoryValidator(addon, 'win32')).toThrow(/missing validatePrivateRuntimeDirectory/)

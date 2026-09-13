@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
+import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -95,7 +96,7 @@ describe('native runtime identity adapter', () => {
 
     expect(addon.platform).toBe(process.platform)
     expect(addon.identityContractVersion).toBe(1)
-    expect(addon.runtimeFileSecurityContractVersion).toBe(1)
+    expect(addon.runtimeFileSecurityContractVersion).toBe(2)
     expect(typeof addon.validatePrivateRuntimeDirectory).toBe('function')
   })
   it('atomically refuses to overwrite an occupied rename destination', () => {
@@ -151,7 +152,7 @@ describe('native runtime identity adapter', () => {
       if (process.platform !== 'win32') chmodSync(file, 0o600)
       const first = addon.readPrivateRuntimeFile(file, 1024)
       const second = addon.readPrivateRuntimeFile(file, 1024)
-      expect(addon.runtimeFileSecurityContractVersion).toBe(1)
+      expect(addon.runtimeFileSecurityContractVersion).toBe(2)
       expect(first).toMatchObject({ ok: true })
       expect(second).toMatchObject({ ok: true })
       if (!first.ok || !second.ok) throw new Error('private runtime file was unexpectedly rejected')
@@ -327,6 +328,36 @@ describe('native runtime identity adapter', () => {
       }) as NativePrivateFileResult
       expect(result).toMatchObject({ ok: true, fileIdentity: { platform: process.platform === 'win32' ? 'win32' : 'posix' } })
       expect(readFileSync(authorityPath)).toEqual(bytes)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('reads through the validated authority handle after an alias pathname swap', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-read-swap-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const replacementPath = join(directory, 'replacement.sqlite')
+    const aliasPath = join(directory, '.runtime-owners.sqlite.donwells-alias-deadbeef-0')
+    const displacedAliasPath = aliasPath + '.displaced'
+    const createMarker = (path: string, marker: string): void => {
+      const database = new DatabaseSync(path)
+      try {
+        database.exec('PRAGMA journal_mode=DELETE; CREATE TABLE marker(value TEXT NOT NULL)')
+        database.prepare('INSERT INTO marker(value) VALUES(?)').run(marker)
+      } finally { database.close() }
+      chmodSync(path, 0o600)
+    }
+    try {
+      createMarker(authorityPath, 'trusted')
+      createMarker(replacementPath, 'replacement')
+      linkSync(authorityPath, aliasPath)
+      const observed = addon.withRuntimeAuthorityLock(authorityPath, (stablePath: string) => {
+        renameSync(aliasPath, displacedAliasPath)
+        renameSync(replacementPath, aliasPath)
+        const database = new DatabaseSync(stablePath, { readOnly: true })
+        try { return (database.prepare('SELECT value FROM marker').get() as { value: string }).value } finally { database.close() }
+      }, true)
+      expect(observed).toBe('trusted')
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

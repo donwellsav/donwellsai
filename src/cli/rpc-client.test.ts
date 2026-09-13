@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createServer, type Server } from 'node:net'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -26,6 +26,15 @@ async function listen(server: Server, path: string): Promise<void> {
     server.once('error', reject)
     server.listen(path, resolve)
   })
+}
+
+function snapshotAuthorityArtifacts(directory: string): unknown {
+  const entries = readdirSync(directory).sort().map(name => {
+    const path = join(directory, name)
+    const metadata = statSync(path, { bigint: true })
+    return { name, mode: metadata.mode, size: metadata.size, mtimeNs: metadata.mtimeNs, sha256: metadata.isFile() ? createHash('sha256').update(readFileSync(path)).digest('hex') : null }
+  })
+  return { directoryMtimeNs: statSync(directory, { bigint: true }).mtimeNs, entries }
 }
 
 describe('CLI runtime resolution', () => {
@@ -102,8 +111,8 @@ describe('CLI runtime resolution', () => {
     }
   })
 
-  it.runIf(process.platform !== 'win32')('blocks legacy contact when a committed preparing owner remains only in the sanctioned alias WAL', async () => {
-    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-alias-wal-')))
+  it.runIf(process.platform !== 'win32').each(['preparing', 'active'] as const)('blocks legacy contact without mutating authority artifacts when a committed %s owner remains only in the sanctioned alias WAL', async state => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-alias-wal-' + state + '-')))
     const paths = localRuntimePaths(directory, 'app')
     const endpoint = paths.socketPath
     const token = 'legacy-cli-alias-wal-token-123456'
@@ -117,12 +126,12 @@ describe('CLI runtime resolution', () => {
       "const db=new DatabaseSync(alias)",
       "db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN IMMEDIATE')",
       "db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?)').run('donwells-app',1)",
-      "db.prepare('INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,endpoint_identity_json,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,NULL,?,NULL)').run('donwells-app','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'preparing',process.argv[3],process.argv[4],'authority-token-123456','2026-09-13T00:00:00.000Z')",
+      "db.prepare('INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,endpoint_identity_json,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,?,NULL,?,NULL)').run('donwells-app','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,process.argv[5],process.argv[3],process.argv[4],'authority-token-123456',process.argv[6]||null,'2026-09-13T00:00:00.000Z')",
       "db.exec('COMMIT')",
       "process.exit(0)",
       "})"
     ].join(';')
-    execFileSync(process.execPath, ['-e', childScript, addonPath, paths.ownershipDatabasePath, JSON.stringify({ ...identity, generation: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1' }), join(directory, 'authoritative.sock')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    execFileSync(process.execPath, ['-e', childScript, addonPath, paths.ownershipDatabasePath, JSON.stringify({ ...identity, generation: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1' }), join(directory, 'authoritative.sock'), state, state === 'active' ? '0'.repeat(64) : ''], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
     expect(readdirSync(directory).some(name => name.includes('.donwells-alias-') && name.endsWith('-wal'))).toBe(true)
     writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: endpoint, authToken: token }), { mode: 0o600 })
     let connections = 0
@@ -144,6 +153,15 @@ describe('CLI runtime resolution', () => {
     })
     try {
       await listen(server, endpoint)
+      const before = snapshotAuthorityArtifacts(directory)
+      await expect(Promise.resolve().then(() => callRuntime('worktree.list', {}, directory, 1000))).rejects.toMatchObject({ code: 'RUNTIME_OWNER_UNAVAILABLE' })
+      expect(snapshotAuthorityArtifacts(directory)).toEqual(before)
+      expect(connections).toBe(0)
+      const recovered = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+      try { expect(recovered.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state } }) } finally { recovered.close() }
+      const migrated = new DatabaseSync(paths.ownershipDatabasePath, { readOnly: true })
+      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' }) } finally { migrated.close() }
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
       await expect(Promise.resolve().then(() => callRuntime('worktree.list', {}, directory, 1000))).rejects.toMatchObject({ code: 'OWNER_MISMATCH' })
       expect(connections).toBe(0)
     } finally {
