@@ -130,13 +130,12 @@ export class RuntimeRpcServer {
   async start(): Promise<void> {
     if (this.server) throw new Error('Runtime RPC is already started')
     const authority = runtimeIdentityAuthority()
-    const identity = authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation: 'pending' })
     const publication = claimRuntimeOwner({
       userDataDir: dirname(this.runtimeFile),
       kind: 'donwells-app',
       endpoint: freshRuntimeEndpoint(this.socketPath),
       authToken: this.authToken,
-      identity,
+      captureIdentity: (generation) => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }),
       authority
     })
     this.publication = publication

@@ -160,13 +160,12 @@ export class TerminalDaemon {
   async start(): Promise<void> {
     this.prepareRuntimeDirectory()
     const authority = runtimeIdentityAuthority()
-    const identity = authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation: 'pending' })
     const publication = claimRuntimeOwner({
       userDataDir: dirname(this.paths.runtimeDir),
       kind: 'terminal-daemon',
       endpoint: freshRuntimeEndpoint(this.paths.socketPath),
       authToken: this.authToken,
-      identity,
+      captureIdentity: (generation) => authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation }),
       authority
     })
     this.publication = publication

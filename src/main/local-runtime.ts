@@ -21,7 +21,7 @@ export type LocalRuntimeRecord = {
   ownerGeneration: number
   socketPath: string
   authToken: string
-  processIdentity: ProcessIdentity | null
+  processIdentity: ProcessIdentity
 }
 
 export type LegacyRuntimeRecord = {
@@ -41,7 +41,6 @@ type ParsedRuntimeRecord =
   | { status: 'legacy'; record: LegacyRuntimeRecord }
   | { status: 'invalid'; reason: string }
 
-export type RuntimeIdentity = LegacyRuntimeRecord
 
 export type LocalRuntimePaths = {
   runtimeDir: string
@@ -74,34 +73,64 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): voi
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) throw new Error('runtime record fields were not exact')
 }
 
-function processIdentity(value: unknown): ProcessIdentity | null {
-  if (value === null) return null
+function processIdentity(value: unknown): ProcessIdentity {
   const identity = objectRecord(value)
-  const required = ['pid', 'bootId', 'startedAt', 'executablePath', 'family', 'capturedAt']
-  const allowed = new Set([...required, 'generation'])
-  for (const key of Object.keys(identity)) if (!allowed.has(key)) throw new Error('runtime process identity fields were not exact')
-  for (const key of required) if (!(key in identity)) throw new Error('runtime process identity field was missing')
+  exactKeys(identity, ['pid', 'bootId', 'startedAt', 'executablePath', 'family', 'capturedAt', 'generation'])
   const family = identity['family']
   if (family !== 'donwells-app' && family !== 'terminal-daemon') throw new Error('runtime process identity family was invalid')
-  const parsed: ProcessIdentity = {
+  return {
     pid: positiveInteger(identity['pid'], 'processIdentity.pid'),
     bootId: stringField(identity['bootId'], 'processIdentity.bootId'),
     startedAt: stringField(identity['startedAt'], 'processIdentity.startedAt'),
     executablePath: stringField(identity['executablePath'], 'processIdentity.executablePath'),
     family,
-    capturedAt: stringField(identity['capturedAt'], 'processIdentity.capturedAt')
+    capturedAt: stringField(identity['capturedAt'], 'processIdentity.capturedAt'),
+    generation: stringField(identity['generation'], 'processIdentity.generation')
   }
-  if (identity['generation'] !== undefined) parsed.generation = stringField(identity['generation'], 'processIdentity.generation')
-  return parsed
+}
+
+function validateEndpoint(value: unknown): string {
+  const endpoint = stringField(value, 'socketPath', MAX_SOCKET_LENGTH)
+  const unix = endpoint.startsWith('/')
+  const pipe = /^\\\\\.\\pipe\\[^\\/\0]+$/i.test(endpoint)
+  if (!unix && !pipe) throw new Error('socketPath must be an absolute Unix socket or Windows named pipe')
+  return endpoint
+}
+
+function assertCurrentRecordRelationships(record: LocalRuntimeRecord): void {
+  const otherKind = record.processIdentity.family === 'donwells-app' ? 'terminal' : 'app'
+  if (record.socketPath.includes('donwells-' + otherKind + '-')) {
+    throw new Error('socketPath contradicted the process identity family')
+  }
+  if (record.processIdentity.generation !== record.ownerId + ':' + record.ownerGeneration) {
+    throw new Error('processIdentity.generation did not match runtime ownership')
+  }
 }
 
 function rejectDuplicateKeys(text: string): void {
-  const keys = text.match(/"(?:[^"\\]|\\.)*"\s*:/g) ?? []
-  const seen = new Set<string>()
-  for (const raw of keys) {
-    const key = raw.slice(1, raw.lastIndexOf('"'))
-    if (seen.has(key)) throw new Error('runtime record contains duplicate fields')
-    seen.add(key)
+  const stack: Array<{ kind: 'object'; keys: Set<string> } | { kind: 'array' }> = []
+  for (let index = 0; index < text.length;) {
+    const char = text[index]!
+    if (char === '"') {
+      const start = index++
+      while (index < text.length) {
+        if (text[index] === '\\') { index += 2; continue }
+        if (text[index++] === '"') break
+      }
+      let next = index
+      while (/\s/.test(text[next] ?? '')) next++
+      const frame = stack.at(-1)
+      if (text[next] === ':' && frame?.kind === 'object') {
+        const key = JSON.parse(text.slice(start, index)) as string
+        if (frame.keys.has(key)) throw new Error('runtime record contains duplicate fields')
+        frame.keys.add(key)
+      }
+      continue
+    }
+    if (char === '{') stack.push({ kind: 'object', keys: new Set() })
+    else if (char === '[') stack.push({ kind: 'array' })
+    else if (char === '}' || char === ']') stack.pop()
+    index++
   }
 }
 
@@ -125,17 +154,18 @@ export function parseRuntimeRecordBytes(bytes: Buffer): ParsedRuntimeRecord {
         version: 2,
         ownerId,
         ownerGeneration: positiveInteger(value['ownerGeneration'], 'ownerGeneration'),
-        socketPath: stringField(value['socketPath'], 'socketPath', MAX_SOCKET_LENGTH),
+        socketPath: validateEndpoint(value['socketPath']),
         authToken: stringField(value['authToken'], 'authToken', MAX_FIELD_LENGTH),
         processIdentity: processIdentity(value['processIdentity'])
       }
       if (record.authToken.length < MIN_TOKEN_LENGTH) throw new Error('authToken is too short')
+      assertCurrentRecordRelationships(record)
       return { status: 'current', record }
     }
     if ('version' in value) throw new Error('runtime record version was unsupported')
     exactKeys(value, ['socketPath', 'authToken', ...(value['pid'] === undefined ? [] : ['pid'])])
     const record: LegacyRuntimeRecord = {
-      socketPath: stringField(value['socketPath'], 'socketPath', MAX_SOCKET_LENGTH),
+      socketPath: validateEndpoint(value['socketPath']),
       authToken: stringField(value['authToken'], 'authToken', MAX_FIELD_LENGTH)
     }
     if (record.authToken.length < MIN_TOKEN_LENGTH) throw new Error('authToken is too short')
@@ -201,28 +231,3 @@ export function localRuntimePaths(userDataDir: string, kind: 'app' | 'terminal',
   }
 }
 
-export function readRuntimeIdentity(runtimeFile: string): RuntimeIdentity | null {
-  const record = readRuntimeRecord(runtimeFile)
-  if (record.status === 'legacy') return record.record
-  if (record.status === 'current') return {
-    socketPath: record.record.socketPath,
-    authToken: record.record.authToken,
-    pid: record.record.processIdentity?.pid
-  }
-  return null
-}
-
-export function readTerminalRuntime(userDataDir: string): RuntimeIdentity | null {
-  const current = localRuntimePaths(userDataDir, 'terminal').runtimeFile
-  const parsed = readRuntimeRecord(current)
-  if (parsed.status !== 'missing') {
-    if (parsed.status === 'legacy') return parsed.record
-    if (parsed.status === 'current') return {
-      socketPath: parsed.record.socketPath,
-      authToken: parsed.record.authToken,
-      pid: parsed.record.processIdentity?.pid
-    }
-    return null
-  }
-  return readRuntimeIdentity(join(userDataDir, 'terminal-runtime.json'))
-}

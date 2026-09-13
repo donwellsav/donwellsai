@@ -17,15 +17,15 @@ const identity = {
 }
 
 const authority: RuntimeIdentityAuthority = {
-  capture: () => identity,
+  capture: (_pid, options) => ({ ...identity, generation: options.generation }),
   verify: value => value ? { status: 'valid', current: value } : { status: 'indeterminate', reason: 'legacy-record', detail: 'missing' }
 }
 
 describe('runtime publication state machine', () => {
   it('does not expose a preparing locator and activates only after endpoint bind and publish', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-'))
-    const endpoint = freshRuntimeEndpoint(join(directory, 'app.sock'), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
-    const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint, authToken: 'publication-token-123456', identity, authority })
+    const endpoint = freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock'), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint, authToken: 'publication-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       expect(readRuntimeRecord(publication.paths.runtimeFile, () => { throw Object.assign(new Error('missing'), { code: 'not-found' }) })).toEqual({ status: 'missing' })
       expect(publication.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
@@ -41,10 +41,10 @@ describe('runtime publication state machine', () => {
 
   it('leaves successor ownership intact when the predecessor releases late', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-successor-'))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'app.sock')), authToken: 'first-token-123456', identity, authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'first-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
-    const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'app.sock')), authToken: 'second-token-123456', identity, authority: staleAuthority, store: first.store })
+    const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'second-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
     try {
       await expect(publishRuntimeOwner(second, () => undefined)).resolves.toMatchObject({ generation: 2, state: 'active' })
       expect(releaseRuntimeOwner(first)).toBe(false)

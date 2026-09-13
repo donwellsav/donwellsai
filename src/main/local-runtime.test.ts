@@ -22,14 +22,14 @@ const identity: ProcessIdentity = {
   executablePath: '/opt/donwells',
   family: 'donwells-app',
   capturedAt: '2026-09-13T00:00:00.000Z',
-  generation: 'owner-1:7'
+  generation: '7a43bc17-d6b2-4cd7-8f57-d381ba0e81ee:7'
 }
 
 const current: LocalRuntimeRecord = {
   version: 2,
   ownerId: '7a43bc17-d6b2-4cd7-8f57-d381ba0e81ee',
   ownerGeneration: 7,
-  socketPath: '/tmp/donwells-owner-1-7.sock',
+  socketPath: '/tmp/donwells-app-owner-1-7.sock',
   authToken: 'a'.repeat(64),
   processIdentity: identity
 }
@@ -59,6 +59,14 @@ describe('strict local runtime records', () => {
     expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, ownerGeneration: 0 })))).toMatchObject({ status: 'invalid' })
     expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, processIdentity: { ...identity, family: 'acp-agent' } })))).toMatchObject({ status: 'invalid' })
     expect(parseRuntimeRecordBytes(Buffer.from('{"version":2,"version":2}'))).toMatchObject({ status: 'invalid' })
+    expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, processIdentity: null })))).toMatchObject({ status: 'invalid' })
+    expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, processIdentity: { ...identity, generation: 'pending' } })))).toMatchObject({ status: 'invalid' })
+    expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, socketPath: 'relative.sock' })))).toMatchObject({ status: 'invalid' })
+    expect(parseRuntimeRecordBytes(Buffer.from(JSON.stringify({ ...current, socketPath: '/tmp/donwells-terminal-owner.sock' })))).toMatchObject({ status: 'invalid' })
+    const duplicateNested = JSON.stringify(current).replace('"pid":42', '"pid":42,"\u0070id":42')
+    expect(parseRuntimeRecordBytes(Buffer.from(duplicateNested))).toMatchObject({ status: 'invalid' })
+    const siblingKeys = JSON.stringify({ ...current, processIdentity: { ...identity, ownerId: 'nested' } })
+    expect(parseRuntimeRecordBytes(Buffer.from(siblingKeys))).toMatchObject({ status: 'invalid' })
   })
 
   it('reads and hashes exactly the bytes returned by the same-handle native observation', () => {

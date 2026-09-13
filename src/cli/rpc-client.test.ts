@@ -31,11 +31,11 @@ describe('CLI runtime resolution', () => {
     const directory = mkdtempSync(join(tmpdir(), 'rpc-client-owner-'))
     const paths = localRuntimePaths(directory, 'app')
     const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-    const endpoint = join(directory, mode + '.sock')
+    const endpoint = join(directory, 'donwells-app-' + mode + '.sock')
     const token = 'cli-token-' + mode + '-123456'
-    const candidate = { kind: 'donwells-app' as const, ownerId: '88888888-8888-4888-8888-888888888888', identity, endpoint, authToken: token }
+    const candidate = { kind: 'donwells-app' as const, ownerId: '88888888-8888-4888-8888-888888888888', identity: { ...identity, generation: '88888888-8888-4888-8888-888888888888:1' }, endpoint, authToken: token }
     const active = store.activate(store.prepareClaim(candidate, store.observe('donwells-app'), null), 'd'.repeat(64))
-    const locator: LocalRuntimeRecord = { version: 2, ownerId: active.ownerId, ownerGeneration: active.generation, socketPath: endpoint, authToken: token, processIdentity: identity }
+    const locator: LocalRuntimeRecord = { version: 2, ownerId: active.ownerId, ownerGeneration: active.generation, socketPath: endpoint, authToken: token, processIdentity: active.identity }
     writeRuntimeRecord(paths.runtimeFile, locator)
         store.republishActive(active, 'd'.repeat(64), createHash('sha256').update(JSON.stringify(locator)).digest('hex'))
     let requests = 0
@@ -70,9 +70,10 @@ describe('CLI runtime resolution', () => {
     const directory = mkdtempSync(join(tmpdir(), 'rpc-client-mismatch-'))
     const paths = localRuntimePaths(directory, 'app')
     const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-    const endpoint = join(directory, 'mismatch.sock')
-    const active = store.activate(store.prepareClaim({ kind: 'donwells-app', ownerId: '99999999-9999-4999-8999-999999999999', identity, endpoint, authToken: 'row-token-123456' }, store.observe('donwells-app'), null), 'e'.repeat(64))
-    const mismatchedLocator = { version: 2 as const, ownerId: active.ownerId, ownerGeneration: active.generation, socketPath: endpoint, authToken: 'wrong-token-123456', processIdentity: identity }
+    const endpoint = join(directory, 'donwells-app-mismatch.sock')
+    const ownerId = '99999999-9999-4999-8999-999999999999'
+    const active = store.activate(store.prepareClaim({ kind: 'donwells-app', ownerId, identity: { ...identity, generation: ownerId + ':1' }, endpoint, authToken: 'row-token-123456' }, store.observe('donwells-app'), null), 'e'.repeat(64))
+    const mismatchedLocator = { version: 2 as const, ownerId: active.ownerId, ownerGeneration: active.generation, socketPath: endpoint, authToken: 'wrong-token-123456', processIdentity: active.identity }
         writeRuntimeRecord(paths.runtimeFile, mismatchedLocator)
         store.republishActive(active, 'e'.repeat(64), createHash('sha256').update(JSON.stringify(mismatchedLocator)).digest('hex'))
     let connections = 0

@@ -20,7 +20,7 @@ export type RuntimeClaimOptions = {
   kind: RuntimeOwnerKind
   endpoint: string
   authToken: string
-  identity: ProcessIdentity
+  captureIdentity: (generation: string) => ProcessIdentity
   authority: RuntimeIdentityAuthority
   store?: RuntimeOwnershipStore
 }
@@ -45,10 +45,12 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
     const observed = store.observe(options.kind)
     const verdict = priorVerdict(observed, options.authority)
     const ownerId = randomUUID()
+    const expectedGeneration = observed.status === 'present' ? observed.owner.generation + 1 : 1
+    const identity = options.captureIdentity(ownerId + ':' + expectedGeneration)
     const owner = store.prepareClaim({
       kind: options.kind,
       ownerId,
-      identity: options.identity,
+      identity,
       endpoint: options.endpoint,
       authToken: options.authToken
     }, observed, verdict)

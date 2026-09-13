@@ -26,7 +26,7 @@ export type RuntimeLocator = {
   ownerGeneration: number
   socketPath: string
   authToken: string
-  processIdentity: ProcessIdentity | null
+  processIdentity: ProcessIdentity
 }
 
 export type LegacyRecoveryInput = {
