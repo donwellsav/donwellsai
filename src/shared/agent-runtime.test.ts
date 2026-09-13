@@ -26,6 +26,16 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
   }
 }
 
+function observation(update: Record<string, unknown>): Record<string, unknown> {
+  return {
+    snapshot: snapshot(),
+    sequence: 1,
+    truncated: false,
+    updates: [{ sequence: 1, notification: { sessionId: 'session-test', update } }],
+    requests: []
+  }
+}
+
 describe('strict ACP wire decoders', () => {
   it('rejects wrong capability scalar types', () => {
     expect(() => parseAcpAgentSnapshot(snapshot({ capabilities: { loadSession: 'yes' } }))).toThrow(/loadSession/)
@@ -74,5 +84,26 @@ describe('strict ACP wire decoders', () => {
     }))
     expect(parsed.capabilities).toMatchObject({ loadSession: true, promptCapabilities: { image: false }, providers: null })
     expect(parsed.permissions[0]?.request.toolCall.toolCallId).toBe('tool-1')
+  })
+
+  it('accepts schema-nullable tool updates and NES capabilities', () => {
+    const toolUpdate = { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', kind: null, status: null, title: null, content: null, locations: null }
+    expect(parseAcpObservation(observation(toolUpdate)).updates[0]?.notification.update).toEqual(toolUpdate)
+
+    expect(parseAcpAgentSnapshot(snapshot({ capabilities: { nes: { events: null, context: null } } })).capabilities?.nes).toEqual({ events: null, context: null })
+    expect(parseAcpAgentSnapshot(snapshot({ capabilities: { nes: {
+      events: { document: null },
+      context: { recentFiles: null, relatedSnippets: null, editHistory: null, userActions: null, openFiles: null, diagnostics: null }
+    } } })).capabilities?.nes).toEqual({
+      events: { document: null },
+      context: { recentFiles: null, relatedSnippets: null, editHistory: null, userActions: null, openFiles: null, diagnostics: null }
+    })
+    expect(parseAcpAgentSnapshot(snapshot({ capabilities: { nes: { events: { document: { didChange: null } } } } })).capabilities?.nes).toEqual({ events: { document: { didChange: null } } })
+  })
+
+  it('rejects usage values outside unsigned safe integers', () => {
+    for (const [used, size] of [[-1, 0], [0.5, 1], [0, -1], [0, Number.MAX_SAFE_INTEGER + 1]]) {
+      expect(() => parseAcpObservation(observation({ sessionUpdate: 'usage_update', used, size }))).toThrow(/(used|size).*non-negative integer/)
+    }
   })
 })

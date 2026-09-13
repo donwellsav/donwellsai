@@ -193,6 +193,16 @@ export class DaemonClient {
     const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'legacy') {
+      const ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+      try {
+        if (ownership.observe('terminal-daemon').status !== 'vacant') {
+          throw new Error('Legacy runtime locator conflicts with the recorded authority owner')
+        }
+      } finally {
+        ownership.close()
+      }
+    }
+    if (record.status === 'legacy') {
       const connected = await this.tryConnect(record.record.socketPath, record.record.authToken, undefined, true).catch(() => false)
       if (connected) return
     }
@@ -300,7 +310,7 @@ export class DaemonClient {
       socket.removeListener('close', onFailure)
 
       const handshakeMatches = connected && (
-        (allowLegacy && handshake?.ok === true && handshake.runtimeIdentityContractVersion !== 1)
+        (allowLegacy && handshake?.ok === true && handshake.protocolVersion === 3 && !Object.hasOwn(handshake, 'runtimeIdentityContractVersion'))
         || (expected !== undefined
           && handshake?.protocolVersion === 3
           && handshake.runtimeIdentityContractVersion === 1

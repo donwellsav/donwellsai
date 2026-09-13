@@ -170,51 +170,73 @@ function acpCapabilities(value: unknown, label: string): InitializeResponse['age
     acpExactKeys(nes, [], ['events', 'context', '_meta'], label + '.nes')
     const parsedNes: AcpUnknownRecord = {}
     if (Object.hasOwn(nes, 'events')) {
-      const events = acpRecord(nes['events'], label + '.nes.events')
-      acpExactKeys(events, [], ['document', '_meta'], label + '.nes.events')
-      const parsedEvents: AcpUnknownRecord = {}
-      if (Object.hasOwn(events, 'document')) {
-        const document = acpRecord(events['document'], label + '.nes.events.document')
-        acpExactKeys(document, [], ['didOpen', 'didChange', 'didClose', 'didSave', 'didFocus', '_meta'], label + '.nes.events.document')
-        const parsedDocument: AcpUnknownRecord = {}
-        for (const key of ['didOpen', 'didClose', 'didSave', 'didFocus'] as const) {
-          const marker = acpNullableMarker(document, key, label + '.nes.events.document.' + key)
-          if (marker !== undefined) parsedDocument[key] = marker
+      if (nes['events'] === null) {
+        parsedNes['events'] = null
+      } else {
+        const events = acpRecord(nes['events'], label + '.nes.events')
+        acpExactKeys(events, [], ['document', '_meta'], label + '.nes.events')
+        const parsedEvents: AcpUnknownRecord = {}
+        if (Object.hasOwn(events, 'document')) {
+          if (events['document'] === null) {
+            parsedEvents['document'] = null
+          } else {
+            const document = acpRecord(events['document'], label + '.nes.events.document')
+            acpExactKeys(document, [], ['didOpen', 'didChange', 'didClose', 'didSave', 'didFocus', '_meta'], label + '.nes.events.document')
+            const parsedDocument: AcpUnknownRecord = {}
+            for (const key of ['didOpen', 'didClose', 'didSave', 'didFocus'] as const) {
+              const marker = acpNullableMarker(document, key, label + '.nes.events.document.' + key)
+              if (marker !== undefined) parsedDocument[key] = marker
+            }
+            if (Object.hasOwn(document, 'didChange')) {
+              if (document['didChange'] === null) {
+                parsedDocument['didChange'] = null
+              } else {
+                const change = acpRecord(document['didChange'], label + '.nes.events.document.didChange')
+                acpExactKeys(change, ['syncKind'], ['_meta'], label + '.nes.events.document.didChange')
+                if (change['syncKind'] !== 'full' && change['syncKind'] !== 'incremental') throw new Error(label + '.nes.events.document.didChange.syncKind is invalid')
+                const changeMeta = acpOptionalMeta(change, label + '.nes.events.document.didChange')
+                parsedDocument['didChange'] = { syncKind: change['syncKind'], ...(changeMeta === undefined ? {} : { _meta: changeMeta }) }
+              }
+            }
+            const documentMeta = acpOptionalMeta(document, label + '.nes.events.document')
+            if (documentMeta !== undefined) parsedDocument['_meta'] = documentMeta
+            parsedEvents['document'] = parsedDocument
+          }
         }
-        if (Object.hasOwn(document, 'didChange')) {
-          const change = acpRecord(document['didChange'], label + '.nes.events.document.didChange')
-          acpExactKeys(change, ['syncKind'], ['_meta'], label + '.nes.events.document.didChange')
-          if (change['syncKind'] !== 'full' && change['syncKind'] !== 'incremental') throw new Error(label + '.nes.events.document.didChange.syncKind is invalid')
-          const changeMeta = acpOptionalMeta(change, label + '.nes.events.document.didChange')
-          parsedDocument['didChange'] = { syncKind: change['syncKind'], ...(changeMeta === undefined ? {} : { _meta: changeMeta }) }
-        }
-        const documentMeta = acpOptionalMeta(document, label + '.nes.events.document')
-        if (documentMeta !== undefined) parsedDocument['_meta'] = documentMeta
-        parsedEvents['document'] = parsedDocument
+        const eventsMeta = acpOptionalMeta(events, label + '.nes.events')
+        if (eventsMeta !== undefined) parsedEvents['_meta'] = eventsMeta
+        parsedNes['events'] = parsedEvents
       }
-      const eventsMeta = acpOptionalMeta(events, label + '.nes.events')
-      if (eventsMeta !== undefined) parsedEvents['_meta'] = eventsMeta
-      parsedNes['events'] = parsedEvents
     }
     if (Object.hasOwn(nes, 'context')) {
-      const context = acpRecord(nes['context'], label + '.nes.context')
-      acpExactKeys(context, [], ['recentFiles', 'relatedSnippets', 'editHistory', 'userActions', 'openFiles', 'diagnostics', '_meta'], label + '.nes.context')
-      const parsedContext: AcpUnknownRecord = {}
-      for (const key of ['relatedSnippets', 'openFiles', 'diagnostics'] as const) {
-        const marker = acpNullableMarker(context, key, label + '.nes.context.' + key)
-        if (marker !== undefined) parsedContext[key] = marker
+      if (nes['context'] === null) {
+        parsedNes['context'] = null
+      } else {
+        const context = acpRecord(nes['context'], label + '.nes.context')
+        acpExactKeys(context, [], ['recentFiles', 'relatedSnippets', 'editHistory', 'userActions', 'openFiles', 'diagnostics', '_meta'], label + '.nes.context')
+        const parsedContext: AcpUnknownRecord = {}
+        for (const key of ['relatedSnippets', 'openFiles', 'diagnostics'] as const) {
+          const marker = acpNullableMarker(context, key, label + '.nes.context.' + key)
+          if (marker !== undefined) parsedContext[key] = marker
+        }
+        for (const key of ['recentFiles', 'editHistory', 'userActions'] as const) {
+          if (!Object.hasOwn(context, key)) continue
+          if (context[key] === null) {
+            parsedContext[key] = null
+            continue
+          }
+          const bounded = acpRecord(context[key], label + '.nes.context.' + key)
+          acpExactKeys(bounded, [], ['maxCount', '_meta'], label + '.nes.context.' + key)
+          const boundedParsed: AcpUnknownRecord = {}
+          if (Object.hasOwn(bounded, 'maxCount')) boundedParsed['maxCount'] = bounded['maxCount'] === null ? null : acpInteger(bounded['maxCount'], label + '.nes.context.' + key + '.maxCount')
+          const boundedMeta = acpOptionalMeta(bounded, label + '.nes.context.' + key)
+          if (boundedMeta !== undefined) boundedParsed['_meta'] = boundedMeta
+          parsedContext[key] = boundedParsed
+        }
+        const contextMeta = acpOptionalMeta(context, label + '.nes.context')
+        if (contextMeta !== undefined) parsedContext['_meta'] = contextMeta
+        parsedNes['context'] = parsedContext
       }
-      for (const key of ['recentFiles', 'editHistory', 'userActions'] as const) {
-        if (!Object.hasOwn(context, key)) continue
-        const bounded = acpRecord(context[key], label + '.nes.context.' + key)
-        acpExactKeys(bounded, [], ['maxCount', '_meta'], label + '.nes.context.' + key)
-        const maxCount = acpOptionalNumber(bounded, 'maxCount', label + '.nes.context.' + key + '.maxCount')
-        const boundedMeta = acpOptionalMeta(bounded, label + '.nes.context.' + key)
-        parsedContext[key] = { ...(maxCount === undefined ? {} : { maxCount }), ...(boundedMeta === undefined ? {} : { _meta: boundedMeta }) }
-      }
-      const contextMeta = acpOptionalMeta(context, label + '.nes.context')
-      if (contextMeta !== undefined) parsedContext['_meta'] = contextMeta
-      parsedNes['context'] = parsedContext
     }
     const nesMeta = acpOptionalMeta(nes, label + '.nes')
     if (nesMeta !== undefined) parsedNes['_meta'] = nesMeta
@@ -368,13 +390,13 @@ function acpToolCallFields(value: unknown, label: string, titleRequired: boolean
   const required = titleRequired ? ['toolCallId', 'title'] : ['toolCallId']
   acpExactKeys(input, required, ['kind', 'status', 'title', 'name', 'content', 'locations', 'rawInput', 'rawOutput', '_meta'], label)
   const parsed: AcpUnknownRecord = { toolCallId: acpWireString(input['toolCallId'], label + '.toolCallId', 256) }
-  if (Object.hasOwn(input, 'title')) parsed['title'] = acpWireString(input['title'], label + '.title', 4_096)
-  if (Object.hasOwn(input, 'kind')) parsed['kind'] = acpEnum(input['kind'], label + '.kind', ['read', 'edit', 'delete', 'move', 'search', 'execute', 'think', 'fetch', 'switch_mode', 'other'] as const)
-  if (Object.hasOwn(input, 'status')) parsed['status'] = acpEnum(input['status'], label + '.status', ['pending', 'in_progress', 'completed', 'failed'] as const)
+  if (Object.hasOwn(input, 'title')) parsed['title'] = input['title'] === null && !titleRequired ? null : acpWireString(input['title'], label + '.title', 4_096)
+  if (Object.hasOwn(input, 'kind')) parsed['kind'] = input['kind'] === null && !titleRequired ? null : acpEnum(input['kind'], label + '.kind', ['read', 'edit', 'delete', 'move', 'search', 'execute', 'think', 'fetch', 'switch_mode', 'other'] as const)
+  if (Object.hasOwn(input, 'status')) parsed['status'] = input['status'] === null && !titleRequired ? null : acpEnum(input['status'], label + '.status', ['pending', 'in_progress', 'completed', 'failed'] as const)
   const name = acpOptionalNullableString(input, 'name', label + '.name', 4_096)
   if (name !== undefined) parsed['name'] = name
-  if (Object.hasOwn(input, 'content')) parsed['content'] = acpArray(input['content'], label + '.content', 4_096, (entry, index) => acpToolCallContent(entry, label + '.content[' + index + ']'))
-  if (Object.hasOwn(input, 'locations')) parsed['locations'] = acpArray(input['locations'], label + '.locations', 4_096, (entry, index) => acpToolCallLocation(entry, label + '.locations[' + index + ']'))
+  if (Object.hasOwn(input, 'content')) parsed['content'] = input['content'] === null && !titleRequired ? null : acpArray(input['content'], label + '.content', 4_096, (entry, index) => acpToolCallContent(entry, label + '.content[' + index + ']'))
+  if (Object.hasOwn(input, 'locations')) parsed['locations'] = input['locations'] === null && !titleRequired ? null : acpArray(input['locations'], label + '.locations', 4_096, (entry, index) => acpToolCallLocation(entry, label + '.locations[' + index + ']'))
   if (Object.hasOwn(input, 'rawInput')) parsed['rawInput'] = acpJsonValue(input['rawInput'], label + '.rawInput')
   if (Object.hasOwn(input, 'rawOutput')) parsed['rawOutput'] = acpJsonValue(input['rawOutput'], label + '.rawOutput')
   const meta = acpOptionalMeta(input, label)
@@ -625,7 +647,7 @@ function acpSessionUpdate(value: unknown, label: string): AcpUnknownRecord {
   }
   if (kind === 'usage_update') {
     acpExactKeys(input, ['sessionUpdate', 'used', 'size'], ['cost', '_meta'], label)
-    const parsed: AcpUnknownRecord = { sessionUpdate: kind, used: acpFiniteNumber(input['used'], label + '.used'), size: acpFiniteNumber(input['size'], label + '.size') }
+    const parsed: AcpUnknownRecord = { sessionUpdate: kind, used: acpInteger(input['used'], label + '.used'), size: acpInteger(input['size'], label + '.size') }
     if (Object.hasOwn(input, 'cost')) {
       if (input['cost'] === null) parsed['cost'] = null
       else {

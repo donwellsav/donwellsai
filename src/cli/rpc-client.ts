@@ -22,7 +22,23 @@ function runtimeOwner(userData: string): { socketPath: string; authToken: string
   const locator = readRuntimeRecord(paths.runtimeFile)
   if (locator.status === 'missing') throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + paths.runtimeFile + '; is donwells.ai running?')
   if (locator.status === 'invalid') throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file: ' + locator.reason)
-  if (locator.status === 'legacy') return { socketPath: locator.record.socketPath, authToken: locator.record.authToken, legacy: true }
+  if (locator.status === 'legacy') {
+    let store: RuntimeOwnershipStore
+    try {
+      store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    } catch (error) {
+      if (error instanceof RuntimeOwnershipError) throw new CliFailure('RUNTIME_OWNER_' + error.code, error.message)
+      throw new CliFailure('RUNTIME_OWNER_UNAVAILABLE', error instanceof Error ? error.message : String(error))
+    }
+    try {
+      if (store.observe('donwells-app').status !== 'vacant') {
+        throw new CliFailure('OWNER_MISMATCH', 'Legacy runtime locator conflicts with the recorded authority owner')
+      }
+      return { socketPath: locator.record.socketPath, authToken: locator.record.authToken, legacy: true }
+    } finally {
+      store.close()
+    }
+  }
   let store: RuntimeOwnershipStore
   try {
     store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })

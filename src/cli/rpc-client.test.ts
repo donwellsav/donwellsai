@@ -118,4 +118,47 @@ describe('CLI runtime resolution', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it('refuses a reachable legacy locator when an active authority row exists', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-legacy-mismatch-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const endpoint = paths.socketPath
+    const token = 'legacy-cli-mismatch-token-123456'
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    const ownerId = '99999999-9999-4999-8999-999999999999'
+    const prepared = store.prepareClaim({
+      kind: 'donwells-app',
+      ownerId,
+      identity: { ...identity, generation: ownerId + ':1' },
+      endpoint: join(directory, 'authoritative.sock'),
+      authToken: 'authoritative-cli-token-123456'
+    }, store.observe('donwells-app'), null)
+    store.activate(prepared, 'a'.repeat(64))
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: endpoint, authToken: token }), { mode: 0o600 })
+    let connections = 0
+    const server = createServer(socket => {
+      connections += 1
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as { id: string; method: string; authToken?: string }
+          buffer = buffer.slice(newline + 1)
+          socket.write(JSON.stringify(message.method === 'auth.hello'
+            ? { id: message.id, ok: message.authToken === token, version: 'rpc-v1' }
+            : { id: message.id, ok: true, result: { unsafe: true } }) + '\n')
+        }
+      })
+    })
+    try {
+      await listen(server, endpoint)
+      expect(() => callRuntime('state.get', {}, directory, 250)).toThrowError(expect.objectContaining({ code: 'OWNER_MISMATCH' }))
+      expect(connections).toBe(0)
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })

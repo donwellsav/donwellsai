@@ -187,4 +187,38 @@ describe('runtime RPC publication lifecycle', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it.runIf(process.platform !== 'win32')('stays ready when predecessor cleanup refuses a regular file', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-rpc-predecessor-cleanup-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const predecessorEndpoint = join(directory, 'stale-predecessor')
+    writeFileSync(predecessorEndpoint, 'replacement', { mode: 0o600 })
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    const ownerId = '44444444-4444-4444-8444-444444444444'
+    const processIdentity = { pid: 2_147_483_647, bootId: 'stale-boot', startedAt: 'stale-start', executablePath: process.execPath, family: 'donwells-app' as const, capturedAt: '2026-09-13T00:00:00.000Z', generation: ownerId + ':1' }
+    const prepared = store.prepareClaim({ kind: 'donwells-app', ownerId, identity: processIdentity, endpoint: predecessorEndpoint, authToken: 'stale-predecessor-token-123456' }, store.observe('donwells-app'), null)
+    const predecessorLocator = { version: 2 as const, ownerId, ownerGeneration: prepared.generation, socketPath: predecessorEndpoint, authToken: prepared.authToken, processIdentity }
+    writeRuntimeRecord(paths.runtimeFile, predecessorLocator)
+    const written = readRuntimeRecord(paths.runtimeFile)
+    if (written.status !== 'current') throw new Error('predecessor locator was not published')
+    store.activate(prepared, written.sha256)
+    store.close()
+
+    const server = new RuntimeRpcServer(paths.socketPath, paths.runtimeFile, 'rpc-successor-token-123456', {} as RpcDeps)
+    try {
+      await server.start()
+      expect(server.isReady()).toBe(true)
+      expect(readFileSync(predecessorEndpoint, 'utf8')).toBe('replacement')
+      const locator = readRuntimeRecord(paths.runtimeFile)
+      if (locator.status !== 'current') throw new Error('successor locator was not published')
+      const activeStore = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      try {
+        expect(activeStore.resolveActive('donwells-app', locator.record, locator.sha256)).toMatchObject({ ownerId: locator.record.ownerId, state: 'active' })
+      } finally {
+        activeStore.close()
+      }
+    } finally {
+      server.stop()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })

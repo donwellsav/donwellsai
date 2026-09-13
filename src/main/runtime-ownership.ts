@@ -11,6 +11,7 @@ import {
   type RuntimeOwnerObservation
 } from '@shared/runtime-ownership'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
+import { logger } from '@shared/logger'
 import { localRuntimePaths, parseRuntimeRecordBytes, readRuntimeRecord, writeRuntimeRecord, type LegacyRuntimeRecord, type LocalRuntimeRecord, type LocalRuntimePaths, type RuntimeRecordRead } from './local-runtime'
 export type RuntimePublication = {
   store: RuntimeOwnershipStore
@@ -379,8 +380,7 @@ function removeDisplacedEndpoint(publication: RuntimePublication): void {
     rmSync(predecessor.endpoint)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    if (error instanceof RuntimeOwnershipError) throw error
-    fail('PREDECESSOR_CLEANUP_FAILED', error instanceof Error ? error.message : String(error))
+    logger.warn({ err: error, endpoint: predecessor.endpoint, ownerId: predecessor.ownerId, generation: predecessor.generation }, 'runtime predecessor endpoint cleanup failed after successor activation')
   } finally {
     publication.predecessor = undefined
   }
