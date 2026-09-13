@@ -31,6 +31,8 @@ async function main(): Promise<void> {
     void daemon.stopIfIdle().then((stopped) => {
       if (stopped) process.exit(0)
       else logger.info('terminal-daemon:refuse-shutdown (owned sessions)')
+    }).catch((error: unknown) => {
+      logger.error({ err: error }, 'terminal-daemon:shutdown-incomplete')
     })
   }
   process.on('SIGTERM', handleSignal)

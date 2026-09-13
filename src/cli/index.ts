@@ -3,9 +3,10 @@ import { commandUsage, parseCliArguments } from './arguments.js'
 import { callRuntime, CliFailure, defaultUserData } from './rpc-client.js'
 import { localRuntimePaths } from '../main/local-runtime.js'
 import { RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
-import { inspectRuntimeRecovery, quarantineLegacyRuntime } from './runtime-recovery.js'
+import { inspectRuntimeRecovery, quarantineRuntime } from './runtime-recovery.js'
 import { resolve } from 'node:path'
 import { parseProjectMemoryMcpArguments, PROJECT_MEMORY_MCP_USAGE, runProjectMemoryMcp } from './project-memory-mcp.js'
+import { runtimeIdentityAuthority } from '../main/runtime-identity.js'
 
 async function runMemoryMcp(argv: readonly string[]): Promise<number> {
   if (argv.includes('--help')) {
@@ -81,7 +82,7 @@ async function runRuntimeRecovery(argv: readonly string[]): Promise<number> {
     const paths = localRuntimePaths(userData, runtimeKind === 'donwells-app' ? 'app' : 'terminal')
     const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
     try {
-      const result = quarantineLegacyRuntime({ userDataDir: userData, kind: runtimeKind, store, confirm })
+      const result = quarantineRuntime({ userDataDir: userData, kind: runtimeKind, store, authority: runtimeIdentityAuthority(), confirm })
       console.log(JSON.stringify({ ok: true, recovery: result }, null, 2))
       return 0
     } finally {

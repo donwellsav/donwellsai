@@ -30,9 +30,14 @@ describe('runtime publication state machine', () => {
     try {
       expect(readRuntimeRecord(publication.paths.runtimeFile, () => { throw Object.assign(new Error('missing'), { code: 'not-found' }) })).toEqual({ status: 'missing' })
       expect(publication.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
-      await publishRuntimeOwner(publication, () => undefined)
+      let bindCompleted = false
+      await publishRuntimeOwner(publication, () => {
+        expect(readRuntimeRecord(publication.paths.runtimeFile, () => { throw Object.assign(new Error('missing'), { code: 'not-found' }) })).toEqual({ status: 'missing' })
+        bindCompleted = true
+      })
+      expect(bindCompleted).toBe(true)
       const locator = readRuntimeRecord(publication.paths.runtimeFile)
-      expect(locator).toMatchObject({ status: 'current', record: { ownerId: publication.owner.ownerId, ownerGeneration: 1, socketPath: endpoint } })
+      expect(locator).toMatchObject({ status: 'current', record: { ownerId: publication.owner.ownerId, ownerGeneration: 1, socketPath: publication.owner.endpoint } })
       expect(publication.store.resolveActive('donwells-app', locator.status === 'current' ? locator.record : (() => { throw new Error('not current') })(), locator.status === 'current' ? locator.sha256 : '')).toEqual(publication.owner)
     } finally {
       publication.store.close()
@@ -45,7 +50,7 @@ describe('runtime publication state machine', () => {
     const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       expect(publication.owner.state).toBe('preparing')
-      expect(releaseRuntimeOwner(publication)).toBe(false)
+      expect(releaseRuntimeOwner(publication)).toBe('not-owned')
       expect(publication.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: publication.owner.ownerId, state: 'preparing' } })
     } finally {
       publication.store.close()
@@ -61,7 +66,7 @@ describe('runtime publication state machine', () => {
     const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-app-runtime.sock')), authToken: 'second-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
     try {
       await expect(publishRuntimeOwner(second, () => undefined)).resolves.toMatchObject({ generation: 2, state: 'active' })
-      expect(releaseRuntimeOwner(first)).toBe(false)
+      expect(releaseRuntimeOwner(first)).toBe('not-owned')
       expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2 } })
     } finally {
       first.store.close()
@@ -158,6 +163,13 @@ describe('runtime publication state machine', () => {
     await publishRuntimeOwner(first, () => undefined)
     const mismatched: LocalRuntimeRecord = { ...first.locator, socketPath: freshRuntimeEndpoint(join('/tmp', 'donwells-stale.sock')), authToken: 'stale-locator-token' }
     writeRuntimeRecord(first.paths.runtimeFile, mismatched)
+    const orphan = readRuntimeRecord(first.paths.runtimeFile)
+    if (orphan.status !== 'current') throw new Error('orphan fixture was not readable')
+    const evidencePath = join(directory, 'orphan-v2.evidence')
+    writeFileSync(evidencePath, JSON.stringify(mismatched), { mode: 0o600 })
+    const evidence = readRuntimeRecord(evidencePath)
+    if (evidence.status !== 'current') throw new Error('orphan evidence was not readable')
+    first.store.recordLegacyRecovery({ kind: 'donwells-app', expectedFingerprint: orphan.sha256, fileIdentity: orphan.fileIdentity, evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: orphan.record.socketPath, recordType: 'orphan-v2' })
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
     try {
       await expect(reconcileRuntimeOwner({
@@ -181,9 +193,37 @@ describe('runtime publication state machine', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       if (observed.status !== 'legacy') throw new Error('legacy fixture was not readable')
-      store.recordLegacyRecovery({ kind: 'donwells-app', expectedFingerprint: observed.sha256, fileIdentity: observed.fileIdentity, evidencePath: join(directory, 'legacy.evidence'), endpoint: observed.record.socketPath })
+      const evidencePath = join(directory, 'legacy.evidence')
+      writeFileSync(evidencePath, JSON.stringify(legacy), { mode: 0o600 })
+      const evidence = readRuntimeRecord(evidencePath)
+      if (evidence.status !== 'legacy') throw new Error('legacy evidence was not readable')
+      store.recordLegacyRecovery({ kind: 'donwells-app', expectedFingerprint: observed.sha256, fileIdentity: observed.fileIdentity, evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: observed.record.socketPath, recordType: 'legacy' })
       const result = await reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store, contact: async () => { throw new Error('recovery should not contact legacy endpoint') } })
       expect(result).toEqual({ action: 'claim' })
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('rejects endpoint reuse after a prior generation releases', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-endpoint-history-')))
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    const endpoint = join(directory, 'same.sock')
+    const firstId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const secondId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const candidate = (ownerId: string, generation: number) => ({
+      kind: 'donwells-app' as const,
+      ownerId,
+      identity: { ...identity, generation: ownerId + ':' + generation },
+      endpoint,
+      authToken: ownerId + '-token'
+    })
+    try {
+      const first = store.prepareClaim(candidate(firstId, 1), store.observe('donwells-app'), null)
+      expect(store.abandonPreparing(first)).toBe(true)
+      const observed = store.observe('donwells-app')
+      expect(observed).toMatchObject({ status: 'vacant', lastGeneration: 1 })
+      expect(() => store.prepareClaim(candidate(secondId, 2), observed, null)).toThrowError(expect.objectContaining({ code: 'ENDPOINT_REUSED' }))
     } finally {
       store.close()
       rmSync(directory, { recursive: true, force: true })

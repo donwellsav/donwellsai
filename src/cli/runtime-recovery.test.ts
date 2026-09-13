@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createPrivateRuntimeFileReader, type NativeRuntimeFileAddon } from '@shared/runtime-file-security'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
-import { inspectRuntimeRecovery, quarantineLegacyRuntime } from './runtime-recovery'
+import { inspectRuntimeRecovery, quarantineRuntime } from './runtime-recovery'
 
 function addon(bytes: Buffer, identity: Record<string, string> = { platform: 'posix', device: '1', inode: '2' }): NativeRuntimeFileAddon {
   return { platform: process.platform, runtimeFileSecurityContractVersion: 1, readPrivateRuntimeFile: () => ({ ok: true, bytes, fileIdentity: identity }) }
@@ -80,7 +80,7 @@ describe('legacy runtime recovery', () => {
       expect(inspected).toMatchObject({ runtimeKind: 'donwells-app', pid: 123, verdict: 'legacy-record', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
       expect(readFileSync(runtimeFile)).toEqual(bytes)
       const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
-      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: 'wrong' })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CONFIRMATION' }))
+      expect(() => quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: 'wrong' })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CONFIRMATION' }))
       store.close()
     } finally {
       rmSync(directory, { recursive: true, force: true })
@@ -98,7 +98,7 @@ describe('legacy runtime recovery', () => {
     let interrupted = false
     try {
       const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'donwells-app', reader })
-      expect(() => quarantineLegacyRuntime({
+      expect(() => quarantineRuntime({
         userDataDir: directory,
         kind: 'donwells-app',
         reader,
@@ -108,10 +108,36 @@ describe('legacy runtime recovery', () => {
         afterEvidenceWrite: () => { interrupted = true; throw new Error('injected interruption') }
       })).toThrow(/injected interruption/)
       expect(interrupted).toBe(true)
-      const resumed = quarantineLegacyRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256!, canContactLegacy: noLegacyContact })
+      const resumed = quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256!, canContactLegacy: noLegacyContact })
       expect(resumed.state).toBe('committed')
       expect(readFileSync(runtimeFile)).toEqual(bytes)
       expect(readFileSync(resumed.evidencePath)).toEqual(bytes)
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('resumes a recovery whose durable commit completed before interruption', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-recovery-commit-')))
+    const runtimeFile = join(directory, 'donwells-runtime.json')
+    const bytes = Buffer.from(JSON.stringify({ socketPath: join(directory, 'missing.sock'), authToken: 'legacy-commit-token-123456', pid: 322 }))
+    writeFileSync(runtimeFile, bytes, { mode: 0o600 })
+    const reader = createPrivateRuntimeFileReader(addon(bytes), process.platform)
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    try {
+      const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'donwells-app', reader })
+      expect(() => quarantineRuntime({
+        userDataDir: directory,
+        kind: 'donwells-app',
+        reader,
+        store,
+        confirm: inspected.sha256!,
+        canContactLegacy: () => false,
+        afterRecoveryCommit: () => { throw new Error('after durable commit') }
+      })).toThrow(/after durable commit/)
+      const resumed = quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256!, canContactLegacy: () => false })
+      expect(resumed.state).toBe('committed')
+      expect(resumed.expectedFingerprint).toBe(inspected.sha256)
     } finally {
       store.close()
       rmSync(directory, { recursive: true, force: true })
@@ -135,7 +161,7 @@ describe('legacy runtime recovery', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const first = inspectRuntimeRecovery({ userDataDir: directory, kind: 'donwells-app', reader })
-      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: first.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CHANGED' }))
+      expect(() => quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: first.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CHANGED' }))
       expect(readFileSync(runtimeFile)).toEqual(bytesA)
     } finally {
       store.close()
@@ -156,7 +182,7 @@ describe('legacy runtime recovery', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'donwells-app', reader })
-      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256!, canContactLegacy: () => false })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CHANGED' }))
+      expect(() => quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256!, canContactLegacy: () => false })).toThrowError(expect.objectContaining({ code: 'RECOVERY_CHANGED' }))
     } finally {
       store.close()
       rmSync(directory, { recursive: true, force: true })
@@ -174,7 +200,7 @@ describe('legacy runtime recovery', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'donwells-app', reader })
-      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_LIVE' }))
+      expect(() => quarantineRuntime({ userDataDir: directory, kind: 'donwells-app', reader, store, confirm: inspected.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_LIVE' }))
       expect(readFileSync(runtimeFile)).toEqual(bytes)
     } finally {
       store.close()
@@ -195,7 +221,7 @@ describe('legacy runtime recovery', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const inspected = inspectRuntimeRecovery({ userDataDir: directory, kind: 'terminal-daemon', reader })
-      expect(() => quarantineLegacyRuntime({ userDataDir: directory, kind: 'terminal-daemon', reader, store, confirm: inspected.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_LIVE' }))
+      expect(() => quarantineRuntime({ userDataDir: directory, kind: 'terminal-daemon', reader, store, confirm: inspected.sha256! })).toThrowError(expect.objectContaining({ code: 'RECOVERY_LIVE' }))
     } finally {
       store.close()
       await stopLegacyServer(server)

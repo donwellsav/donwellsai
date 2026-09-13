@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { basename, dirname, join } from 'node:path'
 import type { ProcessIdentity, ProcessIdentityVerdict } from './child-process/process-spec'
-import { canonicalPrivateDirectory, runtimeAuthorityRunner, type RuntimeAuthorityRunner } from './runtime-file-security'
+import { canonicalPrivateDirectory, privateRuntimeFileReader, readPrivateRuntimeFile, runtimeAuthorityRunner, type RuntimeAuthorityRunner, type RuntimeFileReader } from './runtime-file-security'
 
 export type RuntimeOwnerKind = 'donwells-app' | 'terminal-daemon'
 export type RuntimeOwner = {
@@ -35,9 +35,11 @@ export type LegacyRecoveryInput = {
   expectedFingerprint: string
   fileIdentity: Record<string, string>
   evidencePath: string
+  evidenceFileIdentity: Record<string, string>
   endpoint: string
+  recordType: 'legacy' | 'orphan-v2'
 }
-export type LegacyRecoveryMatch = Pick<LegacyRecoveryInput, 'kind' | 'expectedFingerprint' | 'fileIdentity' | 'endpoint'>
+export type LegacyRecoveryMatch = Pick<LegacyRecoveryInput, 'kind' | 'expectedFingerprint' | 'fileIdentity' | 'endpoint' | 'recordType'>
 
 export type LegacyRecoveryRecord = LegacyRecoveryInput & {
   id: string
@@ -51,6 +53,19 @@ export class RuntimeOwnershipError extends Error {
     super(message)
     this.name = 'RuntimeOwnershipError'
   }
+}
+export function readVerifiedRecoveryEvidence(record: LegacyRecoveryRecord, reader: RuntimeFileReader = privateRuntimeFileReader()): Buffer {
+  let evidence
+  try {
+    evidence = readPrivateRuntimeFile(record.evidencePath, 64 * 1024, reader)
+  } catch (error) {
+    throw new RuntimeOwnershipError('RECOVERY_EVIDENCE_INVALID', error instanceof Error ? error.message : String(error))
+  }
+  if (evidence.sha256 !== record.expectedFingerprint
+    || JSON.stringify(evidence.fileIdentity) !== JSON.stringify(record.evidenceFileIdentity)) {
+    throw new RuntimeOwnershipError('RECOVERY_EVIDENCE_INVALID', 'runtime recovery evidence identity or bytes changed')
+  }
+  return evidence.bytes
 }
 
 const OWNER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -137,6 +152,24 @@ function now(): string {
   return new Date().toISOString()
 }
 
+function parseRecoveryDetail(value: unknown): Pick<LegacyRecoveryInput, 'fileIdentity' | 'evidencePath' | 'evidenceFileIdentity' | 'endpoint' | 'recordType'> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'runtime recovery detail was malformed')
+  const detail = value as Record<string, unknown>
+  if (typeof detail['fileIdentity'] !== 'object' || detail['fileIdentity'] === null || Array.isArray(detail['fileIdentity'])
+    || typeof detail['evidenceFileIdentity'] !== 'object' || detail['evidenceFileIdentity'] === null || Array.isArray(detail['evidenceFileIdentity'])
+    || typeof detail['evidencePath'] !== 'string' || detail['evidencePath'].length === 0 || detail['evidencePath'].includes('\0')
+    || typeof detail['endpoint'] !== 'string' || detail['endpoint'].length === 0 || detail['endpoint'].includes('\0')
+    || (detail['recordType'] !== 'legacy' && detail['recordType'] !== 'orphan-v2')) {
+    throw new RuntimeOwnershipError('INVALID_RECOVERY', 'runtime recovery detail violated its schema')
+  }
+  return {
+    fileIdentity: detail['fileIdentity'] as Record<string, string>,
+    evidencePath: detail['evidencePath'],
+    evidenceFileIdentity: detail['evidenceFileIdentity'] as Record<string, string>,
+    endpoint: detail['endpoint'],
+    recordType: detail['recordType']
+  }
+}
 type StoreOptions = { readOnly?: boolean; authorityRunner?: RuntimeAuthorityRunner }
 
 const AUTHORITY_MAGIC = Buffer.from('DWSQLA01')
@@ -243,7 +276,14 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      PRAGMA user_version=3;
+      CREATE TABLE runtime_owner_endpoint_history (
+        endpoint TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      PRAGMA user_version=4;
     `)
   } else if (version === 1 && !readOnly) {
     db.exec(`
@@ -254,14 +294,72 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
       INSERT INTO runtime_owner_generations(kind,last_generation)
         SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
       CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-      PRAGMA user_version=3;
+      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        expected_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL,
+        detail_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE runtime_owner_endpoint_history (
+        endpoint TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
+        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
+      PRAGMA user_version=4;
     `)
   } else if (version === 2 && !readOnly) {
     db.exec(`
       CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-      PRAGMA user_version=3;
+      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        expected_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL,
+        detail_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE runtime_owner_endpoint_history (
+        endpoint TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
+        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
+      PRAGMA user_version=4;
     `)
-  } else if (version !== 3) {
+  } else if (version === 3 && !readOnly) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        expected_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL,
+        detail_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE runtime_owner_endpoint_history (
+        endpoint TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
+        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
+      PRAGMA user_version=4;
+    `)
+  } else if (version !== 4 && !(readOnly && version === 3)) {
     throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
   }
 }
@@ -362,6 +460,14 @@ export class RuntimeOwnershipStore {
       if (candidate.identity.family !== candidate.kind || candidate.identity.generation !== candidate.ownerId + ':' + generation) {
         throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime process identity generation did not match its owner row')
       }
+      if (candidate.endpoint.length > 4096 || candidate.endpoint.includes('\0')) {
+        throw new RuntimeOwnershipError('INVALID_OWNER', 'runtime owner endpoint was malformed')
+      }
+      const priorEndpoint = db.prepare('SELECT kind, owner_id, generation FROM runtime_owner_endpoint_history WHERE endpoint=?').get(candidate.endpoint) as Record<string, unknown> | undefined
+      if (priorEndpoint) {
+        throw new RuntimeOwnershipError('ENDPOINT_REUSED', 'runtime owner endpoint was already bound to a prior generation')
+      }
+      db.prepare('INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at) VALUES(?,?,?,?,?)').run(candidate.endpoint, candidate.kind, candidate.ownerId, generation, claimedAt)
       const owner: RuntimeOwner = { ...candidate, generation, state: 'preparing', locatorSha256: null }
       db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?) ON CONFLICT(kind) DO UPDATE SET last_generation=excluded.last_generation').run(owner.kind, generation)
       if (current) {
@@ -423,6 +529,15 @@ export class RuntimeOwnershipStore {
       return deleted
     })
   }
+  abandonPreparing(owner: RuntimeOwner): boolean {
+    if (owner.state !== 'preparing') return false
+    return this.withDatabase(true, db => {
+      const deleted = Number(db.prepare('DELETE FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=? AND state=?').run(
+        owner.kind, owner.ownerId, owner.generation, 'preparing').changes) === 1
+      if (deleted) this.audit(db, owner.kind, 'abandon-preparing', rowHash(owner), owner, {})
+      return deleted
+    })
+  }
 
   findLegacyRecovery(match: LegacyRecoveryMatch): LegacyRecoveryRecord | null {
     assertKind(match.kind)
@@ -430,12 +545,13 @@ export class RuntimeOwnershipStore {
     return this.withDatabase(false, db => {
       const rows = db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE kind=? AND expected_fingerprint=? AND state=?').all(match.kind, match.expectedFingerprint, 'committed') as Array<Record<string, unknown>>
       for (const row of rows) {
-        let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
-        try { detail = JSON.parse(String(row['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
-        if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint) continue
+        let detail
+        try { detail = parseRecoveryDetail(JSON.parse(String(row['detail_json']))) } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+        if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint || detail.recordType !== match.recordType) continue
         return {
           id: String(row['id']), kind: match.kind, expectedFingerprint: String(row['expected_fingerprint']),
-          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
+          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, evidenceFileIdentity: detail.evidenceFileIdentity,
+          endpoint: detail.endpoint, recordType: detail.recordType,
           state: 'committed', createdAt: String(row['created_at']), updatedAt: String(row['updated_at'])
         }
       }
@@ -450,22 +566,24 @@ export class RuntimeOwnershipStore {
     return this.withDatabase(true, db => {
       const existing = db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE id=?').get(id) as Record<string, unknown> | undefined
       if (existing) {
-        let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
-        try { detail = JSON.parse(String(existing['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
+        let detail
+        try { detail = parseRecoveryDetail(JSON.parse(String(existing['detail_json']))) } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
         if (existing['kind'] !== input.kind || existing['expected_fingerprint'] !== input.expectedFingerprint
           || JSON.stringify(detail.fileIdentity) !== JSON.stringify(input.fileIdentity)
-          || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint) {
+          || JSON.stringify(detail.evidenceFileIdentity) !== JSON.stringify(input.evidenceFileIdentity)
+          || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint || detail.recordType !== input.recordType) {
           throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence or endpoint')
         }
         return {
           id: String(existing['id']), kind: input.kind, expectedFingerprint: String(existing['expected_fingerprint']),
-          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
+          fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, evidenceFileIdentity: detail.evidenceFileIdentity,
+          endpoint: detail.endpoint, recordType: detail.recordType,
           state: 'committed', createdAt: String(existing['created_at']), updatedAt: String(existing['updated_at'])
         }
       }
       const createdAt = now()
       db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(
-        id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, endpoint: input.endpoint }), createdAt, createdAt)
+        id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, evidenceFileIdentity: input.evidenceFileIdentity, endpoint: input.endpoint, recordType: input.recordType }), createdAt, createdAt)
       return { ...input, id, state: 'committed', createdAt, updatedAt: createdAt }
     })
   }

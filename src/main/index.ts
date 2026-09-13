@@ -493,14 +493,7 @@ function registerIpc(): void {
   ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
   ipcMain.handle('plugin:enable', (_e, pluginId: string) => getServices().pluginLoader.enable(pluginId))
   ipcMain.handle('plugin:disable', (_e, pluginId: string) => getServices().pluginLoader.disable(pluginId))
-  ipcMain.handle('plugin:install', async (_e, sourceDirPath: string) => {
-    try {
-      return await getServices().pluginLoader.install(sourceDirPath)
-    } catch (err) {
-      logger.error({ err }, 'plugin-loader: install failed')
-      throw err
-    }
-  })
+  ipcMain.handle('plugin:install', (_e, sourceDirPath: string) => getServices().pluginLoader.install(sourceDirPath))
   ipcMain.handle('plugin:remove', (_e, pluginId: string) => getServices().pluginLoader.remove(pluginId))
 
   // --- Session Templates IPC ---
@@ -762,7 +755,7 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   getServices().analytics.track('app:ready', 'app')
   store = new Store()
   browserHistory = new BrowserHistoryStore(app.getPath('userData'), undefined, undefined, () => store.getSettings().recordBrowserHistory)
@@ -1069,20 +1062,34 @@ app.whenReady().then(() => {
     }
   )
   rpcServer = rpc
-  void rpc.start().then(() => {
-    if (!rpc.isReady()) throw new Error('runtime RPC start completed without an active listener')
-  }).catch((e) => {
-    logger.fatal({ err: e }, 'runtime rpc failed to start')
-    app.exit(1)
-  })
-  if (process.env['DONWELLS_SMOKE'] === '1') {
-    mainWindow?.webContents.once('did-finish-load', () => {
-      logger.info('smoke:ready')
-      void runSmokeProbe(git, mainWindow!).then((ok) => {
-        app.exit(ok ? 0 : 1)
+  const rendererLoaded = process.env['DONWELLS_SMOKE'] === '1' && mainWindow
+    ? new Promise<void>(resolve => {
+        if (mainWindow!.webContents.isLoadingMainFrame()) mainWindow!.webContents.once('did-finish-load', () => resolve())
+        else resolve()
       })
-    })
+    : null
+  try {
+    await rpc.start()
+    if (!rpc.isReady()) throw new Error('runtime RPC start completed without an active listener and active ownership')
+  } catch (error) {
+    logger.fatal({ err: error }, 'runtime rpc failed to start')
+    app.exit(1)
+    return
   }
+  if (rendererLoaded) {
+    await rendererLoaded
+    if (!rpc.isReady()) {
+      logger.fatal('smoke readiness refused because runtime RPC ownership was lost')
+      app.exit(1)
+      return
+    }
+    logger.info('smoke:ready')
+    const ok = await runSmokeProbe(git, mainWindow!)
+    app.exit(ok ? 0 : 1)
+  }
+}).catch((error) => {
+  logger.fatal({ err: error }, 'application startup failed')
+  app.exit(1)
 })
 app.on('before-quit', (event) => {
   if (!allowQuit && mainWindow && commandRouter.isReady('ui:command')) {
@@ -1105,7 +1112,8 @@ app.on('will-quit', (event) => {
   // to exit itself, reclaiming the socket/runtime files only when nothing is owned.
   void terminalBus?.shutdownIfIdle().catch((err) => logger.debug({ err }, 'idle daemon reaped refused'))
   void workspacePreview.close()
-  rpcServer?.stop()
+  const runtimeCleanup = rpcServer?.stop()
+  if (runtimeCleanup === 'cleanup-failed') logger.error('runtime RPC ownership cleanup could not be verified before quit')
   operationalRuns?.stop()
   trayService?.stop()
   perfServer?.close()

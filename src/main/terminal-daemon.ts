@@ -1,6 +1,6 @@
 import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
 import { chmodSync, lstatSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
@@ -96,6 +96,7 @@ export class TerminalDaemon {
   private readonly authToken: string
   private publication: RuntimePublication | null = null
   private readonly paths: LocalRuntimePaths
+  private readonly baseEndpointPath: string
   private readonly emitterCommand: readonly string[]
   private readonly scrollback = new Map<string, string>()
   private readonly replay = new Map<string, Array<{ data: string; cols: number; rows: number }>>()
@@ -115,6 +116,7 @@ export class TerminalDaemon {
     const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
     this.authToken = opts.authToken
     this.paths = localRuntimePaths(userDataDir, 'terminal')
+    this.baseEndpointPath = this.paths.socketPath
     this.acp = new AcpSessions(userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
     this.emitterCommand = opts.emitterCommand ?? [
       process.execPath,
@@ -158,6 +160,7 @@ export class TerminalDaemon {
     for (const client of this.connections) client.destroy()
     this.connections.clear()
     this.clients.clear()
+    let released: RuntimeReleaseResult | 'no-owner' = 'no-owner'
     try {
       if (server) {
         const closed = Promise.withResolvers<void>()
@@ -167,8 +170,9 @@ export class TerminalDaemon {
     } finally {
       this.removeOwnedEndpoint()
       this.boundIno = null
-      this.releaseRuntimeOwner()
+      released = this.releaseRuntimeOwner()
     }
+    if (released === 'cleanup-failed') throw new Error('terminal daemon shutdown could not verify ownership cleanup: ' + released)
     return true
   }
 
@@ -188,33 +192,36 @@ export class TerminalDaemon {
       ? claimRuntimeOwner({
           userDataDir: dirname(this.paths.runtimeDir),
           kind: 'terminal-daemon',
-          endpoint: freshRuntimeEndpoint(this.paths.socketPath),
+          endpoint: this.baseEndpointPath,
           authToken: this.authToken,
           captureIdentity: generation => authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation }),
           authority
         })
       : reconciliation.publication
     if (lifecycleGeneration !== this.lifecycleGeneration) {
+      const abandoned = abandonRuntimeOwner(publication)
       publication.store.close()
+      if (abandoned !== 'released') throw new Error('Terminal daemon start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Terminal daemon start was cancelled before bind')
     }
     this.publication = publication
     this.paths.socketPath = publication.owner.endpoint
-    const server = createServer(socket => this.handleClient(socket))
-    this.server = server
-    const listening = Promise.withResolvers<void>()
-    const onError = (error: Error): void => {
-      server.removeListener('listening', onListening)
-      listening.reject(error)
-    }
-    const onListening = (): void => {
-      server.removeListener('error', onError)
-      listening.resolve()
-    }
-    server.once('error', onError)
-    server.once('listening', onListening)
-    server.listen(this.paths.socketPath)
+    let server: Server | null = null
     try {
+      server = createServer(socket => this.handleClient(socket))
+      this.server = server
+      const listening = Promise.withResolvers<void>()
+      const onError = (error: Error): void => {
+        server?.removeListener('listening', onListening)
+        listening.reject(error)
+      }
+      const onListening = (): void => {
+        server?.removeListener('error', onError)
+        listening.resolve()
+      }
+      server.once('error', onError)
+      server.once('listening', onListening)
+      server.listen(this.paths.socketPath)
       await listening.promise
       if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Terminal daemon start was cancelled before publication')
       if (process.platform !== 'win32') {
@@ -226,10 +233,10 @@ export class TerminalDaemon {
     } catch (error) {
       const failedPublication = this.publication
       let failure: unknown = error
-      if (server.listening && this.endpointPathState() === 'foreign') {
+      if (server?.listening && this.endpointPathState() === 'foreign') {
         failure = new Error('terminal daemon endpoint path changed during startup; refusing to close it', { cause: error })
       }
-      if (server.listening) {
+      if (server?.listening) {
         const closed = Promise.withResolvers<void>()
         server.close(() => closed.resolve())
         await closed.promise
@@ -237,8 +244,17 @@ export class TerminalDaemon {
       this.server = null
       this.removeOwnedEndpoint()
       this.boundIno = null
-      this.publication = null
-      failedPublication?.store.close()
+      if (failedPublication) {
+        const released = failedPublication.owner.state === 'active'
+          ? releaseRuntimeOwner(failedPublication)
+          : abandonRuntimeOwner(failedPublication)
+        if (released === 'released') {
+          this.publication = null
+          failedPublication.store.close()
+        } else if (released === 'cleanup-failed') {
+          failure = new Error('terminal daemon startup failed and ownership cleanup could not be verified', { cause: error })
+        }
+      }
       throw failure
     }
   }
@@ -268,12 +284,14 @@ export class TerminalDaemon {
     if (this.endpointPathState() !== 'owned') return
     try { rmSync(this.paths.socketPath) } catch {}
   }
-  private releaseRuntimeOwner(): void {
+  private releaseRuntimeOwner(): RuntimeReleaseResult | 'no-owner' {
     const publication = this.publication
     this.publication = null
-    if (!publication) return
+    if (!publication) return 'no-owner'
     try {
-      releaseRuntimeOwner(publication)
+      return publication.owner.state === 'active'
+        ? releaseRuntimeOwner(publication)
+        : abandonRuntimeOwner(publication)
     } finally {
       publication.store.close()
     }

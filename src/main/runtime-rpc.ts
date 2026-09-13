@@ -39,7 +39,7 @@ import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { readRuntimeRecord } from './local-runtime'
 import { runtimeIdentityAuthority } from './runtime-identity'
 // Authenticated NDJSON; the CLI and UI share domain operations and argument validation.
@@ -120,13 +120,16 @@ export class RuntimeRpcServer {
   private boundIno: number | null = null
   private publication: RuntimePublication | null = null
   private lifecycleGeneration = 0
+  private readonly baseSocketPath: string
 
   constructor(
     private socketPath: string,
     private runtimeFile: string,
     private authToken: string,
     private deps: RpcDeps
-  ) {}
+  ) {
+    this.baseSocketPath = socketPath
+  }
   /** True only after the listener is bound and its active ownership is published. */
   isReady(): boolean {
     return this.server?.listening === true && this.publication?.owner.state === 'active'
@@ -147,14 +150,16 @@ export class RuntimeRpcServer {
       ? claimRuntimeOwner({
           userDataDir: dirname(this.runtimeFile),
           kind: 'donwells-app',
-          endpoint: freshRuntimeEndpoint(this.socketPath),
+          endpoint: this.baseSocketPath,
           authToken: this.authToken,
           captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }),
           authority
         })
       : reconciliation.publication
     if (lifecycleGeneration !== this.lifecycleGeneration) {
+      const abandoned = abandonRuntimeOwner(publication)
       publication.store.close()
+      if (abandoned !== 'released') throw new Error('Runtime RPC start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Runtime RPC start was cancelled before bind')
     }
     this.publication = publication
@@ -169,16 +174,24 @@ export class RuntimeRpcServer {
         chmodSync(directory, 0o700)
       }
     } catch (error) {
-      this.publication = null
-      publication.store.close()
+      const released = publication.owner.state === 'active'
+        ? releaseRuntimeOwner(publication)
+        : abandonRuntimeOwner(publication)
+      if (released === 'released') {
+        this.publication = null
+        publication.store.close()
+      } else if (released === 'cleanup-failed') {
+        throw new Error('Runtime RPC startup failed and ownership cleanup could not be verified', { cause: error })
+      }
       throw error
     }
-    const ready = Promise.withResolvers<void>()
-    const server = createServer(socket => this.handleClient(socket))
-    this.server = server
-    server.on('error', ready.reject)
-    server.listen(this.socketPath, () => ready.resolve())
+    let server: Server | null = null
     try {
+      const ready = Promise.withResolvers<void>()
+      server = createServer(socket => this.handleClient(socket))
+      this.server = server
+      server.on('error', ready.reject)
+      server.listen(this.socketPath, () => ready.resolve())
       await ready.promise
       if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Runtime RPC start was cancelled before publication')
       if (process.platform !== 'win32') {
@@ -188,10 +201,11 @@ export class RuntimeRpcServer {
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
+      let failure = error
       const failedPublication = this.publication
       for (const client of this.clients) client.destroy()
       this.clients.clear()
-      if (server.listening) {
+      if (server?.listening) {
         const closed = Promise.withResolvers<void>()
         server.close(() => closed.resolve())
         await closed.promise
@@ -200,15 +214,27 @@ export class RuntimeRpcServer {
       if (process.platform !== 'win32' && this.boundIno !== null) {
         try {
           if (lstatSync(this.socketPath).ino === this.boundIno) rmSync(this.socketPath)
-        } catch {}
+          else failure = new Error('runtime RPC endpoint identity changed during failed startup; it was not removed', { cause: error })
+        } catch (cleanupError) {
+          if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') failure = new Error('runtime RPC endpoint cleanup failed', { cause: cleanupError })
+        }
       }
       this.boundIno = null
-      this.publication = null
-      failedPublication?.store.close()
-      throw error
+      if (failedPublication) {
+        const released = failedPublication.owner.state === 'active'
+          ? releaseRuntimeOwner(failedPublication)
+          : abandonRuntimeOwner(failedPublication)
+        if (released === 'released') {
+          this.publication = null
+          failedPublication.store.close()
+        } else if (released === 'cleanup-failed') {
+          failure = new Error('runtime RPC startup failed and locator cleanup could not be verified', { cause: error })
+        }
+      }
+      throw failure
     }
   }
-  stop(): void {
+  stop(): RuntimeReleaseResult | 'no-owner' {
     ++this.lifecycleGeneration
     for (const client of this.clients) client.destroy()
     this.clients.clear()
@@ -221,12 +247,13 @@ export class RuntimeRpcServer {
     if (ownsEndpoint || publication?.owner.state === 'preparing') this.server?.close()
     this.server = null
     this.boundIno = null
-    if (publication) {
-      try {
-        releaseRuntimeOwner(publication)
-      } finally {
-        publication.store.close()
-      }
+    if (!publication) return 'no-owner'
+    try {
+      return publication.owner.state === 'active'
+        ? releaseRuntimeOwner(publication)
+        : abandonRuntimeOwner(publication)
+    } finally {
+      publication.store.close()
     }
   }
 

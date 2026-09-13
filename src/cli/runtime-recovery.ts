@@ -2,8 +2,10 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { localRuntimePaths, parseRuntimeRecordBytes } from '../main/local-runtime.js'
-import { canonicalPrivateDirectory, readPrivateRuntimeFile, type RuntimeFileReader } from '../shared/runtime-file-security.js'
+import { canonicalPrivateDirectory, readPrivateRuntimeFile, type RuntimeFileRead, type RuntimeFileReader } from '../shared/runtime-file-security.js'
+import type { RuntimeIdentityAuthority } from '../shared/child-process/process-spec.js'
 import {
+  readVerifiedRecoveryEvidence,
   type LegacyRecoveryRecord,
   type RuntimeOwnerKind,
   type RuntimeOwnershipStore
@@ -31,6 +33,7 @@ export type LegacyReachabilityProbe = (kind: RuntimeOwnerKind, socketPath: strin
 
 export type QuarantineOptions = RuntimeRecoveryOptions & {
   store: RuntimeOwnershipStore
+  authority?: RuntimeIdentityAuthority
   confirm: string
   afterEvidenceWrite?: () => void
   afterRecoveryCommit?: () => void
@@ -83,7 +86,7 @@ function evidenceFor(options: QuarantineOptions, fingerprint: string): string {
   return join(directory, options.kind + '-' + fingerprint + '.json')
 }
 
-function writeEvidence(path: string, bytes: Buffer): void {
+function writeEvidence(path: string, bytes: Buffer): RuntimeFileRead {
   if (!existsSync(path)) {
     try {
       writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' })
@@ -98,6 +101,7 @@ function writeEvidence(path: string, bytes: Buffer): void {
     throw new RuntimeRecoveryError('RECOVERY_CHANGED', error instanceof Error ? error.message : String(error))
   }
   if (!evidence.bytes.equals(bytes)) throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'recovery evidence differs from the confirmed bytes')
+  return evidence
 }
 
 function contactLegacyEndpoint(kind: RuntimeOwnerKind, socketPath: string, authToken: string): boolean {
@@ -137,37 +141,61 @@ function contactLegacyEndpoint(kind: RuntimeOwnerKind, socketPath: string, authT
 }
 
 
-export function quarantineLegacyRuntime(options: QuarantineOptions): QuarantineResult {
+export function quarantineRuntime(options: QuarantineOptions): QuarantineResult {
   const { inspection, bytes } = inspectWithBytes(options)
-  if (inspection.verdict === 'current-owner') throw new RuntimeRecoveryError('RECOVERY_ACTIVE', 'a version-2 runtime owner is present')
-  if (inspection.verdict !== 'legacy-record' || bytes === null || inspection.sha256 === null || inspection.endpoint === null || inspection.fileIdentity === null) {
-    throw new RuntimeRecoveryError('RECOVERY_UNAVAILABLE', 'only a legacy runtime locator can be quarantined')
+  if ((inspection.verdict !== 'legacy-record' && inspection.verdict !== 'current-owner')
+    || bytes === null || inspection.sha256 === null || inspection.endpoint === null || inspection.fileIdentity === null) {
+    throw new RuntimeRecoveryError('RECOVERY_UNAVAILABLE', 'only a recognized runtime locator can be quarantined')
   }
   if (options.confirm !== inspection.sha256) {
     if (/^[a-f0-9]{64}$/.test(options.confirm)) throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'runtime locator bytes changed since confirmation')
     throw new RuntimeRecoveryError('RECOVERY_CONFIRMATION', 'confirmation fingerprint did not match the locator bytes')
   }
-  const legacy = JSON.parse(bytes.toString('utf8')) as { authToken: string }
+  const parsed = parseRuntimeRecordBytes(bytes)
+  if (parsed.status === 'invalid') throw new RuntimeRecoveryError('RECOVERY_UNAVAILABLE', 'runtime locator was invalid')
+  if (parsed.status === 'current') {
+    const identity = options.authority?.verify(parsed.record.processIdentity)
+    if (!identity) throw new RuntimeRecoveryError('RECOVERY_UNVERIFIABLE', 'version-2 quarantine requires native process identity verification')
+    if (identity.status === 'valid') throw new RuntimeRecoveryError('RECOVERY_LIVE', 'the version-2 runtime process identity is still live')
+    if (identity.status === 'indeterminate') throw new RuntimeRecoveryError('RECOVERY_UNVERIFIABLE', 'the version-2 runtime process identity could not be disproved')
+  }
   const contact = options.canContactLegacy ?? contactLegacyEndpoint
-  if (contact(options.kind, inspection.endpoint, legacy.authToken)) {
-    throw new RuntimeRecoveryError('RECOVERY_LIVE', 'the legacy runtime endpoint is reachable; it was not quarantined')
+  if (contact(options.kind, inspection.endpoint, parsed.record.authToken)) {
+    throw new RuntimeRecoveryError('RECOVERY_LIVE', 'the runtime endpoint is reachable; it was not quarantined')
   }
 
   const evidencePath = evidenceFor(options, inspection.sha256)
-  writeEvidence(evidencePath, bytes)
+  const evidence = writeEvidence(evidencePath, bytes)
   options.afterEvidenceWrite?.()
   const fresh = inspectWithBytes(options)
   if (fresh.inspection.sha256 !== inspection.sha256 || JSON.stringify(fresh.inspection.fileIdentity) !== JSON.stringify(inspection.fileIdentity)) {
     throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'runtime locator identity changed after evidence was written')
   }
+  const recordType = parsed.status === 'legacy' ? 'legacy' : 'orphan-v2'
   const recovery = options.store.recordLegacyRecovery({
     id: options.kind + '-' + inspection.sha256,
     kind: options.kind,
     expectedFingerprint: inspection.sha256,
     fileIdentity: inspection.fileIdentity,
     evidencePath,
-    endpoint: inspection.endpoint
+    evidenceFileIdentity: evidence.fileIdentity,
+    endpoint: inspection.endpoint,
+    recordType
   })
   options.afterRecoveryCommit?.()
+  const committed = inspectWithBytes(options).inspection
+  if (committed.sha256 !== inspection.sha256 || JSON.stringify(committed.fileIdentity) !== JSON.stringify(inspection.fileIdentity)
+    || committed.endpoint !== inspection.endpoint || committed.verdict !== inspection.verdict) {
+    throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'runtime locator identity changed after recovery was committed')
+  }
+  let verified: Buffer
+  try { verified = readVerifiedRecoveryEvidence(recovery) } catch (error) {
+    throw new RuntimeRecoveryError('RECOVERY_CHANGED', error instanceof Error ? error.message : String(error))
+  }
+  const verifiedRecord = parseRuntimeRecordBytes(verified)
+  if (verifiedRecord.status === 'invalid' || verifiedRecord.record.socketPath !== recovery.endpoint
+    || (recordType === 'legacy') !== (verifiedRecord.status === 'legacy')) {
+    throw new RuntimeRecoveryError('RECOVERY_CHANGED', 'recovery evidence metadata did not match its committed row')
+  }
   return { ...recovery, evidencePath }
 }

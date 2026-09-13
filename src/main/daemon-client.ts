@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import { existsSync } from 'node:fs'
-import { RuntimeOwnershipError, RuntimeOwnershipStore } from '@shared/runtime-ownership'
+import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { runtimeIdentityAuthority } from './runtime-identity'
 import { randomUUID } from 'node:crypto'
@@ -27,12 +27,11 @@ import {
 } from '@shared/attention-inbox'
 import type { TerminalSession } from '@shared/types'
 import type { TerminalReplayChunk } from '@shared/terminal-stream'
-import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
-import { contactRuntimeOwner } from './runtime-ownership'
+import { reconcileRuntimeOwner } from './runtime-ownership'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
@@ -209,31 +208,21 @@ export class DaemonClient {
           ownership?.close()
         }
       }
+    }
 
-      const verdict = runtimeIdentityAuthority().verify(record.record.processIdentity)
-      if (verdict.status === 'valid') throw new Error('existing terminal daemon is live but did not complete authenticated contact; it was not replaced')
-      if (verdict.status === 'indeterminate') throw new Error('existing terminal daemon ownership is unverifiable; it was not replaced')
-
-      const ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-      try {
-        ownership.resolveActive('terminal-daemon', record.record, record.sha256)
-      } catch (error) {
-        if (!(error instanceof RuntimeOwnershipError)
-          || (error.code !== 'OWNER_UNAVAILABLE' && error.code !== 'OWNER_MISMATCH')) {
-          throw new Error('terminal daemon runtime ownership is not active; it was not replaced', { cause: error })
-        }
-      } finally {
-        ownership.close()
-      }
-    } else if (record.status === 'legacy') {
-      // The terminal-specific hello operation plus the exact file token identifies a reachable legacy daemon.
-      const contact = await contactRuntimeOwner(record.record, 'terminal-daemon').catch(() => ({ status: 'unreachable' as const, detail: 'legacy contact failed' }))
-      if (contact.status === 'legacy') throw new Error('legacy terminal daemon was reachable without runtime identity; it was not adopted')
-      const liveness = record.record.pid === undefined ? 'unverifiable' : probeLocalProcessLiveness(record.record.pid)
-      if (liveness !== 'exited') throw new Error('existing terminal daemon is ' + liveness + ' after contact was lost; it was not replaced')
-    } else if (record.status === 'invalid') {
-      throw new Error('terminal daemon runtime record is invalid; it was not replaced')
-    } else if (process.platform !== 'win32' && existsSync(paths.socketPath)) {
+    const ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    try {
+      const reconciled = await reconcileRuntimeOwner({
+        userDataDir: this.userDataDir,
+        kind: 'terminal-daemon',
+        authority: runtimeIdentityAuthority(),
+        store: ownership
+      })
+      if (reconciled.action !== 'claim') throw new Error('terminal daemon recovery requires the existing owner process')
+    } finally {
+      ownership.close()
+    }
+    if (record.status === 'missing' && process.platform !== 'win32' && existsSync(paths.socketPath)) {
       throw new Error('terminal daemon socket ownership is unverifiable; it was not replaced')
     }
     const token = randomUUID() + randomUUID().slice(0, 8)

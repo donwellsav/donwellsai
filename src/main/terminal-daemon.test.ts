@@ -7,7 +7,7 @@ import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { RuntimeOwner } from '@shared/runtime-ownership'
+import { RuntimeOwnershipStore, type RuntimeOwner } from '@shared/runtime-ownership'
 import { DaemonClient, terminateSpawnedChild } from './daemon-client'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
 import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner } from './runtime-ownership'
@@ -201,6 +201,18 @@ describe('terminal runtime identity lifecycle', () => {
         generation: '44444444-4444-4444-8444-444444444444:1'
       }
     })
+    const current = readRuntimeRecord(paths.runtimeFile)
+    if (current.status !== 'current') throw new Error('terminal shutdown race fixture was not current')
+    const evidencePath = join(directory, 'orphan-v2.evidence')
+    writeFileSync(evidencePath, readFileSync(paths.runtimeFile), { mode: 0o600 })
+    const evidence = readRuntimeRecord(evidencePath)
+    if (evidence.status !== 'current') throw new Error('terminal shutdown race evidence was not current')
+    const recoveryStore = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    recoveryStore.recordLegacyRecovery({
+      kind: 'terminal-daemon', expectedFingerprint: current.sha256, fileIdentity: current.fileIdentity,
+      evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: current.record.socketPath, recordType: 'orphan-v2'
+    })
+    recoveryStore.close()
     try {
       const starting = daemon.start()
       await daemon.stopIfIdle()
@@ -239,6 +251,16 @@ describe('terminal runtime identity lifecycle', () => {
     writeFileSync(entry, 'process.exit(0)\n', { mode: 0o700 })
     await publishRuntimeOwner(publication, () => undefined)
     writeRuntimeRecord(publication.paths.runtimeFile, { ...publication.locator, authToken: 'stale-locator-token-123456' })
+    const mismatched = readRuntimeRecord(publication.paths.runtimeFile)
+    if (mismatched.status !== 'current') throw new Error('stale locator fixture was not current')
+    const evidencePath = join(directory, 'orphan-v2.evidence')
+    writeFileSync(evidencePath, readFileSync(publication.paths.runtimeFile), { mode: 0o600 })
+    const evidence = readRuntimeRecord(evidencePath)
+    if (evidence.status !== 'current') throw new Error('stale locator evidence was not current')
+    publication.store.recordLegacyRecovery({
+      kind: 'terminal-daemon', expectedFingerprint: mismatched.sha256, fileIdentity: mismatched.fileIdentity,
+      evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: mismatched.record.socketPath, recordType: 'orphan-v2'
+    })
     const client = new DaemonClient(directory, events, entry, { handshakeTimeoutMs: 50 })
     try {
       await expect(client.connect()).rejects.toThrow(/exited during startup/)

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -57,6 +57,18 @@ describe('runtime RPC publication lifecycle', () => {
         generation: '33333333-3333-4333-8333-333333333333:1'
       }
     })
+    const current = readRuntimeRecord(paths.runtimeFile)
+    if (current.status !== 'current') throw new Error('runtime RPC race fixture was not current')
+    const evidencePath = join(directory, 'orphan-v2.evidence')
+    writeFileSync(evidencePath, readFileSync(paths.runtimeFile), { mode: 0o600 })
+    const evidence = readRuntimeRecord(evidencePath)
+    if (evidence.status !== 'current') throw new Error('runtime RPC race evidence was not current')
+    const recoveryStore = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    recoveryStore.recordLegacyRecovery({
+      kind: 'donwells-app', expectedFingerprint: current.sha256, fileIdentity: current.fileIdentity,
+      evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: current.record.socketPath, recordType: 'orphan-v2'
+    })
+    recoveryStore.close()
     const server = new RuntimeRpcServer(paths.socketPath, paths.runtimeFile, 'rpc-race-token-123456', {} as RpcDeps)
     try {
       const starting = server.start()

@@ -73,6 +73,23 @@ describe('native runtime identity adapter', () => {
       await waitForExit(child)
     }
   })
+  it('does not signal an unrelated live PID when identity fields do not match', async () => {
+    const authority = runtimeIdentityAuthority()
+    const first = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'], detached: process.platform !== 'win32' })
+    const second = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'], detached: process.platform !== 'win32' })
+    try {
+      await Promise.all([waitForSpawn(first), waitForSpawn(second)])
+      if (first.pid === undefined || second.pid === undefined) throw new Error('live PID fixture did not expose PIDs')
+      const recorded = authority.capture(first.pid, { family: 'acp-agent', executablePath: process.execPath, generation: 'unrelated' })
+      const mismatched = { ...recorded, pid: second.pid }
+      expect(authority.verify(mismatched)).toMatchObject({ status: 'stale' })
+      expect(second.exitCode).toBeNull()
+    } finally {
+      if (first.exitCode === null && first.signalCode === null) await forceTerminateProcessTree(first)
+      if (second.exitCode === null && second.signalCode === null) await forceTerminateProcessTree(second)
+      await Promise.all([waitForExit(first), waitForExit(second)])
+    }
+  })
 
   it('loads the current platform and identity contract version from the production addon', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
@@ -142,6 +159,20 @@ describe('native runtime identity adapter', () => {
       expect(result).toMatchObject({ platform: 'posix' })
       expect(readFileSync(displacedPath)).toEqual(trustedBytes)
       expect(readFileSync(authorityPath)).toEqual(attackerBytes)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('serializes authority append through a private regular file on every platform', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-append-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const bytes = Buffer.from('committed frame')
+    writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+    try {
+      const result = addon.withRuntimeAuthority(authorityPath, false, 1024, observation => ({ result: observation.fileIdentity, append: bytes }))
+      expect(result).toMatchObject({ platform: process.platform === 'win32' ? 'win32' : 'posix' })
+      expect(readFileSync(authorityPath)).toEqual(bytes)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
