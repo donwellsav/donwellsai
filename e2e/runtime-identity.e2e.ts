@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createConnection, createServer, type Server, type Socket } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -63,6 +63,7 @@ type BuiltRuntimeModules = {
   localRuntimePaths: (userData: string, kind: 'app' | 'terminal') => {
     runtimeFile: string
     socketPath: string
+    socketDir: string
     ownershipDatabasePath: string
   }
   writeRuntimeRecord: (path: string, record: unknown) => void
@@ -139,6 +140,69 @@ test('built terminal daemon entry publishes, handshakes, and retains evidence on
   }
 })
 
+test('built ordinary CLI entry authenticates and returns an endpoint response', async () => {
+  const userData = realpathSync.native(mkdtempSync(join(tmpdir(), 'donwells-cli-built-e2e-')))
+  const { RuntimeOwnershipStore, localRuntimePaths, writeRuntimeRecord } = await readBuiltRuntimeModules()
+  const paths = localRuntimePaths(userData, 'app')
+  const ownerId = 'e1e1e1e1-e1e1-41e1-81e1-e1e1e1e1e1e1'
+  const authToken = 'ordinary-cli-built-token-123456'
+  const identity = { pid: process.pid, bootId: 'cli-built-boot', startedAt: 'cli-built-start', executablePath: process.execPath, family: 'donwells-app', capturedAt: new Date().toISOString(), generation: ownerId + ':1' }
+  const locator = { version: 2, ownerId, ownerGeneration: 1, socketPath: paths.socketPath, authToken, processIdentity: identity }
+  const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+  const methods: string[] = []
+  let connections = 0
+  const server = createServer(socket => {
+    connections += 1
+    socket.setEncoding('utf8')
+    let buffered = ''
+    socket.on('data', (chunk: string) => {
+      buffered += chunk
+      let newline: number
+      while ((newline = buffered.indexOf('\n')) >= 0) {
+        const line = buffered.slice(0, newline)
+        buffered = buffered.slice(newline + 1)
+        if (!line) continue
+        const frame = JSON.parse(line) as { id: string; method: string; authToken?: string; params?: unknown }
+        methods.push(frame.method)
+        if (frame.method === 'auth.hello') {
+          socket.write(JSON.stringify({ id: frame.id, ok: frame.authToken === authToken }) + '\n')
+        } else {
+          socket.write(JSON.stringify({ id: frame.id, ok: true, result: { source: 'built-ordinary-entry', panes: [] } }) + '\n')
+        }
+      }
+    })
+  })
+  let child: ChildProcessWithoutNullStreams | undefined
+  try {
+    mkdirSync(paths.socketDir, { recursive: true, mode: 0o700 })
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(paths.socketPath, resolve) })
+    const preparing = store.prepareClaim({ kind: 'donwells-app', ownerId, identity, endpoint: paths.socketPath, authToken }, store.observe('donwells-app'), null)
+    writeRuntimeRecord(paths.runtimeFile, locator)
+    store.activate(preparing, createHash('sha256').update(JSON.stringify(locator)).digest('hex'))
+    child = spawn(process.execPath, [CLI_ENTRY, 'browser-list', '--user-data', userData], {
+      cwd: ROOT,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+    child.stdin.end()
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => { stdout += chunk })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    const [exitCode] = await once(child, 'exit') as [number | null]
+    expect(exitCode, stderr).toBe(0)
+    expect(connections).toBe(1)
+    expect(methods).toEqual(['auth.hello', 'browser.list'])
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true, result: { source: 'built-ordinary-entry', panes: [] } })
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closeServer(server)
+    store.close()
+    rmSync(userData, { recursive: true, force: true })
+  }
+})
 test('built memory MCP line protocol rejects locator/authority mismatch before endpoint connection', async () => {
   const userData = realpathSync.native(mkdtempSync(join(tmpdir(), 'donwells-memory-mcp-built-e2e-')))
   const { RuntimeOwnershipStore, localRuntimePaths, writeRuntimeRecord } = await readBuiltRuntimeModules()

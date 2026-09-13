@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { spawn, spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -37,6 +37,17 @@ function rewriteAuthority(path: string, mutate: (db: DatabaseSync) => void): voi
 }
 
 describe('compare-bound runtime ownership', () => {
+  it('reports a missing read-only authority without creating filesystem evidence', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-read-only-missing-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    try {
+      expect(() => new RuntimeOwnershipStore(databasePath, { readOnly: true })).toThrowError(expect.objectContaining({ code: 'not-found' }))
+      expect(existsSync(databasePath)).toBe(false)
+      expect(readdirSync(directory)).toEqual([])
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('creates a private authority database and advances vacant -> preparing -> active', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-')))
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))

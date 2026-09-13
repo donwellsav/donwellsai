@@ -381,6 +381,7 @@ export class RuntimeOwnershipStore {
     if (this.closed) throw new RuntimeOwnershipError('DATABASE_CLOSED', 'runtime ownership database is closed')
     if (write && this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     if (write && !verify) throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership mutation had no durability verification')
+    if (this.readOnly) this.ensureAuthorityFile()
     return this.withAuthorityLock(this.databasePath, stablePath => {
       this.ensureAuthorityFile()
       this.assertAuthorityIdentity()
@@ -403,7 +404,7 @@ export class RuntimeOwnershipStore {
         this.assertAuthorityIdentity()
       }
       return result
-    })
+    }, { readOnly: this.readOnly })
   }
   private assertOwnerCommitted(db: DatabaseSync, expected: RuntimeOwner): void {
     const committed = rowFromObservation(db, expected.kind)

@@ -810,7 +810,7 @@ typedef HANDLE authority_lock_handle;
 typedef HANDLE authority_file_handle;
 #define INVALID_AUTHORITY_FILE INVALID_HANDLE_VALUE
 
-static authority_lock_handle open_authority_lock(const char *path) {
+static authority_lock_handle open_authority_lock(const char *path, int read_only) {
   WCHAR wide_path[32768];
   WCHAR lock_path[32768];
   size_t length;
@@ -822,8 +822,8 @@ static authority_lock_handle open_authority_lock(const char *path) {
   if (length + 6 >= sizeof(lock_path) / sizeof(lock_path[0])) return INVALID_AUTHORITY_LOCK;
   memcpy(lock_path, wide_path, (length + 1) * sizeof(WCHAR));
   memcpy(lock_path + length, L".lock", 6 * sizeof(WCHAR));
-  handle = CreateFileW(lock_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  handle = CreateFileW(lock_path, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+    read_only ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (handle == INVALID_HANDLE_VALUE) return INVALID_AUTHORITY_LOCK;
   if (!GetFileInformationByHandle(handle, &basic_information) ||
       !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
@@ -835,14 +835,14 @@ static authority_lock_handle open_authority_lock(const char *path) {
   return handle;
 }
 
-static authority_file_handle open_authority_file(const char *path) {
+static authority_file_handle open_authority_file(const char *path, int read_only) {
   WCHAR wide_path[32768];
   HANDLE handle;
   BY_HANDLE_FILE_INFORMATION basic_information;
   FILE_STANDARD_INFO standard_information;
   if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return INVALID_AUTHORITY_FILE;
-  handle = CreateFileW(wide_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
-    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  handle = CreateFileW(wide_path, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+    read_only ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (handle == INVALID_HANDLE_VALUE) return INVALID_AUTHORITY_FILE;
   if (!GetFileInformationByHandle(handle, &basic_information) ||
       !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
@@ -862,7 +862,7 @@ static int same_authority_file(authority_file_handle first, authority_file_handl
     left.nFileIndexHigh == right.nFileIndexHigh && left.nFileIndexLow == right.nFileIndexLow;
 }
 
-static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle, int read_only) {
   WCHAR wide_path[32768];
   WCHAR wide_alias[32768];
   const char *separator;
@@ -891,7 +891,7 @@ static int create_authority_alias(const char *path, authority_file_handle canoni
       return 0;
     }
     {
-      HANDLE opened = CreateFileW(wide_alias, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      HANDLE opened = CreateFileW(wide_alias, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
       if (opened != INVALID_HANDLE_VALUE && same_authority_file(canonical, opened) && windows_private_security(opened)) {
         *alias_handle = opened;
@@ -935,13 +935,14 @@ typedef int authority_lock_handle;
 typedef int authority_file_handle;
 #define INVALID_AUTHORITY_FILE (-1)
 
-static authority_lock_handle open_authority_lock(const char *path) {
+static authority_lock_handle open_authority_lock(const char *path, int read_only) {
   char directory[MAX_IDENTITY_STRING];
   const char *separator;
   size_t length;
   int flags = O_RDONLY | O_CLOEXEC;
   int descriptor;
   struct stat metadata;
+  (void)read_only;
   if (path == NULL || path[0] != '/') return INVALID_AUTHORITY_LOCK;
   separator = strrchr(path, '/');
   if (separator == NULL || separator == path) return INVALID_AUTHORITY_LOCK;
@@ -964,10 +965,11 @@ static authority_lock_handle open_authority_lock(const char *path) {
   return descriptor;
 }
 
-static authority_file_handle open_authority_file(const char *path) {
-  int flags = O_RDWR | O_CLOEXEC | O_CREAT;
+static authority_file_handle open_authority_file(const char *path, int read_only) {
+  int flags = (read_only ? O_RDONLY : O_RDWR) | O_CLOEXEC;
   int descriptor;
   struct stat metadata;
+  if (!read_only) flags |= O_CREAT;
 #ifdef O_NOFOLLOW
   flags |= O_NOFOLLOW;
 #endif
@@ -1006,12 +1008,12 @@ static int authority_alias_path(const char *directory, const char *basename, uin
   return written > 0 && (size_t)written < capacity;
 }
 
-static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle, int read_only) {
   char candidate[MAX_IDENTITY_STRING];
   authority_file_handle opened;
   if (strncmp(name, ".", 1) != 0 || strncmp(name + 1, basename, strlen(basename)) != 0 || strstr(name, ".donwells-alias-") == NULL) return 0;
   if (snprintf(candidate, sizeof(candidate), "%s/%s", directory, name) <= 0 || strlen(candidate) >= capacity) return 0;
-  opened = open(candidate, O_RDWR | O_CLOEXEC
+  opened = open(candidate, (read_only ? O_RDONLY : O_RDWR) | O_CLOEXEC
 #ifdef O_NOFOLLOW
     | O_NOFOLLOW
 #endif
@@ -1025,12 +1027,12 @@ static int open_matching_alias(const char *directory, const char *basename, cons
   return 1;
 }
 
-static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle, int read_only) {
   DIR *entries = opendir(directory);
   struct dirent *entry;
   if (entries == NULL) return 0;
   while ((entry = readdir(entries)) != NULL) {
-    if (open_matching_alias(directory, basename, entry->d_name, canonical, alias, capacity, alias_handle)) {
+    if (open_matching_alias(directory, basename, entry->d_name, canonical, alias, capacity, alias_handle, read_only)) {
       (void)closedir(entries);
       return 1;
     }
@@ -1039,14 +1041,14 @@ static int find_existing_alias(const char *directory, const char *basename, auth
   return 0;
 }
 
-static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle, int read_only) {
   char directory[MAX_IDENTITY_STRING];
   char basename[MAX_IDENTITY_STRING];
   static unsigned int counter = 0;
   unsigned int index;
   uint32_t nonce = (uint32_t)arc4random() ^ (uint32_t)getpid() ^ ++counter;
   if (!authority_parts(path, directory, sizeof(directory), basename, sizeof(basename))) return 0;
-  if (find_existing_alias(directory, basename, canonical, alias, capacity, alias_handle)) return 1;
+  if (find_existing_alias(directory, basename, canonical, alias, capacity, alias_handle, read_only)) return 1;
   for (index = 0; index < 128; index++) {
     authority_file_handle opened;
     if (!authority_alias_path(directory, basename, nonce, index, alias, capacity)) return 0;
@@ -1054,7 +1056,7 @@ static int create_authority_alias(const char *path, authority_file_handle canoni
       if (errno == EEXIST) continue;
       return 0;
     }
-    opened = open(alias, O_RDWR | O_CLOEXEC
+    opened = open(alias, (read_only ? O_RDONLY : O_RDWR) | O_CLOEXEC
 #ifdef O_NOFOLLOW
       | O_NOFOLLOW
 #endif
@@ -1091,9 +1093,9 @@ static void close_authority_lock(authority_lock_handle handle) {
 #endif
 
 static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info info) {
-  napi_value arguments[2];
+  napi_value arguments[3];
   napi_value callback_argument;
-  size_t argument_count = 2;
+  size_t argument_count = 3;
   char path[MAX_IDENTITY_STRING];
   char alias[MAX_IDENTITY_STRING];
   napi_valuetype callback_type;
@@ -1103,20 +1105,22 @@ static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info i
   napi_value callback_result = NULL;
   napi_value global = NULL;
   int callback_ok = 0;
+  bool read_only = false;
   if (napi_get_cb_info(env, info, &argument_count, arguments, NULL, NULL) != napi_ok || argument_count < 2 ||
       !get_utf8_argument(env, arguments[0], path, sizeof(path)) ||
       napi_typeof(env, arguments[1], &callback_type) != napi_ok || callback_type != napi_function ||
+      (argument_count >= 3 && napi_get_value_bool(env, arguments[2], &read_only) != napi_ok) ||
       napi_get_global(env, &global) != napi_ok) {
     return throw_authority_error(env, "runtime authority lock arguments were malformed");
   }
-  lock_handle = open_authority_lock(path);
+  lock_handle = open_authority_lock(path, read_only ? 1 : 0);
   if (lock_handle == INVALID_AUTHORITY_LOCK) return throw_authority_error(env, "open runtime authority name lock failed");
   if (!lock_authority_name(lock_handle)) {
     close_authority_lock(lock_handle);
     return throw_authority_error(env, "lock runtime authority name failed");
   }
-  canonical_handle = open_authority_file(path);
-  if (canonical_handle == INVALID_AUTHORITY_FILE || !create_authority_alias(path, canonical_handle, alias, sizeof(alias), &alias_handle)) {
+  canonical_handle = open_authority_file(path, read_only ? 1 : 0);
+  if (canonical_handle == INVALID_AUTHORITY_FILE || !create_authority_alias(path, canonical_handle, alias, sizeof(alias), &alias_handle, read_only ? 1 : 0)) {
     close_authority_file(canonical_handle);
     close_authority_lock(lock_handle);
     return throw_authority_error(env, "create runtime authority stable alias failed");

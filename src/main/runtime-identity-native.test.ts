@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -25,7 +25,7 @@ type NativeAddon = {
   readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
   readPrivateRuntimeFileIdentity(path: string): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
-  withRuntimeAuthorityLock(path: string, callback: (stablePath: string) => unknown): unknown
+  withRuntimeAuthorityLock(path: string, callback: (stablePath: string) => unknown, readOnly?: boolean): unknown
 }
 type SpawnResult = { child: ReturnType<typeof spawn> }
 
@@ -163,6 +163,18 @@ describe('native runtime identity adapter', () => {
         renameSync(authorityPath, displacedPath)
         writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
       })).toThrow('canonical identity changed')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('does not create authority files while taking a missing read-only lock', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-read-only-missing-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    try {
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => undefined, true)).toThrow()
+      expect(existsSync(authorityPath)).toBe(false)
+      expect(readdirSync(directory)).toEqual([])
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

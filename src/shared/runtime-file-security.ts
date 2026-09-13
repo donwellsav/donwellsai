@@ -31,7 +31,7 @@ export type RuntimeFileRead = {
 }
 
 export type RuntimeFileReader = (path: string, maxBytes: number) => RuntimeFileRead
-export type RuntimeAuthorityLock = <T>(path: string, callback: (stablePath: string) => T) => T
+export type RuntimeAuthorityLock = <T>(path: string, callback: (stablePath: string) => T, options?: { readOnly?: boolean }) => T
 export type RuntimeFileIdentityReader = (path: string) => RuntimeFileIdentity
 
 export class RuntimeFileSecurityError extends Error {
@@ -131,8 +131,8 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
   if (addon.platform !== expectedPlatform) throw new Error('runtime authority addon platform mismatch')
   if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime authority addon contract mismatch')
   if (typeof addon.withRuntimeAuthorityLock !== 'function') throw new Error('runtime authority addon is missing withRuntimeAuthorityLock')
-  const lock = addon.withRuntimeAuthorityLock as (path: string, callback: (stablePath: string) => unknown) => unknown
-  return <T>(path: string, callback: (stablePath: string) => T): T => {
+  const lock = addon.withRuntimeAuthorityLock as (path: string, callback: (stablePath: string) => unknown, readOnly?: boolean) => unknown
+  return <T>(path: string, callback: (stablePath: string) => T, options: { readOnly?: boolean } = {}): T => {
     if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new RuntimeFileSecurityError('native-error', 'runtime authority path was malformed')
     let callbackFailed = false
     let callbackError: unknown
@@ -146,7 +146,7 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
       }
     }
     try {
-      return lock(path, guardedCallback) as T
+      return lock(path, guardedCallback, options.readOnly === true) as T
     } catch (error) {
       if (callbackFailed) throw callbackError
       throw new RuntimeFileSecurityError('native-error', (error instanceof Error ? error.message : String(error)).slice(0, 4096))

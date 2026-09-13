@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createConnection, type Socket } from 'node:net'
@@ -130,6 +130,40 @@ describe('runtime RPC publication lifecycle', () => {
       server.stop()
       await expect(starting).rejects.toThrow(/cancelled/)
       expect(server.isReady()).toBe(false)
+    } finally {
+      server.stop()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('retains its preparing identity when socket directory setup fails and retries the same instance', async () => {
+    const directory = realpathSync.native(mkdtempSync('/tmp/runtime-rpc-setup-retry-'))
+    const paths = localRuntimePaths(directory, 'app')
+    const socketDirectory = join(directory, 'socket-parent')
+    const socketPath = join(socketDirectory, 'runtime.sock')
+    writeFileSync(socketDirectory, 'not a directory')
+    const server = new RuntimeRpcServer(socketPath, paths.runtimeFile, 'rpc-setup-retry-token-123456', {} as RpcDeps)
+    try {
+      await expect(server.start()).rejects.toThrow()
+      expect(server.isReady()).toBe(false)
+      expect(readRuntimeRecord(paths.runtimeFile).status).toBe('missing')
+      const afterFailure = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      let preparing
+      try {
+        const observed = afterFailure.observe('donwells-app')
+        expect(observed).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
+        if (observed.status !== 'present') throw new Error('failed setup did not retain preparing ownership')
+        preparing = observed.owner
+      } finally {
+        afterFailure.close()
+      }
+      rmSync(socketDirectory)
+      mkdirSync(socketDirectory, { mode: 0o700 })
+      await server.start()
+      const locator = readRuntimeRecord(paths.runtimeFile)
+      expect(locator.status).toBe('current')
+      if (locator.status !== 'current') throw new Error('retried runtime RPC did not publish its locator')
+      expect(locator.record).toMatchObject({ ownerId: preparing.ownerId, ownerGeneration: preparing.generation, socketPath: preparing.endpoint })
+      expect(server.isReady()).toBe(true)
     } finally {
       server.stop()
       rmSync(directory, { recursive: true, force: true })

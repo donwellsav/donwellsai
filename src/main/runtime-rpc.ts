@@ -161,26 +161,13 @@ export class RuntimeRpcServer {
     if (lifecycleGeneration !== this.lifecycleGeneration) {
       throw new Error('Runtime RPC start was cancelled before bind')
     }
-    try {
-      mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
-      if (process.platform !== 'win32') {
-        const directory = dirname(this.socketPath)
-        mkdirSync(directory, { recursive: true, mode: 0o700 })
-        const stat = lstatSync(directory)
-        if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
-        chmodSync(directory, 0o700)
-      }
-    } catch (error) {
-      const released = publication.owner.state === 'active'
-        ? releaseRuntimeOwner(publication)
-        : abandonRuntimeOwner(publication)
-      if (released === 'released') {
-        this.publication = null
-        publication.store.close()
-      } else if (released === 'cleanup-failed') {
-        throw new Error('Runtime RPC startup failed and ownership cleanup could not be verified', { cause: error })
-      }
-      throw error
+    mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
+    if (process.platform !== 'win32') {
+      const directory = dirname(this.socketPath)
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const stat = lstatSync(directory)
+      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
+      chmodSync(directory, 0o700)
     }
     let server: Server | null = null
     try {
