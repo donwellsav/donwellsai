@@ -31,7 +31,7 @@ import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
-
+import { contactRuntimeOwner } from './runtime-ownership'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
@@ -219,9 +219,9 @@ export class DaemonClient {
         ownership.close()
       }
     } else if (record.status === 'legacy') {
-      // A legacy locator cannot satisfy runtime-identity-v1 equality; never adopt it.
-      const connected = await this.tryConnect(record.record.socketPath, record.record.authToken).catch(() => false)
-      if (connected) throw new Error('legacy terminal daemon was reachable without runtime identity; it was not adopted')
+      // The terminal-specific hello operation plus the exact file token identifies a reachable legacy daemon.
+      const contact = await contactRuntimeOwner(record.record, 'terminal-daemon').catch(() => ({ status: 'unreachable' as const, detail: 'legacy contact failed' }))
+      if (contact.status === 'legacy') throw new Error('legacy terminal daemon was reachable without runtime identity; it was not adopted')
       const liveness = record.record.pid === undefined ? 'unverifiable' : probeLocalProcessLiveness(record.record.pid)
       if (liveness !== 'exited') throw new Error('existing terminal daemon is ' + liveness + ' after contact was lost; it was not replaced')
     } else if (record.status === 'invalid') {

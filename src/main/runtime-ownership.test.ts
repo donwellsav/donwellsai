@@ -152,6 +152,26 @@ describe('runtime publication state machine', () => {
     }
   })
 
+  it('takes over when both a mismatched v2 locator and its recorded owner are proven stale', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-stale-mismatch-'))
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'owner.sock')), authToken: 'owner-stale-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    await publishRuntimeOwner(first, () => undefined)
+    const mismatched: LocalRuntimeRecord = { ...first.locator, socketPath: freshRuntimeEndpoint(join(directory, 'stale.sock')), authToken: 'stale-locator-token' }
+    writeRuntimeRecord(first.paths.runtimeFile, mismatched)
+    const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
+    try {
+      await expect(reconcileRuntimeOwner({
+        userDataDir: directory,
+        kind: 'donwells-app',
+        authority: staleAuthority,
+        store: first.store,
+        contact: async () => ({ status: 'unreachable', detail: 'proven unreachable' })
+      })).resolves.toEqual({ action: 'claim' })
+    } finally {
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('allows a legacy locator only when its fresh bytes match committed recovery', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-recovery-'))
     const paths = localRuntimePaths(directory, 'app')

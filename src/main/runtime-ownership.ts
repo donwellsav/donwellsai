@@ -239,20 +239,22 @@ export async function reconcileRuntimeOwner(options: RuntimeReconcileOptions): P
     }
 
     if (locator.status === 'invalid') fail('RUNTIME_LOCATOR_INVALID', locator.reason)
-    if (locator.status === 'legacy' || (locator.status === 'current' && !locatorBelongsToOwner)) {
+    if (locator.status === 'legacy') {
+      const contacted = await contact(locator.record, options.kind)
+      if (contacted.status === 'exact' || contacted.status === 'legacy') fail('OWNER_LIVE', 'legacy runtime locator is still reachable')
+      const recovery = store.findLegacyRecovery({ kind: options.kind, expectedFingerprint: locator.sha256, fileIdentity: locator.fileIdentity, endpoint: locator.record.socketPath })
+      if (!recovery) fail('RECOVERY_REQUIRED', 'legacy runtime locator requires exact committed recovery')
+    }
+    if (locator.status === 'current' && !locatorBelongsToOwner) {
+      if (!locatorMatchesKind(locator.record, options.kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
       const contacted = await contact(locator.record, options.kind)
       if (contacted.status === 'exact' || contacted.status === 'legacy') fail('OWNER_LIVE', 'mismatched runtime locator is still reachable')
-      if (locator.status === 'current') {
-        if (!locatorMatchesKind(locator.record, options.kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
-        const locatorVerdict = options.authority.verify(locator.record.processIdentity)
-        if (locatorVerdict.status === 'valid') fail('OWNER_LIVE', 'mismatched runtime locator identifies a live process')
-        if (locatorVerdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', locatorVerdict.reason + ': ' + locatorVerdict.detail)
-      }
-      const recovery = store.findLegacyRecovery({ kind: options.kind, expectedFingerprint: locator.sha256, fileIdentity: locator.fileIdentity, endpoint: locator.record.socketPath })
-      if (!recovery) fail('RECOVERY_REQUIRED', 'mismatched runtime locator requires exact committed recovery')
+      const locatorVerdict = options.authority.verify(locator.record.processIdentity)
+      if (locatorVerdict.status === 'valid') fail('OWNER_LIVE', 'mismatched runtime locator identifies a live process')
+      if (locatorVerdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', locatorVerdict.reason + ': ' + locatorVerdict.detail)
     }
 
-    if (locatorBelongsToOwner || locator.status === 'missing') {
+    if (locatorBelongsToOwner || locator.status === 'missing' || (locator.status === 'current' && !locatorBelongsToOwner)) {
       const contacted = await contact(locatorBelongsToOwner ? locator.record : ownerLocator(owner), options.kind)
       if (contacted.status === 'exact') fail('OWNER_LIVE', 'runtime owner is still reachable')
       if (contacted.status === 'legacy') fail('RECOVERY_REQUIRED', 'runtime owner endpoint is legacy and lacks exact identity')
