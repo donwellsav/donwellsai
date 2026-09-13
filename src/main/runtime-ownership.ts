@@ -296,7 +296,7 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
     requireSafeClaimLocator(store, paths, options.kind, observed, options.authority)
     const verdict = priorVerdict(observed, options.authority)
     const ownerId = randomUUID()
-    const expectedGeneration = observed.status === 'present' ? observed.owner.generation + 1 : 1
+    const expectedGeneration = observed.status === 'present' ? observed.owner.generation + 1 : observed.lastGeneration + 1
     const identity = options.captureIdentity(ownerId + ':' + expectedGeneration)
     const owner = store.prepareClaim({
       kind: options.kind,

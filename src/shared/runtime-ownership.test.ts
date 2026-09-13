@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,11 +16,11 @@ const identity: ProcessIdentity = {
   capturedAt: '2026-09-13T00:00:00.000Z'
 }
 
-function candidate(ownerId: string, endpoint = '/tmp/donwells-owner.sock'): Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'> {
+function candidate(ownerId: string, endpoint = '/tmp/donwells-owner.sock', generation = 1): Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'> {
   return {
     kind: 'donwells-app',
     ownerId,
-    identity,
+    identity: { ...identity, generation: ownerId + ':' + generation },
     endpoint,
     authToken: 'token-' + ownerId
   }
@@ -35,7 +36,7 @@ describe('compare-bound runtime ownership', () => {
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const observed = store.observe('donwells-app')
-      expect(observed).toEqual({ status: 'vacant' })
+      expect(observed).toEqual({ status: 'vacant', lastGeneration: 0 })
       const preparing = store.prepareClaim(candidate('11111111-1111-4111-8111-111111111111'), observed, null)
       expect(preparing).toMatchObject({ generation: 1, state: 'preparing' })
       expect(store.observe('donwells-app')).toMatchObject({ status: 'present', owner: preparing })
@@ -79,12 +80,64 @@ describe('compare-bound runtime ownership', () => {
     try {
       const preparing = store.prepareClaim(candidate('44444444-4444-4444-8444-444444444444'), store.observe('donwells-app'), null)
       old = store.activate(preparing, 'b'.repeat(64))
-      const successor = store.prepareClaim(candidate('55555555-5555-4555-8555-555555555555', '/tmp/next.sock'), store.observe('donwells-app'), stale())
+      const successor = store.prepareClaim(candidate('55555555-5555-4555-8555-555555555555', '/tmp/next.sock', 2), store.observe('donwells-app'), stale())
       expect(successor.generation).toBe(2)
       expect(store.release(old)).toBe(false)
       expect(store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: successor.ownerId, generation: 2 } })
     } finally {
       store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('never reuses a released generation and binds identity generation to its owner row', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-generation-'))
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    try {
+      const firstId = '88888888-8888-4888-8888-888888888888'
+      const first = store.activate(store.prepareClaim(candidate(firstId), store.observe('donwells-app'), null), 'd'.repeat(64))
+      expect(store.release(first)).toBe(true)
+      const vacant = store.observe('donwells-app')
+      expect(vacant).toEqual({ status: 'vacant', lastGeneration: 1 })
+      const secondId = '99999999-9999-4999-8999-999999999999'
+      expect(() => store.prepareClaim(candidate(secondId, '/tmp/second.sock', 1), vacant, null)).toThrowError(expect.objectContaining({ code: 'OWNER_MISMATCH' }))
+      const second = store.prepareClaim(candidate(secondId, '/tmp/second.sock', 2), vacant, null)
+      expect(second).toMatchObject({ generation: 2, identity: { generation: secondId + ':2' } })
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when persisted authority rows contain unknown kinds or malformed fields', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-corrupt-'))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const store = new RuntimeOwnershipStore(databasePath)
+    const ownerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    store.prepareClaim(candidate(ownerId), store.observe('donwells-app'), null)
+    store.close()
+    const database = new DatabaseSync(databasePath)
+    try {
+      database.prepare('UPDATE runtime_owners SET kind = ? WHERE owner_id = ?').run('unknown-runtime', ownerId)
+    } finally {
+      database.close()
+    }
+    expect(() => new RuntimeOwnershipStore(databasePath)).toThrowError(expect.objectContaining({ code: 'OWNER_CORRUPT' }))
+
+    const secondPath = join(directory, 'malformed.sqlite')
+    const second = new RuntimeOwnershipStore(secondPath)
+    const secondId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    second.prepareClaim(candidate(secondId), second.observe('donwells-app'), null)
+    second.close()
+    const malformed = new DatabaseSync(secondPath)
+    try {
+      malformed.prepare('UPDATE runtime_owners SET auth_token = ? WHERE owner_id = ?').run('', secondId)
+    } finally {
+      malformed.close()
+    }
+    try {
+      expect(() => new RuntimeOwnershipStore(secondPath)).toThrowError(expect.objectContaining({ code: 'OWNER_CORRUPT' }))
+    } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })

@@ -17,7 +17,7 @@ export type RuntimeOwner = {
 }
 
 export type RuntimeOwnerObservation =
-  | { status: 'vacant' }
+  | { status: 'vacant'; lastGeneration: number }
   | { status: 'present'; owner: RuntimeOwner; rowSha256: string }
 
 export type RuntimeLocator = {
@@ -86,30 +86,42 @@ function rowHash(row: RuntimeOwner): string {
 }
 
 function parseRow(row: Record<string, unknown>): RuntimeOwner {
-  const kindValue = String(row['kind'])
-  assertKind(kindValue)
+  const kindValue = row['kind']
+  if (kindValue !== 'donwells-app' && kindValue !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner kind was invalid')
   const kind = kindValue
   const ownerId = String(row['owner_id'])
-  assertOwnerId(ownerId)
+  if (!OWNER_ID.test(ownerId)) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner ID was invalid')
   const generation = Number(row['generation'])
-  if (!Number.isSafeInteger(generation) || generation < 1) throw new RuntimeOwnershipError('INVALID_ROW', 'runtime owner generation was invalid')
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner generation was invalid')
   const state = row['state']
-  if (state !== 'preparing' && state !== 'active') throw new RuntimeOwnershipError('INVALID_ROW', 'runtime owner state was invalid')
+  if (state !== 'preparing' && state !== 'active') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner state was invalid')
   let identity: ProcessIdentity
   try {
     identity = JSON.parse(String(row['identity_json'])) as ProcessIdentity
   } catch {
-    throw new RuntimeOwnershipError('INVALID_ROW', 'runtime owner identity was malformed')
+    throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner identity was malformed')
   }
-  if (typeof identity !== 'object' || identity === null || typeof identity.pid !== 'number' || typeof identity.bootId !== 'string' || typeof identity.startedAt !== 'string' || typeof identity.executablePath !== 'string' || (identity.family !== 'donwells-app' && identity.family !== 'terminal-daemon')) {
-    throw new RuntimeOwnershipError('INVALID_ROW', 'runtime owner identity was malformed')
+  if (typeof identity !== 'object' || identity === null || !Number.isSafeInteger(identity.pid) || identity.pid < 1
+    || typeof identity.bootId !== 'string' || !identity.bootId || typeof identity.startedAt !== 'string' || !identity.startedAt
+    || typeof identity.executablePath !== 'string' || !identity.executablePath || identity.family !== kind
+    || typeof identity.capturedAt !== 'string' || !identity.capturedAt || identity.generation !== ownerId + ':' + generation) {
+    throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner identity did not match its authority row')
   }
   const endpoint = String(row['endpoint'])
   const authToken = String(row['auth_token'])
   const locatorSha256 = row['locator_sha256'] === null ? null : String(row['locator_sha256'])
-  if (!endpoint || !authToken) throw new RuntimeOwnershipError('INVALID_ROW', 'runtime owner endpoint or token was empty')
-  assertHash(locatorSha256)
+  if (!endpoint || !authToken || (state === 'preparing' && locatorSha256 !== null) || (state === 'active' && (locatorSha256 === null || !HASH.test(locatorSha256)))) {
+    throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner fields violated state invariants')
+  }
   return { kind, ownerId, generation, state, identity, endpoint, authToken, locatorSha256 }
+}
+
+function lastGeneration(db: DatabaseSync, kind: RuntimeOwnerKind): number {
+  const row = db.prepare('SELECT last_generation FROM runtime_owner_generations WHERE kind = ?').get(kind) as Record<string, unknown> | undefined
+  if (!row) return 0
+  const generation = Number(row['last_generation'])
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime generation watermark was invalid')
+  return generation
 }
 
 function rowFromObservation(db: DatabaseSync, kind: RuntimeOwnerKind): { owner: RuntimeOwner; rowSha256: string } | null {
@@ -169,6 +181,10 @@ export class RuntimeOwnershipStore {
           claimed_at TEXT NOT NULL,
           activated_at TEXT
         );
+        CREATE TABLE runtime_owner_generations (
+          kind TEXT PRIMARY KEY,
+          last_generation INTEGER NOT NULL
+        );
         CREATE TABLE runtime_ownership_audit (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
           kind TEXT NOT NULL,
@@ -188,11 +204,39 @@ export class RuntimeOwnershipStore {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        PRAGMA user_version=1;
+        PRAGMA user_version=2;
       `)
-    } else if (version !== 1) {
+    } else if (version === 1 && !this.readOnly) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE runtime_owner_generations (
+          kind TEXT PRIMARY KEY,
+          last_generation INTEGER NOT NULL
+        );
+        INSERT INTO runtime_owner_generations(kind,last_generation)
+          SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
+        PRAGMA user_version=2;
+        COMMIT;
+      `)
+    } else if (version !== 2) {
       this.db.close()
       throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
+    }
+    try {
+      const ownerRows = this.db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256 FROM runtime_owners').all() as Array<Record<string, unknown>>
+      for (const row of ownerRows) {
+        const owner = parseRow(row)
+        if (lastGeneration(this.db, owner.kind) !== owner.generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+      }
+      const generationRows = this.db.prepare('SELECT kind, last_generation FROM runtime_owner_generations').all() as Array<Record<string, unknown>>
+      for (const row of generationRows) {
+        const kind = String(row['kind'])
+        if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime generation kind was invalid')
+        lastGeneration(this.db, kind)
+      }
+    } catch (error) {
+      this.db.close()
+      throw error
     }
   }
 
@@ -203,7 +247,9 @@ export class RuntimeOwnershipStore {
   observe(kind: RuntimeOwnerKind): RuntimeOwnerObservation {
     assertKind(kind)
     const result = rowFromObservation(this.db, kind)
-    return result ? { status: 'present', owner: result.owner, rowSha256: result.rowSha256 } : { status: 'vacant' }
+    const generation = lastGeneration(this.db, kind)
+    if (result && result.owner.generation !== generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+    return result ? { status: 'present', owner: result.owner, rowSha256: result.rowSha256 } : { status: 'vacant', lastGeneration: generation }
   }
 
   prepareClaim(candidate: Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'>, observed: RuntimeOwnerObservation, verdict: ProcessIdentityVerdict | null): RuntimeOwner {
@@ -221,11 +267,18 @@ export class RuntimeOwnershipStore {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const current = rowFromObservation(this.db, candidate.kind)
-      if (observed.status === 'vacant' ? current !== null : current === null || current.rowSha256 !== observed.rowSha256) {
+      const generationWatermark = lastGeneration(this.db, candidate.kind)
+      if (observed.status === 'vacant'
+        ? current !== null || generationWatermark !== observed.lastGeneration
+        : current === null || current.rowSha256 !== observed.rowSha256 || generationWatermark !== current.owner.generation) {
         throw new RuntimeOwnershipError('OWNER_CHANGED', 'runtime owner changed after observation')
       }
-      const generation = current ? current.owner.generation + 1 : 1
+      const generation = generationWatermark + 1
+      if (candidate.identity.family !== candidate.kind || candidate.identity.generation !== candidate.ownerId + ':' + generation) {
+        throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime process identity generation did not match its owner row')
+      }
       const owner: RuntimeOwner = { ...candidate, generation, state: 'preparing', locatorSha256: null }
+      this.db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?) ON CONFLICT(kind) DO UPDATE SET last_generation=excluded.last_generation').run(owner.kind, generation)
       if (current) {
         this.db.prepare(`UPDATE runtime_owners SET owner_id=?, generation=?, state=?, identity_json=?, endpoint=?, auth_token=?, locator_sha256=NULL, claimed_at=?, activated_at=NULL WHERE kind=?`).run(
           owner.ownerId, owner.generation, owner.state, identityJson(owner.identity), owner.endpoint, owner.authToken, claimedAt, owner.kind)
