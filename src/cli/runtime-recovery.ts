@@ -79,7 +79,7 @@ export function inspectRuntimeRecovery(options: RuntimeRecoveryOptions): Runtime
 
 function evidenceFor(options: QuarantineOptions, fingerprint: string): string {
   const directory = join(canonicalPrivateDirectory(options.userDataDir, { requireCanonical: true }), 'runtime-recovery')
-  canonicalPrivateDirectory(directory, { create: true })
+  canonicalPrivateDirectory(directory, { create: true, requireCanonical: true })
   return join(directory, options.kind + '-' + fingerprint + '.json')
 }
 

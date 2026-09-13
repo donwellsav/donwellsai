@@ -1040,7 +1040,7 @@ app.whenReady().then(() => {
   ipcMain.handle('projectKitPreview', (_e, ...args: Parameters<IpcApi['projectKitPreview']>) => projectKit.projectKitPreview(...args))
   ipcMain.handle('projectKitImport', (_e, ...args: Parameters<IpcApi['projectKitImport']>) => projectKit.projectKitImport(...args))
   ipcMain.handle('projectKitReport', (_e, ...args: Parameters<IpcApi['projectKitReport']>) => projectKit.projectKitReport(...args))
-  const runtimePaths = localRuntimePaths(canonicalPrivateDirectory(app.getPath('userData'), { create: true }), 'app')
+  const runtimePaths = localRuntimePaths(canonicalPrivateDirectory(app.getPath('userData'), { create: true, requireCanonical: true }), 'app')
   const rpc = new RuntimeRpcServer(
     runtimePaths.socketPath,
     runtimePaths.runtimeFile,

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -119,6 +120,19 @@ describe('native runtime identity adapter', () => {
     }
   })
 
+  it.runIf(process.platform === 'win32')('rejects a directory and a file readable by Everyone', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-native-win-'))
+    const file = join(directory, 'runtime.json')
+    try {
+      writeFileSync(file, 'secret', { mode: 0o600 })
+      expect(addon.readPrivateRuntimeFile(directory, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+      execFileSync('icacls.exe', [file, '/grant', '*S-1-1-0:(R)'], { stdio: 'ignore' })
+      expect(addon.readPrivateRuntimeFile(file, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('rejects runtime files exceeding the caller limit', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-native-'))

@@ -65,6 +65,9 @@ assert(stagedIdentityManifest.platform === requestedPlatform, 'Runtime identity 
 assert(stagedIdentityManifest.arch === requestedArch, 'Runtime identity architecture differs from requested architecture');
 assert(typeof stagedIdentityManifest.sha256 === 'string' && /^[a-f0-9]{64}$/.test(stagedIdentityManifest.sha256), 'Runtime identity manifest hash is malformed');
 assert(createHash('sha256').update(stagedIdentityBytes).digest('hex') === stagedIdentityManifest.sha256, 'Runtime identity addon hash differs from manifest');
+if (requestedPlatform === process.platform && requestedArch === process.arch) {
+  execFileSync(process.execPath, [resolve(root, 'scripts/check-runtime-identity.mjs')], { stdio: 'inherit' });
+}
 if (values.resources) {
   const shippedIdentityPath = resolve(values.resources, 'native/runtime-identity.node');
   const shippedIdentityManifestPath = resolve(values.resources, 'native/runtime-identity-build.json');

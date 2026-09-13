@@ -186,7 +186,7 @@ export class DaemonClient {
   }
 
   private async connectInner(): Promise<void> {
-    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir), 'terminal')
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'current') {
       // Contact the advertised endpoint first; native identity alone is not liveness evidence.

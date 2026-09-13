@@ -177,7 +177,7 @@ function exactLocator(read: RuntimeRecordRead, owner: RuntimeOwner): boolean {
  * are repaired idempotently and returned as the corresponding action.
  */
 export async function reconcileRuntimeOwner(options: RuntimeReconcileOptions): Promise<RuntimeReconcileResult> {
-  const canonicalUserDataDir = canonicalPrivateDirectory(options.userDataDir, { create: true })
+  const canonicalUserDataDir = canonicalPrivateDirectory(options.userDataDir, { create: true, requireCanonical: true })
   const paths = localRuntimePaths(canonicalUserDataDir, options.kind === 'donwells-app' ? 'app' : 'terminal')
   const ownsStore = options.store === undefined
   const store = options.store ?? new RuntimeOwnershipStore(paths.ownershipDatabasePath)
@@ -292,7 +292,7 @@ export function freshRuntimeEndpoint(baseEndpoint: string, ownerId = randomUUID(
   return baseEndpoint.slice(0, Math.max(1, 102 - Buffer.byteLength(suffix))) + suffix
 }
 export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublication {
-  const canonicalUserDataDir = canonicalPrivateDirectory(options.userDataDir, { create: true })
+  const canonicalUserDataDir = canonicalPrivateDirectory(options.userDataDir, { create: true, requireCanonical: true })
   const paths = localRuntimePaths(canonicalUserDataDir, options.kind === 'donwells-app' ? 'app' : 'terminal')
   const ownsStore = options.store === undefined
   const store = options.store ?? new RuntimeOwnershipStore(paths.ownershipDatabasePath)

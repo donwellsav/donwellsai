@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -34,7 +34,7 @@ function stale(identityValue = identity): { status: 'stale'; reason: 'not-found'
 
 describe('compare-bound runtime ownership', () => {
   it('creates a private authority database and advances vacant -> preparing -> active', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-')))
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const observed = store.observe('donwells-app')
@@ -59,7 +59,7 @@ describe('compare-bound runtime ownership', () => {
   })
 
   it('rejects a stale observation after another store claims, without applying X to Y', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-race-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-race-')))
     const first = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     const second = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
@@ -76,7 +76,7 @@ describe('compare-bound runtime ownership', () => {
   })
 
   it('increments exactly once and prevents an old release from deleting its successor', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-successor-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-successor-')))
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     let old: RuntimeOwner | undefined
     try {
@@ -93,26 +93,32 @@ describe('compare-bound runtime ownership', () => {
   })
 
   it('never reuses a released generation and binds identity generation to its owner row', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-generation-'))
-    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-generation-')))
+    let store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const firstId = '88888888-8888-4888-8888-888888888888'
       const first = store.activate(store.prepareClaim(candidate(firstId), store.observe('donwells-app'), null), 'd'.repeat(64))
       expect(store.release(first)).toBe(true)
+      store.close()
+      store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
       const vacant = store.observe('donwells-app')
       expect(vacant).toEqual({ status: 'vacant', lastGeneration: 1 })
       const secondId = '99999999-9999-4999-8999-999999999999'
       expect(() => store.prepareClaim(candidate(secondId, '/tmp/second.sock', 1), vacant, null)).toThrowError(expect.objectContaining({ code: 'OWNER_MISMATCH' }))
       const second = store.prepareClaim(candidate(secondId, '/tmp/second.sock', 2), vacant, null)
       expect(second).toMatchObject({ generation: 2, identity: { generation: secondId + ':2' } })
+      const terminalFirstId = '12121212-1212-4212-8212-121212121212'
+      const terminalFirst = store.prepareClaim({ ...candidate(terminalFirstId, '/tmp/terminal-one.sock', 1), kind: 'terminal-daemon', identity: { ...identity, family: 'terminal-daemon', generation: terminalFirstId + ':1' } }, store.observe('terminal-daemon'), null)
+      expect(store.release(terminalFirst)).toBe(true)
+      expect(() => store.prepareClaim({ ...candidate(secondId, '/tmp/terminal-two.sock', 2), kind: 'terminal-daemon', identity: { ...identity, family: 'terminal-daemon', generation: secondId + ':2' } }, store.observe('terminal-daemon'), null)).toThrow(/UNIQUE/)
     } finally {
-      store.close()
+      try { store.close() } catch {}
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
   it('fails closed when persisted authority rows contain unknown kinds or malformed fields', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-corrupt-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-corrupt-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
     const store = new RuntimeOwnershipStore(databasePath)
     const ownerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -152,6 +158,11 @@ describe('compare-bound runtime ownership', () => {
     symlinkSync(target, link)
     expect(() => new RuntimeOwnershipStore(link)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
 
+    const profile = join(directory, 'profile')
+    const profileAlias = join(directory, 'profile-alias')
+    mkdirSync(profile, { mode: 0o700 })
+    symlinkSync(profile, profileAlias)
+    expect(() => new RuntimeOwnershipStore(join(profileAlias, 'runtime-owners.sqlite'))).toThrowError(expect.objectContaining({ code: 'access-denied' }))
     const databasePath = join(directory, 'swapped.sqlite')
     const replacement = join(directory, 'replacement.sqlite')
     writeFileSync(replacement, Buffer.alloc(0), { mode: 0o600 })
@@ -170,6 +181,20 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 
+  it.runIf(process.platform !== 'win32')('fails closed when the authority pathname changes after opening', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-live-swap-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const displaced = join(directory, 'displaced.sqlite')
+    const store = new RuntimeOwnershipStore(databasePath)
+    try {
+      renameSync(databasePath, displaced)
+      writeFileSync(databasePath, Buffer.alloc(0), { mode: 0o600 })
+      expect(() => store.observe('donwells-app')).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
+    } finally {
+      try { store.close() } catch {}
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('rejects a portable Windows authority identity change during SQLite open', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-win-contract-')))
     let reads = 0
@@ -186,7 +211,7 @@ describe('compare-bound runtime ownership', () => {
     }
   })
   it('refuses indeterminate prior identity and locator mismatches', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-ownership-indeterminate-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-indeterminate-')))
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
     try {
       const prepared = store.prepareClaim(candidate('66666666-6666-4666-8666-666666666666'), store.observe('donwells-app'), null)

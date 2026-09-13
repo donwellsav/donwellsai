@@ -112,7 +112,7 @@ export class TerminalDaemon {
     shell?: string
     emitterCommand?: readonly string[]
   }) {
-    const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true })
+    const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
     this.authToken = opts.authToken
     this.paths = localRuntimePaths(userDataDir, 'terminal')
     this.acp = new AcpSessions(userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
@@ -147,6 +147,7 @@ export class TerminalDaemon {
 
   async stopIfIdle(): Promise<boolean> {
     if (this.hasOwnedSessions()) return false
+    if (this.server && this.endpointPathState() === 'foreign') throw new Error('terminal daemon endpoint path changed; refusing to close it')
     const server = this.server
     this.server = null
     for (const client of this.connections) client.destroy()
@@ -159,6 +160,7 @@ export class TerminalDaemon {
         await closed.promise
       }
     } finally {
+      this.removeOwnedEndpoint()
       this.boundIno = null
       this.releaseRuntimeOwner()
     }
@@ -211,17 +213,16 @@ export class TerminalDaemon {
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
+      if (server.listening && this.endpointPathState() === 'foreign') {
+        throw new Error('terminal daemon endpoint path changed during startup; refusing to close it', { cause: error })
+      }
       if (server.listening) {
         const closed = Promise.withResolvers<void>()
         server.close(() => closed.resolve())
         await closed.promise
       }
       this.server = null
-      if (process.platform !== 'win32' && this.boundIno !== null) {
-        try {
-          if (lstatSync(this.paths.socketPath).ino === this.boundIno) rmSync(this.paths.socketPath)
-        } catch {}
-      }
+      this.removeOwnedEndpoint()
       this.boundIno = null
       throw error
     }
@@ -236,6 +237,22 @@ export class TerminalDaemon {
     }
   }
 
+  private endpointPathState(): 'owned' | 'missing' | 'foreign' {
+    if (process.platform === 'win32') return 'owned'
+    if (this.boundIno === null || !this.publication || this.publication.owner.endpoint !== this.paths.socketPath) return 'foreign'
+    try {
+      const endpoint = lstatSync(this.paths.socketPath)
+      return endpoint.isSocket() && endpoint.ino === this.boundIno && (endpoint.mode & 0o777) === 0o600
+        && (!process.getuid || endpoint.uid === process.getuid()) ? 'owned' : 'foreign'
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'foreign'
+    }
+  }
+
+  private removeOwnedEndpoint(): void {
+    if (this.endpointPathState() !== 'owned') return
+    try { rmSync(this.paths.socketPath) } catch {}
+  }
   private releaseRuntimeOwner(): void {
     const publication = this.publication
     this.publication = null

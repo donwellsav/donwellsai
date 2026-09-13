@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -69,7 +69,7 @@ function expectHelloClosed(socketPath: string, authToken: string): Promise<void>
 
 describe('terminal runtime identity lifecycle', () => {
   it('does not resolve a preparing owner and publishes exact identity in hello', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'terminal-identity-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-identity-')))
     const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-test-token-123456789' })
     try {
       const privateDaemon = daemon as unknown as DaemonLifecycleProbe
@@ -97,7 +97,7 @@ describe('terminal runtime identity lifecycle', () => {
   })
 
   it('accepts a live owner before offline identity verification and rejects mismatched hello identity', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'terminal-client-identity-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-client-identity-')))
     const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-client-token-123456789' })
     const client = new DaemonClient(directory, events, process.execPath)
     try {
@@ -120,7 +120,7 @@ describe('terminal runtime identity lifecycle', () => {
     }
   })
   it('rejects authenticated hello when the ownership row is no longer active', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'terminal-inactive-owner-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-inactive-owner-')))
     const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-inactive-token-123456789' })
     try {
       await daemon.start()
@@ -140,4 +140,25 @@ describe('terminal runtime identity lifecycle', () => {
     }
   })
 
+  it.runIf(process.platform !== 'win32')('does not unlink an endpoint pathname replaced after bind', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-endpoint-replacement-')))
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-endpoint-token-123456789' })
+    try {
+      await daemon.start()
+      const record = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+      if (record.status !== 'current') throw new Error('daemon did not publish its endpoint')
+      const displaced = record.record.socketPath + '.displaced'
+      const preserved = record.record.socketPath + '.preserved'
+      renameSync(record.record.socketPath, displaced)
+      writeFileSync(record.record.socketPath, 'replacement', { mode: 0o600 })
+      await expect(daemon.stopIfIdle()).rejects.toThrow(/endpoint path changed/)
+      expect(readFileSync(record.record.socketPath, 'utf8')).toBe('replacement')
+      renameSync(record.record.socketPath, preserved)
+      renameSync(displaced, record.record.socketPath)
+      await expect(daemon.stopIfIdle()).resolves.toBe(true)
+      expect(readFileSync(preserved, 'utf8')).toBe('replacement')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })

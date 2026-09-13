@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -24,7 +24,7 @@ const authority: RuntimeIdentityAuthority = {
 
 describe('runtime publication state machine', () => {
   it('does not expose a preparing locator and activates only after endpoint bind and publish', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-')))
     const endpoint = freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock'), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
     const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint, authToken: 'publication-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
@@ -41,7 +41,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('preserves an interrupted preparing claim as recovery evidence', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-interrupted-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-interrupted-')))
     const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       expect(publication.owner.state).toBe('preparing')
@@ -54,7 +54,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('leaves successor ownership intact when the predecessor releases late', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-successor-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-successor-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'first-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
@@ -70,7 +70,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('returns claim for a stale preparing crash and keeps generation compare-bound', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-preparing-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-preparing-')))
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'first-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority })
     try {
@@ -91,7 +91,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('lets only the exact in-memory candidate finish its preparing publication', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-finish-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-finish-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'finish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       const result = await reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, candidate: first, contact: async () => { throw new Error('owned preparing candidate must not contact itself') } })
@@ -107,7 +107,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('never finishes another process preparing row from authenticated contact alone', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-foreign-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-foreign-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'foreign-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       await expect(reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, contact: async record => 'version' in record ? { status: 'exact', ownerId: record.ownerId, generation: record.ownerGeneration, processIdentity: record.processIdentity } : { status: 'legacy' } })).rejects.toMatchObject({ code: 'OWNER_LIVE' })
@@ -119,7 +119,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('lets only the exact in-memory active candidate republish its locator', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-republish-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-republish-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'republish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const wrong: LocalRuntimeRecord = { ...first.locator, authToken: 'wrong-reconcile-token' }
@@ -139,7 +139,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('fails closed when an active identity is valid but authenticated contact is not exact', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-fail-closed-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-fail-closed-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'fail-closed-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     try {
@@ -153,7 +153,7 @@ describe('runtime publication state machine', () => {
   })
 
   it('takes over when both a mismatched v2 locator and its recorded owner are proven stale', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-stale-mismatch-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-stale-mismatch-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'owner.sock')), authToken: 'owner-stale-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const mismatched: LocalRuntimeRecord = { ...first.locator, socketPath: freshRuntimeEndpoint(join(directory, 'stale.sock')), authToken: 'stale-locator-token' }
@@ -173,7 +173,7 @@ describe('runtime publication state machine', () => {
     }
   })
   it('allows a legacy locator only when its fresh bytes match committed recovery', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-recovery-'))
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-recovery-')))
     const paths = localRuntimePaths(directory, 'app')
     const legacy = { socketPath: '/tmp/legacy-reconcile.sock', authToken: 'legacy-reconcile-token' }
     writeFileSync(paths.runtimeFile, JSON.stringify(legacy), { mode: 0o600 })

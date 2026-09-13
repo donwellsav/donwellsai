@@ -143,10 +143,11 @@ export class RuntimeOwnershipStore {
   private readonly db: DatabaseSync
   private readonly fileReader: RuntimeFileReader
   private readonly readOnly: boolean
+  private authorityIdentity = ''
   constructor(databasePath: string, options: StoreOptions = {}) {
     this.readOnly = options.readOnly === true
     this.fileReader = options.fileReader ?? privateRuntimeFileReader()
-    const directory = canonicalPrivateDirectory(dirname(databasePath), { create: !this.readOnly })
+    const directory = canonicalPrivateDirectory(dirname(databasePath), { create: !this.readOnly, requireCanonical: true })
     this.databasePath = join(directory, basename(databasePath))
     try {
       const descriptor = openSync(this.databasePath, this.readOnly ? 'r' : 'wx', 0o600)
@@ -173,6 +174,7 @@ export class RuntimeOwnershipStore {
       if (error instanceof RuntimeOwnershipError) throw error
       throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
     }
+    this.authorityIdentity = validatedIdentity
     if (this.readOnly) {
       this.db.exec('PRAGMA busy_timeout=1000')
     } else {
@@ -193,6 +195,7 @@ export class RuntimeOwnershipStore {
           claimed_at TEXT NOT NULL,
           activated_at TEXT
         );
+        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
         CREATE TABLE runtime_owner_generations (
           kind TEXT PRIMARY KEY,
           last_generation INTEGER NOT NULL
@@ -216,7 +219,7 @@ export class RuntimeOwnershipStore {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        PRAGMA user_version=2;
+        PRAGMA user_version=3;
       `)
     } else if (version === 1 && !this.readOnly) {
       this.db.exec(`
@@ -227,10 +230,18 @@ export class RuntimeOwnershipStore {
         );
         INSERT INTO runtime_owner_generations(kind,last_generation)
           SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
-        PRAGMA user_version=2;
+        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
+        PRAGMA user_version=3;
         COMMIT;
       `)
-    } else if (version !== 2) {
+    } else if (version === 2 && !this.readOnly) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
+        PRAGMA user_version=3;
+        COMMIT;
+      `)
+    } else if (version !== 3) {
       this.db.close()
       throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
     }
@@ -251,6 +262,22 @@ export class RuntimeOwnershipStore {
       throw error
     }
     this.validateAuxiliaryFiles()
+    this.assertAuthorityFile()
+  }
+
+  private assertAuthorityFile(): void {
+    try {
+      const identity = JSON.stringify(readPrivateRuntimeFile(this.databasePath, 8 * 1024 * 1024, this.fileReader).fileIdentity)
+      if (identity !== this.authorityIdentity) {
+        this.db.close()
+        throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database identity changed during use')
+      }
+    } catch (error) {
+      try { this.db.close() } catch {}
+      if (error instanceof RuntimeOwnershipError) throw error
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
+    }
+    this.validateAuxiliaryFiles()
   }
 
   private validateAuxiliaryFiles(): void {
@@ -260,7 +287,7 @@ export class RuntimeOwnershipStore {
       try {
         readPrivateRuntimeFile(path, 8 * 1024 * 1024, this.fileReader)
       } catch (error) {
-        this.db.close()
+        try { this.db.close() } catch {}
         throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
       }
     }
@@ -271,9 +298,11 @@ export class RuntimeOwnershipStore {
 
   observe(kind: RuntimeOwnerKind): RuntimeOwnerObservation {
     assertKind(kind)
+    this.assertAuthorityFile()
     const result = rowFromObservation(this.db, kind)
     const generation = lastGeneration(this.db, kind)
     if (result && result.owner.generation !== generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+    this.assertAuthorityFile()
     return result ? { status: 'present', owner: result.owner, rowSha256: result.rowSha256 } : { status: 'vacant', lastGeneration: generation }
   }
 
@@ -289,6 +318,7 @@ export class RuntimeOwnershipStore {
     }
     if (observed.status === 'vacant' && verdict !== null) throw new RuntimeOwnershipError('OWNER_CHANGED', 'vacant runtime owner cannot have a prior verdict')
     const claimedAt = now()
+    this.assertAuthorityFile()
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const current = rowFromObservation(this.db, candidate.kind)
@@ -313,6 +343,7 @@ export class RuntimeOwnershipStore {
       }
       this.audit(owner.kind, 'prepare', observed.status === 'present' ? observed.rowSha256 : null, owner, { verdict: verdict?.status ?? null })
       this.db.exec('COMMIT')
+      this.assertAuthorityFile()
       return owner
     } catch (error) {
       try { this.db.exec('ROLLBACK') } catch {}
@@ -324,6 +355,7 @@ export class RuntimeOwnershipStore {
     if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertHash(locatorSha256)
     if (owner.state !== 'preparing') throw new RuntimeOwnershipError('OWNER_STATE', 'only a preparing owner can activate')
+    this.assertAuthorityFile()
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const current = rowFromObservation(this.db, owner.kind)
@@ -332,6 +364,7 @@ export class RuntimeOwnershipStore {
       const active = { ...owner, state: 'active' as const, locatorSha256 }
       this.audit(owner.kind, 'activate', current.rowSha256, active, {})
       this.db.exec('COMMIT')
+      this.assertAuthorityFile()
       return active
     } catch (error) {
       try { this.db.exec('ROLLBACK') } catch {}
@@ -343,6 +376,7 @@ export class RuntimeOwnershipStore {
     if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     assertHash(expectedLocatorSha256)
     assertHash(nextLocatorSha256)
+    this.assertAuthorityFile()
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const current = rowFromObservation(this.db, owner.kind)
@@ -351,6 +385,7 @@ export class RuntimeOwnershipStore {
       const active = { ...current.owner, locatorSha256: nextLocatorSha256 }
       this.audit(owner.kind, 'republish', current.rowSha256, active, { expectedLocatorSha256 })
       this.db.exec('COMMIT')
+      this.assertAuthorityFile()
       return active
     } catch (error) {
       try { this.db.exec('ROLLBACK') } catch {}
@@ -360,23 +395,27 @@ export class RuntimeOwnershipStore {
 
   resolveActive(kind: RuntimeOwnerKind, locator: RuntimeLocator, locatorSha256: string): RuntimeOwner {
     assertHash(locatorSha256)
+    this.assertAuthorityFile()
     const current = rowFromObservation(this.db, kind)
     if (!current || current.owner.state !== 'active') throw new RuntimeOwnershipError('OWNER_UNAVAILABLE', 'no active runtime owner is recorded')
     const owner = current.owner
     if (owner.locatorSha256 !== locatorSha256 || locator.version !== 2 || locator.ownerId !== owner.ownerId || locator.ownerGeneration !== owner.generation || locator.socketPath !== owner.endpoint || locator.authToken !== owner.authToken || JSON.stringify(locator.processIdentity) !== identityJson(owner.identity)) {
       throw new RuntimeOwnershipError('OWNER_MISMATCH', 'runtime locator does not match the active owner')
     }
+    this.assertAuthorityFile()
     return owner
   }
 
   release(owner: RuntimeOwner): boolean {
     if (this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
+    this.assertAuthorityFile()
     this.db.exec('BEGIN IMMEDIATE')
     try {
       const result = this.db.prepare('DELETE FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').run(owner.kind, owner.ownerId, owner.generation)
       const deleted = Number(result.changes) === 1
       if (deleted) this.audit(owner.kind, 'release', rowHash(owner), owner, {})
       this.db.exec('COMMIT')
+      this.assertAuthorityFile()
       return deleted
     } catch (error) {
       try { this.db.exec('ROLLBACK') } catch {}
@@ -387,11 +426,13 @@ export class RuntimeOwnershipStore {
   findLegacyRecovery(match: LegacyRecoveryMatch): LegacyRecoveryRecord | null {
     assertKind(match.kind)
     if (!HASH.test(match.expectedFingerprint)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery fingerprint was invalid')
+    this.assertAuthorityFile()
     const rows = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE kind=? AND expected_fingerprint=? AND state=?').all(match.kind, match.expectedFingerprint, 'committed') as Array<Record<string, unknown>>
     for (const row of rows) {
       let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
       try { detail = JSON.parse(String(row['detail_json'])) as typeof detail } catch { throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery detail was malformed') }
       if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(match.fileIdentity) || detail.endpoint !== match.endpoint) continue
+      this.assertAuthorityFile()
       return {
         id: String(row['id']),
         kind: match.kind,
@@ -404,6 +445,7 @@ export class RuntimeOwnershipStore {
         updatedAt: String(row['updated_at'])
       }
     }
+    this.assertAuthorityFile()
     return null
   }
   recordLegacyRecovery(input: LegacyRecoveryInput): LegacyRecoveryRecord {
@@ -411,6 +453,7 @@ export class RuntimeOwnershipStore {
     assertKind(input.kind)
     if (!HASH.test(input.expectedFingerprint)) throw new RuntimeOwnershipError('INVALID_RECOVERY', 'legacy recovery fingerprint was invalid')
     const id = input.id ?? randomUUID()
+    this.assertAuthorityFile()
     const existing = this.db.prepare('SELECT id, kind, expected_fingerprint, state, detail_json, created_at, updated_at FROM runtime_recovery_operations WHERE id=?').get(id) as Record<string, unknown> | undefined
     if (existing) {
       let detail: { fileIdentity: Record<string, string>; evidencePath: string; endpoint: string }
@@ -420,6 +463,7 @@ export class RuntimeOwnershipStore {
         || detail.evidencePath !== input.evidencePath || detail.endpoint !== input.endpoint) {
         throw new RuntimeOwnershipError('RECOVERY_DUPLICATE', 'legacy recovery ID is bound to different evidence or endpoint')
       }
+      this.assertAuthorityFile()
       return {
         id: String(existing['id']), kind: input.kind, expectedFingerprint: String(existing['expected_fingerprint']),
         fileIdentity: detail.fileIdentity, evidencePath: detail.evidencePath, endpoint: detail.endpoint,
@@ -429,6 +473,7 @@ export class RuntimeOwnershipStore {
     const createdAt = now()
     this.db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(
       id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, endpoint: input.endpoint }), createdAt, createdAt)
+    this.assertAuthorityFile()
     return { ...input, id, state: 'committed', createdAt, updatedAt: createdAt }
   }
 
