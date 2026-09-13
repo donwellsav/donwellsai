@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { chmodSync, mkdtempSync, openSync, closeSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -88,6 +89,7 @@ describe('strict local runtime records', () => {
       expect(result).toMatchObject({ status: 'current', record: current, fileIdentity: { platform: 'posix', device: '1', inode: '2' } })
       expect(readFileSync(path)).toEqual(replacementBytes)
       if (result.status !== 'current') throw new Error('runtime record was not current')
+      expect(result.sha256).toBe(createHash('sha256').update(originalBytes).digest('hex'))
       expect(result.sha256).toMatch(/^[a-f0-9]{64}$/)
     } finally {
       rmSync(directory, { recursive: true, force: true })

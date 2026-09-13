@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     authToken: process.env['DONWELLS_DAEMON_TOKEN'] ?? newAuthToken()
   })
   await daemon.start()
+  if (!daemon.isReady()) throw new Error('terminal daemon start completed without an active listener')
   logger.info('terminal-daemon:ready')
   const handleSignal = (): void => {
     void daemon.stopIfIdle().then((stopped) => {

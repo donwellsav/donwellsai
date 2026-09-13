@@ -119,6 +119,7 @@ export class RuntimeRpcServer {
   /** inode of the socket path we bound — ownership check for stop(). */
   private boundIno: number | null = null
   private publication: RuntimePublication | null = null
+  private lifecycleGeneration = 0
 
   constructor(
     private socketPath: string,
@@ -126,9 +127,14 @@ export class RuntimeRpcServer {
     private authToken: string,
     private deps: RpcDeps
   ) {}
+  /** True only after the listener is bound and its active ownership is published. */
+  isReady(): boolean {
+    return this.server?.listening === true && this.publication?.owner.state === 'active'
+  }
 
   async start(): Promise<void> {
     if (this.server) throw new Error('Runtime RPC is already started')
+    const lifecycleGeneration = ++this.lifecycleGeneration
     const authority = runtimeIdentityAuthority()
     const reconciliation = await reconcileRuntimeOwner({
       userDataDir: dirname(this.runtimeFile),
@@ -147,15 +153,25 @@ export class RuntimeRpcServer {
           authority
         })
       : reconciliation.publication
+    if (lifecycleGeneration !== this.lifecycleGeneration) {
+      publication.store.close()
+      throw new Error('Runtime RPC start was cancelled before bind')
+    }
     this.publication = publication
     this.socketPath = publication.owner.endpoint
-    mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
-    if (process.platform !== 'win32') {
-      const directory = dirname(this.socketPath)
-      mkdirSync(directory, { recursive: true, mode: 0o700 })
-      const stat = lstatSync(directory)
-      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
-      chmodSync(directory, 0o700)
+    try {
+      mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
+      if (process.platform !== 'win32') {
+        const directory = dirname(this.socketPath)
+        mkdirSync(directory, { recursive: true, mode: 0o700 })
+        const stat = lstatSync(directory)
+        if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
+        chmodSync(directory, 0o700)
+      }
+    } catch (error) {
+      this.publication = null
+      publication.store.close()
+      throw error
     }
     const ready = Promise.withResolvers<void>()
     const server = createServer(socket => this.handleClient(socket))
@@ -164,6 +180,7 @@ export class RuntimeRpcServer {
     server.listen(this.socketPath, () => ready.resolve())
     try {
       await ready.promise
+      if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Runtime RPC start was cancelled before publication')
       if (process.platform !== 'win32') {
         this.boundIno = statSync(this.socketPath).ino
         chmodSync(this.socketPath, 0o600)
@@ -171,6 +188,7 @@ export class RuntimeRpcServer {
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
+      const failedPublication = this.publication
       for (const client of this.clients) client.destroy()
       this.clients.clear()
       if (server.listening) {
@@ -185,11 +203,13 @@ export class RuntimeRpcServer {
         } catch {}
       }
       this.boundIno = null
+      this.publication = null
+      failedPublication?.store.close()
       throw error
     }
   }
-
   stop(): void {
+    ++this.lifecycleGeneration
     for (const client of this.clients) client.destroy()
     this.clients.clear()
     const publication = this.publication

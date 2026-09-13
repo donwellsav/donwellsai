@@ -1,13 +1,18 @@
 // @vitest-environment node
 import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeOwner } from '@shared/runtime-ownership'
-import { DaemonClient } from './daemon-client'
-import { localRuntimePaths, readRuntimeRecord } from './local-runtime'
+import { DaemonClient, terminateSpawnedChild } from './daemon-client'
+import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner } from './runtime-ownership'
 import { TerminalDaemon } from './terminal-daemon'
+
 type DaemonLifecycleProbe = { activePublication: () => { owner: RuntimeOwner; store: { release: (owner: RuntimeOwner) => boolean } } | null }
 type DaemonConnectProbe = { tryConnect: (socketPath: string, authToken: string, expected: { ownerId: string; ownerGeneration: number; socketPath: string; authToken: string; processIdentity: unknown }) => Promise<boolean> }
 
@@ -18,7 +23,6 @@ const events = {
   agent: () => {},
   agentDismissed: () => {}
 }
-
 function readHello(socketPath: string, authToken: string): Promise<Record<string, unknown>> {
   const completion = Promise.withResolvers<Record<string, unknown>>()
   const socket = createConnection(socketPath)
@@ -158,6 +162,89 @@ describe('terminal runtime identity lifecycle', () => {
       await expect(daemon.stopIfIdle()).resolves.toBe(true)
       expect(readFileSync(preserved, 'utf8')).toBe('replacement')
     } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('verifies termination of a real detached child', async () => {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { detached: true, stdio: 'ignore' })
+    await new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve)
+      child.once('error', reject)
+    })
+    expect(await terminateSpawnedChild(child)).toBe(true)
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
+  })
+  it('reports an unverifiable cleanup result instead of treating a close event as termination', async () => {
+    const child = new EventEmitter() as ChildProcess
+    Object.assign(child, { pid: 1, exitCode: null, signalCode: null })
+    const cleanup = terminateSpawnedChild(child)
+    setImmediate(() => child.emit('close'))
+    await expect(cleanup).resolves.toBe(false)
+  })
+  it('cancels a pending startup when shutdown races reconciliation', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-shutdown-race-')))
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-race-token-123456789' })
+    const paths = localRuntimePaths(directory, 'terminal')
+    writeRuntimeRecord(paths.runtimeFile, {
+      version: 2,
+      ownerId: '44444444-4444-4444-8444-444444444444',
+      ownerGeneration: 1,
+      socketPath: '/tmp/donwells-terminal-reconcile-missing.sock',
+      authToken: 'stale-terminal-token-123456',
+      processIdentity: {
+        pid: 2_147_483_647,
+        bootId: 'stale-boot',
+        startedAt: 'stale-start',
+        executablePath: process.execPath,
+        family: 'terminal-daemon',
+        capturedAt: '2026-09-13T00:00:00.000Z',
+        generation: '44444444-4444-4444-8444-444444444444:1'
+      }
+    })
+    try {
+      const starting = daemon.start()
+      await daemon.stopIfIdle()
+      await expect(starting).rejects.toThrow(/cancelled/)
+      expect(daemon.isReady()).toBe(false)
+    } finally {
+      await daemon.stopIfIdle()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('hands a stale locator mismatch to the spawned daemon for reconciliation', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-client-recovery-')))
+    const ownerId = '22222222-2222-4222-8222-222222222222'
+    const authority = {
+      capture: (_pid: number, options: { generation?: string }) => ({
+        pid: 2_147_483_647,
+        bootId: 'stale-boot',
+        startedAt: 'stale-start',
+        executablePath: process.execPath,
+        family: 'terminal-daemon' as const,
+        capturedAt: '2026-09-13T00:00:00.000Z',
+        generation: options.generation
+      }),
+      verify: () => ({ status: 'stale' as const, reason: 'not-found' as const })
+    }
+    const publication = claimRuntimeOwner({
+      userDataDir: directory,
+      kind: 'terminal-daemon',
+      endpoint: freshRuntimeEndpoint('/tmp/donwells-client-recovery.sock', ownerId),
+      authToken: 'stale-owner-token-123456',
+      captureIdentity: generation => authority.capture(process.pid, { generation }),
+      authority
+    })
+    const entry = join(directory, 'exit-daemon.js')
+    writeFileSync(entry, 'process.exit(0)\n', { mode: 0o700 })
+    await publishRuntimeOwner(publication, () => undefined)
+    writeRuntimeRecord(publication.paths.runtimeFile, { ...publication.locator, authToken: 'stale-locator-token-123456' })
+    const client = new DaemonClient(directory, events, entry, { handshakeTimeoutMs: 50 })
+    try {
+      await expect(client.connect()).rejects.toThrow(/exited during startup/)
+    } finally {
+      client.disconnect()
+      publication.store.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })

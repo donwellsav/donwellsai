@@ -42,7 +42,7 @@ describe('runtime publication state machine', () => {
 
   it('preserves an interrupted preparing claim as recovery evidence', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-interrupted-')))
-    const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       expect(publication.owner.state).toBe('preparing')
       expect(releaseRuntimeOwner(publication)).toBe(false)
@@ -55,10 +55,10 @@ describe('runtime publication state machine', () => {
 
   it('leaves successor ownership intact when the predecessor releases late', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-successor-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'first-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-app-runtime.sock')), authToken: 'first-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
-    const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'second-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+    const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-app-runtime.sock')), authToken: 'second-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
     try {
       await expect(publishRuntimeOwner(second, () => undefined)).resolves.toMatchObject({ generation: 2, state: 'active' })
       expect(releaseRuntimeOwner(first)).toBe(false)
@@ -72,7 +72,7 @@ describe('runtime publication state machine', () => {
   it('returns claim for a stale preparing crash and keeps generation compare-bound', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-preparing-')))
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'first-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock')), authToken: 'first-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority })
     try {
       await expect(reconcileRuntimeOwner({
         userDataDir: directory,
@@ -81,7 +81,7 @@ describe('runtime publication state machine', () => {
         store: first.store,
         contact: async () => ({ status: 'unreachable', detail: 'crashed before bind' })
       })).resolves.toEqual({ action: 'claim' })
-      const successor = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'second.sock')), authToken: 'second-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+      const successor = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-second.sock')), authToken: 'second-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
       expect(successor.owner.generation).toBe(2)
       expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: successor.owner.ownerId, state: 'preparing' } })
     } finally {
@@ -92,7 +92,7 @@ describe('runtime publication state machine', () => {
 
   it('lets only the exact in-memory candidate finish its preparing publication', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-finish-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'finish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock')), authToken: 'finish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       const result = await reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, candidate: first, contact: async () => { throw new Error('owned preparing candidate must not contact itself') } })
       expect(result).toEqual({ action: 'finish-preparing', publication: first })
@@ -108,7 +108,7 @@ describe('runtime publication state machine', () => {
 
   it('never finishes another process preparing row from authenticated contact alone', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-foreign-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'foreign-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock')), authToken: 'foreign-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       await expect(reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, contact: async record => 'version' in record ? { status: 'exact', ownerId: record.ownerId, generation: record.ownerGeneration, processIdentity: record.processIdentity } : { status: 'legacy' } })).rejects.toMatchObject({ code: 'OWNER_LIVE' })
       expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
@@ -120,7 +120,7 @@ describe('runtime publication state machine', () => {
 
   it('lets only the exact in-memory active candidate republish its locator', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-republish-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'republish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock')), authToken: 'republish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const wrong: LocalRuntimeRecord = { ...first.locator, authToken: 'wrong-reconcile-token' }
     writeRuntimeRecord(first.paths.runtimeFile, wrong)
@@ -140,7 +140,7 @@ describe('runtime publication state machine', () => {
 
   it('fails closed when an active identity is valid but authenticated contact is not exact', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-fail-closed-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'fail-closed-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock')), authToken: 'fail-closed-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     try {
       await expect(reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, contact: async () => ({ status: 'unreachable', detail: 'no response' }) })).rejects.toMatchObject({ code: 'OWNER_LIVE' })
@@ -154,9 +154,9 @@ describe('runtime publication state machine', () => {
 
   it('takes over when both a mismatched v2 locator and its recorded owner are proven stale', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-stale-mismatch-')))
-    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'owner.sock')), authToken: 'owner-stale-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-owner.sock')), authToken: 'owner-stale-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
-    const mismatched: LocalRuntimeRecord = { ...first.locator, socketPath: freshRuntimeEndpoint(join(directory, 'stale.sock')), authToken: 'stale-locator-token' }
+    const mismatched: LocalRuntimeRecord = { ...first.locator, socketPath: freshRuntimeEndpoint(join('/tmp', 'donwells-stale.sock')), authToken: 'stale-locator-token' }
     writeRuntimeRecord(first.paths.runtimeFile, mismatched)
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
     try {

@@ -103,27 +103,32 @@ function delay(ms: number): Promise<void> {
   return result.promise
 }
 
-function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  const completion = Promise.withResolvers<void>()
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  const completion = Promise.withResolvers<boolean>()
   const onClose = (): void => {
     clearTimeout(timer)
-    completion.resolve()
+    completion.resolve(true)
   }
   const timer = setTimeout(() => {
     child.removeListener('close', onClose)
-    completion.resolve()
+    completion.resolve(false)
   }, timeoutMs)
   timer.unref?.()
   child.once('close', onClose)
   return completion.promise
 }
 
-async function terminateSpawnedChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode === null && child.signalCode === null) {
-    try { await forceTerminateProcessTree(child) } catch { /* preserve the startup error */ }
+export async function terminateSpawnedChild(child: ChildProcess): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true
+  let terminated = false
+  try {
+    terminated = await forceTerminateProcessTree(child)
+  } catch {
+    terminated = false
   }
-  await waitForChildExit(child, 2_000)
+  const exited = await waitForChildExit(child, 2_000)
+  return terminated && exited
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -213,7 +218,8 @@ export class DaemonClient {
       try {
         ownership.resolveActive('terminal-daemon', record.record, record.sha256)
       } catch (error) {
-        if (!(error instanceof RuntimeOwnershipError) || error.code !== 'OWNER_UNAVAILABLE') {
+        if (!(error instanceof RuntimeOwnershipError)
+          || (error.code !== 'OWNER_UNAVAILABLE' && error.code !== 'OWNER_MISMATCH')) {
           throw new Error('terminal daemon runtime ownership is not active; it was not replaced', { cause: error })
         }
       } finally {
@@ -273,7 +279,12 @@ export class DaemonClient {
       throw new Error('terminal daemon connection timed out after 10000ms')
     } catch (error) {
       if (this.spawnedChild === child) this.spawnedChild = null
-      if (child.pid) await terminateSpawnedChild(child)
+      if (child.pid) {
+        const cleaned = await terminateSpawnedChild(child)
+        if (!cleaned) {
+          throw new Error('terminal daemon startup failed and child termination could not be verified', { cause: error })
+        }
+      }
       throw error
     }
   }

@@ -86,11 +86,11 @@ function sameToken(actual: string | undefined, supplied: unknown): boolean {
 function cloneRun(run: RunningAgent): RunningAgent {
   return structuredClone(run)
 }
-
 /** Detached local execution owner. Client disconnect is never process-exit evidence. */
 export class TerminalDaemon {
   private server: Server | null = null
   private boundIno: number | null = null
+  private lifecycleGeneration = 0
   private readonly pty: PtyManager
   private readonly attention: AttentionInboxService
   private readonly authToken: string
@@ -140,12 +140,17 @@ export class TerminalDaemon {
   hasLiveSessions(): boolean {
     return this.pty.list().some((session) => !session.exited) || this.acp.hasOwnedSessions()
   }
+  /** True only after the server is listening and its ownership row is active. */
+  isReady(): boolean {
+    return this.server?.listening === true && this.publication?.owner.state === 'active'
+  }
 
   hasOwnedSessions(): boolean {
     return this.pty.list().length > 0 || this.acp.hasOwnedSessions()
   }
 
   async stopIfIdle(): Promise<boolean> {
+    ++this.lifecycleGeneration
     if (this.hasOwnedSessions()) return false
     if (this.server && this.endpointPathState() === 'foreign') throw new Error('terminal daemon endpoint path changed; refusing to close it')
     const server = this.server
@@ -169,6 +174,7 @@ export class TerminalDaemon {
 
   async start(): Promise<void> {
     if (this.server) throw new Error('Terminal daemon is already started')
+    const lifecycleGeneration = ++this.lifecycleGeneration
     this.prepareRuntimeDirectory()
     const authority = runtimeIdentityAuthority()
     const reconciliation = await reconcileRuntimeOwner({
@@ -188,6 +194,10 @@ export class TerminalDaemon {
           authority
         })
       : reconciliation.publication
+    if (lifecycleGeneration !== this.lifecycleGeneration) {
+      publication.store.close()
+      throw new Error('Terminal daemon start was cancelled before bind')
+    }
     this.publication = publication
     this.paths.socketPath = publication.owner.endpoint
     const server = createServer(socket => this.handleClient(socket))
@@ -206,6 +216,7 @@ export class TerminalDaemon {
     server.listen(this.paths.socketPath)
     try {
       await listening.promise
+      if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Terminal daemon start was cancelled before publication')
       if (process.platform !== 'win32') {
         this.boundIno = statSync(this.paths.socketPath).ino
         chmodSync(this.paths.socketPath, 0o600)
@@ -213,8 +224,10 @@ export class TerminalDaemon {
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
+      const failedPublication = this.publication
+      let failure: unknown = error
       if (server.listening && this.endpointPathState() === 'foreign') {
-        throw new Error('terminal daemon endpoint path changed during startup; refusing to close it', { cause: error })
+        failure = new Error('terminal daemon endpoint path changed during startup; refusing to close it', { cause: error })
       }
       if (server.listening) {
         const closed = Promise.withResolvers<void>()
@@ -224,7 +237,9 @@ export class TerminalDaemon {
       this.server = null
       this.removeOwnedEndpoint()
       this.boundIno = null
-      throw error
+      this.publication = null
+      failedPublication?.store.close()
+      throw failure
     }
   }
 

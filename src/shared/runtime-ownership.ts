@@ -108,10 +108,12 @@ function parseRow(row: Record<string, unknown>): RuntimeOwner {
     || typeof identity.capturedAt !== 'string' || !identity.capturedAt || identity.generation !== ownerId + ':' + generation) {
     throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner identity did not match its authority row')
   }
-  const endpoint = String(row['endpoint'])
-  const authToken = String(row['auth_token'])
+  const endpoint = row['endpoint']
+  const authToken = row['auth_token']
   const locatorSha256 = row['locator_sha256'] === null ? null : String(row['locator_sha256'])
-  if (!endpoint || !authToken || (state === 'preparing' && locatorSha256 !== null) || (state === 'active' && (locatorSha256 === null || !HASH.test(locatorSha256)))) {
+  if (typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > 4096 || endpoint.includes('\0')
+    || typeof authToken !== 'string' || authToken.length === 0 || authToken.length > 16 * 1024 || authToken.includes('\0')
+    || (state === 'preparing' && locatorSha256 !== null) || (state === 'active' && (locatorSha256 === null || !HASH.test(locatorSha256)))) {
     throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner fields violated state invariants')
   }
   return { kind, ownerId, generation, state, identity, endpoint, authToken, locatorSha256 }
@@ -144,6 +146,7 @@ export class RuntimeOwnershipStore {
   private readonly fileReader: RuntimeFileReader
   private readonly readOnly: boolean
   private authorityIdentity = ''
+  private closed = false
   constructor(databasePath: string, options: StoreOptions = {}) {
     this.readOnly = options.readOnly === true
     this.fileReader = options.fileReader ?? privateRuntimeFileReader()
@@ -293,6 +296,8 @@ export class RuntimeOwnershipStore {
     }
   }
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.db.close()
   }
 

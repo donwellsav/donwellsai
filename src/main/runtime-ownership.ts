@@ -286,10 +286,15 @@ function requireSafeClaimLocator(store: RuntimeOwnershipStore, paths: LocalRunti
 }
 
 export function freshRuntimeEndpoint(baseEndpoint: string, ownerId = randomUUID()): string {
-  const suffix = '.' + ownerId
+  const suffix = '.' + createHash('sha256').update(ownerId).digest('hex').slice(0, 16)
   const candidate = baseEndpoint + suffix
   if (process.platform !== 'darwin' || Buffer.byteLength(candidate) <= 103) return candidate
-  return baseEndpoint.slice(0, Math.max(1, 102 - Buffer.byteLength(suffix))) + suffix
+  const separator = Math.max(baseEndpoint.lastIndexOf('/'), baseEndpoint.lastIndexOf('\\')) + 1
+  const parent = baseEndpoint.slice(0, separator)
+  const basename = baseEndpoint.slice(separator)
+  const available = 102 - Buffer.byteLength(parent) - Buffer.byteLength(suffix)
+  if (available < 1) throw new Error('runtime endpoint parent path is too long')
+  return parent + basename.slice(0, available) + suffix
 }
 export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublication {
   const canonicalUserDataDir = canonicalPrivateDirectory(options.userDataDir, { create: true, requireCanonical: true })

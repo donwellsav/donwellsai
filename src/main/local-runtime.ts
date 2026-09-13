@@ -221,7 +221,7 @@ export function localRuntimePaths(userDataDir: string, kind: 'app' | 'terminal',
   const directoryName = 'donwells-' + kind + '-' + (process.getuid?.() ?? 'user')
   let socketDir = join(tmpdir(), directoryName)
   const fileName = profileKey + '.sock'
-  if (Buffer.byteLength(path.join(socketDir, fileName)) > 103) socketDir = path.join('/tmp', directoryName)
+  if (Buffer.byteLength(path.join(socketDir, fileName)) + 37 > 103) socketDir = path.join('/tmp', directoryName)
   return {
     runtimeDir,
     runtimeFile,

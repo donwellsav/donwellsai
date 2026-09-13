@@ -1069,7 +1069,12 @@ app.whenReady().then(() => {
     }
   )
   rpcServer = rpc
-  void rpc.start().catch((e) => logger.fatal({ err: e }, 'runtime rpc failed to start'))
+  void rpc.start().then(() => {
+    if (!rpc.isReady()) throw new Error('runtime RPC start completed without an active listener')
+  }).catch((e) => {
+    logger.fatal({ err: e }, 'runtime rpc failed to start')
+    app.exit(1)
+  })
   if (process.env['DONWELLS_SMOKE'] === '1') {
     mainWindow?.webContents.once('did-finish-load', () => {
       logger.info('smoke:ready')

@@ -101,6 +101,25 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it.runIf(process.platform !== 'win32')('distinguishes same bytes at different pathname identities', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-same-bytes-'))
+    const firstPath = join(directory, 'runtime.json')
+    const secondPath = join(directory, 'replacement.json')
+    const bytes = Buffer.from('same bytes\n')
+    try {
+      writeFileSync(firstPath, bytes, { mode: 0o600 })
+      writeFileSync(secondPath, bytes, { mode: 0o600 })
+      const first = addon.readPrivateRuntimeFile(firstPath, 1024)
+      const second = addon.readPrivateRuntimeFile(secondPath, 1024)
+      expect(first).toMatchObject({ ok: true, bytes })
+      expect(second).toMatchObject({ ok: true, bytes })
+      if (!first.ok || !second.ok) throw new Error('same-byte runtime files were unexpectedly rejected')
+      expect(first.fileIdentity).not.toEqual(second.fileIdentity)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 
   it.runIf(process.platform !== 'win32')('rejects group/world-readable and symlink runtime files', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
