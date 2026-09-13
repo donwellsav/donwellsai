@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { lstatSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -69,6 +70,75 @@ describe('runtime publication state machine', () => {
       expect(releaseRuntimeOwner(first)).toBe('not-owned')
       expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2 } })
     } finally {
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('removes the displaced endpoint only after successor activation', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-cleanup-')))
+    const firstEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-first.sock'), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-second.sock'), 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-cleanup-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const endpointServer = createServer(() => {})
+    await new Promise<void>((resolve, reject) => { endpointServer.once('error', reject); endpointServer.listen(first.owner.endpoint, resolve) })
+    const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
+    try {
+      await publishRuntimeOwner(first, () => undefined)
+      const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-cleanup-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+      await publishRuntimeOwner(second, () => undefined)
+      expect(() => lstatSync(first.owner.endpoint)).toThrow()
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2, state: 'active' } })
+    } finally {
+      await new Promise<void>(resolve => endpointServer.close(() => resolve()))
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('does not remove a predecessor endpoint that was replaced before activation', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-cleanup-replaced-')))
+    const firstEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-replaced-first.sock'), 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-replaced-second.sock'), 'dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-replaced-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const originalServer = createServer(() => {})
+    const replacementServer = createServer(() => {})
+    await new Promise<void>((resolve, reject) => { originalServer.once('error', reject); originalServer.listen(first.owner.endpoint, resolve) })
+    const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
+    let second: ReturnType<typeof claimRuntimeOwner> | undefined
+    try {
+      await publishRuntimeOwner(first, () => undefined)
+      second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-replaced-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+      const originalIdentity = lstatSync(first.owner.endpoint)
+      await new Promise<void>(resolve => originalServer.close(() => resolve()))
+      await new Promise<void>((resolve, reject) => { replacementServer.once('error', reject); replacementServer.listen(first.owner.endpoint, resolve) })
+      const replacementIdentity = lstatSync(first.owner.endpoint)
+      expect({ device: String(replacementIdentity.dev), inode: String(replacementIdentity.ino) }).not.toEqual({ device: String(originalIdentity.dev), inode: String(originalIdentity.ino) })
+      await publishRuntimeOwner(second, () => undefined)
+      expect(lstatSync(first.owner.endpoint).isSocket()).toBe(true)
+    } finally {
+      await new Promise<void>(resolve => originalServer.close(() => resolve()))
+      await new Promise<void>(resolve => replacementServer.close(() => resolve()))
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans a stale preparing predecessor only after successor activation', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-cleanup-preparing-')))
+    const firstEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-preparing-first.sock'), 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
+    const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-preparing-second.sock'), 'ffffffff-ffff-4fff-8fff-ffffffffffff')
+    const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-preparing-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority })
+    const endpointServer = createServer(() => {})
+    await new Promise<void>((resolve, reject) => { endpointServer.once('error', reject); endpointServer.listen(first.owner.endpoint, resolve) })
+    try {
+      const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-preparing-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+      await publishRuntimeOwner(second, () => undefined)
+      expect(() => lstatSync(first.owner.endpoint)).toThrow()
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2, state: 'active' } })
+    } finally {
+      await new Promise<void>(resolve => endpointServer.close(() => resolve()))
       first.store.close()
       rmSync(directory, { recursive: true, force: true })
     }
@@ -181,6 +251,27 @@ describe('runtime publication state machine', () => {
       })).resolves.toEqual({ action: 'claim' })
     } finally {
       first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('preserves a reachable authenticated legacy runtime without committed recovery', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-live-legacy-')) )
+    const paths = localRuntimePaths(directory, 'app')
+    const legacy = { socketPath: join(directory, 'legacy.sock'), authToken: 'legacy-live-token-123456' }
+    writeFileSync(paths.runtimeFile, JSON.stringify(legacy), { mode: 0o600 })
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    try {
+      await expect(reconcileRuntimeOwner({
+        userDataDir: directory,
+        kind: 'donwells-app',
+        authority,
+        store,
+        contact: async record => record.socketPath === legacy.socketPath ? { status: 'legacy' } : { status: 'mismatch', detail: 'wrong locator' }
+      })).resolves.toEqual({ action: 'reconnect-legacy', record: legacy })
+      expect(store.observe('donwells-app')).toEqual({ status: 'vacant', lastGeneration: 0 })
+      expect(readRuntimeRecord(paths.runtimeFile)).toMatchObject({ status: 'legacy', record: legacy })
+    } finally {
+      store.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })

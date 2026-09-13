@@ -1,4 +1,5 @@
 import { ACP_DAEMON_CAPABILITY, parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
+import type { McpServer } from '@agentclientprotocol/sdk'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
@@ -32,9 +33,9 @@ import {
   type AgentLaunchPlan
 } from './agents/provider-hooks'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
+import { RuntimeOwnershipError } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { AcpSessions } from './agents/acp-sessions'
-import type { McpServer } from '@agentclientprotocol/sdk'
 
 export const SCROLLBACK_MAX = 512 * 1024
 export const DAEMON_PROTOCOL_VERSION = 3
@@ -191,6 +192,7 @@ export class TerminalDaemon {
       store: this.publication?.store,
       candidate: this.publication ?? undefined
     })
+    if (reconciliation.action === 'reconnect-legacy') throw new RuntimeOwnershipError('OWNER_LIVE', 'legacy runtime endpoint is reachable; explicit recovery is required before replacement')
     const publication = reconciliation.action === 'claim'
       ? claimRuntimeOwner({
           userDataDir: dirname(this.paths.runtimeDir),
@@ -203,11 +205,9 @@ export class TerminalDaemon {
       : reconciliation.publication
     this.publication = publication
     this.paths.socketPath = publication.owner.endpoint
-    if (lifecycleGeneration !== this.lifecycleGeneration) {
-      throw new Error('Terminal daemon start was cancelled before bind')
-    }
     let server: Server | null = null
     try {
+      if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Terminal daemon start was cancelled before bind')
       server = createServer(socket => this.handleClient(socket))
       this.server = server
       const listening = Promise.withResolvers<void>()
@@ -243,6 +243,10 @@ export class TerminalDaemon {
       this.server = null
       this.removeOwnedEndpoint()
       this.boundIno = null
+      if (lifecycleGeneration !== this.lifecycleGeneration && this.publication === publication && publication.owner.state === 'preparing') {
+        const released = this.releaseRuntimeOwner()
+        if (released !== 'released') failure = new Error('Terminal daemon startup cleanup failed: ' + released, { cause: failure })
+      }
       throw failure
     }
   }

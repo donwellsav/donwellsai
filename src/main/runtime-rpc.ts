@@ -39,6 +39,7 @@ import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
+import { RuntimeOwnershipError } from '@shared/runtime-ownership'
 import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { readRuntimeRecord } from './local-runtime'
 import { runtimeIdentityAuthority } from './runtime-identity'
@@ -146,6 +147,7 @@ export class RuntimeRpcServer {
       store: this.publication?.store,
       candidate: this.publication ?? undefined
     })
+    if (reconciliation.action === 'reconnect-legacy') throw new RuntimeOwnershipError('OWNER_LIVE', 'legacy runtime endpoint is reachable; explicit recovery is required before replacement')
     const publication = reconciliation.action === 'claim'
       ? claimRuntimeOwner({
           userDataDir: dirname(this.runtimeFile),
@@ -158,19 +160,17 @@ export class RuntimeRpcServer {
       : reconciliation.publication
     this.publication = publication
     this.socketPath = publication.owner.endpoint
-    if (lifecycleGeneration !== this.lifecycleGeneration) {
-      throw new Error('Runtime RPC start was cancelled before bind')
-    }
-    mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
-    if (process.platform !== 'win32') {
-      const directory = dirname(this.socketPath)
-      mkdirSync(directory, { recursive: true, mode: 0o700 })
-      const stat = lstatSync(directory)
-      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
-      chmodSync(directory, 0o700)
-    }
     let server: Server | null = null
     try {
+      if (lifecycleGeneration !== this.lifecycleGeneration) throw new Error('Runtime RPC start was cancelled before bind')
+      mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
+      if (process.platform !== 'win32') {
+        const directory = dirname(this.socketPath)
+        mkdirSync(directory, { recursive: true, mode: 0o700 })
+        const stat = lstatSync(directory)
+        if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
+        chmodSync(directory, 0o700)
+      }
       const ready = Promise.withResolvers<void>()
       server = createServer(socket => this.handleClient(socket))
       this.server = server
@@ -203,6 +203,15 @@ export class RuntimeRpcServer {
         }
       }
       this.boundIno = null
+      if (lifecycleGeneration !== this.lifecycleGeneration && this.publication === publication && publication.owner.state === 'preparing') {
+        const abandoned = abandonRuntimeOwner(publication)
+        if (abandoned === 'released') {
+          this.publication = null
+          publication.store.close()
+        } else {
+          failure = new Error('Runtime RPC startup cleanup failed: ' + abandoned, { cause: failure })
+        }
+      }
       throw failure
     }
   }

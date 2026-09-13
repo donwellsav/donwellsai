@@ -192,6 +192,10 @@ export class DaemonClient {
   private async connectInner(): Promise<void> {
     const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
+    if (record.status === 'legacy') {
+      const connected = await this.tryConnect(record.record.socketPath, record.record.authToken, undefined, true).catch(() => false)
+      if (connected) return
+    }
     if (record.status === 'current') {
       // Contact the advertised endpoint first; native identity alone is not liveness evidence.
       const connected = await this.tryConnect(record.record.socketPath, record.record.authToken, record.record).catch(() => false)
@@ -278,7 +282,7 @@ export class DaemonClient {
     }
   }
 
-  private tryConnect(socketPath: string, authToken: string, expected?: LocalRuntimeRecord): Promise<boolean> {
+  private tryConnect(socketPath: string, authToken: string, expected?: LocalRuntimeRecord, allowLegacy = false): Promise<boolean> {
     const completion = deferred<boolean>()
     const socket = createConnection(socketPath)
     const helloId = randomUUID()
@@ -295,12 +299,15 @@ export class DaemonClient {
       socket.removeListener('error', onFailure)
       socket.removeListener('close', onFailure)
 
-      const handshakeMatches = connected && expected !== undefined
-        && handshake?.protocolVersion === 3
-        && handshake.runtimeIdentityContractVersion === 1
-        && handshake.ownerId === expected.ownerId
-        && handshake.generation === expected.ownerGeneration
-        && JSON.stringify(handshake.processIdentity) === JSON.stringify(expected.processIdentity)
+      const handshakeMatches = connected && (
+        (allowLegacy && handshake?.ok === true && handshake.runtimeIdentityContractVersion !== 1)
+        || (expected !== undefined
+          && handshake?.protocolVersion === 3
+          && handshake.runtimeIdentityContractVersion === 1
+          && handshake.ownerId === expected.ownerId
+          && handshake.generation === expected.ownerGeneration
+          && JSON.stringify(handshake.processIdentity) === JSON.stringify(expected.processIdentity))
+      )
       if (!handshakeMatches) {
         socket.destroy()
         completion.resolve(false)

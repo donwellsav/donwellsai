@@ -130,6 +130,9 @@ describe('runtime RPC publication lifecycle', () => {
       server.stop()
       await expect(starting).rejects.toThrow(/cancelled/)
       expect(server.isReady()).toBe(false)
+      const afterFailure = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      expect(afterFailure.observe('donwells-app')).toMatchObject({ status: 'vacant' })
+      afterFailure.close()
     } finally {
       server.stop()
       rmSync(directory, { recursive: true, force: true })

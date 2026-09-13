@@ -17,12 +17,12 @@ export function defaultUserData(platform = process.platform, env = process.env, 
   return join(root, 'donwells.ai')
 }
 
-function runtimeOwner(userData: string): { socketPath: string; authToken: string } {
+function runtimeOwner(userData: string): { socketPath: string; authToken: string; legacy: boolean } {
   const paths = localRuntimePaths(canonicalPrivateDirectory(userData, { requireCanonical: true }), 'app')
   const locator = readRuntimeRecord(paths.runtimeFile)
   if (locator.status === 'missing') throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + paths.runtimeFile + '; is donwells.ai running?')
   if (locator.status === 'invalid') throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file: ' + locator.reason)
-  if (locator.status === 'legacy') throw new CliFailure('RUNTIME_LEGACY', 'Legacy runtime discovery requires explicit runtime-recovery quarantine')
+  if (locator.status === 'legacy') return { socketPath: locator.record.socketPath, authToken: locator.record.authToken, legacy: true }
   let store: RuntimeOwnershipStore
   try {
     store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
@@ -32,7 +32,7 @@ function runtimeOwner(userData: string): { socketPath: string; authToken: string
   }
   try {
     const owner = store.resolveActive('donwells-app', locator.record, locator.sha256)
-    return { socketPath: owner.endpoint, authToken: owner.authToken }
+    return { socketPath: owner.endpoint, authToken: owner.authToken, legacy: false }
   } catch (error) {
     if (error instanceof RuntimeOwnershipError) throw new CliFailure(error.code, error.message)
     throw new CliFailure('RUNTIME_OWNER_UNAVAILABLE', error instanceof Error ? error.message : String(error))
@@ -66,8 +66,8 @@ export function callRuntime(method: string, params: Record<string, unknown>, use
     }
     const timer = setTimeout(() => finish(new CliFailure('TIMEOUT', 'Timed out waiting for ' + method + '; no retry was attempted')), timeoutMs)
     socket.on('connect', () => socket.write(JSON.stringify({ id: helloId, method: 'auth.hello', authToken: runtime.authToken }) + '\n'))
-    socket.on('error', error => finish(new CliFailure('CONNECTION_FAILED', error.message)))
-    socket.on('close', () => finish(new CliFailure('CONNECTION_CLOSED', authenticated ? 'Connection closed before the command completed' : 'Connection closed during authentication')))
+    socket.on('error', error => finish(new CliFailure(runtime.legacy ? 'RECOVERY_REQUIRED' : 'CONNECTION_FAILED', runtime.legacy ? 'Legacy runtime contact failed; explicit recovery is required' : error.message)))
+    socket.on('close', () => finish(new CliFailure(runtime.legacy ? 'RECOVERY_REQUIRED' : 'CONNECTION_CLOSED', runtime.legacy ? 'Legacy runtime contact closed; explicit recovery is required' : (authenticated ? 'Connection closed before the command completed' : 'Connection closed during authentication'))))
     socket.on('data', (chunk: string) => {
       buffer += chunk
       bufferBytes += Buffer.byteLength(chunk)
@@ -84,7 +84,7 @@ export function callRuntime(method: string, params: Record<string, unknown>, use
         if (!isObject(message)) { finish(new CliFailure('PROTOCOL_ERROR', 'Runtime sent an invalid envelope')); return }
         if (message.id !== (authenticated ? id : helloId)) continue
         if (!authenticated) {
-          if (message.ok !== true) { finish(new CliFailure('AUTH_FAILED', 'Runtime authentication failed')); return }
+          if (message.ok !== true) { finish(new CliFailure(runtime.legacy ? 'RECOVERY_REQUIRED' : 'AUTH_FAILED', runtime.legacy ? 'Legacy runtime authentication failed; explicit recovery is required' : 'Runtime authentication failed')); return }
           authenticated = true
           socket.write(request)
           continue

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
 import { createServer, type Server } from 'node:net'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -62,6 +62,36 @@ describe('CLI runtime resolution', () => {
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()))
       store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('calls an authenticated reachable legacy runtime without an ownership row', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-legacy-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const endpoint = paths.socketPath
+    const token = 'legacy-cli-token-123456'
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: endpoint, authToken: token }), { mode: 0o600 })
+    let requests = 0
+    const server = createServer(socket => {
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as { id: string; method: string; authToken?: string }
+          buffer = buffer.slice(newline + 1)
+          if (message.method === 'auth.hello') socket.write(JSON.stringify({ id: message.id, ok: message.authToken === token }) + '\n')
+          else { requests += 1; socket.write(JSON.stringify({ id: message.id, ok: true, result: { legacy: true } }) + '\n') }
+        }
+      })
+    })
+    try {
+      await listen(server, endpoint)
+      await expect(callRuntime('worktree.list', {}, directory, 1000)).resolves.toMatchObject({ ok: true, result: { legacy: true } })
+      expect(requests).toBe(1)
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
       rmSync(directory, { recursive: true, force: true })
     }
   })

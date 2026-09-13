@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
+import { lstatSync, rmSync } from 'node:fs'
 import type { ProcessIdentity, ProcessIdentityVerdict, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import {
   readVerifiedRecoveryEvidence,
@@ -17,6 +18,8 @@ export type RuntimePublication = {
   owner: RuntimeOwner
   locator: LocalRuntimeRecord
   locatorFileIdentity: Record<string, string> | null
+  /** Endpoint from the displaced owner; removed only after successor activation. */
+  predecessor?: { ownerId: string; generation: number; endpoint: string; endpointFileIdentity: { device: string; inode: string } | null }
 }
 
 export type RuntimeClaimOptions = {
@@ -46,6 +49,7 @@ export type RuntimeReconcileOptions = {
 
 export type RuntimeReconcileResult =
   | { action: 'claim' }
+  | { action: 'reconnect-legacy'; record: LegacyRuntimeRecord }
   | { action: 'finish-preparing'; publication: RuntimePublication }
   | { action: 'republish-active'; publication: RuntimePublication }
 
@@ -192,14 +196,19 @@ async function requireSafeForeignLocator(
   kind: RuntimeOwnerKind,
   authority: RuntimeIdentityAuthority,
   contact: (record: LocalRuntimeRecord | LegacyRuntimeRecord, kind: RuntimeOwnerKind) => Promise<RuntimeContactResult>
-): Promise<void> {
-  if (locator.status === 'missing') return
+): Promise<LegacyRuntimeRecord | undefined> {
+  if (locator.status === 'missing') return undefined
   if (locator.status === 'invalid') fail('RUNTIME_LOCATOR_INVALID', locator.reason)
   if (locator.status === 'legacy') {
-    const contacted = await contact(locator.record, kind)
-    if (contacted.status === 'exact' || contacted.status === 'legacy') fail('OWNER_LIVE', 'legacy runtime locator is still reachable')
+    let contacted: RuntimeContactResult
+    try {
+      contacted = await contact(locator.record, kind)
+    } catch (error) {
+      contacted = { status: 'unreachable', detail: error instanceof Error ? error.message : String(error) }
+    }
+    if (contacted.status === 'legacy') return locator.record
     requireCommittedRecovery(store, locator, kind, 'legacy')
-    return
+    return undefined
   }
   if (!locatorMatchesKind(locator.record, kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
   const contacted = await contact(locator.record, kind)
@@ -209,6 +218,7 @@ async function requireSafeForeignLocator(
   if (verdict.status === 'valid') fail('OWNER_LIVE', 'mismatched runtime locator identifies a live process')
   if (verdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', verdict.reason + ': ' + verdict.detail)
   requireCommittedRecovery(store, locator, kind, 'orphan-v2')
+  return undefined
 }
 
 /**
@@ -225,10 +235,13 @@ export async function reconcileRuntimeOwner(options: RuntimeReconcileOptions): P
   try {
     const observed = store.observe(options.kind)
     const locator = readRuntimeRecord(paths.runtimeFile)
-
     if (observed.status === 'vacant') {
-      if (locator.status === 'legacy') requireCommittedRecovery(store, locator, options.kind, 'legacy')
-      else await requireSafeForeignLocator(store, locator, options.kind, options.authority, contact)
+      if (locator.status === 'legacy') {
+        const legacy = await requireSafeForeignLocator(store, locator, options.kind, options.authority, contact)
+        if (legacy !== undefined) return { action: 'reconnect-legacy', record: legacy }
+      } else {
+        await requireSafeForeignLocator(store, locator, options.kind, options.authority, contact)
+      }
       return { action: 'claim' }
     }
 
@@ -331,9 +344,45 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
       processIdentity: owner.identity
     }
     completed = true
-    return { store, paths, owner, locator, locatorFileIdentity: null }
+    const predecessor = observed.status === 'present'
+      ? {
+        ownerId: observed.owner.ownerId,
+        generation: observed.owner.generation,
+        endpoint: observed.owner.endpoint,
+        endpointFileIdentity: (() => {
+          if (process.platform === 'win32') return null
+          try {
+            const stat = lstatSync(observed.owner.endpoint)
+            return { device: String(stat.dev), inode: String(stat.ino) }
+          } catch {
+            return null
+          }
+        })()
+      }
+      : undefined
+    return { store, paths, owner, locator, locatorFileIdentity: null, ...(predecessor === undefined ? {} : { predecessor }) }
   } finally {
     if (!completed && ownsStore) store.close()
+  }
+}
+
+function removeDisplacedEndpoint(publication: RuntimePublication): void {
+  const predecessor = publication.predecessor
+  if (predecessor === undefined || predecessor.endpoint === publication.owner.endpoint) return
+  try {
+    if (predecessor.endpointFileIdentity === null) return
+    const stat = lstatSync(predecessor.endpoint)
+    if (String(stat.dev) !== predecessor.endpointFileIdentity.device || String(stat.ino) !== predecessor.endpointFileIdentity.inode) return
+    if (process.platform !== 'win32' && !stat.isSocket()) {
+      fail('PREDECESSOR_CLEANUP_FAILED', 'displaced runtime endpoint was replaced by a non-socket')
+    }
+    rmSync(predecessor.endpoint)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    if (error instanceof RuntimeOwnershipError) throw error
+    fail('PREDECESSOR_CLEANUP_FAILED', error instanceof Error ? error.message : String(error))
+  } finally {
+    publication.predecessor = undefined
   }
 }
 
@@ -348,6 +397,7 @@ export async function publishRuntimeOwner(publication: RuntimePublication, bind:
   }
   publication.locatorFileIdentity = written.fileIdentity
   publication.owner = publication.store.activate(publication.owner, locatorSha256)
+  removeDisplacedEndpoint(publication)
   return publication.owner
 }
 
@@ -393,6 +443,14 @@ function preserveLocatorForRecovery(publication: RuntimePublication): 'preserved
 
 export function abandonRuntimeOwner(publication: RuntimePublication): RuntimeReleaseResult {
   if (publication.owner.state !== 'preparing') return 'not-owned'
+  const current = readRuntimeRecord(publication.paths.runtimeFile)
+  const locatorBelongsToPublication = current.status === 'current'
+    && publication.locatorFileIdentity !== null
+    && JSON.stringify(current.fileIdentity) === JSON.stringify(publication.locatorFileIdentity)
+    && locatorMatchesOwner(current.record, publication.owner)
+  if (current.status === 'missing' || !locatorBelongsToPublication) {
+    return publication.store.abandonPreparing(publication.owner) ? 'released' : 'not-owned'
+  }
   const preserved = preserveLocatorForRecovery(publication)
   if (preserved === 'cleanup-failed' || preserved === 'not-owned') return preserved
   return publication.store.abandonPreparing(publication.owner) ? 'released' : 'not-owned'

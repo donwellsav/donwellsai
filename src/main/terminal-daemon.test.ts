@@ -218,6 +218,9 @@ describe('terminal runtime identity lifecycle', () => {
       await daemon.stopIfIdle()
       await expect(starting).rejects.toThrow(/cancelled/)
       expect(daemon.isReady()).toBe(false)
+      const afterFailure = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      expect(afterFailure.observe('terminal-daemon')).toMatchObject({ status: 'vacant' })
+      afterFailure.close()
     } finally {
       await daemon.stopIfIdle()
       rmSync(directory, { recursive: true, force: true })
