@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, 0.6.0-repair]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, 0.6.0-repair]
 
 jobs:
   build:
@@ -29,6 +29,9 @@ jobs:
       - name: Rebuild native modules
         run: pnpm rebuild
 
+      - name: Build runtime identity addon
+        run: pnpm run build:native-identity
+
       - name: Typecheck
         run: pnpm run typecheck
 
@@ -40,3 +43,55 @@ jobs:
 
       - name: E2E Smoke
         run: npx playwright test
+
+  native-identity:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win32
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build runtime identity addon
+        run: pnpm run build:native-identity
+
+      - name: Test runtime identity addon
+        run: pnpm run test:native-identity
+
+      - name: Build directory package
+        run: pnpm run package:dir
+
+      - name: Locate packaged resources
+        id: packaged-resources
+        shell: bash
+        run: |
+          resources=$(find release -type d \( -name Resources -o -name resources \) -print -quit)
+          test -n "$resources"
+          printf 'path=%s\n' "$resources" >> "$GITHUB_OUTPUT"
+
+      - name: Check packaged runtime identity bytes
+        shell: bash
+        run: |
+          arch=$(node -p "process.arch")
+          node scripts/check-package.mjs --resources "${{ steps.packaged-resources.outputs.path }}" --platform "${{ matrix.platform }}" --arch "$arch"

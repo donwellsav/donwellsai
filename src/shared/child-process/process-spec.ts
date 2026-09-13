@@ -6,6 +6,34 @@ export type ExecutionHost =
 
 export type ProcessLiveness = 'live' | 'unverifiable' | 'exited'
 
+export type RuntimeFamily = 'donwells-app' | 'terminal-daemon' | 'acp-agent'
+
+export type RuntimeExpectation = {
+  family: RuntimeFamily
+  executablePath?: string
+  generation?: string
+}
+
+export type ProcessIdentity = {
+  pid: number
+  bootId: string
+  startedAt: string
+  executablePath: string
+  family: RuntimeFamily
+  capturedAt: string
+  generation?: string
+}
+
+export type ProcessIdentityVerdict =
+  | { status: 'valid'; current: ProcessIdentity }
+  | { status: 'stale'; reason: 'not-found' | 'pid-reused' | 'executable-mismatch' }
+  | { status: 'indeterminate'; reason: 'legacy-record' | 'access-denied' | 'native-error'; detail: string }
+
+export interface RuntimeIdentityAuthority {
+  capture(pid: number, expected: RuntimeExpectation): ProcessIdentity
+  verify(identity: ProcessIdentity | null): ProcessIdentityVerdict
+}
+
 export type ProcessFailureKind =
   | 'spawn'
   | 'exit'

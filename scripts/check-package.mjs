@@ -48,6 +48,29 @@ for (const platform of ["mac", "linux", "win"]) {
 const resources = new Map(config.extraResources.map(({ from, to }) => [from, to]));
 assert(resources.get("scripts/profile-recovery.mjs") === "recovery/profile-recovery.mjs", "packaged recovery engine is missing");
 assert(resources.get("resources/native") === "native", "native resources are not packaged");
+const requestedPlatform = values.platform ?? process.platform;
+const requestedArch = values.arch ?? process.arch;
+assert(['darwin', 'linux', 'win32'].includes(requestedPlatform), 'Unsupported runtime identity platform');
+assert(['arm64', 'x64'].includes(requestedArch), 'Unsupported runtime identity architecture');
+const stagedIdentityPath = resolve(root, 'resources/native/runtime-identity.node');
+const stagedIdentityManifestPath = resolve(root, 'resources/native/runtime-identity-build.json');
+await access(stagedIdentityPath, constants.R_OK);
+await access(stagedIdentityManifestPath, constants.R_OK);
+const stagedIdentityBytes = await readFile(stagedIdentityPath);
+const stagedIdentityManifest = JSON.parse(await readFile(stagedIdentityManifestPath, 'utf8'));
+assert(stagedIdentityManifest.identityContractVersion === 1, 'Runtime identity contract version must be 1');
+assert(stagedIdentityManifest.platform === requestedPlatform, 'Runtime identity platform differs from requested platform');
+assert(stagedIdentityManifest.arch === requestedArch, 'Runtime identity architecture differs from requested architecture');
+assert(typeof stagedIdentityManifest.sha256 === 'string' && /^[a-f0-9]{64}$/.test(stagedIdentityManifest.sha256), 'Runtime identity manifest hash is malformed');
+assert(createHash('sha256').update(stagedIdentityBytes).digest('hex') === stagedIdentityManifest.sha256, 'Runtime identity addon hash differs from manifest');
+if (values.resources) {
+  const shippedIdentityPath = resolve(values.resources, 'native/runtime-identity.node');
+  const shippedIdentityManifestPath = resolve(values.resources, 'native/runtime-identity-build.json');
+  await access(shippedIdentityPath, constants.R_OK);
+  await access(shippedIdentityManifestPath, constants.R_OK);
+  assert((await readFile(shippedIdentityPath)).equals(stagedIdentityBytes), 'Shipped runtime identity addon differs from staged bytes');
+  assert(JSON.stringify(JSON.parse(await readFile(shippedIdentityManifestPath, 'utf8'))) === JSON.stringify(stagedIdentityManifest), 'Shipped runtime identity manifest differs from staged manifest');
+}
 if ((values.platform ?? process.platform) === 'darwin' && (values.arch ?? process.arch) === 'arm64') {
   const history = await readJson('native/history/build.json');
   const binary = await readFile(resolve(values.resources ?? resolve(root, 'resources'), 'native/history/agentsview'));
