@@ -31,7 +31,7 @@ import {
   type AgentHookBinding,
   type AgentLaunchPlan
 } from './agents/provider-hooks'
-import { localRuntimePaths, type LocalRuntimePaths } from './local-runtime'
+import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { AcpSessions } from './agents/acp-sessions'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
@@ -50,6 +50,7 @@ export const DAEMON_CAPABILITIES = [
   'agent-session-auth-v1',
   'agent-input-v1',
   'agent-acp-v1',
+  'runtime-identity-v1',
   ATTENTION_INBOX_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
@@ -320,6 +321,22 @@ export class TerminalDaemon {
     return { record, token }
   }
 
+  private activePublication(): RuntimePublication | null {
+    const publication = this.publication
+    if (!publication || publication.owner.state !== 'active' || publication.owner.locatorSha256 === null) return null
+    const locator = readRuntimeRecord(publication.paths.runtimeFile)
+    if (locator.status !== 'current' || locator.sha256 !== publication.owner.locatorSha256) return null
+    try {
+      const owner = publication.store.resolveActive('terminal-daemon', locator.record, locator.sha256)
+      if (owner.ownerId !== publication.owner.ownerId || owner.generation !== publication.owner.generation
+        || owner.endpoint !== publication.owner.endpoint || owner.authToken !== publication.owner.authToken
+        || JSON.stringify(owner.identity) !== JSON.stringify(publication.owner.identity)) return null
+      return publication
+    } catch {
+      return null
+    }
+  }
+
   private handleClient(socket: Socket): void {
     let privileged = false
     let hookBinding: HookClientBinding | undefined
@@ -344,16 +361,25 @@ export class TerminalDaemon {
           continue
         }
         if (!privileged && !hookBinding) {
-          if (message['op'] === 'hello' && sameToken(this.authToken, message['authToken'])) {
+          const active = this.activePublication()
+          if (active && message['op'] === 'hello'
+            && sameToken(active.owner.authToken, message['authToken'])
+            && typeof message['id'] === 'string'
+            && message['id'].length > 0
+            && message['id'].length <= 256) {
             privileged = true
             this.clients.add(socket)
             this.reply(socket, message['id'], true, {
               protocolVersion: DAEMON_PROTOCOL_VERSION,
-              capabilities: DAEMON_CAPABILITIES
+              runtimeIdentityContractVersion: 1,
+              capabilities: DAEMON_CAPABILITIES,
+              ownerId: active.owner.ownerId,
+              generation: active.owner.generation,
+              processIdentity: active.owner.identity
             })
             continue
           }
-          if (message['op'] === 'hook.hello') {
+          if (active && message['op'] === 'hook.hello') {
             hookBinding = this.authenticateHook(message)
             if (hookBinding) {
               this.reply(socket, message['id'], true, { capabilities: [AGENT_HOOK_CAPABILITY] })

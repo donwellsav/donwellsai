@@ -29,7 +29,7 @@ import type { TerminalReplayChunk } from '@shared/terminal-stream'
 import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
-import { readRuntimeRecord, localRuntimePaths } from './local-runtime'
+import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
 
 /** App-side transport for the detached terminal daemon. */
@@ -73,8 +73,12 @@ type Handshake = {
   ok?: boolean
   id?: unknown
   capabilities?: unknown
+  protocolVersion?: unknown
+  runtimeIdentityContractVersion?: unknown
+  ownerId?: unknown
+  generation?: unknown
+  processIdentity?: unknown
 }
-
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 1_000
@@ -184,14 +188,17 @@ export class DaemonClient {
     const paths = localRuntimePaths(this.userDataDir, 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'current') {
+      // Contact the advertised endpoint first; native identity alone is not liveness evidence.
+      const connected = await this.tryConnect(record.record.socketPath, record.record.authToken, record.record).catch(() => false)
+      if (connected) return
+
       const verdict = runtimeIdentityAuthority().verify(record.record.processIdentity)
-      if (verdict.status === 'valid') throw new Error('existing terminal daemon is live; it was not replaced')
+      if (verdict.status === 'valid') throw new Error('existing terminal daemon is live but did not complete authenticated contact; it was not replaced')
       if (verdict.status === 'indeterminate') throw new Error('existing terminal daemon ownership is unverifiable; it was not replaced')
+
       const ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
-      let active = false
       try {
         ownership.resolveActive('terminal-daemon', record.record, record.sha256)
-        active = true
       } catch (error) {
         if (!(error instanceof RuntimeOwnershipError) || error.code !== 'OWNER_UNAVAILABLE') {
           throw new Error('terminal daemon runtime ownership is not active; it was not replaced', { cause: error })
@@ -199,13 +206,10 @@ export class DaemonClient {
       } finally {
         ownership.close()
       }
-      if (active) {
-        const connected = await this.tryConnect(record.record.socketPath, record.record.authToken).catch(() => false)
-        if (connected) return
-      }
     } else if (record.status === 'legacy') {
+      // A legacy locator cannot satisfy runtime-identity-v1 equality; never adopt it.
       const connected = await this.tryConnect(record.record.socketPath, record.record.authToken).catch(() => false)
-      if (connected) return
+      if (connected) throw new Error('legacy terminal daemon was reachable without runtime identity; it was not adopted')
       const liveness = record.record.pid === undefined ? 'unverifiable' : probeLocalProcessLiveness(record.record.pid)
       if (liveness !== 'exited') throw new Error('existing terminal daemon is ' + liveness + ' after contact was lost; it was not replaced')
     } else if (record.status === 'invalid') {
@@ -213,7 +217,6 @@ export class DaemonClient {
     } else if (process.platform !== 'win32' && existsSync(paths.socketPath)) {
       throw new Error('terminal daemon socket ownership is unverifiable; it was not replaced')
     }
-
     const token = randomUUID() + randomUUID().slice(0, 8)
     const child = spawnProcess({
       program: process.execPath,
@@ -245,7 +248,7 @@ export class DaemonClient {
       const deadline = Date.now() + 10_000
       while (Date.now() <= deadline) {
         const published = readRuntimeRecord(paths.runtimeFile)
-        if (published.status === 'current' && published.record.authToken === token && await this.tryConnect(published.record.socketPath, token).catch(() => false)) return
+        if (published.status === 'current' && published.record.authToken === token && await this.tryConnect(published.record.socketPath, token, published.record).catch(() => false)) return
         if (child.exitCode !== null || child.signalCode !== null) {
           throw new Error(
             'terminal daemon exited during startup (code=' + (child.exitCode ?? 'null') +
@@ -262,7 +265,7 @@ export class DaemonClient {
     }
   }
 
-  private tryConnect(socketPath: string, authToken: string): Promise<boolean> {
+  private tryConnect(socketPath: string, authToken: string, expected?: LocalRuntimeRecord): Promise<boolean> {
     const completion = deferred<boolean>()
     const socket = createConnection(socketPath)
     const helloId = randomUUID()
@@ -279,7 +282,13 @@ export class DaemonClient {
       socket.removeListener('error', onFailure)
       socket.removeListener('close', onFailure)
 
-      if (!connected) {
+      const handshakeMatches = connected && expected !== undefined
+        && handshake?.protocolVersion === 3
+        && handshake.runtimeIdentityContractVersion === 1
+        && handshake.ownerId === expected.ownerId
+        && handshake.generation === expected.ownerGeneration
+        && JSON.stringify(handshake.processIdentity) === JSON.stringify(expected.processIdentity)
+      if (!handshakeMatches) {
         socket.destroy()
         completion.resolve(false)
         return

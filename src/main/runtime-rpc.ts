@@ -40,8 +40,8 @@ import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
 import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { readRuntimeRecord } from './local-runtime'
 import { runtimeIdentityAuthority } from './runtime-identity'
-
 // Authenticated NDJSON; the CLI and UI share domain operations and argument validation.
 const MAX_FRAME_BYTES = 8 * 1024 * 1024
 
@@ -187,12 +187,27 @@ export class RuntimeRpcServer {
     }
   }
 
+  private activePublication(): RuntimePublication | null {
+    const publication = this.publication
+    if (!publication || publication.owner.state !== 'active' || publication.owner.locatorSha256 === null) return null
+    const locator = readRuntimeRecord(publication.paths.runtimeFile)
+    if (locator.status !== 'current' || locator.sha256 !== publication.owner.locatorSha256) return null
+    try {
+      const owner = publication.store.resolveActive('donwells-app', locator.record, locator.sha256)
+      if (owner.ownerId !== publication.owner.ownerId || owner.generation !== publication.owner.generation
+        || owner.endpoint !== publication.owner.endpoint || owner.authToken !== publication.owner.authToken
+        || JSON.stringify(owner.identity) !== JSON.stringify(publication.owner.identity)) return null
+      return publication
+    } catch {
+      return null
+    }
+  }
+
   private handleClient(socket: Socket): void {
     let authed = false
     let buf = ''
     this.clients.add(socket)
     socket.setEncoding('utf8')
-
     socket.on('data', (chunk) => {
       buf += chunk
       let nl: number
@@ -211,14 +226,21 @@ export class RuntimeRpcServer {
           return
         }
         if (!authed) {
-          if (msg['method'] === 'auth.hello'
+          const active = this.activePublication()
+          if (active && msg['method'] === 'auth.hello'
             && typeof msg['authToken'] === 'string'
-            && tokensMatch(msg['authToken'], this.authToken)
+            && tokensMatch(msg['authToken'], active.owner.authToken)
             && typeof msg['id'] === 'string'
             && msg['id'].length > 0
             && msg['id'].length <= 256) {
             authed = true
-            this.reply(socket, msg['id'], true, { version: 'rpc-v1' })
+            this.reply(socket, msg['id'], true, {
+              version: 'rpc-v1',
+              runtimeIdentityContractVersion: 1,
+              ownerId: active.owner.ownerId,
+              generation: active.owner.generation,
+              processIdentity: active.owner.identity
+            })
           } else {
             socket.destroy()
           }
@@ -228,7 +250,6 @@ export class RuntimeRpcServer {
       }
       if (Buffer.byteLength(buf) > MAX_FRAME_BYTES) socket.destroy()
     })
-
     socket.on('close', () => this.clients.delete(socket))
     socket.on('error', () => socket.destroy())
   }
