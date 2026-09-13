@@ -1,6 +1,9 @@
 import { RPC_COMMANDS } from '../shared/command-catalog.js'
 import { commandUsage, parseCliArguments } from './arguments.js'
 import { callRuntime, CliFailure, defaultUserData } from './rpc-client.js'
+import { localRuntimePaths } from '../main/local-runtime.js'
+import { RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
+import { inspectRuntimeRecovery, quarantineLegacyRuntime } from './runtime-recovery.js'
 import { resolve } from 'node:path'
 import { parseProjectMemoryMcpArguments, PROJECT_MEMORY_MCP_USAGE, runProjectMemoryMcp } from './project-memory-mcp.js'
 
@@ -35,8 +38,62 @@ async function runMemoryMcp(argv: readonly string[]): Promise<number> {
     return 1
   }
 }
+function recoveryKind(value: string | undefined): 'donwells-app' | 'terminal-daemon' {
+  if (value === undefined || value === 'app' || value === 'donwells-app') return 'donwells-app'
+  if (value === 'terminal' || value === 'terminal-daemon') return 'terminal-daemon'
+  throw new Error('--kind must be app or terminal')
+}
+
+async function runRuntimeRecovery(argv: readonly string[]): Promise<number> {
+  if (argv.includes('--help') || argv.length === 0) {
+    console.log('Usage: donwells runtime-recovery <inspect|quarantine> [--kind app|terminal] [--user-data <directory>] [--confirm <sha256>]')
+    return argv.length === 0 ? 2 : 0
+  }
+  try {
+    const action = argv[0]
+    if (action !== 'inspect' && action !== 'quarantine') throw new Error('runtime-recovery action must be inspect or quarantine')
+    let userData = defaultUserData()
+    let kind: 'donwells-app' | 'terminal-daemon' | undefined
+    let confirm: string | undefined
+    for (let index = 1; index < argv.length; index++) {
+      const argument = argv[index]!
+      const next = (): string => {
+        const value = argv[++index]
+        if (!value || value.startsWith('--')) throw new Error(argument + ' requires a value')
+        return value
+      }
+      if (argument === '--user-data') userData = resolve(next())
+      else if (argument.startsWith('--user-data=')) userData = resolve(argument.slice(12))
+      else if (argument === '--kind') kind = recoveryKind(next())
+      else if (argument.startsWith('--kind=')) kind = recoveryKind(argument.slice(7))
+      else if (argument === '--confirm') confirm = next()
+      else if (argument.startsWith('--confirm=')) confirm = argument.slice(10)
+      else throw new Error('unknown runtime-recovery option: ' + argument)
+    }
+    const runtimeKind = kind ?? 'donwells-app'
+    if (action === 'inspect') {
+      console.log(JSON.stringify({ ok: true, inspection: inspectRuntimeRecovery({ userDataDir: userData, kind: runtimeKind }) }, null, 2))
+      return 0
+    }
+    if (!confirm) throw new Error('quarantine requires --confirm <sha256>')
+    const paths = localRuntimePaths(userData, runtimeKind === 'donwells-app' ? 'app' : 'terminal')
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    try {
+      const result = quarantineLegacyRuntime({ userDataDir: userData, kind: runtimeKind, store, confirm })
+      console.log(JSON.stringify({ ok: true, recovery: result }, null, 2))
+      return 0
+    } finally {
+      store.close()
+    }
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'RECOVERY_FAILED'
+    console.log(JSON.stringify({ ok: false, code, error: error instanceof Error ? error.message : String(error) }))
+    return 1
+  }
+}
 
 export async function runCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+  if (argv[0] === 'runtime-recovery') return runRuntimeRecovery(argv.slice(1))
   if (argv[0] === 'memory-mcp') return runMemoryMcp(argv.slice(1))
   let parsed: ReturnType<typeof parseCliArguments>
   try { parsed = parseCliArguments(argv) } catch (error) {

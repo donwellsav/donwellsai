@@ -60,6 +60,7 @@ const stagedIdentityBytes = await readFile(stagedIdentityPath);
 const stagedIdentityManifestBytes = await readFile(stagedIdentityManifestPath);
 const stagedIdentityManifest = JSON.parse(stagedIdentityManifestBytes.toString('utf8'));
 assert(stagedIdentityManifest.identityContractVersion === 1, 'Runtime identity contract version must be 1');
+assert(stagedIdentityManifest.runtimeFileSecurityContractVersion === 1, 'Runtime file security contract version must be 1');
 assert(stagedIdentityManifest.platform === requestedPlatform, 'Runtime identity platform differs from requested platform');
 assert(stagedIdentityManifest.arch === requestedArch, 'Runtime identity architecture differs from requested architecture');
 assert(typeof stagedIdentityManifest.sha256 === 'string' && /^[a-f0-9]{64}$/.test(stagedIdentityManifest.sha256), 'Runtime identity manifest hash is malformed');

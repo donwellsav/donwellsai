@@ -1,13 +1,8 @@
 import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { runtimeIdentityAuthority } from './runtime-identity'
+import { chmodSync, mkdirSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -36,7 +31,7 @@ import {
   type AgentHookBinding,
   type AgentLaunchPlan
 } from './agents/provider-hooks'
-import { localRuntimePaths, readTerminalRuntime, type LocalRuntimePaths } from './local-runtime'
+import { localRuntimePaths, type LocalRuntimePaths } from './local-runtime'
 import { AcpSessions } from './agents/acp-sessions'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
@@ -96,6 +91,7 @@ export class TerminalDaemon {
   private readonly pty: PtyManager
   private readonly attention: AttentionInboxService
   private readonly authToken: string
+  private publication: RuntimePublication | null = null
   private readonly paths: LocalRuntimePaths
   private readonly emitterCommand: readonly string[]
   private readonly scrollback = new Map<string, string>()
@@ -157,13 +153,24 @@ export class TerminalDaemon {
       server.close(() => closed.resolve())
       await closed.promise
     }
-    this.removeOwnedRuntimeFiles()
+    this.releaseRuntimeOwner()
     return true
   }
 
   async start(): Promise<void> {
     this.prepareRuntimeDirectory()
-    this.removeProvenStaleRuntime()
+    const authority = runtimeIdentityAuthority()
+    const identity = authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation: 'pending' })
+    const publication = claimRuntimeOwner({
+      userDataDir: dirname(this.paths.runtimeDir),
+      kind: 'terminal-daemon',
+      endpoint: freshRuntimeEndpoint(this.paths.socketPath),
+      authToken: this.authToken,
+      identity,
+      authority
+    })
+    this.publication = publication
+    this.paths.socketPath = publication.owner.endpoint
     const server = createServer((socket) => this.handleClient(socket))
     this.server = server
     const listening = Promise.withResolvers<void>()
@@ -178,9 +185,18 @@ export class TerminalDaemon {
     server.once('error', onError)
     server.once('listening', onListening)
     server.listen(this.paths.socketPath)
-    await listening.promise
-    if (process.platform !== 'win32') chmodSync(this.paths.socketPath, 0o600)
-    this.writeRuntimeFile()
+    try {
+      await listening.promise
+      if (process.platform !== 'win32') chmodSync(this.paths.socketPath, 0o600)
+      await publishRuntimeOwner(publication, () => undefined)
+    } catch (error) {
+      if (server.listening) server.close()
+      this.server = null
+      const failed = this.publication
+      this.publication = null
+      failed?.store.close()
+      throw error
+    }
   }
 
   private prepareRuntimeDirectory(): void {
@@ -192,39 +208,15 @@ export class TerminalDaemon {
     }
   }
 
-  private removeProvenStaleRuntime(): void {
-    const runtimeExists = existsSync(this.paths.runtimeFile)
-    const socketExists = process.platform !== 'win32' && existsSync(this.paths.socketPath)
-    if (!runtimeExists && !socketExists) return
-    const runtime = readTerminalRuntime(dirname(this.paths.runtimeDir))
-    if (!runtime || runtime.pid === undefined) {
-      throw new Error('existing terminal daemon ownership is unverifiable; runtime files were left untouched')
+  private releaseRuntimeOwner(): void {
+    const publication = this.publication
+    this.publication = null
+    if (!publication) return
+    try {
+      if (publication.owner.state === 'active') publication.store.release(publication.owner)
+    } finally {
+      publication.store.close()
     }
-    const liveness = probeLocalProcessLiveness(runtime.pid)
-    if (liveness !== 'exited') {
-      throw new Error(`existing terminal daemon is ${liveness}; runtime files were left untouched`)
-    }
-    if (socketExists) rmSync(this.paths.socketPath)
-    if (runtimeExists) rmSync(this.paths.runtimeFile)
-  }
-
-  private writeRuntimeFile(): void {
-    const temporary = `${this.paths.runtimeFile}.${process.pid}.${randomUUID()}.tmp`
-    const payload = JSON.stringify({
-      socketPath: this.paths.socketPath,
-      authToken: this.authToken,
-      pid: process.pid
-    }, null, 2)
-    writeFileSync(temporary, payload, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-    renameSync(temporary, this.paths.runtimeFile)
-    if (process.platform !== 'win32') chmodSync(this.paths.runtimeFile, 0o600)
-  }
-
-  private removeOwnedRuntimeFiles(): void {
-    const runtime = readTerminalRuntime(dirname(this.paths.runtimeDir))
-    if (runtime?.pid !== process.pid || runtime.authToken !== this.authToken) return
-    if (existsSync(this.paths.runtimeFile)) rmSync(this.paths.runtimeFile)
-    if (process.platform !== 'win32' && existsSync(this.paths.socketPath)) rmSync(this.paths.socketPath)
   }
 
   private handlePtyData(sessionId: string, data: string): void {

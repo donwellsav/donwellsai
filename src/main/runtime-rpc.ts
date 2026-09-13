@@ -8,7 +8,7 @@ import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
   AppSettings,
@@ -39,8 +39,8 @@ import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
-import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
-import { readRuntimeIdentity } from './local-runtime'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { runtimeIdentityAuthority } from './runtime-identity'
 
 // Authenticated NDJSON; the CLI and UI share domain operations and argument validation.
 const MAX_FRAME_BYTES = 8 * 1024 * 1024
@@ -118,6 +118,7 @@ export class RuntimeRpcServer {
   private clients = new Set<Socket>()
   /** inode of the socket path we bound — ownership check for stop(). */
   private boundIno: number | null = null
+  private publication: RuntimePublication | null = null
 
   constructor(
     private socketPath: string,
@@ -128,25 +129,24 @@ export class RuntimeRpcServer {
 
   async start(): Promise<void> {
     if (this.server) throw new Error('Runtime RPC is already started')
-    const priorExists = existsSync(this.runtimeFile)
-    const prior = readRuntimeIdentity(this.runtimeFile)
-    const socketExists = process.platform !== 'win32' && existsSync(this.socketPath)
-    if (priorExists && (!prior?.pid || probeLocalProcessLiveness(prior.pid) !== 'exited')) {
-      throw new Error('Runtime owner is live or unverifiable; refusing to replace it')
-    }
-    if (socketExists && (!prior || prior.socketPath !== this.socketPath)) {
-      throw new Error('Runtime endpoint has no verifiable owner; refusing to unlink it')
-    }
-    if (socketExists) rmSync(this.socketPath)
-    if (priorExists) rmSync(this.runtimeFile)
+    const authority = runtimeIdentityAuthority()
+    const identity = authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation: 'pending' })
+    const publication = claimRuntimeOwner({
+      userDataDir: dirname(this.runtimeFile),
+      kind: 'donwells-app',
+      endpoint: freshRuntimeEndpoint(this.socketPath),
+      authToken: this.authToken,
+      identity,
+      authority
+    })
+    this.publication = publication
+    this.socketPath = publication.owner.endpoint
     mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
     if (process.platform !== 'win32') {
       const directory = dirname(this.socketPath)
       mkdirSync(directory, { recursive: true, mode: 0o700 })
       const stat = lstatSync(directory)
-      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) {
-        throw new Error('Runtime socket directory is not owned by this user')
-      }
+      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Runtime socket directory is not owned by this user')
       chmodSync(directory, 0o700)
     }
     const ready = Promise.withResolvers<void>()
@@ -160,11 +160,7 @@ export class RuntimeRpcServer {
         this.boundIno = statSync(this.socketPath).ino
         chmodSync(this.socketPath, 0o600)
       }
-      const temporary = this.runtimeFile + '.' + randomUUID() + '.tmp'
-      writeFileSync(temporary, JSON.stringify({
-        socketPath: this.socketPath, authToken: this.authToken, pid: process.pid
-      }), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-      try { renameSync(temporary, this.runtimeFile) } finally { rmSync(temporary, { force: true }) }
+      await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
       this.stop()
       throw error
@@ -174,16 +170,22 @@ export class RuntimeRpcServer {
   stop(): void {
     for (const client of this.clients) client.destroy()
     this.clients.clear()
+    const publication = this.publication
+    this.publication = null
     let ownsEndpoint = process.platform === 'win32'
     if (process.platform !== 'win32') {
       try { ownsEndpoint = this.boundIno !== null && statSync(this.socketPath).ino === this.boundIno } catch {}
     }
-    // Closing a Unix server unlinks its path; never unlink a successor's endpoint.
-    if (ownsEndpoint) this.server?.close()
+    if (ownsEndpoint || publication?.owner.state === 'preparing') this.server?.close()
     this.server = null
     this.boundIno = null
-    const runtime = readRuntimeIdentity(this.runtimeFile)
-    if (runtime?.pid === process.pid && runtime.authToken === this.authToken) rmSync(this.runtimeFile)
+    if (publication) {
+      try {
+        if (publication.owner.state === 'active') publication.store.release(publication.owner)
+      } finally {
+        publication.store.close()
+      }
+    }
   }
 
   private handleClient(socket: Socket): void {

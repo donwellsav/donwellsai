@@ -1,9 +1,10 @@
 import { createConnection } from 'node:net'
-import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { isObject } from '../shared/command-catalog.js'
+import { RuntimeOwnershipError, RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
+import { localRuntimePaths, readRuntimeRecord } from '../main/local-runtime.js'
 
 export type RpcEnvelope = { id: string; ok: boolean; result?: unknown; error?: string; code?: string; _meta: { ts: number; method: string } }
 export class CliFailure extends Error {
@@ -16,25 +17,32 @@ export function defaultUserData(platform = process.platform, env = process.env, 
   return join(root, 'donwells.ai')
 }
 
-function runtimeIdentity(userData: string): { socketPath: string; authToken: string } {
-  const file = join(userData, 'donwells-runtime.json')
-  let descriptor: number | undefined
+function runtimeOwner(userData: string): { socketPath: string; authToken: string } {
+  const paths = localRuntimePaths(userData, 'app')
+  const locator = readRuntimeRecord(paths.runtimeFile)
+  if (locator.status === 'missing') throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + paths.runtimeFile + '; is donwells.ai running?')
+  if (locator.status === 'invalid') throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file: ' + locator.reason)
+  if (locator.status === 'legacy') throw new CliFailure('RUNTIME_LEGACY', 'Legacy runtime discovery requires explicit runtime-recovery quarantine')
+  let store: RuntimeOwnershipStore
   try {
-    descriptor = openSync(file, constants.O_RDONLY | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW))
-    const stat = fstatSync(descriptor)
-    if (!stat.isFile() || stat.size > 16_384) throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file')
-    if (process.platform !== 'win32' && ((stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid()))) throw new CliFailure('RUNTIME_PERMISSIONS', 'Runtime discovery must be owner-only; restart donwells.ai to refresh it')
-    const data: unknown = JSON.parse(readFileSync(descriptor, 'utf8'))
-    if (!isObject(data) || typeof data.socketPath !== 'string' || !data.socketPath || data.socketPath.length > 4096 || typeof data.authToken !== 'string' || data.authToken.length < 16) throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery data')
-    return { socketPath: data.socketPath, authToken: data.authToken }
+    store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
   } catch (error) {
-    if (error instanceof CliFailure) throw error
-    throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + file + '; is donwells.ai running?')
-  } finally { if (descriptor !== undefined) closeSync(descriptor) }
+    if (error instanceof RuntimeOwnershipError) throw new CliFailure('RUNTIME_OWNER_' + error.code, error.message)
+    throw new CliFailure('RUNTIME_OWNER_UNAVAILABLE', error instanceof Error ? error.message : String(error))
+  }
+  try {
+    const owner = store.resolveActive('donwells-app', locator.record, locator.sha256)
+    return { socketPath: owner.endpoint, authToken: owner.authToken }
+  } catch (error) {
+    if (error instanceof RuntimeOwnershipError) throw new CliFailure(error.code, error.message)
+    throw new CliFailure('RUNTIME_OWNER_UNAVAILABLE', error instanceof Error ? error.message : String(error))
+  } finally {
+    store.close()
+  }
 }
 
 export function callRuntime(method: string, params: Record<string, unknown>, userData: string, timeoutMs: number): Promise<RpcEnvelope> {
-  const runtime = runtimeIdentity(userData)
+  const runtime = runtimeOwner(userData)
   const id = randomUUID()
   const helloId = randomUUID()
   const request = JSON.stringify({ id, method, params }) + '\n'
