@@ -88,7 +88,7 @@ jobs:
         run: |
           candidates_file=$(mktemp)
           trap 'rm -f "$candidates_file"' EXIT
-          find release -type f -path '*/native/runtime-identity.node' -print0 |
+          find dist -type f -path '*/native/runtime-identity.node' -print0 |
             while IFS= read -r -d '' addon; do
               candidate=$(dirname "$(dirname "$addon")")
               if test -f "$candidate/native/runtime-identity-build.json"; then
