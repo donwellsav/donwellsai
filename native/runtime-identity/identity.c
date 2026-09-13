@@ -98,24 +98,39 @@ static void set_private_error(private_file_observation *result, int code, const 
 }
 
 #if !defined(_WIN32)
-static int classify_errno(int error_number) {
+static int classify_access_errno(int error_number) {
+  return error_number == EACCES || error_number == EPERM ? OBSERVATION_ACCESS_DENIED : OBSERVATION_NATIVE_ERROR;
+}
+
+static int classify_process_lookup_errno(int error_number) {
   if (error_number == ENOENT || error_number == ESRCH || error_number == ENOTDIR) return OBSERVATION_NOT_FOUND;
-  if (error_number == EACCES || error_number == EPERM) return OBSERVATION_ACCESS_DENIED;
-  return OBSERVATION_NATIVE_ERROR;
+  return classify_access_errno(error_number);
+}
+
+static int classify_private_file_errno(int error_number) {
+  if (error_number == ENOENT || error_number == ENOTDIR) return OBSERVATION_NOT_FOUND;
+  return classify_access_errno(error_number);
 }
 
 static void set_errno_error(native_observation *result, int error_number, const char *operation) {
   char message[MAX_NATIVE_MESSAGE];
   int written = snprintf(message, sizeof(message), "%s: %s", operation, strerror(error_number));
   if (written < 0 || (size_t)written >= sizeof(message)) set_message(message, sizeof(message), operation);
-  set_native_error(result, classify_errno(error_number), message);
+  set_native_error(result, classify_access_errno(error_number), message);
+}
+
+static void set_process_lookup_errno_error(native_observation *result, int error_number, const char *operation) {
+  char message[MAX_NATIVE_MESSAGE];
+  int written = snprintf(message, sizeof(message), "%s: %s", operation, strerror(error_number));
+  if (written < 0 || (size_t)written >= sizeof(message)) set_message(message, sizeof(message), operation);
+  set_native_error(result, classify_process_lookup_errno(error_number), message);
 }
 
 static void set_private_errno_error(private_file_observation *result, int error_number, const char *operation) {
   char message[MAX_NATIVE_MESSAGE];
   int written = snprintf(message, sizeof(message), "%s: %s", operation, strerror(error_number));
   if (written < 0 || (size_t)written >= sizeof(message)) set_message(message, sizeof(message), operation);
-  set_private_error(result, classify_errno(error_number), message);
+  set_private_error(result, classify_private_file_errno(error_number), message);
 }
 #endif
 
@@ -323,7 +338,7 @@ static int read_linux_stat(uint64_t pid, linux_stat_identity *identity, native_o
     return 0;
   }
   if (!read_limited_file(path, buffer, sizeof(buffer), &length, &error_number)) {
-    set_errno_error(result, error_number, "read process stat");
+    set_process_lookup_errno_error(result, error_number, "read process stat");
     return 0;
   }
   if (!parse_linux_stat(buffer, length, identity)) {
@@ -361,6 +376,10 @@ static int read_linux_executable(uint64_t pid, char *destination, size_t capacit
 static void read_process_identity_posix_linux(uint64_t pid, native_observation *result) {
   linux_stat_identity first;
   linux_stat_identity second;
+  if (pid > (uint64_t)INT_MAX) {
+    set_native_error(result, OBSERVATION_NATIVE_ERROR, "PID is outside the Linux range");
+    return;
+  }
   if (!read_linux_boot_id(result->boot_id, sizeof(result->boot_id), result)) return;
   if (!read_linux_stat(pid, &first, result)) return;
   if (first.pid != pid) {
@@ -406,7 +425,7 @@ static int read_macos_process(pid_t pid, mac_process_identity *identity, native_
   int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
   size_t length = sizeof(identity->process);
   if (sysctl(mib, 4, &identity->process, &length, NULL, 0) != 0) {
-    set_errno_error(result, errno, "read process information");
+    set_process_lookup_errno_error(result, errno, "read process information");
     return 0;
   }
   if (length == 0) {
@@ -479,13 +498,16 @@ static void read_process_identity_posix_macos(uint64_t pid, native_observation *
 #endif
 
 #if defined(_WIN32)
-static void set_windows_error(native_observation *result, DWORD error_number, const char *operation) {
-  int code = error_number == ERROR_INVALID_PARAMETER ? OBSERVATION_NOT_FOUND :
-    error_number == ERROR_ACCESS_DENIED ? OBSERVATION_ACCESS_DENIED : OBSERVATION_NATIVE_ERROR;
+static int classify_windows_error(DWORD error_number, int target_lookup) {
+  if (target_lookup && error_number == ERROR_INVALID_PARAMETER) return OBSERVATION_NOT_FOUND;
+  return error_number == ERROR_ACCESS_DENIED ? OBSERVATION_ACCESS_DENIED : OBSERVATION_NATIVE_ERROR;
+}
+
+static void set_windows_error(native_observation *result, DWORD error_number, const char *operation, int target_lookup) {
   char message[MAX_NATIVE_MESSAGE];
   int written = snprintf(message, sizeof(message), "%s (error %lu)", operation, (unsigned long)error_number);
   if (written < 0 || (size_t)written >= sizeof(message)) set_message(message, sizeof(message), operation);
-  set_native_error(result, code, message);
+  set_native_error(result, classify_windows_error(error_number, target_lookup), message);
 }
 
 static int windows_process_running(HANDLE process, native_observation *result) {
@@ -495,7 +517,7 @@ static int windows_process_running(HANDLE process, native_observation *result) {
     set_native_error(result, OBSERVATION_NOT_FOUND, "process is not running");
     return 0;
   }
-  set_windows_error(result, GetLastError(), "check process state");
+  set_windows_error(result, GetLastError(), "check process state", 0);
   return 0;
 }
 
@@ -533,16 +555,16 @@ static void read_process_identity_windows(uint64_t pid, native_observation *resu
   }
   process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, (DWORD)pid);
   if (process == NULL) {
-    set_windows_error(result, GetLastError(), "open process");
+    set_windows_error(result, GetLastError(), "open process", 1);
     return;
   }
   if (!windows_process_running(process, result)) goto cleanup;
   if (!windows_creation_time(process, result->started_at, sizeof(result->started_at))) {
-    set_windows_error(result, GetLastError(), "read process creation time");
+    set_windows_error(result, GetLastError(), "read process creation time", 0);
     goto cleanup;
   }
   if (!windows_executable(process, result->executable_path, sizeof(result->executable_path))) {
-    set_windows_error(result, GetLastError(), "read executable path");
+    set_windows_error(result, GetLastError(), "read executable path", 0);
     goto cleanup;
   }
   if (!windows_process_running(process, result)) goto cleanup;
@@ -673,9 +695,12 @@ static int read_private_file_windows(const char *path, size_t maximum, private_f
     total += bytes_read;
     remaining.QuadPart -= bytes_read;
   }
-  if (snprintf(result->volume_serial, sizeof(result->volume_serial), "%lu", (unsigned long)id_information.VolumeSerialNumber) <= 0) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file volume identity was malformed");
-    goto cleanup;
+  {
+    int written = snprintf(result->volume_serial, sizeof(result->volume_serial), "%" PRIu64, (uint64_t)id_information.VolumeSerialNumber);
+    if (written <= 0 || (size_t)written >= sizeof(result->volume_serial)) {
+      set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file volume identity was malformed");
+      goto cleanup;
+    }
   }
   {
     DWORD index;

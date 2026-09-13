@@ -1,14 +1,27 @@
 // @vitest-environment node
 import { createRequire } from 'node:module'
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import { runtimeIdentityAuthority } from './runtime-identity'
 
+type NativePrivateFileResult =
+  | { ok: true; bytes: Buffer; fileIdentity: Record<string, string> }
+  | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
+
+type NativeProcessResult =
+  | { ok: true; pid: number; bootId: string; startedAt: string; executablePath: string }
+  | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
+
 type NativeAddon = {
   platform: string
   identityContractVersion: number
+  runtimeFileSecurityContractVersion: number
+  readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
+  readProcessIdentity(pid: number): NativeProcessResult
 }
 
 type SpawnResult = { child: ReturnType<typeof spawn> }
@@ -60,5 +73,61 @@ describe('native runtime identity adapter', () => {
 
     expect(addon.platform).toBe(process.platform)
     expect(addon.identityContractVersion).toBe(1)
+  })
+  it('reserves not-found for a valid absent target lookup', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    expect(addon.readProcessIdentity(2_147_483_647)).toMatchObject({ ok: false, code: 'not-found' })
+    expect(addon.readProcessIdentity(Number.MAX_SAFE_INTEGER)).toMatchObject({ ok: false, code: 'native-error' })
+  })
+
+  it('reads only bounded private regular files and returns stable file identity', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-native-'))
+    const file = join(directory, 'runtime.json')
+    try {
+      writeFileSync(file, '{"pid":42}\n', { mode: 0o600 })
+      if (process.platform !== 'win32') chmodSync(file, 0o600)
+      const first = addon.readPrivateRuntimeFile(file, 1024)
+      const second = addon.readPrivateRuntimeFile(file, 1024)
+      expect(addon.runtimeFileSecurityContractVersion).toBe(1)
+      expect(first).toMatchObject({ ok: true })
+      expect(second).toMatchObject({ ok: true })
+      if (!first.ok || !second.ok) throw new Error('private runtime file was unexpectedly rejected')
+      expect(first.bytes.toString('utf8')).toBe('{"pid":42}\n')
+      expect(first.fileIdentity).toEqual(second.fileIdentity)
+      expect(Object.values(first.fileIdentity).every(value => typeof value === 'string' && value.length > 0)).toBe(true)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('rejects group/world-readable and symlink runtime files', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-native-'))
+    const file = join(directory, 'runtime.json')
+    const link = join(directory, 'runtime-link.json')
+    try {
+      writeFileSync(file, 'secret', { mode: 0o600 })
+      chmodSync(file, 0o644)
+      expect(addon.readPrivateRuntimeFile(file, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+      chmodSync(file, 0o600)
+      symlinkSync(file, link)
+      expect(addon.readPrivateRuntimeFile(link, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects runtime files exceeding the caller limit', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-native-'))
+    const file = join(directory, 'runtime.json')
+    try {
+      writeFileSync(file, 'too-large', { mode: 0o600 })
+      if (process.platform !== 'win32') chmodSync(file, 0o600)
+      expect(addon.readPrivateRuntimeFile(file, 4)).toMatchObject({ ok: false, code: 'native-error' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

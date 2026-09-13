@@ -86,8 +86,22 @@ jobs:
         id: packaged-resources
         shell: bash
         run: |
-          resources=$(find release -type d \( -name Resources -o -name resources \) -print -quit)
-          test -n "$resources"
+          candidates_file=$(mktemp)
+          trap 'rm -f "$candidates_file"' EXIT
+          find release -type f -path '*/native/runtime-identity.node' -print0 |
+            while IFS= read -r -d '' addon; do
+              candidate=$(dirname "$(dirname "$addon")")
+              if test -f "$candidate/native/runtime-identity-build.json"; then
+                printf '%s\n' "$candidate"
+              fi
+            done | sort -u > "$candidates_file"
+          count=$(wc -l < "$candidates_file")
+          if test "$count" -ne 1; then
+            printf 'Expected exactly one packaged runtime identity resource directory, found %s:\n' "$count" >&2
+            while IFS= read -r candidate; do printf '  %s\n' "$candidate" >&2; done < "$candidates_file"
+            exit 1
+          fi
+          resources=$(<"$candidates_file")
           printf 'path=%s\n' "$resources" >> "$GITHUB_OUTPUT"
 
       - name: Check packaged runtime identity bytes
