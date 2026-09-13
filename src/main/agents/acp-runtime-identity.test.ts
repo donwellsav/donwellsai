@@ -338,6 +338,24 @@ describe('new ACP process identity publication', () => {
     }
   })
 
+  it('handles a missing executable spawn error without an uncaught child event', async () => {
+    const directory = temporaryDirectory('acp-spawn-error-')
+    const capture = vi.fn<RuntimeIdentityAuthority['capture']>()
+    await expect(AcpAgent.start({
+      id: 'spawn-error',
+      workspacePath: directory,
+      launch: { executable: join(directory, 'missing-acp-agent'), args: [] },
+      mcpServers: [],
+      identity: {
+        capture,
+        verify: () => ({ status: 'indeterminate', reason: 'legacy-record', detail: 'process identity was not recorded' })
+      },
+      onChange: () => {}
+    })).rejects.toThrow(/ENOENT/)
+    await settleSessionStart()
+    expect(capture).not.toHaveBeenCalled()
+  })
+
   it('terminates a child and publishes only uncertainty when capture fails', async () => {
     const directory = temporaryDirectory('acp-capture-failure-')
     let childPid = 0

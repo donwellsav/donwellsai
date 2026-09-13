@@ -41,6 +41,24 @@ function childHasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null
 }
 
+async function spawnedChildPid(child: ChildProcess): Promise<number> {
+  if (child.pid) return child.pid
+  const completion = Promise.withResolvers<number>()
+  const onSpawn = (): void => {
+    if (child.pid) completion.resolve(child.pid)
+    else completion.reject(new Error('ACP process did not report a PID'))
+  }
+  const onError = (error: Error): void => completion.reject(error)
+  child.once('spawn', onSpawn)
+  child.once('error', onError)
+  try {
+    return await completion.promise
+  } finally {
+    child.off('spawn', onSpawn)
+    child.off('error', onError)
+  }
+}
+
 async function waitForChildExit(child: ChildProcess): Promise<void> {
   if (childHasExited(child) || !child.pid) return
   const completion = Promise.withResolvers<void>()
@@ -114,10 +132,10 @@ export class AcpAgent {
     const env = sanitizedProcessEnv(options.env ?? process.env)
     for (const key of Object.keys(env)) if (key.startsWith('DONWELLS_AGENT_HOOK_')) delete env[key]
     const child = spawnProcess({ program: launch.executable, args: launch.args, cwd: path, env, detached: true })
+    const pid = await spawnedChildPid(child)
     let processIdentity: ProcessIdentity
     try {
-      if (!child.pid) throw new Error('ACP process did not report a PID')
-      processIdentity = options.identity.capture(child.pid, { family: 'acp-agent' })
+      processIdentity = options.identity.capture(pid, { family: 'acp-agent' })
     } catch (error) {
       const detail = String(error).slice(0, 2048)
       const terminated = await requestChildTermination(child)
