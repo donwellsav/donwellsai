@@ -22,6 +22,153 @@ export type AgentModeSwitchReceipt = {
   native?: AgentStartResult; acp?: AcpAgentSnapshot; error?: string
 }
 
+export const ACP_DAEMON_CAPABILITY = 'agent-acp-v2'
+
+type AcpUnknownRecord = Record<string, unknown>
+
+function acpRecord(value: unknown, label: string): AcpUnknownRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${label} must be an object`)
+  return value as AcpUnknownRecord
+}
+
+function acpExactKeys(value: AcpUnknownRecord, required: readonly string[], optional: readonly string[], label: string): void {
+  const expected = new Set([...required, ...optional])
+  const extra = Object.keys(value).find(key => !expected.has(key))
+  if (extra) throw new Error(`${label} contains unknown field: ${extra}`)
+  const missing = required.find(key => !Object.hasOwn(value, key))
+  if (missing) throw new Error(`${label} is missing field: ${missing}`)
+}
+
+function acpString(value: unknown, label: string, maximum: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes(String.fromCharCode(0))) {
+    throw new Error(`${label} must be a non-empty string no longer than ${maximum} characters`)
+  }
+  return value
+}
+
+function acpInteger(value: unknown, label: string, positive = false): number {
+  if (!Number.isSafeInteger(value) || (value as number) < (positive ? 1 : 0)) throw new Error(`${label} must be ${positive ? 'a positive' : 'a non-negative'} integer`)
+  return value as number
+}
+
+function acpJsonRecord(value: unknown, label: string): AcpUnknownRecord {
+  acpRecord(value, label)
+  let encoded: string
+  try {
+    encoded = JSON.stringify(value)
+  } catch {
+    throw new Error(`${label} must contain only JSON values`)
+  }
+  if (new TextEncoder().encode(encoded).length > 2 * 1024 * 1024) throw new Error(`${label} exceeds the ACP wire limit`)
+  return JSON.parse(encoded) as AcpUnknownRecord
+}
+
+function parseAcpProcessIdentity(value: unknown, label: string): ProcessIdentity {
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['pid', 'bootId', 'startedAt', 'executablePath', 'family', 'capturedAt'], ['generation'], label)
+  if (input['family'] !== 'acp-agent') throw new Error(`${label}.family must be acp-agent`)
+  return {
+    pid: acpInteger(input['pid'], `${label}.pid`, true),
+    bootId: acpString(input['bootId'], `${label}.bootId`, 4_096),
+    startedAt: acpString(input['startedAt'], `${label}.startedAt`, 4_096),
+    executablePath: acpString(input['executablePath'], `${label}.executablePath`, 4_096),
+    family: 'acp-agent',
+    capturedAt: acpString(input['capturedAt'], `${label}.capturedAt`, 64),
+    ...(input['generation'] === undefined ? {} : { generation: acpString(input['generation'], `${label}.generation`, 4_096) })
+  }
+}
+
+/** Strict ACP-v2 wire decoder. Old pid-only snapshots are deliberately rejected. */
+export function parseAcpAgentSnapshot(value: unknown, label = 'invalid ACP snapshot'): AcpAgentSnapshot {
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['mode', 'id', 'workspacePath', 'protocolSessionId', 'processIdentity', 'state', 'capabilities', 'permissions'], ['detail'], label)
+  if (input['mode'] !== 'acp') throw new Error(`${label}.mode must be acp`)
+  const states: AcpAgentSnapshot['state'][] = ['starting', 'ready', 'working', 'permission', 'stopping', 'exited', 'uncertain']
+  if (!states.includes(input['state'] as AcpAgentSnapshot['state'])) throw new Error(`${label}.state is invalid`)
+  const state = input['state'] as AcpAgentSnapshot['state']
+  const processIdentity = input['processIdentity'] === null ? null : parseAcpProcessIdentity(input['processIdentity'], `${label}.processIdentity`)
+  if (processIdentity === null && ['ready', 'working', 'permission', 'stopping'].includes(state)) throw new Error(`${label} cannot be ${state} without processIdentity`)
+  if (input['protocolSessionId'] !== null && typeof input['protocolSessionId'] !== 'string') throw new Error(`${label}.protocolSessionId must be a string or null`)
+  const permissions = input['permissions']
+  if (!Array.isArray(permissions) || permissions.length > 8) throw new Error(`${label}.permissions must be a bounded array`)
+  const parsedPermissions = permissions.map((value, index) => {
+    const permissionLabel = `${label}.permissions[${index}]`
+    const permission = acpRecord(value, permissionLabel)
+    acpExactKeys(permission, ['id', 'request'], [], permissionLabel)
+    return {
+      id: acpString(permission['id'], `${permissionLabel}.id`, 128),
+      request: acpJsonRecord(permission['request'], `${permissionLabel}.request`) as RequestPermissionRequest
+    }
+  })
+  return {
+    mode: 'acp',
+    id: acpString(input['id'], `${label}.id`, 128),
+    workspacePath: acpString(input['workspacePath'], `${label}.workspacePath`, 4_096),
+    protocolSessionId: input['protocolSessionId'] === null ? null : acpString(input['protocolSessionId'], `${label}.protocolSessionId`, 4_096),
+    processIdentity,
+    state,
+    capabilities: acpJsonRecord(input['capabilities'], `${label}.capabilities`) as InitializeResponse['agentCapabilities'],
+    permissions: parsedPermissions,
+    ...(input['detail'] === undefined ? {} : { detail: acpString(input['detail'], `${label}.detail`, 2_048) })
+  }
+}
+
+export function parseAcpPromptRecord(value: unknown, label = 'invalid ACP prompt record'): AcpPromptRecord {
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['requestId', 'state'], ['result', 'error'], label)
+  if (input['state'] !== 'accepted' && input['state'] !== 'completed' && input['state'] !== 'uncertain') throw new Error(`${label}.state is invalid`)
+  return {
+    requestId: acpString(input['requestId'], `${label}.requestId`, 128),
+    state: input['state'],
+    ...(input['result'] === undefined ? {} : { result: acpJsonRecord(input['result'], `${label}.result`) as PromptResponse }),
+    ...(input['error'] === undefined ? {} : { error: acpString(input['error'], `${label}.error`, 2_048) })
+  }
+}
+
+export function parseAcpObservation(value: unknown): AcpObservation {
+  const label = 'invalid ACP observation'
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['snapshot', 'sequence', 'truncated', 'updates', 'requests'], [], label)
+  if (typeof input['truncated'] !== 'boolean') throw new Error(`${label}.truncated must be boolean`)
+  if (!Array.isArray(input['updates']) || input['updates'].length > 2_048) throw new Error(`${label}.updates must be a bounded array`)
+  if (!Array.isArray(input['requests']) || input['requests'].length > 4_096) throw new Error(`${label}.requests must be a bounded array`)
+  return {
+    snapshot: parseAcpAgentSnapshot(input['snapshot']),
+    sequence: acpInteger(input['sequence'], `${label}.sequence`),
+    truncated: input['truncated'],
+    updates: input['updates'].map((value, index) => {
+      const updateLabel = `${label}.updates[${index}]`
+      const update = acpRecord(value, updateLabel)
+      acpExactKeys(update, ['sequence', 'notification'], [], updateLabel)
+      return {
+        sequence: acpInteger(update['sequence'], `${updateLabel}.sequence`),
+        notification: acpJsonRecord(update['notification'], `${updateLabel}.notification`) as SessionNotification
+      }
+    }),
+    requests: input['requests'].map((request, index) => parseAcpPromptRecord(request, `${label}.requests[${index}]`))
+  }
+}
+
+export function parseAgentModeSwitchReceipt(value: unknown): AgentModeSwitchReceipt {
+  const label = 'invalid agent mode switch receipt'
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['requestId', 'workspacePath', 'sessionId', 'target', 'state', 'continuity'], ['native', 'acp', 'error'], label)
+  if (input['target'] !== 'native' && input['target'] !== 'acp') throw new Error(`${label}.target is invalid`)
+  if (input['state'] !== 'accepted' && input['state'] !== 'completed' && input['state'] !== 'uncertain') throw new Error(`${label}.state is invalid`)
+  if (input['continuity'] !== 'same-history' && input['continuity'] !== 'new-session') throw new Error(`${label}.continuity is invalid`)
+  return {
+    requestId: acpString(input['requestId'], `${label}.requestId`, 128),
+    workspacePath: acpString(input['workspacePath'], `${label}.workspacePath`, 4_096),
+    sessionId: acpString(input['sessionId'], `${label}.sessionId`, 128),
+    target: input['target'],
+    state: input['state'],
+    continuity: input['continuity'],
+    ...(input['native'] === undefined ? {} : { native: acpJsonRecord(input['native'], `${label}.native`) as AgentStartResult }),
+    ...(input['acp'] === undefined ? {} : { acp: parseAcpAgentSnapshot(input['acp']) }),
+    ...(input['error'] === undefined ? {} : { error: acpString(input['error'], `${label}.error`, 2_048) })
+  }
+}
+
 export const AGENT_PROVIDER_IDS = [
   'codex',
   'claude',

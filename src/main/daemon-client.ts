@@ -1,4 +1,4 @@
-import { parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable } from '@shared/agent-runtime'
+import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable } from '@shared/agent-runtime'
 import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
@@ -429,8 +429,8 @@ export class DaemonClient {
       this.events.title(sessionId, String(message['title'] ?? ''))
     } else if (event === 'agent' && isRunningAgent(message['run'])) {
       try { this.events.agent(requireRunningAgent(message['run'])) } catch { /* Ignore malformed unsolicited records. */ }
-    } else if (event === 'acp' && isRecord(message['snapshot']) && message['snapshot']['mode'] === 'acp') {
-      this.events.acp?.(message['snapshot'] as AcpAgentSnapshot)
+    } else if (event === 'acp') {
+      try { this.events.acp?.(parseAcpAgentSnapshot(message['snapshot'])) } catch { /* Ignore malformed unsolicited records. */ }
     } else if (event === 'agent-dismissed') {
       this.events.agentDismissed(sessionId)
     }
@@ -485,33 +485,40 @@ export class DaemonClient {
   }
 
   async switchMode(workspacePath: string, sessionId: string, target: 'native' | 'acp', requestId: string, executable: string, mcpServers: McpServer[], context?: string): Promise<AgentModeSwitchReceipt> {
-    await this.requireCapability('agent-acp-v1', 'agent mode switch')
-    return (await this.request<{ receipt: AgentModeSwitchReceipt }>('agent.switch', { workspacePath, sessionId, target, requestId, executable, mcpServers, context })).receipt
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'agent mode switch')
+    const response = await this.request<{ receipt: unknown }>('agent.switch', { workspacePath, sessionId, target, requestId, executable, mcpServers, context })
+    return parseAgentModeSwitchReceipt(response.receipt)
   }
   async modeSwitchResult(workspacePath: string, requestId: string): Promise<AgentModeSwitchReceipt> {
-    await this.requireCapability('agent-acp-v1', 'agent mode switch')
-    return (await this.request<{ receipt: AgentModeSwitchReceipt }>('agent.switch.get', { workspacePath, requestId })).receipt
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'agent mode switch')
+    const response = await this.request<{ receipt: unknown }>('agent.switch.get', { workspacePath, requestId })
+    return parseAgentModeSwitchReceipt(response.receipt)
   }
 
   async startAcp(workspacePath: string, sessionId: string, launch: AgentExecutable, mcpServers: McpServer[], loadRunId?: string): Promise<AcpAgentSnapshot> {
-    await this.requireCapability('agent-acp-v1', 'ACP sessions')
-    return (await this.request<{ snapshot: AcpAgentSnapshot }>('acp.open', { workspacePath, sessionId, launch, mcpServers, loadRunId })).snapshot
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'ACP sessions')
+    const response = await this.request<{ snapshot: unknown }>('acp.open', { workspacePath, sessionId, launch, mcpServers, loadRunId })
+    return parseAcpAgentSnapshot(response.snapshot)
   }
   async listAcp(workspacePath: string): Promise<AcpAgentSnapshot[]> {
-    await this.requireCapability('agent-acp-v1', 'ACP sessions')
-    return (await this.request<{ sessions: AcpAgentSnapshot[] }>('acp.list', { workspacePath })).sessions
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'ACP sessions')
+    const response = await this.request<{ sessions: unknown }>('acp.list', { workspacePath })
+    if (!Array.isArray(response.sessions)) throw new Error('invalid ACP session list')
+    return response.sessions.map(snapshot => parseAcpAgentSnapshot(snapshot))
   }
   async observeAcp(workspacePath: string, sessionId: string, afterSequence = 0): Promise<AcpObservation> {
-    await this.requireCapability('agent-acp-v1', 'ACP sessions')
-    return this.request('acp.observe', { workspacePath, sessionId, afterSequence })
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'ACP sessions')
+    return parseAcpObservation(await this.request<unknown>('acp.observe', { workspacePath, sessionId, afterSequence }))
   }
   async promptAcp(workspacePath: string, sessionId: string, requestId: string, text: string): Promise<AcpPromptRecord> {
-    await this.requireCapability('agent-acp-v1', 'ACP sessions')
-    return (await this.request<{ request: AcpPromptRecord }>('acp.prompt', { workspacePath, sessionId, requestId, text })).request
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'ACP sessions')
+    const response = await this.request<{ request: unknown }>('acp.prompt', { workspacePath, sessionId, requestId, text })
+    return parseAcpPromptRecord(response.request)
   }
   async controlAcp(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<AcpAgentSnapshot> {
-    await this.requireCapability('agent-acp-v1', 'ACP sessions')
-    return (await this.request<{ snapshot: AcpAgentSnapshot }>(`acp.${operation}`, { workspacePath, sessionId, permissionId, optionId })).snapshot
+    await this.requireCapability(ACP_DAEMON_CAPABILITY, 'ACP sessions')
+    const response = await this.request<{ snapshot: unknown }>(`acp.${operation}`, { workspacePath, sessionId, permissionId, optionId })
+    return parseAcpAgentSnapshot(response.snapshot)
   }
 
   /** Start a finite shell command owned by the daemon, not by the app process. */

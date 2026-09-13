@@ -37,6 +37,26 @@ export type AcpAgentOwner = {
 
 export type AcpAgentOwnerFactory = (options: AcpAgentStartOptions) => Promise<AcpAgentOwner>
 
+function childHasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+async function waitForChildExit(child: ChildProcess): Promise<void> {
+  if (childHasExited(child) || !child.pid) return
+  const completion = Promise.withResolvers<void>()
+  const finish = (): void => {
+    child.off('exit', finish)
+    completion.resolve()
+  }
+  child.once('exit', finish)
+  if (childHasExited(child)) finish()
+  await completion.promise
+}
+
+async function requestChildTermination(child: ChildProcess): Promise<boolean> {
+  return forceTerminateProcessTree(child).catch(() => false)
+}
+
 /** One process owner and protocol session; no PTY or implicit native-session attachment. */
 export class AcpAgent {
   private readonly child: ChildProcess
@@ -100,21 +120,38 @@ export class AcpAgent {
       processIdentity = options.identity.capture(child.pid, { family: 'acp-agent' })
     } catch (error) {
       const detail = String(error).slice(0, 2048)
-      const terminated = await forceTerminateProcessTree(child).catch(() => false)
-      options.onChange({
-        mode: 'acp',
-        id: options.id ?? randomUUID(),
-        workspacePath: path,
-        protocolSessionId: null,
-        processIdentity: null,
-        state: 'uncertain',
-        capabilities: {},
-        permissions: [],
-        detail: terminated ? detail : (detail + ' ACP process termination could not be verified.').slice(0, 2048)
-      })
+      const terminated = await requestChildTermination(child)
+      const publish = (state: 'starting' | 'uncertain' | 'exited', message: string): void => {
+        try {
+          options.onChange({
+            mode: 'acp',
+            id: options.id ?? randomUUID(),
+            workspacePath: path,
+            protocolSessionId: null,
+            processIdentity: null,
+            state,
+            capabilities: {},
+            permissions: [],
+            detail: message
+          })
+        } catch { /* Capture failure remains the authoritative startup error. */ }
+      }
+      if (terminated) publish('uncertain', detail)
+      else {
+        publish('starting', (detail + ' ACP process termination could not be verified; retaining startup ownership until exit.').slice(0, 2048))
+        await waitForChildExit(child)
+        publish('exited', detail)
+      }
       throw error
     }
-    const agent = new AcpAgent(options, path, child, processIdentity)
+    let agent: AcpAgent
+    try {
+      agent = new AcpAgent(options, path, child, processIdentity)
+    } catch (error) {
+      const terminated = await requestChildTermination(child)
+      if (!terminated) await waitForChildExit(child)
+      throw error
+    }
     const abort = () => { void agent.stop().catch(() => {}) }
     options.signal?.addEventListener('abort', abort, { once: true })
     try {

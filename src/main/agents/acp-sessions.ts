@@ -108,6 +108,37 @@ export class AcpSessions {
     return prior.snapshot.state !== 'exited' && verdict.status !== 'stale'
   }
 
+  private async stopOwner(id: string, owner: AcpAgentOwner): Promise<AcpAgentSnapshot> {
+    let failed = false
+    let failure: unknown
+    try {
+      await owner.stop()
+    } catch (error) {
+      failed = true
+      failure = error
+    }
+    const observed = owner.get()
+    const verdict = this.verdict(observed)
+    if (verdict.status === 'stale') {
+      const exited = { ...observed, state: 'exited' as const, permissions: [] }
+      this.save(exited)
+      this.owners.delete(id)
+      this.credentials.delete(id)
+      return exited
+    }
+    const uncertain = {
+      ...observed,
+      state: 'uncertain' as const,
+      permissions: [],
+      detail: failed
+        ? `ACP process stop failed: ${String(failure).slice(0, 2_000)}`
+        : 'ACP process stop could not be verified'
+    }
+    this.save(uncertain)
+    if (failed) throw failure
+    return uncertain
+  }
+
   private save(snapshot: AcpAgentSnapshot): void {
     if (snapshot.state === 'exited' || snapshot.state === 'uncertain') this.credentials.delete(snapshot.id)
     const value = JSON.stringify(snapshot)
@@ -200,22 +231,22 @@ export class AcpSessions {
       if (loadRunId) {
         const priorOwner = this.owners.get(loadRunId)
         if (priorOwner) {
-          await priorOwner.stop()
-          if (this.verdict(this.saved(workspacePath, loadRunId)).status !== 'stale') throw new Error('Previous ACP process termination could not be verified')
+          const stopped = await this.stopOwner(loadRunId, priorOwner)
+          if (stopped.state !== 'exited') throw new Error('Previous ACP process termination could not be verified')
         }
       }
       return this.ownerFactory({ id, signal: controller.signal, workspacePath, launch, mcpServers: scopedServers, loadSessionId, identity: this.identity, onChange: snapshot => this.save(snapshot) })
     }
     void start().then(async owner => {
       this.owners.set(id, owner)
-      if (this.stopping.has(id)) await owner.stop()
+      if (this.stopping.has(id)) await this.stopOwner(id, owner)
       else if (initialContext?.trim()) this.prompt(workspacePath, id, 'reviewed-context', initialContext)
     }).catch(error => {
       const snapshot = this.saved(workspacePath, id)
       const verdict = this.verdict(snapshot)
       this.save({
         ...snapshot,
-        state: verdict.status === 'stale' ? 'exited' : 'uncertain',
+        state: snapshot.state === 'exited' || verdict.status === 'stale' ? 'exited' : 'uncertain',
         permissions: [],
         detail: snapshot.state === 'uncertain' && snapshot.detail ? snapshot.detail : String(error).slice(0, 2048)
       })
@@ -248,7 +279,7 @@ export class AcpSessions {
       db.prepare('INSERT INTO requests VALUES (?,?,?,?)').run(id, requestId, payloadHash, JSON.stringify(record))
     })
     const finish = (result: AcpPromptRecord) => this.transaction(db => db.prepare('UPDATE requests SET record=? WHERE run_id=? AND id=?').run(JSON.stringify(result), id, requestId))
-    void owner.prompt(text).then(result => finish({ requestId, state: 'completed', result: { stopReason: result.stopReason } }), error => finish({ requestId, state: 'uncertain', error: String(error).slice(0, 1024) })).catch(error => { this.save({ ...owner.get(), state: 'uncertain', detail: `ACP outcome could not be saved: ${String(error).slice(0, 1024)}` }); void owner.stop().catch(() => {}) })
+    void owner.prompt(text).then(result => finish({ requestId, state: 'completed', result: { stopReason: result.stopReason } }), error => finish({ requestId, state: 'uncertain', error: String(error).slice(0, 1024) })).catch(error => { this.save({ ...owner.get(), state: 'uncertain', detail: `ACP outcome could not be saved: ${String(error).slice(0, 1024)}` }); void this.stopOwner(id, owner).catch(() => {}) })
     return record
   }
 
@@ -279,15 +310,7 @@ export class AcpSessions {
     }
     if (operation === 'permission') owner.answerPermission(identifier(permissionId!), optionId ?? null)
     else if (operation === 'cancel') await owner.cancel()
-    else {
-      await owner.stop()
-      const stopped = owner.get()
-      if (this.verdict(stopped).status !== 'stale') {
-        const uncertain = { ...stopped, state: 'uncertain' as const, permissions: [], detail: 'ACP process stop could not be verified' }
-        this.save(uncertain)
-        return uncertain
-      }
-    }
+    else return this.stopOwner(id, owner)
     return owner.get()
   }
 }

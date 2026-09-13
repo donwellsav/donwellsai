@@ -1,4 +1,4 @@
-import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
+import { ACP_DAEMON_CAPABILITY, parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
@@ -50,7 +50,7 @@ export const DAEMON_CAPABILITIES = [
   'agent-hooks-v1',
   'agent-session-auth-v1',
   'agent-input-v1',
-  'agent-acp-v1',
+  ACP_DAEMON_CAPABILITY,
   'runtime-identity-v1',
   ATTENTION_INBOX_CAPABILITY
 ] as const

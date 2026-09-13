@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileS
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { createConnection } from 'node:net'
+import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -284,5 +284,80 @@ describe('terminal runtime identity lifecycle', () => {
       await daemon.stopIfIdle().catch(() => false)
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+})
+
+describe('ACP daemon wire compatibility', () => {
+  type AcpClientProbe = {
+    capabilities: Set<string>
+    connect: () => Promise<void>
+    request: (operation: string) => Promise<Record<string, unknown>>
+    dispatchEvent: (message: Record<string, unknown>) => void
+  }
+
+  const legacySnapshot = {
+    mode: 'acp',
+    id: 'legacy-wire-run',
+    workspacePath: '/tmp/legacy-wire',
+    protocolSessionId: 'legacy-protocol-session',
+    pid: 4242,
+    state: 'ready',
+    capabilities: {},
+    permissions: []
+  }
+
+  function clientProbe(capabilities: string[], response: (operation: string) => Record<string, unknown>, onAcp?: () => void): { client: DaemonClient; probe: AcpClientProbe } {
+    const client = new DaemonClient('/tmp', { ...events, ...(onAcp ? { acp: onAcp } : {}) }, process.execPath)
+    const probe = client as unknown as AcpClientProbe
+    probe.capabilities = new Set(capabilities)
+    probe.connect = async () => {}
+    probe.request = async operation => response(operation)
+    return { client, probe }
+  }
+
+  it.runIf(process.platform !== 'win32')('refuses ACP requests after a real ACP-v1-only daemon handshake', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'acp-v1-handshake-')))
+    const socketPath = join(directory, 'base-daemon.sock')
+    const authToken = 'base-daemon-auth-token-123456789'
+    const processIdentity = { pid: process.pid, bootId: 'base-boot', startedAt: 'base-start', executablePath: process.execPath, family: 'terminal-daemon', capturedAt: '2026-09-13T00:00:00.000Z' }
+    const expected = { ownerId: '11111111-1111-4111-8111-111111111111', ownerGeneration: 1, socketPath, authToken, processIdentity }
+    const server = createServer(socket => {
+      socket.once('data', chunk => {
+        const request = JSON.parse(chunk.toString('utf8')) as Record<string, unknown>
+        socket.write(JSON.stringify({ id: request['id'], ok: true, protocolVersion: 3, runtimeIdentityContractVersion: 1, ownerId: expected.ownerId, generation: expected.ownerGeneration, processIdentity, capabilities: ['agent-acp-v1'] }) + '\n')
+      })
+    })
+    const client = new DaemonClient(directory, events, process.execPath)
+    try {
+      await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve) })
+      const connectProbe = client as unknown as DaemonConnectProbe
+      await expect(connectProbe.tryConnect.call(client, socketPath, authToken, expected)).resolves.toBe(true)
+      await expect(client.listAcp('/tmp/workspace')).rejects.toThrow(/upgrade required/)
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects pid-shaped snapshots at every ACP response and event boundary', async () => {
+    let acpEvents = 0
+    const { client, probe } = clientProbe(['agent-acp-v2'], operation => {
+      if (operation === 'acp.list') return { sessions: [legacySnapshot] }
+      if (operation === 'acp.observe') return { snapshot: legacySnapshot, sequence: 0, truncated: false, updates: [], requests: [] }
+      if (operation === 'agent.switch' || operation === 'agent.switch.get') {
+        return { receipt: { requestId: 'switch-one', workspacePath: '/tmp/workspace', sessionId: 'run-one', target: 'acp', state: 'completed', continuity: 'new-session', acp: legacySnapshot } }
+      }
+      return { snapshot: legacySnapshot }
+    }, () => { acpEvents += 1 })
+
+    await expect(client.startAcp('/tmp/workspace', 'run-one', { executable: 'opencode', args: [] }, [])).rejects.toThrow(/invalid ACP snapshot/)
+    await expect(client.listAcp('/tmp/workspace')).rejects.toThrow(/invalid ACP snapshot/)
+    await expect(client.observeAcp('/tmp/workspace', 'run-one')).rejects.toThrow(/invalid ACP snapshot/)
+    await expect(client.controlAcp('/tmp/workspace', 'run-one', 'stop')).rejects.toThrow(/invalid ACP snapshot/)
+    await expect(client.switchMode('/tmp/workspace', 'run-one', 'acp', 'switch-one', 'opencode', [])).rejects.toThrow(/invalid ACP snapshot/)
+    await expect(client.modeSwitchResult('/tmp/workspace', 'switch-one')).rejects.toThrow(/invalid ACP snapshot/)
+    probe.dispatchEvent({ event: 'acp', snapshot: legacySnapshot })
+    expect(acpEvents).toBe(0)
   })
 })

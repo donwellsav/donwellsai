@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { ChildProcess } from 'node:child_process'
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import type { Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -31,6 +32,16 @@ vi.mock('@agentclientprotocol/sdk', () => {
   return { ClientSideConnection, ndJsonStream: () => ({}) }
 })
 
+const terminationControl = vi.hoisted(() => ({ override: null as null | ((child: ChildProcess) => Promise<boolean>) }))
+
+vi.mock('@shared/child-process/process-tree-termination', async importOriginal => {
+  const actual = await importOriginal<typeof import('@shared/child-process/process-tree-termination')>()
+  return {
+    ...actual,
+    forceTerminateProcessTree: (child: ChildProcess) => terminationControl.override?.(child) ?? actual.forceTerminateProcessTree(child)
+  }
+})
+
 type VerdictKind = 'valid' | 'not-found' | 'pid-reused' | 'executable-mismatch' | 'access-denied' | 'native-error'
 type ControlledAuthority = {
   authority: RuntimeIdentityAuthority
@@ -41,6 +52,7 @@ type FakeOwnerHarness = {
   snapshot: () => AcpAgentSnapshot
   setState: (state: AcpAgentSnapshot['state']) => void
   setProcessIdentity: (identity: ProcessIdentity | null) => void
+  setStopFailure: (error: Error | undefined) => void
   token: () => string | undefined
 }
 
@@ -179,6 +191,7 @@ function journalVersion(directory: string): number {
 function fakeOwnerHarness(): FakeOwnerHarness {
   let current = snapshot({ id: 'not-started' })
   let hookToken: string | undefined
+  let stopFailure: Error | undefined
   let nextPid = 5100
   const factory: AcpAgentOwnerFactory = options => {
     for (const server of options.mcpServers) {
@@ -199,7 +212,7 @@ function fakeOwnerHarness(): FakeOwnerHarness {
       observe: () => ({ snapshot: structuredClone(current), sequence: 0, truncated: false, updates: [] }),
       prompt: async (): Promise<PromptResponse> => ({ stopReason: 'end_turn' }),
       cancel: async () => {},
-      stop: async () => { current = { ...current, state: 'exited', permissions: [] }; options.onChange(structuredClone(current)) },
+      stop: async () => { if (stopFailure) throw stopFailure; current = { ...current, state: 'exited', permissions: [] }; options.onChange(structuredClone(current)) },
       answerPermission: () => {}
     }
     return Promise.resolve(owner)
@@ -209,6 +222,7 @@ function fakeOwnerHarness(): FakeOwnerHarness {
     snapshot: () => structuredClone(current),
     setState: state => { current = { ...current, state } },
     setProcessIdentity: identity => { current = { ...current, processIdentity: identity } },
+    setStopFailure: error => { stopFailure = error },
     token: () => hookToken
   }
 }
@@ -270,6 +284,7 @@ async function stoppedModeSwitch(verdict: VerdictKind): Promise<unknown> {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  terminationControl.override = null
   while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true })
 })
 
@@ -346,6 +361,63 @@ describe('new ACP process identity publication', () => {
     expect(changes[0]!.detail).toContain('capture unavailable')
     expect(changes.some(change => change.state === 'ready')).toBe(false)
   })
+
+  it('retains startup ownership until an unidentified child really exits', async () => {
+    const directory = temporaryDirectory('acp-capture-unverified-')
+    let childPid = 0
+    let spawnedChild: ChildProcess | undefined
+    terminationControl.override = async child => { spawnedChild = child; return false }
+    const authority: RuntimeIdentityAuthority = {
+      capture: pid => { childPid = pid; throw new Error('capture unavailable') },
+      verify: value => value === null
+        ? { status: 'indeterminate', reason: 'legacy-record', detail: 'process identity was not recorded' }
+        : { status: 'valid', current: value }
+    }
+    const sessions = new AcpSessions(directory, { changed: () => {}, identity: authority })
+    sessions.start(directory, 'capture-unverified', { executable: process.execPath, args: ['-e', childScript] }, [])
+    try {
+      await settleSessionStart()
+      expect(childPid).toBeGreaterThan(0)
+      expect(processExists(childPid)).toBe(true)
+      expect(sessions.hasOwnedSessions()).toBe(true)
+      expect(sessions.list(directory)).toContainEqual(expect.objectContaining({ state: 'starting', processIdentity: null }))
+    } finally {
+      if (spawnedChild && childPid > 0 && processExists(childPid)) {
+        const exited = Promise.withResolvers<void>()
+        spawnedChild.once('exit', () => exited.resolve())
+        process.kill(childPid, 'SIGKILL')
+        await exited.promise
+      }
+    }
+    for (let turn = 0; turn < 5 && sessions.hasOwnedSessions(); turn += 1) await settleSessionStart()
+    expect(sessions.hasOwnedSessions()).toBe(false)
+    expect(sessions.list(directory)).toContainEqual(expect.objectContaining({ state: 'exited', processIdentity: null }))
+  })
+
+  it('verifies child termination before rejecting the first snapshot callback', async () => {
+    const directory = temporaryDirectory('acp-first-publish-failure-')
+    let childPid = 0
+    const authority: RuntimeIdentityAuthority = {
+      capture: pid => { childPid = pid; return processIdentity(pid) },
+      verify: value => value === null
+        ? { status: 'indeterminate', reason: 'legacy-record', detail: 'process identity was not recorded' }
+        : { status: 'valid', current: value }
+    }
+    try {
+      await expect(AcpAgent.start({
+        id: 'first-publish-failure',
+        workspacePath: directory,
+        launch: { executable: process.execPath, args: ['-e', childScript] },
+        mcpServers: [],
+        identity: authority,
+        onChange: () => { throw new Error('snapshot sink unavailable') }
+      })).rejects.toThrow(/snapshot sink unavailable/)
+      expect(childPid).toBeGreaterThan(0)
+      expect(processExists(childPid)).toBe(false)
+    } finally {
+      if (childPid > 0 && processExists(childPid)) process.kill(childPid, 'SIGKILL')
+    }
+  })
 })
 
 describe('ACP persisted ownership classification', () => {
@@ -388,6 +460,37 @@ describe('ACP persisted ownership classification', () => {
     await expect(sessions.control(directory, `indeterminate-${reason}`, 'stop')).resolves.toMatchObject({ state: 'uncertain' })
     await expect(sessions.control(directory, `indeterminate-${reason}`, 'dismiss')).rejects.toThrow(/live or unverifiable/)
     expect(kill).not.toHaveBeenCalled()
+  })
+
+  it.each(['not-found', 'pid-reused', 'executable-mismatch'] as const)('accepts stale %s after the in-memory owner stop rejects', async reason => {
+    const directory = temporaryDirectory(`acp-stop-rejected-stale-${reason}-`)
+    const controlled = controlledAuthority('valid')
+    const owner = fakeOwnerHarness()
+    const sessions = new AcpSessions(directory, { changed: () => {}, identity: controlled.authority, ownerFactory: owner.factory })
+    sessions.start(directory, `stop-rejected-${reason}`, { executable: process.execPath, args: [] }, [])
+    await settleSessionStart()
+    owner.setStopFailure(new Error('owner stop rejected'))
+    controlled.setVerdict(reason)
+    await settleSessionStart()
+
+    await expect(sessions.control(directory, `stop-rejected-${reason}`, 'stop')).resolves.toMatchObject({ state: 'exited' })
+    expect(sessions.hasOwnedSessions()).toBe(false)
+  })
+
+  it.each(['valid', 'access-denied', 'native-error'] as const)('preserves %s ownership and rejects when the in-memory owner stop rejects', async reason => {
+    const directory = temporaryDirectory(`acp-stop-rejected-${reason}-`)
+    const controlled = controlledAuthority('valid')
+    const owner = fakeOwnerHarness()
+    const sessions = new AcpSessions(directory, { changed: () => {}, identity: controlled.authority, ownerFactory: owner.factory })
+    sessions.start(directory, `stop-rejected-${reason}`, { executable: process.execPath, args: [] }, [])
+    await settleSessionStart()
+    owner.setStopFailure(new Error('owner stop rejected'))
+    controlled.setVerdict(reason)
+    await settleSessionStart()
+
+    await expect(sessions.control(directory, `stop-rejected-${reason}`, 'stop')).rejects.toThrow(/owner stop rejected/)
+    expect(sessions.hasOwnedSessions()).toBe(true)
+    expect(sessions.list(directory)).toContainEqual(expect.objectContaining({ state: 'uncertain', processIdentity: expect.objectContaining({ family: 'acp-agent' }) }))
   })
 
   it('allows only journal dismissal to release legacy protocol history', async () => {
