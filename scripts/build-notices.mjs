@@ -22,7 +22,8 @@ function visit(directory){
   const section=content.match(/^#+ (?:MIT )?Licen[cs]e\b[^\n]*\n([\s\S]*)/im)?.[1]
   if(section?.includes('Permission is hereby granted'))notices=[readme+' license section\n'+section]
  }
- if(pkg.name==='marked-footnote'&&pkg.version==='1.4.0')notices=['Upstream license at npm gitHead faab750f00af4788397948286fb8f7fe0c929a7e\nhttps://github.com/bent10/marked-extensions/blob/faab750f00af4788397948286fb8f7fe0c929a7e/license\n'+readFileSync(join(root,'resources/licenses/marked-footnote-1.4.0.txt'),'utf8')]
+if(pkg.name==='marked-footnote'&&pkg.version==='1.4.0')notices=['Upstream license at npm gitHead faab750f00af4788397948286fb8f7fe0c929a7e\nhttps://github.com/bent10/marked-extensions/blob/faab750f00af4788397948286fb8f7fe0c929a7e/license\n'+readFileSync(join(root,'resources/licenses/marked-footnote-1.4.0.txt'),'utf8')]
+if(pkg.name==='lazy-val'&&pkg.version==='1.0.5')notices=['NPM registry metadata declares MIT for lazy-val@1.0.5\nhttps://registry.npmjs.org/lazy-val/1.0.5\nPinned upstream package metadata at gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071 identifies Vladimir Krivosheev and MIT\nhttps://github.com/develar/lazy-val/blob/b69ad4119f1b19bdab13c61ee2fcc88d46b89071/package.json\nLicense body from SPDX MIT\nhttps://spdx.org/licenses/MIT.txt\n'+readFileSync(join(root,'resources/licenses/lazy-val-1.0.5.txt'),'utf8')]
  assert(notices.length,`Missing license text: ${pkg.name}@${pkg.version}`)
  entries.push({name:pkg.name,version:pkg.version,text:`${pkg.name}@${pkg.version}\nDeclared license: ${typeof pkg.license==='string'?pkg.license:JSON.stringify(pkg.license)}\n${notices.join('\n\n')}`})
  for(const name of Object.keys({...pkg.dependencies,...pkg.optionalDependencies})){const found=locate(name,directory);if(found)visit(found);else assert(pkg.optionalDependencies?.[name],`Missing dependency ${pkg.name} -> ${name}`)}
