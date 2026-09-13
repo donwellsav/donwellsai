@@ -1,5 +1,7 @@
 import { parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable } from '@shared/agent-runtime'
+import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
+import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import { existsSync } from 'node:fs'
 import { RuntimeOwnershipError, RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
@@ -96,6 +98,29 @@ function delay(ms: number): Promise<void> {
   return result.promise
 }
 
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  const completion = Promise.withResolvers<void>()
+  const onClose = (): void => {
+    clearTimeout(timer)
+    completion.resolve()
+  }
+  const timer = setTimeout(() => {
+    child.removeListener('close', onClose)
+    completion.resolve()
+  }, timeoutMs)
+  timer.unref?.()
+  child.once('close', onClose)
+  return completion.promise
+}
+
+async function terminateSpawnedChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    try { await forceTerminateProcessTree(child) } catch { /* preserve the startup error */ }
+  }
+  await waitForChildExit(child, 2_000)
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -132,10 +157,10 @@ export class DaemonClient {
   private pending = new Map<string, Pending>()
   private buffer = ''
   private connecting: Promise<void> | null = null
+  private spawnedChild: ChildProcess | null = null
   private capabilities = new Set<string>()
   private readonly requestTimeoutMs: number
   private readonly handshakeTimeoutMs: number
-
   constructor(
     private userDataDir: string,
     private events: DaemonEvents,
@@ -211,22 +236,30 @@ export class DaemonClient {
     }
     child.once('spawn', onSpawn)
     child.once('error', onError)
-    await spawned.promise
-    child.unref()
 
-    const deadline = Date.now() + 10_000
-    while (Date.now() <= deadline) {
-      const published = readRuntimeRecord(paths.runtimeFile)
-      if (published.status === 'current' && published.record.authToken === token && await this.tryConnect(published.record.socketPath, token).catch(() => false)) return
-      if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error(
-          'terminal daemon exited during startup (code=' + (child.exitCode ?? 'null') +
-          ', signal=' + (child.signalCode ?? 'null') + ')'
-        )
+    try {
+      await spawned.promise
+      this.spawnedChild = child
+      child.unref()
+
+      const deadline = Date.now() + 10_000
+      while (Date.now() <= deadline) {
+        const published = readRuntimeRecord(paths.runtimeFile)
+        if (published.status === 'current' && published.record.authToken === token && await this.tryConnect(published.record.socketPath, token).catch(() => false)) return
+        if (child.exitCode !== null || child.signalCode !== null) {
+          throw new Error(
+            'terminal daemon exited during startup (code=' + (child.exitCode ?? 'null') +
+            ', signal=' + (child.signalCode ?? 'null') + ')'
+          )
+        }
+        await delay(100)
       }
-      await delay(100)
+      throw new Error('terminal daemon connection timed out after 10000ms')
+    } catch (error) {
+      if (this.spawnedChild === child) this.spawnedChild = null
+      if (child.pid) await terminateSpawnedChild(child)
+      throw error
     }
-    throw new Error('terminal daemon connection timed out after 10000ms')
   }
 
   private tryConnect(socketPath: string, authToken: string): Promise<boolean> {
