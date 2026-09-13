@@ -14,13 +14,14 @@ export type NativeRuntimeFileObservation =
 export type NativeRuntimeFileIdentityObservation =
   | { ok: true; fileIdentity: Record<string, string> }
   | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
-
+export type NativeRuntimeDirectoryObservation = NativeRuntimeFileIdentityObservation
 
 export type NativeRuntimeFileAddon = {
   platform: unknown
   runtimeFileSecurityContractVersion: unknown
   readPrivateRuntimeFile: unknown
   readPrivateRuntimeFileIdentity?: unknown
+  validatePrivateRuntimeDirectory?: unknown
   withRuntimeAuthorityLock?: unknown
 }
 
@@ -32,6 +33,7 @@ export type RuntimeFileRead = {
 
 export type RuntimeFileReader = (path: string, maxBytes: number) => RuntimeFileRead
 export type RuntimeAuthorityLock = <T>(path: string, callback: (stablePath: string) => T, options?: { readOnly?: boolean }) => T
+export type RuntimeDirectoryValidator = (path: string) => void
 export type RuntimeFileIdentityReader = (path: string) => RuntimeFileIdentity
 
 export class RuntimeFileSecurityError extends Error {
@@ -127,6 +129,22 @@ export function createPrivateRuntimeFileIdentityReader(addon: NativeRuntimeFileA
     return normalizeIdentity((observation as Extract<NativeRuntimeFileIdentityObservation, { ok: true }>).fileIdentity, expectedPlatform)
   }
 }
+export function createPrivateRuntimeDirectoryValidator(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeDirectoryValidator {
+  if (addon.platform !== expectedPlatform) throw new Error('runtime directory security addon platform mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime directory security addon contract mismatch')
+  if (typeof addon.validatePrivateRuntimeDirectory !== 'function') throw new Error('runtime directory security addon is missing validatePrivateRuntimeDirectory')
+  const validateDirectory = addon.validatePrivateRuntimeDirectory as (path: string) => NativeRuntimeDirectoryObservation
+  return path => {
+    if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new RuntimeFileSecurityError('native-error', 'runtime directory path was malformed')
+    let observation: NativeRuntimeDirectoryObservation
+    try { observation = validateDirectory(path) } catch (error) {
+      throw new RuntimeFileSecurityError('native-error', (error instanceof Error ? error.message : String(error)).slice(0, 4096))
+    }
+    const failure = observationError(observation)
+    if (failure) throw failure
+    normalizeIdentity((observation as Extract<NativeRuntimeDirectoryObservation, { ok: true }>).fileIdentity, expectedPlatform)
+  }
+}
 export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeAuthorityLock {
   if (addon.platform !== expectedPlatform) throw new Error('runtime authority addon platform mismatch')
   if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime authority addon contract mismatch')
@@ -178,8 +196,14 @@ export function runtimeAuthorityLock(): RuntimeAuthorityLock {
   if (!defaultAuthorityLock) defaultAuthorityLock = createRuntimeAuthorityLock(loadNativeAddon())
   return defaultAuthorityLock
 }
+let defaultDirectoryValidator: RuntimeDirectoryValidator | undefined
 
-export function canonicalPrivateDirectory(path: string, options: { create?: boolean; requireCanonical?: boolean } = {}): string {
+export function privateRuntimeDirectoryValidator(): RuntimeDirectoryValidator {
+  if (!defaultDirectoryValidator) defaultDirectoryValidator = createPrivateRuntimeDirectoryValidator(loadNativeAddon())
+  return defaultDirectoryValidator
+}
+
+export function canonicalPrivateDirectory(path: string, options: { create?: boolean; requireCanonical?: boolean; directoryValidator?: RuntimeDirectoryValidator } = {}): string {
   if (typeof path !== 'string' || path.length === 0 || path.includes('\0') || !isAbsolute(path)) {
     throw new RuntimeFileSecurityError('access-denied', 'runtime directory must be absolute')
   }
@@ -197,6 +221,7 @@ export function canonicalPrivateDirectory(path: string, options: { create?: bool
       throw new RuntimeFileSecurityError('access-denied', 'runtime directory must be owned by the current user and private')
     }
   }
+  if (process.platform === 'win32') (options.directoryValidator ?? privateRuntimeDirectoryValidator())(canonical)
   return canonical
 }
 export function readPrivateRuntimeFile(path: string, maxBytes: number, reader: RuntimeFileReader = privateRuntimeFileReader()): RuntimeFileRead {

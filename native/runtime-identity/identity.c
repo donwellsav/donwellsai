@@ -1,3 +1,7 @@
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <node_api.h>
 
 #include <errno.h>
@@ -10,8 +14,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
-#include <aclapi.h>
-#include <sddl.h>
+#include "windows-file-security.h"
+#include <wchar.h>
 #else
 #if !defined(_WIN32)
 #include <dirent.h>
@@ -21,6 +25,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 #if defined(__APPLE__)
 #include <libproc.h>
 #include <limits.h>
@@ -212,6 +219,7 @@ static napi_value make_private_result(napi_env env, const private_file_observati
   return result;
 }
 
+#if defined(__linux__) || defined(__APPLE__)
 static int valid_boot_uuid(const char *value, size_t length) {
   size_t index;
   if (length != 36) return 0;
@@ -223,6 +231,7 @@ static int valid_boot_uuid(const char *value, size_t length) {
   }
   return 1;
 }
+#endif
 
 #if defined(__linux__)
 static int read_limited_file(const char *path, char *buffer, size_t capacity, size_t *length, int *error_number) {
@@ -590,67 +599,90 @@ static int get_windows_path(const char *utf8_path, WCHAR *wide_path, size_t capa
   length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8_path, -1, wide_path, (int)capacity);
   return length > 0 && (size_t)length < capacity;
 }
-
-static int windows_sid_allowed(PSID sid, PSID current_user, PSID local_system, PSID administrators) {
-  if (sid == NULL || current_user == NULL || local_system == NULL || administrators == NULL || !IsValidSid(sid)) return 0;
-  return EqualSid(sid, current_user) || EqualSid(sid, local_system) || EqualSid(sid, administrators);
+static int normalize_windows_path(const WCHAR *source, WCHAR *destination, size_t capacity) {
+  const WCHAR *cursor = source;
+  size_t length = 0;
+  if (source == NULL || destination == NULL || capacity < 2) return 0;
+  if (_wcsnicmp(cursor, L"\\\\?\\UNC\\", 8) == 0) {
+    if (capacity < 3) return 0;
+    destination[length++] = L'\\';
+    destination[length++] = L'\\';
+    cursor += 8;
+  } else if (_wcsnicmp(cursor, L"\\\\?\\", 4) == 0 || _wcsnicmp(cursor, L"\\\\.\\", 4) == 0) {
+    cursor += 4;
+  }
+  while (*cursor != L'\0') {
+    if (length + 1 >= capacity) return 0;
+    destination[length++] = *cursor++;
+  }
+  while (length > 3 && destination[length - 1] == L'\\') length--;
+  destination[length] = L'\0';
+  return 1;
 }
 
-static int windows_private_security(HANDLE handle) {
-  PSECURITY_DESCRIPTOR security_descriptor = NULL;
-  PSID owner = NULL;
-  PACL dacl = NULL;
-  BOOL dacl_present = FALSE;
-  PSID current_user = NULL;
-  PSID local_system = NULL;
-  PSID administrators = NULL;
-  DWORD token_length = 0;
-  HANDLE token = NULL;
-  TOKEN_USER *token_user = NULL;
-  BYTE local_system_buffer[SECURITY_MAX_SID_SIZE];
-  BYTE administrators_buffer[SECURITY_MAX_SID_SIZE];
-  DWORD sid_length = sizeof(local_system_buffer);
-  DWORD administrators_length = sizeof(administrators_buffer);
-  ACL_SIZE_INFORMATION acl_size;
-  BOOL valid = FALSE;
-  if (GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-      &owner, NULL, &dacl, NULL, &security_descriptor) != ERROR_SUCCESS) goto cleanup;
-  if (owner == NULL || !IsValidSid(owner) || !OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto cleanup;
-  (void)GetTokenInformation(token, TokenUser, NULL, 0, &token_length);
-  if (token_length == 0) goto cleanup;
-  token_user = (TOKEN_USER *)malloc(token_length);
-  if (token_user == NULL || !GetTokenInformation(token, TokenUser, token_user, token_length, &token_length)) goto cleanup;
-  current_user = token_user->User.Sid;
-  if (!EqualSid(owner, current_user)) goto cleanup;
-  if (!CreateWellKnownSid(WinLocalSystemSid, NULL, local_system_buffer, &sid_length) ||
-      !CreateWellKnownSid(WinBuiltinAdministratorsSid, NULL, administrators_buffer, &administrators_length)) goto cleanup;
-  local_system = local_system_buffer;
-  administrators = administrators_buffer;
-  if (!GetSecurityDescriptorDacl(security_descriptor, &dacl_present, &dacl, NULL) || !dacl_present || dacl == NULL) goto cleanup;
-  memset(&acl_size, 0, sizeof(acl_size));
-  if (!GetAclInformation(dacl, &acl_size, sizeof(acl_size), AclSizeInformation)) goto cleanup;
+static int windows_directory_path_matches_handle(const WCHAR *requested, HANDLE handle) {
+  WCHAR full_path[32768];
+  WCHAR final_path[32768];
+  WCHAR normalized_full[32768];
+  WCHAR normalized_final[32768];
+  DWORD full_length;
+  DWORD final_length;
+  full_length = GetFullPathNameW(requested, (DWORD)(sizeof(full_path) / sizeof(full_path[0])), full_path, NULL);
+  final_length = GetFinalPathNameByHandleW(handle, final_path, (DWORD)(sizeof(final_path) / sizeof(final_path[0])), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  if (full_length == 0 || full_length >= sizeof(full_path) / sizeof(full_path[0]) || final_length == 0 || final_length >= sizeof(final_path) / sizeof(final_path[0])) return 0;
+  if (!normalize_windows_path(full_path, normalized_full, sizeof(normalized_full) / sizeof(normalized_full[0])) ||
+      !normalize_windows_path(final_path, normalized_final, sizeof(normalized_final) / sizeof(normalized_final[0]))) return 0;
+  return _wcsicmp(normalized_full, normalized_final) == 0;
+}
+
+static int read_private_directory_windows(const char *path, private_file_observation *result) {
+  WCHAR wide_path[32768];
+  HANDLE handle = INVALID_HANDLE_VALUE;
+  BY_HANDLE_FILE_INFORMATION basic_information;
+  FILE_STANDARD_INFO standard_information;
+  FILE_ID_INFO id_information;
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) {
+    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory path was malformed");
+    return 0;
+  }
+  handle = CreateFileW(wide_path, FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+    NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (handle == INVALID_HANDLE_VALUE) {
+    DWORD error_number = GetLastError();
+    set_private_error(result, error_number == ERROR_FILE_NOT_FOUND || error_number == ERROR_PATH_NOT_FOUND ? OBSERVATION_NOT_FOUND :
+      error_number == ERROR_ACCESS_DENIED ? OBSERVATION_ACCESS_DENIED : OBSERVATION_NATIVE_ERROR, "open runtime directory");
+    return 0;
+  }
+  if (!GetFileInformationByHandle(handle, &basic_information) ||
+      !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
+      !GetFileInformationByHandleEx(handle, FileIdInfo, &id_information, sizeof(id_information)) ||
+      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || !standard_information.Directory ||
+      !windows_directory_path_matches_handle(wide_path, handle) || !windows_private_security(handle)) {
+    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory security policy rejected directory");
+    goto cleanup;
+  }
+  {
+    int written = snprintf(result->volume_serial, sizeof(result->volume_serial), "%" PRIu64, (uint64_t)id_information.VolumeSerialNumber);
+    if (written <= 0 || (size_t)written >= sizeof(result->volume_serial)) {
+      set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory volume identity was malformed");
+      goto cleanup;
+    }
+  }
   {
     DWORD index;
-    for (index = 0; index < acl_size.AceCount; index++) {
-      ACE_HEADER *header = NULL;
-      if (!GetAce(dacl, index, (LPVOID *)&header) || header == NULL) goto cleanup;
-      if (header->AceType == ACCESS_ALLOWED_ACE_TYPE) {
-        ACCESS_ALLOWED_ACE *ace = (ACCESS_ALLOWED_ACE *)header;
-        if (!IsValidSid((PSID)&ace->SidStart) ||
-            ((ace->Mask & (FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE | READ_CONTROL | WRITE_DAC | WRITE_OWNER)) != 0 &&
-             !windows_sid_allowed(&ace->SidStart, current_user, local_system, administrators))) goto cleanup;
-      } else if (header->AceType != ACCESS_DENIED_ACE_TYPE) {
+    for (index = 0; index < sizeof(id_information.FileId.Identifier); index++) {
+      if (snprintf(result->file_id + index * 2, sizeof(result->file_id) - index * 2, "%02x", id_information.FileId.Identifier[index]) != 2) {
+        set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory identity was malformed");
         goto cleanup;
       }
     }
   }
-  valid = TRUE;
+  result->ok = 1;
 cleanup:
-  if (token != NULL) (void)CloseHandle(token);
-  if (security_descriptor != NULL) (void)LocalFree(security_descriptor);
-  free(token_user);
-  return valid ? 1 : 0;
+  if (handle != INVALID_HANDLE_VALUE) (void)CloseHandle(handle);
+  return result->ok;
 }
+
 
 static int read_private_file_windows(const char *path, size_t maximum, int include_bytes, private_file_observation *result) {
   WCHAR wide_path[32768];
@@ -796,6 +828,45 @@ cleanup:
   if (descriptor >= 0) (void)close(descriptor);
   return result->ok;
 }
+static int read_private_directory_posix(const char *path, private_file_observation *result) {
+  int descriptor = -1;
+  struct stat metadata;
+  if (path == NULL) {
+    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory path was malformed");
+    return 0;
+  }
+  {
+    int flags = O_RDONLY | O_CLOEXEC;
+#ifdef O_DIRECTORY
+    flags |= O_DIRECTORY;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    descriptor = open(path, flags);
+  }
+  if (descriptor < 0) {
+    set_private_errno_error(result, errno, "open runtime directory");
+    return 0;
+  }
+  if (fstat(descriptor, &metadata) != 0) {
+    set_private_errno_error(result, errno, "stat runtime directory");
+    goto cleanup;
+  }
+  if (!S_ISDIR(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0077) != 0) {
+    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory security policy rejected directory");
+    goto cleanup;
+  }
+  if (snprintf(result->device, sizeof(result->device), "%llu", (unsigned long long)metadata.st_dev) <= 0 ||
+      snprintf(result->inode, sizeof(result->inode), "%llu", (unsigned long long)metadata.st_ino) <= 0) {
+    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime directory identity was malformed");
+    goto cleanup;
+  }
+  result->ok = 1;
+cleanup:
+  (void)close(descriptor);
+  return result->ok;
+}
 #endif
 static int get_max_bytes_argument(napi_env env, napi_value value, size_t *maximum);
 static int get_utf8_argument(napi_env env, napi_value value, char *destination, size_t capacity);
@@ -805,34 +876,69 @@ static napi_value throw_authority_error(napi_env env, const char *message) {
   return NULL;
 }
 #if defined(_WIN32)
-typedef HANDLE authority_lock_handle;
-#define INVALID_AUTHORITY_LOCK INVALID_HANDLE_VALUE
+typedef struct {
+  HANDLE lock;
+  HANDLE directory;
+} authority_lock_handle;
 typedef HANDLE authority_file_handle;
 #define INVALID_AUTHORITY_FILE INVALID_HANDLE_VALUE
 
+static int authority_lock_is_invalid(authority_lock_handle handle) {
+  return handle.lock == INVALID_HANDLE_VALUE || handle.directory == INVALID_HANDLE_VALUE;
+}
+
 static authority_lock_handle open_authority_lock(const char *path, int read_only) {
+  authority_lock_handle result = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
   WCHAR wide_path[32768];
+  WCHAR directory_path[32768];
   WCHAR lock_path[32768];
+  WCHAR *separator;
   size_t length;
-  HANDLE handle;
+  HANDLE directory;
+  HANDLE lock;
   BY_HANDLE_FILE_INFORMATION basic_information;
   FILE_STANDARD_INFO standard_information;
-  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return INVALID_AUTHORITY_LOCK;
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return result;
   length = wcslen(wide_path);
-  if (length + 6 >= sizeof(lock_path) / sizeof(lock_path[0])) return INVALID_AUTHORITY_LOCK;
+  if (length + 1 >= sizeof(directory_path) / sizeof(directory_path[0]) || length + 6 >= sizeof(lock_path) / sizeof(lock_path[0])) return result;
+  memcpy(directory_path, wide_path, (length + 1) * sizeof(WCHAR));
+  separator = wcsrchr(directory_path, L'\\');
+  if (separator == NULL) separator = wcsrchr(directory_path, L'/');
+  if (separator == NULL || separator == directory_path) return result;
+  if (separator == directory_path + 2 && directory_path[1] == L':') {
+    separator[1] = L'\\';
+    separator[2] = L'\0';
+  } else {
+    *separator = L'\0';
+  }
+  directory = CreateFileW(directory_path, FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+    NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (directory == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(directory, &basic_information) ||
+      !GetFileInformationByHandleEx(directory, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
+      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || !standard_information.Directory ||
+      !windows_directory_path_matches_handle(directory_path, directory) || !windows_private_security(directory)) {
+    if (directory != INVALID_HANDLE_VALUE) (void)CloseHandle(directory);
+    return result;
+  }
   memcpy(lock_path, wide_path, (length + 1) * sizeof(WCHAR));
   memcpy(lock_path + length, L".lock", 6 * sizeof(WCHAR));
-  handle = CreateFileW(lock_path, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+  lock = CreateFileW(lock_path, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
     read_only ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-  if (handle == INVALID_HANDLE_VALUE) return INVALID_AUTHORITY_LOCK;
-  if (!GetFileInformationByHandle(handle, &basic_information) ||
-      !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
-      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory ||
-      !windows_private_security(handle)) {
-    (void)CloseHandle(handle);
-    return INVALID_AUTHORITY_LOCK;
+  if (lock == INVALID_HANDLE_VALUE) {
+    (void)CloseHandle(directory);
+    return result;
   }
-  return handle;
+  if (!GetFileInformationByHandle(lock, &basic_information) ||
+      !GetFileInformationByHandleEx(lock, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
+      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory ||
+      !windows_private_security(lock)) {
+    (void)CloseHandle(lock);
+    (void)CloseHandle(directory);
+    return result;
+  }
+  result.lock = lock;
+  result.directory = directory;
+  return result;
 }
 
 static authority_file_handle open_authority_file(const char *path, int read_only) {
@@ -927,18 +1033,24 @@ static void remove_authority_alias(const char *alias) {
 static int lock_authority_name(authority_lock_handle handle) {
   OVERLAPPED overlapped;
   memset(&overlapped, 0, sizeof(overlapped));
-  return LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &overlapped) != 0;
+  return LockFileEx(handle.lock, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &overlapped) != 0;
 }
 
 static void close_authority_lock(authority_lock_handle handle) {
   OVERLAPPED overlapped;
   memset(&overlapped, 0, sizeof(overlapped));
-  (void)UnlockFileEx(handle, 0, MAXDWORD, MAXDWORD, &overlapped);
-  (void)CloseHandle(handle);
+  if (handle.lock != INVALID_HANDLE_VALUE) {
+    (void)UnlockFileEx(handle.lock, 0, MAXDWORD, MAXDWORD, &overlapped);
+    (void)CloseHandle(handle.lock);
+  }
+  if (handle.directory != INVALID_HANDLE_VALUE) (void)CloseHandle(handle.directory);
 }
 #else
 typedef int authority_lock_handle;
 #define INVALID_AUTHORITY_LOCK (-1)
+static int authority_lock_is_invalid(authority_lock_handle handle) {
+  return handle < 0;
+}
 typedef int authority_file_handle;
 #define INVALID_AUTHORITY_FILE (-1)
 
@@ -1055,12 +1167,54 @@ static int find_existing_alias(const char *directory, const char *basename, auth
   return 0;
 }
 
+static int fill_secure_random(void *buffer, size_t length) {
+#if defined(__APPLE__)
+  arc4random_buf(buffer, length);
+  return 1;
+#elif defined(__linux__)
+  unsigned char *bytes = (unsigned char *)buffer;
+  size_t total = 0;
+#if defined(SYS_getrandom)
+  while (total < length) {
+    ssize_t count = syscall(SYS_getrandom, bytes + total, length - total, 0);
+    if (count > 0) {
+      total += (size_t)count;
+      continue;
+    }
+    if (count < 0 && errno == EINTR) continue;
+    break;
+  }
+  if (total == length) return 1;
+#endif
+  {
+    int descriptor = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) return 0;
+    while (total < length) {
+      ssize_t count = read(descriptor, bytes + total, length - total);
+      if (count > 0) {
+        total += (size_t)count;
+        continue;
+      }
+      if (count < 0 && errno == EINTR) continue;
+      (void)close(descriptor);
+      return 0;
+    }
+    if (close(descriptor) != 0) return 0;
+  }
+  return 1;
+#else
+  (void)buffer;
+  (void)length;
+  return 0;
+#endif
+}
+
 static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
   char directory[MAX_IDENTITY_STRING];
   char basename[MAX_IDENTITY_STRING];
-  static unsigned int counter = 0;
   unsigned int index;
-  uint32_t nonce = (uint32_t)arc4random() ^ (uint32_t)getpid() ^ ++counter;
+  uint32_t nonce;
+  if (!fill_secure_random(&nonce, sizeof(nonce))) return 0;
   if (!authority_parts(path, directory, sizeof(directory), basename, sizeof(basename))) return 0;
   if (find_existing_alias(directory, basename, canonical, alias, capacity, alias_handle)) return 1;
   for (index = 0; index < 128; index++) {
@@ -1113,7 +1267,11 @@ static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info i
   char path[MAX_IDENTITY_STRING];
   char alias[MAX_IDENTITY_STRING];
   napi_valuetype callback_type;
+#if defined(_WIN32)
+  authority_lock_handle lock_handle = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
+#else
   authority_lock_handle lock_handle = INVALID_AUTHORITY_LOCK;
+#endif
   authority_file_handle canonical_handle = INVALID_AUTHORITY_FILE;
   authority_file_handle alias_handle = INVALID_AUTHORITY_FILE;
   napi_value callback_result = NULL;
@@ -1128,7 +1286,7 @@ static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info i
     return throw_authority_error(env, "runtime authority lock arguments were malformed");
   }
   lock_handle = open_authority_lock(path, read_only ? 1 : 0);
-  if (lock_handle == INVALID_AUTHORITY_LOCK) return throw_authority_error(env, "open runtime authority name lock failed");
+  if (authority_lock_is_invalid(lock_handle)) return throw_authority_error(env, "open runtime authority name lock failed");
   if (!lock_authority_name(lock_handle)) {
     close_authority_lock(lock_handle);
     return throw_authority_error(env, "lock runtime authority name failed");
@@ -1317,9 +1475,30 @@ static napi_value read_private_runtime_file_identity(napi_env env, napi_callback
 #endif
   return make_private_result(env, &result);
 }
+static napi_value validate_private_runtime_directory(napi_env env, napi_callback_info info) {
+  napi_value argument;
+  size_t argument_count = 1;
+  char path[MAX_IDENTITY_STRING];
+  private_file_observation result;
+  memset(&result, 0, sizeof(result));
+  if (napi_get_cb_info(env, info, &argument_count, &argument, NULL, NULL) != napi_ok || argument_count < 1 ||
+      !get_utf8_argument(env, argument, path, sizeof(path))) {
+    set_private_error(&result, OBSERVATION_NATIVE_ERROR, "runtime directory argument was malformed");
+    return make_private_result(env, &result);
+  }
+#if defined(_WIN32)
+  (void)read_private_directory_windows(path, &result);
+#elif defined(__linux__) || defined(__APPLE__)
+  (void)read_private_directory_posix(path, &result);
+#else
+  set_private_error(&result, OBSERVATION_NATIVE_ERROR, "unsupported operating system");
+#endif
+  return make_private_result(env, &result);
+}
 
 NAPI_MODULE_INIT() {
   napi_value platform;
+  napi_value validate_directory;
   napi_value identity_contract;
   napi_value file_security_contract;
   napi_value read_identity;
@@ -1337,6 +1516,7 @@ NAPI_MODULE_INIT() {
 #endif
   if (napi_create_string_utf8(env, platform_name, NAPI_AUTO_LENGTH, &platform) != napi_ok ||
       napi_create_int32(env, IDENTITY_CONTRACT_VERSION, &identity_contract) != napi_ok ||
+      napi_create_function(env, "validatePrivateRuntimeDirectory", NAPI_AUTO_LENGTH, validate_private_runtime_directory, NULL, &validate_directory) != napi_ok ||
       napi_create_int32(env, RUNTIME_FILE_SECURITY_CONTRACT_VERSION, &file_security_contract) != napi_ok ||
       napi_create_function(env, "readProcessIdentity", NAPI_AUTO_LENGTH, read_process_identity, NULL, &read_identity) != napi_ok ||
       napi_create_function(env, "readPrivateRuntimeFile", NAPI_AUTO_LENGTH, read_private_runtime_file, NULL, &read_file) != napi_ok ||
@@ -1344,6 +1524,7 @@ NAPI_MODULE_INIT() {
       napi_create_function(env, "withRuntimeAuthorityLock", NAPI_AUTO_LENGTH, with_runtime_authority_lock, NULL, &with_authority_lock) != napi_ok ||
       napi_set_named_property(env, exports, "platform", platform) != napi_ok ||
       napi_set_named_property(env, exports, "identityContractVersion", identity_contract) != napi_ok ||
+      napi_set_named_property(env, exports, "validatePrivateRuntimeDirectory", validate_directory) != napi_ok ||
       napi_set_named_property(env, exports, "runtimeFileSecurityContractVersion", file_security_contract) != napi_ok ||
       napi_set_named_property(env, exports, "readProcessIdentity", read_identity) != napi_ok ||
       napi_set_named_property(env, exports, "readPrivateRuntimeFile", read_file) != napi_ok ||

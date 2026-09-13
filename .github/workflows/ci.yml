@@ -51,7 +51,7 @@ jobs:
         include:
           - os: macos-latest
             platform: darwin
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
           - os: windows-latest
             platform: win32
@@ -75,6 +75,10 @@ jobs:
 
       - name: Build runtime identity addon
         run: pnpm run build:native-identity
+      - name: Test Windows generic-rights DACL fixture
+        if: matrix.platform == 'win32'
+        shell: bash
+        run: native/runtime-identity/build/Release/windows-private-dacl-fixture.exe
 
       - name: Test runtime identity addon
         run: pnpm run test:native-identity

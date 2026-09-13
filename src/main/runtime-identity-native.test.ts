@@ -24,6 +24,7 @@ type NativeAddon = {
   runtimeFileSecurityContractVersion: number
   readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
   readPrivateRuntimeFileIdentity(path: string): NativePrivateFileResult
+  validatePrivateRuntimeDirectory(path: string): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
   withRuntimeAuthorityLock(path: string, callback: (stablePath: string) => unknown, readOnly?: boolean): unknown
 }
@@ -93,6 +94,16 @@ describe('native runtime identity adapter', () => {
 
     expect(addon.platform).toBe(process.platform)
     expect(addon.identityContractVersion).toBe(1)
+    expect(addon.runtimeFileSecurityContractVersion).toBe(1)
+    expect(typeof addon.validatePrivateRuntimeDirectory).toBe('function')
+  })
+  it.runIf(process.platform === 'linux')('links against no glibc ABI newer than Ubuntu 22.04', () => {
+    const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+    const versions = execFileSync('readelf', ['--version-info', addonPath], { encoding: 'utf8' })
+    const symbols = execFileSync('readelf', ['--dyn-syms', '--wide', addonPath], { encoding: 'utf8' })
+    const required = [...versions.matchAll(/GLIBC_(\d+)\.(\d+)/g)].map((match): readonly [number, number] => [Number(match[1]), Number(match[2])])
+    expect(required.some(([major, minor]) => major > 2 || (major === 2 && minor > 35))).toBe(false)
+    expect(symbols).not.toContain('arc4random')
   })
   it('reserves not-found for a valid absent target lookup', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
@@ -117,6 +128,31 @@ describe('native runtime identity adapter', () => {
       expect(first.fileIdentity).toEqual(second.fileIdentity)
       expect(Object.values(first.fileIdentity).every(value => typeof value === 'string' && value.length > 0)).toBe(true)
     } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('validates a private canonical runtime directory through one native handle', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-directory-native-'))
+    try {
+      const observation = addon.validatePrivateRuntimeDirectory(directory)
+      expect(observation).toMatchObject({ ok: true, fileIdentity: { platform: process.platform === 'win32' ? 'win32' : 'posix' } })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('rejects non-private or symlink runtime directories', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-directory-native-policy-'))
+    const link = directory + '-link'
+    try {
+      chmodSync(directory, 0o755)
+      expect(addon.validatePrivateRuntimeDirectory(directory)).toMatchObject({ ok: false, code: 'native-error' })
+      chmodSync(directory, 0o700)
+      symlinkSync(directory, link)
+      expect(addon.validatePrivateRuntimeDirectory(link)).toMatchObject({ ok: false })
+    } finally {
+      rmSync(link, { force: true })
       rmSync(directory, { recursive: true, force: true })
     }
   })
@@ -335,6 +371,18 @@ describe('native runtime identity adapter', () => {
       expect(addon.readPrivateRuntimeFile(directory, 1024)).toMatchObject({ ok: false, code: 'native-error' })
       execFileSync('icacls.exe', [file, '/grant', '*S-1-1-0:(R)'], { stdio: 'ignore' })
       expect(addon.readPrivateRuntimeFile(file, 1024)).toMatchObject({ ok: false, code: 'native-error' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform === 'win32')('rejects generic rights and writable Users directories', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const fixture = resolve(import.meta.dirname, '../../native/runtime-identity/build/Release/windows-private-dacl-fixture.exe')
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-directory-native-win-'))
+    try {
+      expect(execFileSync(fixture, { encoding: 'utf8' }).trim()).toBe('windows private DACL fixture passed')
+      execFileSync('icacls.exe', [directory, '/grant', '*S-1-32-545:(OI)(CI)(M)'], { stdio: 'ignore' })
+      expect(addon.validatePrivateRuntimeDirectory(directory)).toMatchObject({ ok: false, code: 'native-error' })
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

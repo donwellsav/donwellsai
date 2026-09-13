@@ -22,6 +22,24 @@
           }
         }]
       ]
+    },
+    {
+      "target_name": "windows-private-dacl-fixture",
+      "type": "none",
+      "sources": [],
+      "conditions": [
+        ["OS=='win'", {
+          "type": "executable",
+          "sources": ["windows-private-dacl-fixture.c"],
+          "msvs_settings": {
+            "VCCLCompilerTool": {
+              "WarningLevel": 3,
+              "TreatWarningAsError": 1
+            }
+          },
+          "libraries": ["Advapi32.lib"]
+        }]
+      ]
     }
   ]
 }

@@ -20,7 +20,8 @@ if (manifest.sha256 !== sha256) throw new Error('Runtime identity manifest hash 
 const addon = createRequire(import.meta.url)(addonPath)
 if (addon.platform !== process.platform || addon.identityContractVersion !== 1 || addon.runtimeFileSecurityContractVersion !== 1
   || typeof addon.readProcessIdentity !== 'function' || typeof addon.readPrivateRuntimeFile !== 'function'
-  || typeof addon.readPrivateRuntimeFileIdentity !== 'function' || typeof addon.withRuntimeAuthorityLock !== 'function') {
+  || typeof addon.readPrivateRuntimeFileIdentity !== 'function' || typeof addon.validatePrivateRuntimeDirectory !== 'function'
+  || typeof addon.withRuntimeAuthorityLock !== 'function') {
   throw new Error('Runtime identity addon does not expose the required callable contract')
 }
 const directory = await mkdtemp(join(tmpdir(), 'runtime-identity-package-check-'))
@@ -32,6 +33,10 @@ try {
   if (observed?.ok !== true || !Buffer.isBuffer(observed.bytes) || !observed.bytes.equals(expected)
     || typeof observed.fileIdentity !== 'object' || observed.fileIdentity === null) {
     throw new Error('Runtime identity addon failed its private-file callable probe')
+  }
+  const directoryObservation = addon.validatePrivateRuntimeDirectory(directory)
+  if (directoryObservation?.ok !== true || typeof directoryObservation.fileIdentity !== 'object' || directoryObservation.fileIdentity === null) {
+    throw new Error('Runtime identity addon failed its private-directory callable probe')
   }
   const authorityPath = join(directory, 'runtime-owners.sqlite')
   const authorityBytes = Buffer.from('authority-probe')
