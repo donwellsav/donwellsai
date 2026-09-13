@@ -285,23 +285,40 @@ describe('compare-bound runtime ownership', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it('rolls back without publishing when a concurrent reader prevents commit', () => {
+  it('recovers a committed mutation after a reader blocks its WAL checkpoint', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-checkpoint-busy-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
-    const directLock: RuntimeAuthorityLock = (_path, callback) => callback(databasePath)
-    const store = new RuntimeOwnershipStore(databasePath, { authorityLock: directLock })
-    const reader = new DatabaseSync(databasePath, { readOnly: true })
+    const nativeLock = runtimeAuthorityLock()
+    let holdReader = false
+    const reader: { database?: DatabaseSync } = {}
+    const blockingLock: RuntimeAuthorityLock = (path, callback, options) => nativeLock(path, stablePath => {
+      if (!holdReader) return callback(stablePath)
+      holdReader = false
+      reader.database = new DatabaseSync(stablePath, { readOnly: true })
+      reader.database.exec('BEGIN')
+      reader.database.prepare('SELECT COUNT(*) AS count FROM runtime_owners').get()
+      return callback(stablePath)
+    }, options)
+    const store = new RuntimeOwnershipStore(databasePath, { authorityLock: blockingLock })
     try {
       const observed = store.observe('donwells-app')
-      reader.exec('BEGIN')
-      reader.prepare('SELECT COUNT(*) AS count FROM runtime_owners').get()
-      expect(() => store.prepareClaim(candidate('34343434-3434-4434-8434-343434343434'), observed, null)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
-      reader.exec('ROLLBACK')
-      reader.close()
-      const recovered = new RuntimeOwnershipStore(databasePath, { readOnly: true })
-      try { expect(recovered.observe('donwells-app')).toEqual({ status: 'vacant', lastGeneration: 0 }) } finally { recovered.close() }
+      const ownerId = '34343434-3434-4434-8434-343434343434'
+      holdReader = true
+      expect(() => store.prepareClaim(candidate(ownerId), observed, null)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
+      reader.database?.exec('ROLLBACK')
+      reader.database?.close()
+      delete reader.database
+      store.close()
+      const recovered = new RuntimeOwnershipStore(databasePath)
+      try {
+        const committed = recovered.observe('donwells-app')
+        expect(committed.status).toBe('present')
+        if (committed.status !== 'present') throw new Error('committed preparing owner was not recovered')
+        expect(committed.owner).toMatchObject({ ownerId, generation: 1, state: 'preparing' })
+      } finally { recovered.close() }
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
     } finally {
-      try { reader.close() } catch {}
+      try { reader.database?.close() } catch {}
       store.close()
       rmSync(directory, { recursive: true, force: true })
     }
@@ -359,7 +376,7 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 })
-  it('keeps the authority in rollback-journal mode without a write-count lifetime cap', () => {
+  it('keeps the authority in WAL mode without a write-count lifetime cap', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-sqlite-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
     try {
@@ -371,7 +388,7 @@ describe('compare-bound runtime ownership', () => {
       expect(readFileSync(databasePath).subarray(0, 16).toString('utf8')).toBe('SQLite format 3\0')
       const database = new DatabaseSync(databasePath, { readOnly: true })
       try {
-        expect(database.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+        expect(database.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
       } finally {
         database.close()
       }
@@ -380,33 +397,39 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 
-  it('recovers an interrupted SQLite transaction and accepts the next write', () => {
-    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-journal-')))
+  it('recovers a committed crash-left WAL before accepting the next write', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-wal-recovery-')))
     const databasePath = join(directory, 'runtime-owners.sqlite')
+    const addonPath = join(import.meta.dirname, '../../resources/native/runtime-identity.node')
     const initial = new RuntimeOwnershipStore(databasePath)
     initial.close()
     try {
       const script = [
         "const { DatabaseSync } = require('node:sqlite')",
-        "const db = new DatabaseSync(process.argv[1])",
-        "db.exec('PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN IMMEDIATE')",
+        "const addon = require(process.argv[1])",
+        "addon.withRuntimeAuthorityLock(process.argv[2], stablePath => {",
+        "const db = new DatabaseSync(stablePath)",
+        "db.exec('PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; PRAGMA synchronous=FULL; BEGIN IMMEDIATE')",
         "db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?)').run('donwells-app', 99)",
-        "process.exit(0)"
+        "db.exec('COMMIT')",
+        "process.exit(0)",
+        "})"
       ].join(';')
-      const interrupted = spawnSync(process.execPath, ['-e', script, databasePath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      const interrupted = spawnSync(process.execPath, ['-e', script, addonPath, databasePath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
       expect(interrupted.status).toBe(0)
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-') && name.endsWith('-wal'))).toBe(true)
       const store = new RuntimeOwnershipStore(databasePath)
       try {
         const observed = store.observe('donwells-app')
-        expect(observed).toEqual({ status: 'vacant', lastGeneration: 0 })
+        expect(observed).toEqual({ status: 'vacant', lastGeneration: 99 })
         const ownerId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
-        const preparing = store.prepareClaim(candidate(ownerId), observed, null)
-        expect(preparing.generation).toBe(1)
+        const preparing = store.prepareClaim(candidate(ownerId, '/tmp/donwells-owner.sock', 100), observed, null)
+        expect(preparing.generation).toBe(100)
       } finally {
         store.close()
       }
       const migrated = new DatabaseSync(databasePath, { readOnly: true })
-      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' }) } finally { migrated.close() }
+      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' }) } finally { migrated.close() }
       expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
     } finally {
       rmSync(directory, { recursive: true, force: true })

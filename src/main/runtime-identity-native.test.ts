@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { DatabaseSync } from 'node:sqlite'
-import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -386,6 +386,72 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it.runIf(process.platform === 'win32')('fails closed for ambiguous or malformed surviving authority aliases', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-windows-alias-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const firstAlias = join(directory, '.runtime-owners.sqlite.donwells-alias-12345678-0')
+    const secondAlias = join(directory, '.runtime-owners.sqlite.donwells-alias-87654321-0')
+    const malformedAlias = join(directory, '.runtime-owners.sqlite.donwells-alias-not-sanctioned')
+    try {
+      writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+      linkSync(authorityPath, firstAlias)
+      linkSync(authorityPath, secondAlias)
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => undefined)).toThrow(/stable alias/)
+      unlinkSync(secondAlias)
+      unlinkSync(firstAlias)
+      linkSync(authorityPath, malformedAlias)
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => undefined)).toThrow(/stable alias/)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.runIf(process.platform === 'win32')('reuses a crash-left same-inode alias to recover its committed WAL', () => {
+    const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+    const addon = createRequire(import.meta.url)(addonPath) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-windows-wal-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    try {
+      addon.withRuntimeAuthorityLock(authorityPath, (stablePath: string) => {
+        const database = new DatabaseSync(stablePath)
+        try {
+          database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE marker(value TEXT NOT NULL)')
+          database.prepare('INSERT INTO marker(value) VALUES(?)').run('committed')
+          database.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+        } finally { database.close() }
+      })
+      const childScript = [
+        "const { DatabaseSync }=require('node:sqlite')",
+        "const addon=require(process.argv[1])",
+        "addon.withRuntimeAuthorityLock(process.argv[2],alias=>{",
+        "const db=new DatabaseSync(alias)",
+        "db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN IMMEDIATE')",
+        "db.prepare('UPDATE marker SET value=?').run('recovered')",
+        "db.exec('COMMIT')",
+        "process.exit(0)",
+        "})"
+      ].join(';')
+      execFileSync(process.execPath, ['-e', childScript, addonPath, authorityPath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      const survivingAlias = readdirSync(directory).find(name => name.includes('.donwells-alias-') && name.endsWith('-wal'))?.slice(0, -4)
+      if (survivingAlias === undefined) throw new Error('crashed writer left no alias WAL')
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => undefined, true)).toThrow(/stable read path/)
+      const recovered = addon.withRuntimeAuthorityLock(authorityPath, (stablePath: string) => {
+        expect(stablePath).toBe(join(directory, survivingAlias))
+        const database = new DatabaseSync(stablePath)
+        try {
+          const value = (database.prepare('SELECT value FROM marker').get() as { value: string }).value
+          database.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+          return value
+        } finally { database.close() }
+      })
+      expect(recovered).toBe('recovered')
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it.runIf(process.platform !== 'win32')('removes the stable alias when the callback throws', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-alias-error-'))

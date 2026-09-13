@@ -975,10 +975,16 @@ static authority_file_handle open_authority_file(const char *path, int read_only
   return handle;
 }
 
+static int find_existing_authority_alias(const char *path, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle, int *found);
+
 static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity, authority_file_handle *alias_handle) {
+  int found = 0;
   int written;
-  (void)alias_handle;
-  (void)canonical;
+  if (!find_existing_authority_alias(path, canonical, 1, stable_path, capacity, alias_handle, &found)) return 0;
+  if (found) {
+    (void)CloseHandle(*alias_handle);
+    *alias_handle = INVALID_AUTHORITY_FILE;
+  }
   written = snprintf(stable_path, capacity, "%s", path);
   return written > 0 && (size_t)written < capacity;
 }
@@ -988,6 +994,126 @@ static int same_authority_file(authority_file_handle first, authority_file_handl
   if (!GetFileInformationByHandle(first, &left) || !GetFileInformationByHandle(second, &right)) return 0;
   return left.dwVolumeSerialNumber == right.dwVolumeSerialNumber &&
     left.nFileIndexHigh == right.nFileIndexHigh && left.nFileIndexLow == right.nFileIndexLow;
+}
+
+static int windows_sidecar(const WCHAR *base, const WCHAR *suffix, int require_empty, int *exists) {
+  WCHAR path[32768];
+  HANDLE handle;
+  BY_HANDLE_FILE_INFORMATION basic_information;
+  FILE_STANDARD_INFO standard_information;
+  int written = swprintf(path, sizeof(path) / sizeof(path[0]), L"%s%s", base, suffix);
+  *exists = 0;
+  if (written <= 0 || (size_t)written >= sizeof(path) / sizeof(path[0])) return 0;
+  handle = CreateFileW(path, FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (handle == INVALID_HANDLE_VALUE) {
+    DWORD error_number = GetLastError();
+    return error_number == ERROR_FILE_NOT_FOUND || error_number == ERROR_PATH_NOT_FOUND;
+  }
+  *exists = 1;
+  if (!GetFileInformationByHandle(handle, &basic_information) ||
+      !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
+      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory ||
+      !windows_private_security(handle) || (require_empty && standard_information.EndOfFile.QuadPart != 0)) {
+    (void)CloseHandle(handle);
+    return 0;
+  }
+  return CloseHandle(handle) != 0;
+}
+
+static int windows_alias_sidecars_are_safe(const WCHAR *alias, int read_only) {
+  int exists;
+  if (!windows_sidecar(alias, L"-wal", read_only, &exists)) return 0;
+  if (!windows_sidecar(alias, L"-shm", 0, &exists)) return 0;
+  if (!windows_sidecar(alias, L"-journal", 0, &exists) || (read_only && exists)) return 0;
+  return 1;
+}
+
+static int wide_path_to_utf8(const WCHAR *path, char *destination, size_t capacity) {
+  int byte_length;
+  if (path == NULL || destination == NULL || capacity == 0) return 0;
+  byte_length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path, -1, destination, (int)capacity, NULL, NULL);
+  return byte_length > 0 && (size_t)byte_length <= capacity;
+}
+
+static int windows_alias_entry_kind(const WCHAR *name, const WCHAR *prefix, size_t prefix_length) {
+  const WCHAR *cursor;
+  size_t index;
+  if (wcsncmp(name, prefix, prefix_length) != 0) return 0;
+  cursor = name + prefix_length;
+  for (index = 0; index < 8; index++) {
+    WCHAR value = cursor[index];
+    if (!((value >= L'0' && value <= L'9') || (value >= L'a' && value <= L'f') || (value >= L'A' && value <= L'F'))) return -1;
+  }
+  cursor += 8;
+  if (*cursor++ != L'-' || *cursor < L'0' || *cursor > L'9') return -1;
+  while (*cursor >= L'0' && *cursor <= L'9') cursor++;
+  if (*cursor == L'\0') return 1;
+  if (wcscmp(cursor, L"-wal") == 0 || wcscmp(cursor, L"-shm") == 0 || wcscmp(cursor, L"-journal") == 0) return 2;
+  return -1;
+}
+
+static int find_existing_authority_alias(const char *path, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle, int *found) {
+  WCHAR wide_path[32768];
+  WCHAR directory[32768];
+  WCHAR basename[MAX_IDENTITY_STRING];
+  WCHAR pattern[32768];
+  WCHAR prefix[MAX_IDENTITY_STRING];
+  WCHAR candidate[32768];
+  WCHAR *separator;
+  WIN32_FIND_DATAW entry;
+  HANDLE search = INVALID_HANDLE_VALUE;
+  size_t prefix_length;
+  int success = 0;
+  int pattern_written;
+  int prefix_written;
+  *found = 0;
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return 0;
+  memcpy(directory, wide_path, (wcslen(wide_path) + 1) * sizeof(WCHAR));
+  separator = wcsrchr(directory, L'\\');
+  if (separator == NULL) separator = wcsrchr(directory, L'/');
+  if (separator == NULL || separator == directory || separator[1] == L'\0') return 0;
+  if (wcslen(separator + 1) >= sizeof(basename) / sizeof(basename[0])) return 0;
+  memcpy(basename, separator + 1, (wcslen(separator + 1) + 1) * sizeof(WCHAR));
+  *separator = L'\0';
+  pattern_written = swprintf(pattern, sizeof(pattern) / sizeof(pattern[0]), L"%s\\*", directory);
+  prefix_written = swprintf(prefix, sizeof(prefix) / sizeof(prefix[0]), L".%s.donwells-alias-", basename);
+  if (pattern_written <= 0 || (size_t)pattern_written >= sizeof(pattern) / sizeof(pattern[0]) ||
+      prefix_written <= 0 || (size_t)prefix_written >= sizeof(prefix) / sizeof(prefix[0])) return 0;
+  prefix_length = wcslen(prefix);
+  search = FindFirstFileW(pattern, &entry);
+  if (search == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_FILE_NOT_FOUND;
+  do {
+    HANDLE opened;
+    int written;
+    {
+      int entry_kind = windows_alias_entry_kind(entry.cFileName, prefix, prefix_length);
+      if (entry_kind == 0 || entry_kind == 2) continue;
+      if (entry_kind < 0) goto cleanup;
+    }
+    written = swprintf(candidate, sizeof(candidate) / sizeof(candidate[0]), L"%s\\%s", directory, entry.cFileName);
+    if (written <= 0 || (size_t)written >= sizeof(candidate) / sizeof(candidate[0]) || *found) goto cleanup;
+    opened = CreateFileW(candidate, read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (opened == INVALID_HANDLE_VALUE || !same_authority_file(canonical, opened) || !windows_private_security(opened) ||
+        !windows_alias_sidecars_are_safe(candidate, read_only) || !wide_path_to_utf8(candidate, alias, capacity)) {
+      if (opened != INVALID_HANDLE_VALUE) (void)CloseHandle(opened);
+      goto cleanup;
+    }
+    *alias_handle = opened;
+    *found = 1;
+  } while (FindNextFileW(search, &entry));
+  if (GetLastError() != ERROR_NO_MORE_FILES) goto cleanup;
+  success = 1;
+cleanup:
+  if (!success && *alias_handle != INVALID_AUTHORITY_FILE) {
+    (void)CloseHandle(*alias_handle);
+    *alias_handle = INVALID_AUTHORITY_FILE;
+    *found = 0;
+  }
+  (void)FindClose(search);
+  return success;
 }
 
 static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
@@ -1002,6 +1128,11 @@ static int create_authority_alias(const char *path, authority_file_handle canoni
   unsigned int index;
   uint32_t nonce = (uint32_t)GetTickCount() ^ (uint32_t)GetCurrentProcessId() ^ ++counter;
   if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return 0;
+  {
+    int found = 0;
+    if (!find_existing_authority_alias(path, canonical, 0, alias, capacity, alias_handle, &found)) return 0;
+    if (found) return 1;
+  }
   separator = strrchr(path, '\\');
   if (separator == NULL) separator = strrchr(path, '/');
   if (separator == NULL || separator == path || separator[1] == '\0') return 0;
@@ -1039,7 +1170,7 @@ static void close_authority_file(authority_file_handle handle) {
 static void remove_authority_alias(const char *alias) {
   WCHAR wide_alias[32768];
   char sidecar[MAX_IDENTITY_STRING];
-  if (!get_windows_path(alias, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) return;
+  if (!get_windows_path(alias, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0])) || !windows_alias_sidecars_are_safe(wide_alias, 1)) return;
   (void)DeleteFileW(wide_alias);
   if (snprintf(sidecar, sizeof(sidecar), "%s-wal", alias) > 0 && get_windows_path(sidecar, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) (void)DeleteFileW(wide_alias);
   if (snprintf(sidecar, sizeof(sidecar), "%s-shm", alias) > 0 && get_windows_path(sidecar, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) (void)DeleteFileW(wide_alias);
@@ -1156,10 +1287,16 @@ static int authority_alias_path(const char *directory, const char *basename, uin
   return written > 0 && (size_t)written < capacity;
 }
 
+static int authority_alias_name(const char *name, const char *basename) {
+  char prefix[MAX_IDENTITY_STRING];
+  int written = snprintf(prefix, sizeof(prefix), ".%s.donwells-alias-", basename);
+  return written > 0 && (size_t)written < sizeof(prefix) && strncmp(name, prefix, (size_t)written) == 0;
+}
+
 static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle) {
   char candidate[MAX_IDENTITY_STRING];
   authority_file_handle opened;
-  if (strncmp(name, ".", 1) != 0 || strncmp(name + 1, basename, strlen(basename)) != 0 || strstr(name, ".donwells-alias-") == NULL) return 0;
+  if (!authority_alias_name(name, basename)) return 0;
   if (snprintf(candidate, sizeof(candidate), "%s/%s", directory, name) <= 0 || strlen(candidate) >= capacity) return 0;
   opened = open(candidate, (read_only ? O_RDONLY : O_RDWR) | O_CLOEXEC
 #ifdef O_NOFOLLOW
@@ -1189,10 +1326,43 @@ static int find_existing_alias(const char *directory, const char *basename, auth
   return 0;
 }
 
-static int path_has_recovery_sidecar(const char *path) {
+static int securely_zero_length_file(const char *path) {
+  int descriptor;
+  int flags = O_RDONLY | O_CLOEXEC;
+  struct stat path_metadata;
+  struct stat handle_metadata;
+  if (lstat(path, &path_metadata) != 0 || !S_ISREG(path_metadata.st_mode) || path_metadata.st_uid != geteuid() ||
+      (path_metadata.st_mode & 0077) != 0 || path_metadata.st_size != 0) return 0;
+#ifdef O_NOFOLLOW
+  flags |= O_NOFOLLOW;
+#endif
+  descriptor = open(path, flags);
+  if (descriptor < 0) return 0;
+  if (fstat(descriptor, &handle_metadata) != 0 || !S_ISREG(handle_metadata.st_mode) ||
+      handle_metadata.st_dev != path_metadata.st_dev || handle_metadata.st_ino != path_metadata.st_ino ||
+      handle_metadata.st_uid != geteuid() || (handle_metadata.st_mode & 0077) != 0 || handle_metadata.st_size != 0) {
+    (void)close(descriptor);
+    return 0;
+  }
+  return close(descriptor) == 0;
+}
+
+static int path_has_unsafe_recovery_sidecar(const char *path) {
   char sidecar[MAX_IDENTITY_STRING];
   struct stat metadata;
-  static const char *suffixes[] = { "-wal", "-journal" };
+  int written = snprintf(sidecar, sizeof(sidecar), "%s-journal", path);
+  if (written <= 0 || (size_t)written >= sizeof(sidecar)) return 1;
+  if (lstat(sidecar, &metadata) == 0 || errno != ENOENT) return 1;
+  written = snprintf(sidecar, sizeof(sidecar), "%s-wal", path);
+  if (written <= 0 || (size_t)written >= sizeof(sidecar)) return 1;
+  if (lstat(sidecar, &metadata) == 0) return !securely_zero_length_file(sidecar);
+  return errno != ENOENT;
+}
+
+static int path_has_any_recovery_sidecar(const char *path) {
+  static const char *suffixes[] = { "-wal", "-shm", "-journal" };
+  char sidecar[MAX_IDENTITY_STRING];
+  struct stat metadata;
   size_t index;
   for (index = 0; index < sizeof(suffixes) / sizeof(suffixes[0]); index++) {
     int written = snprintf(sidecar, sizeof(sidecar), "%s%s", path, suffixes[index]);
@@ -1205,15 +1375,24 @@ static int path_has_recovery_sidecar(const char *path) {
 static int authority_has_recovery_sidecar(const char *path, const char *directory, const char *basename, authority_file_handle canonical) {
   DIR *entries;
   struct dirent *entry;
-  if (path_has_recovery_sidecar(path)) return 1;
+  if (path_has_unsafe_recovery_sidecar(path)) return 1;
   entries = opendir(directory);
   if (entries == NULL) return 1;
   while ((entry = readdir(entries)) != NULL) {
     char alias[MAX_IDENTITY_STRING];
+    char candidate[MAX_IDENTITY_STRING];
     authority_file_handle alias_handle = INVALID_AUTHORITY_FILE;
-    if (!open_matching_alias(directory, basename, entry->d_name, canonical, 1, alias, sizeof(alias), &alias_handle)) continue;
+    if (!authority_alias_name(entry->d_name, basename)) continue;
+    if (!open_matching_alias(directory, basename, entry->d_name, canonical, 1, alias, sizeof(alias), &alias_handle)) {
+      int written = snprintf(candidate, sizeof(candidate), "%s/%s", directory, entry->d_name);
+      if (written <= 0 || (size_t)written >= sizeof(candidate) || path_has_any_recovery_sidecar(candidate)) {
+        (void)closedir(entries);
+        return 1;
+      }
+      continue;
+    }
     (void)close(alias_handle);
-    if (path_has_recovery_sidecar(alias)) {
+    if (path_has_unsafe_recovery_sidecar(alias)) {
       (void)closedir(entries);
       return 1;
     }
@@ -1300,6 +1479,7 @@ static void close_authority_file(authority_file_handle handle) {
 
 static void remove_authority_alias(const char *alias) {
   char sidecar[MAX_IDENTITY_STRING];
+  if (path_has_unsafe_recovery_sidecar(alias)) return;
   (void)unlink(alias);
   if (snprintf(sidecar, sizeof(sidecar), "%s-wal", alias) > 0) (void)unlink(sidecar);
   if (snprintf(sidecar, sizeof(sidecar), "%s-shm", alias) > 0) (void)unlink(sidecar);

@@ -111,7 +111,7 @@ describe('CLI runtime resolution', () => {
     }
   })
 
-  it.runIf(process.platform !== 'win32').each(['preparing', 'active'] as const)('blocks legacy contact without mutating authority artifacts when a committed %s owner remains only in the sanctioned alias WAL', async state => {
+  it.each(['preparing', 'active'] as const)('blocks legacy contact without mutating authority artifacts when a committed %s owner remains only in the sanctioned alias WAL', async state => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-alias-wal-' + state + '-')))
     const paths = localRuntimePaths(directory, 'app')
     const endpoint = paths.socketPath
@@ -160,7 +160,7 @@ describe('CLI runtime resolution', () => {
       const recovered = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
       try { expect(recovered.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state } }) } finally { recovered.close() }
       const migrated = new DatabaseSync(paths.ownershipDatabasePath, { readOnly: true })
-      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' }) } finally { migrated.close() }
+      try { expect(migrated.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' }) } finally { migrated.close() }
       expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
       await expect(Promise.resolve().then(() => callRuntime('worktree.list', {}, directory, 1000))).rejects.toMatchObject({ code: 'OWNER_MISMATCH' })
       expect(connections).toBe(0)

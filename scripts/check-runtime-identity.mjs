@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 const root = resolve(import.meta.dirname, '..')
@@ -65,6 +67,40 @@ try {
   if (occupied?.ok !== false || occupied.code !== 'destination-exists'
     || !(await readFile(renameSource)).equals(secondSource) || !(await readFile(renameDestination)).equals(firstSource)) {
     throw new Error('Runtime identity addon failed its occupied no-replace rename probe')
+  }
+  if (process.platform === 'win32') {
+    const walAuthorityPath = join(directory, 'wal-authority.sqlite')
+    addon.withRuntimeAuthorityLock(walAuthorityPath, stablePath => {
+      const database = new DatabaseSync(stablePath)
+      try {
+        database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE marker(value TEXT NOT NULL)')
+        database.prepare('INSERT INTO marker(value) VALUES(?)').run('committed')
+        database.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+      } finally { database.close() }
+    })
+    const crashScript = [
+      "const { DatabaseSync }=require('node:sqlite')",
+      "const addon=require(process.argv[1])",
+      "addon.withRuntimeAuthorityLock(process.argv[2],alias=>{",
+      "const db=new DatabaseSync(alias)",
+      "db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN IMMEDIATE')",
+      "db.prepare('UPDATE marker SET value=?').run('recovered')",
+      "db.exec('COMMIT')",
+      "process.exit(0)",
+      "})"
+    ].join(';')
+    execFileSync(process.execPath, ['-e', crashScript, addonPath, walAuthorityPath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    let reusedAlias = false
+    const recovered = addon.withRuntimeAuthorityLock(walAuthorityPath, stablePath => {
+      reusedAlias = stablePath.includes('.donwells-alias-')
+      const database = new DatabaseSync(stablePath)
+      try {
+        const value = database.prepare('SELECT value FROM marker').get()?.value
+        database.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+        return value
+      } finally { database.close() }
+    })
+    if (!reusedAlias || recovered !== 'recovered') throw new Error('Runtime identity addon failed its Windows crash-left WAL recovery probe')
   }
   const processObservation = addon.readProcessIdentity(process.pid)
   if (typeof processObservation !== 'object' || processObservation === null || typeof processObservation.ok !== 'boolean') {
