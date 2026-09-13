@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { DatabaseSync } from 'node:sqlite'
+import { closeSync, openSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import type { ProcessIdentity, ProcessIdentityVerdict } from './child-process/process-spec'
-import { canonicalPrivateDirectory, privateRuntimeFileReader, readPrivateRuntimeFile, runtimeAuthorityRunner, type RuntimeAuthorityRunner, type RuntimeFileReader } from './runtime-file-security'
+import { canonicalPrivateDirectory, privateRuntimeFileIdentityReader, privateRuntimeFileReader, readPrivateRuntimeFile, runtimeAuthorityLock, RuntimeFileSecurityError, type RuntimeAuthorityLock, type RuntimeFileIdentity, type RuntimeFileIdentityReader, type RuntimeFileReader } from './runtime-file-security'
 
 export type RuntimeOwnerKind = 'donwells-app' | 'terminal-daemon'
 export type RuntimeOwner = {
@@ -170,70 +171,18 @@ function parseRecoveryDetail(value: unknown): Pick<LegacyRecoveryInput, 'fileIde
     recordType: detail['recordType']
   }
 }
-type StoreOptions = { readOnly?: boolean; authorityRunner?: RuntimeAuthorityRunner }
-
-const AUTHORITY_MAGIC = Buffer.from('DWSQLA01')
-const FRAME_MAGIC = Buffer.from('DWFRAME1')
-const FRAME_HEADER_BYTES = FRAME_MAGIC.length + 4 + 32
-const MAX_AUTHORITY_BYTES = 8 * 1024 * 1024
-const SQLITE_MAGIC = Buffer.from('SQLite format 3\0')
-
-function legacySqliteLength(bytes: Buffer): number {
-  if (bytes.length < 100 || !bytes.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC)) return 0
-  const encodedPageSize = bytes.readUInt16BE(16)
-  const pageSize = encodedPageSize === 1 ? 65_536 : encodedPageSize
-  const pageCount = bytes.readUInt32BE(28)
-  const length = pageSize * pageCount
-  if (!Number.isSafeInteger(length) || pageSize < 512 || pageSize > 65_536 || pageCount < 1 || length > bytes.length) {
-    throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'legacy runtime authority database framing was invalid')
-  }
-  return length
+type StoreOptions = {
+  readOnly?: boolean
+  authorityLock?: RuntimeAuthorityLock
+  identityReader?: RuntimeFileIdentityReader
 }
 
-function latestAuthoritySnapshot(bytes: Buffer): Buffer | null {
-  if (bytes.length === 0) return null
-  let snapshot: Buffer | null = null
-  let offset: number
-  if (bytes.subarray(0, AUTHORITY_MAGIC.length).equals(AUTHORITY_MAGIC)) {
-    offset = AUTHORITY_MAGIC.length
-  } else {
-    offset = legacySqliteLength(bytes)
-    if (offset === 0) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority framing was invalid')
-    snapshot = Buffer.from(bytes.subarray(0, offset))
-  }
-  while (offset < bytes.length) {
-    const remaining = bytes.length - offset
-    if (remaining < FRAME_HEADER_BYTES) break
-    if (!bytes.subarray(offset, offset + FRAME_MAGIC.length).equals(FRAME_MAGIC)) {
-      throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame marker was invalid')
-    }
-    const payloadLength = bytes.readUInt32BE(offset + FRAME_MAGIC.length)
-    if (payloadLength < 1 || payloadLength > MAX_AUTHORITY_BYTES) {
-      throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame length was invalid')
-    }
-    const frameEnd = offset + FRAME_HEADER_BYTES + payloadLength
-    if (frameEnd > bytes.length) break
-    const expected = bytes.subarray(offset + FRAME_MAGIC.length + 4, offset + FRAME_HEADER_BYTES)
-    const payload = bytes.subarray(offset + FRAME_HEADER_BYTES, frameEnd)
-    const actual = createHash('sha256').update(payload).digest()
-    if (!actual.equals(expected)) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority frame hash was invalid')
-    snapshot = Buffer.from(payload)
-    offset = frameEnd
-  }
-  if (!snapshot) throw new RuntimeOwnershipError('DATABASE_CORRUPT', 'runtime authority had no committed snapshot')
-  return snapshot
+function identityKey(identity: RuntimeFileIdentity): string {
+  return JSON.stringify(identity)
 }
 
-function authorityFrame(payload: Buffer, emptyAuthority: boolean): Buffer {
-  const length = Buffer.allocUnsafe(4)
-  length.writeUInt32BE(payload.length)
-  return Buffer.concat([
-    ...(emptyAuthority ? [AUTHORITY_MAGIC] : []),
-    FRAME_MAGIC,
-    length,
-    createHash('sha256').update(payload).digest(),
-    payload
-  ])
+function sameOwner(left: RuntimeOwner, right: RuntimeOwner): boolean {
+  return rowHash(left) === rowHash(right)
 }
 
 function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
@@ -381,45 +330,82 @@ function validateDatabase(db: DatabaseSync): void {
 export class RuntimeOwnershipStore {
   readonly databasePath: string
   private readonly readOnly: boolean
-  private readonly authorityRunner: RuntimeAuthorityRunner
+  private readonly withAuthorityLock: RuntimeAuthorityLock
+  private readonly readIdentity: RuntimeFileIdentityReader
   private authorityIdentity: string | null = null
   private closed = false
 
   constructor(databasePath: string, options: StoreOptions = {}) {
     this.readOnly = options.readOnly === true
-    this.authorityRunner = options.authorityRunner ?? runtimeAuthorityRunner()
+    this.withAuthorityLock = options.authorityLock ?? runtimeAuthorityLock()
+    this.readIdentity = options.identityReader ?? privateRuntimeFileIdentityReader()
     const directory = canonicalPrivateDirectory(dirname(databasePath), { create: !this.readOnly, requireCanonical: true })
     this.databasePath = join(directory, basename(databasePath))
     this.withDatabase(!this.readOnly, db => {
       initializeSchema(db, this.readOnly)
       validateDatabase(db)
+    }, db => {
+      initializeSchema(db, true)
+      validateDatabase(db)
+      if (Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) !== 4) {
+        throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database migration did not commit')
+      }
     })
   }
 
-  private withDatabase<T>(write: boolean, operation: (db: DatabaseSync) => T): T {
+  private ensureAuthorityFile(): void {
+    try {
+      this.readIdentity(this.databasePath)
+    } catch (error) {
+      if (!(error instanceof RuntimeFileSecurityError) || error.code !== 'not-found' || this.readOnly) throw error
+      closeSync(openSync(this.databasePath, 'wx', 0o600))
+    }
+  }
+
+  private assertAuthorityIdentity(): void {
+    const identity = identityKey(this.readIdentity(this.databasePath))
+    if (this.authorityIdentity === null) this.authorityIdentity = identity
+    else if (identity !== this.authorityIdentity) {
+      throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database identity changed during use')
+    }
+  }
+
+  private openDatabase(readOnly: boolean): DatabaseSync {
+    const db = new DatabaseSync(this.databasePath, { readOnly })
+    db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000')
+    if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
+    return db
+  }
+
+  private withDatabase<T>(write: boolean, operation: (db: DatabaseSync) => T, verify?: (db: DatabaseSync, result: T) => void): T {
     if (this.closed) throw new RuntimeOwnershipError('DATABASE_CLOSED', 'runtime ownership database is closed')
     if (write && this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
-    try {
-      return this.authorityRunner(this.databasePath, this.readOnly, MAX_AUTHORITY_BYTES, observation => {
-        const identity = JSON.stringify(observation.fileIdentity)
-        if (this.authorityIdentity === null) this.authorityIdentity = identity
-        else if (identity !== this.authorityIdentity) throw new RuntimeOwnershipError('DATABASE_CHANGED', 'runtime ownership database identity changed during use')
-        const snapshot = latestAuthoritySnapshot(observation.bytes)
-        const db = new DatabaseSync(':memory:')
-        try {
-          if (snapshot) db.deserialize(snapshot)
-          db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL')
-          const result = operation(db)
-          if (!write) return { result }
-          const serialized = Buffer.from(db.serialize())
-          return { result, append: authorityFrame(serialized, observation.bytes.length === 0) }
-        } finally {
-          db.close()
-        }
-      })
-    } catch (error) {
-      if (error instanceof RuntimeOwnershipError) throw error
-      throw new RuntimeOwnershipError('DATABASE_UNSAFE', error instanceof Error ? error.message : String(error))
+    if (write && !verify) throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership mutation had no durability verification')
+    return this.withAuthorityLock(this.databasePath, () => {
+      this.ensureAuthorityFile()
+      this.assertAuthorityIdentity()
+      const db = this.openDatabase(this.readOnly)
+      let result: T
+      try {
+        if (write) db.exec('BEGIN IMMEDIATE')
+        result = operation(db)
+        if (write) db.exec('COMMIT')
+      } finally {
+        db.close()
+      }
+      this.assertAuthorityIdentity()
+      if (write) {
+        const verifier = this.openDatabase(true)
+        try { verify!(verifier, result) } finally { verifier.close() }
+        this.assertAuthorityIdentity()
+      }
+      return result
+    })
+  }
+  private assertOwnerCommitted(db: DatabaseSync, expected: RuntimeOwner): void {
+    const committed = rowFromObservation(db, expected.kind)
+    if (!committed || !sameOwner(committed.owner, expected) || lastGeneration(db, expected.kind) !== expected.generation) {
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership mutation was not durable at the canonical authority')
     }
   }
 
@@ -479,6 +465,12 @@ export class RuntimeOwnershipStore {
       }
       this.audit(db, owner.kind, 'prepare', observed.status === 'present' ? observed.rowSha256 : null, owner, { verdict: verdict?.status ?? null })
       return owner
+    }, (db, prepared) => {
+      this.assertOwnerCommitted(db, prepared)
+      const endpoint = db.prepare('SELECT owner_id, generation FROM runtime_owner_endpoint_history WHERE endpoint=?').get(prepared.endpoint) as Record<string, unknown> | undefined
+      if (!endpoint || endpoint['owner_id'] !== prepared.ownerId || Number(endpoint['generation']) !== prepared.generation) {
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime endpoint reservation was not durable at the canonical authority')
+      }
     })
   }
 
@@ -492,7 +484,7 @@ export class RuntimeOwnershipStore {
       const active = { ...owner, state: 'active' as const, locatorSha256 }
       this.audit(db, owner.kind, 'activate', current.rowSha256, active, {})
       return active
-    })
+    }, (db, active) => this.assertOwnerCommitted(db, active))
   }
 
   republishActive(owner: RuntimeOwner, expectedLocatorSha256: string | null, nextLocatorSha256: string): RuntimeOwner {
@@ -505,7 +497,7 @@ export class RuntimeOwnershipStore {
       const active = { ...current.owner, locatorSha256: nextLocatorSha256 }
       this.audit(db, owner.kind, 'republish', current.rowSha256, active, { expectedLocatorSha256 })
       return active
-    })
+    }, (db, active) => this.assertOwnerCommitted(db, active))
   }
 
   resolveActive(kind: RuntimeOwnerKind, locator: RuntimeLocator, locatorSha256: string): RuntimeOwner {
@@ -527,6 +519,10 @@ export class RuntimeOwnershipStore {
       const deleted = Number(result.changes) === 1
       if (deleted) this.audit(db, owner.kind, 'release', rowHash(owner), owner, {})
       return deleted
+    }, (db, deleted) => {
+      if (deleted && db.prepare('SELECT 1 FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').get(owner.kind, owner.ownerId, owner.generation)) {
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime owner release was not durable at the canonical authority')
+      }
     })
   }
   abandonPreparing(owner: RuntimeOwner): boolean {
@@ -536,6 +532,10 @@ export class RuntimeOwnershipStore {
         owner.kind, owner.ownerId, owner.generation, 'preparing').changes) === 1
       if (deleted) this.audit(db, owner.kind, 'abandon-preparing', rowHash(owner), owner, {})
       return deleted
+    }, (db, deleted) => {
+      if (deleted && db.prepare('SELECT 1 FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').get(owner.kind, owner.ownerId, owner.generation)) {
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime owner abandonment was not durable at the canonical authority')
+      }
     })
   }
 
@@ -585,6 +585,17 @@ export class RuntimeOwnershipStore {
       db.prepare('INSERT INTO runtime_recovery_operations(id,kind,expected_fingerprint,state,detail_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(
         id, input.kind, input.expectedFingerprint, 'committed', JSON.stringify({ fileIdentity: input.fileIdentity, evidencePath: input.evidencePath, evidenceFileIdentity: input.evidenceFileIdentity, endpoint: input.endpoint, recordType: input.recordType }), createdAt, createdAt)
       return { ...input, id, state: 'committed', createdAt, updatedAt: createdAt }
+    }, (db, recovery) => {
+      const row = db.prepare('SELECT kind, expected_fingerprint, state, detail_json FROM runtime_recovery_operations WHERE id=?').get(recovery.id) as Record<string, unknown> | undefined
+      if (!row || row['kind'] !== recovery.kind || row['expected_fingerprint'] !== recovery.expectedFingerprint || row['state'] !== 'committed') {
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime recovery record was not durable at the canonical authority')
+      }
+      const detail = parseRecoveryDetail(JSON.parse(String(row['detail_json'])))
+      if (JSON.stringify(detail.fileIdentity) !== JSON.stringify(recovery.fileIdentity)
+        || JSON.stringify(detail.evidenceFileIdentity) !== JSON.stringify(recovery.evidenceFileIdentity)
+        || detail.evidencePath !== recovery.evidencePath || detail.endpoint !== recovery.endpoint || detail.recordType !== recovery.recordType) {
+        throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime recovery evidence was not durable at the canonical authority')
+      }
     })
   }
 

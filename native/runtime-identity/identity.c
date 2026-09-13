@@ -649,7 +649,7 @@ cleanup:
   return valid ? 1 : 0;
 }
 
-static int read_private_file_windows(const char *path, size_t maximum, private_file_observation *result) {
+static int read_private_file_windows(const char *path, size_t maximum, int include_bytes, private_file_observation *result) {
   WCHAR wide_path[32768];
   HANDLE handle = INVALID_HANDLE_VALUE;
   BY_HANDLE_FILE_INFORMATION basic_information;
@@ -677,17 +677,18 @@ static int read_private_file_windows(const char *path, size_t maximum, private_f
     goto cleanup;
   }
   if ((basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory || standard_information.EndOfFile.QuadPart < 0 ||
-      (uint64_t)standard_information.EndOfFile.QuadPart > maximum || (uint64_t)standard_information.EndOfFile.QuadPart > MAX_PRIVATE_FILE_BYTES || !windows_private_security(handle)) {
+      (include_bytes && ((uint64_t)standard_information.EndOfFile.QuadPart > maximum || (uint64_t)standard_information.EndOfFile.QuadPart > MAX_PRIVATE_FILE_BYTES)) ||
+      !windows_private_security(handle)) {
     set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file security policy rejected file");
     goto cleanup;
   }
-  result->byte_count = (size_t)standard_information.EndOfFile.QuadPart;
+  result->byte_count = include_bytes ? (size_t)standard_information.EndOfFile.QuadPart : 0;
   result->bytes = result->byte_count == 0 ? NULL : (unsigned char *)malloc(result->byte_count);
   if (result->byte_count != 0 && result->bytes == NULL) {
     set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file allocation failed");
     goto cleanup;
   }
-  remaining.QuadPart = standard_information.EndOfFile.QuadPart;
+  remaining.QuadPart = (LONGLONG)result->byte_count;
   while (remaining.QuadPart > 0) {
     DWORD request = remaining.QuadPart > 1024u * 1024u ? 1024u * 1024u : (DWORD)remaining.QuadPart;
     if (!ReadFile(handle, result->bytes + total, request, &bytes_read, NULL) || bytes_read == 0) {
@@ -724,7 +725,7 @@ cleanup:
   return result->ok;
 }
 #else
-static int read_private_file_posix(const char *path, size_t maximum, private_file_observation *result) {
+static int read_private_file_posix(const char *path, size_t maximum, int include_bytes, private_file_observation *result) {
   int descriptor = -1;
   struct stat metadata;
   struct stat final_metadata;
@@ -749,11 +750,11 @@ static int read_private_file_posix(const char *path, size_t maximum, private_fil
     goto cleanup;
   }
   if (!S_ISREG(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0077) != 0 || metadata.st_size < 0 ||
-      (uint64_t)metadata.st_size > maximum || (uint64_t)metadata.st_size > MAX_PRIVATE_FILE_BYTES) {
+      (include_bytes && ((uint64_t)metadata.st_size > maximum || (uint64_t)metadata.st_size > MAX_PRIVATE_FILE_BYTES))) {
     set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file security policy rejected file");
     goto cleanup;
   }
-  result->byte_count = (size_t)metadata.st_size;
+  result->byte_count = include_bytes ? (size_t)metadata.st_size : 0;
   bytes = result->byte_count == 0 ? NULL : (unsigned char *)malloc(result->byte_count);
   if (result->byte_count != 0 && bytes == NULL) {
     set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file allocation failed");
@@ -775,7 +776,7 @@ static int read_private_file_posix(const char *path, size_t maximum, private_fil
     set_private_errno_error(result, errno, "recheck runtime file");
     goto cleanup;
   }
-  if ((uint64_t)final_metadata.st_size != result->byte_count || final_metadata.st_dev != metadata.st_dev || final_metadata.st_ino != metadata.st_ino) {
+  if (include_bytes && ((uint64_t)final_metadata.st_size != result->byte_count || final_metadata.st_dev != metadata.st_dev || final_metadata.st_ino != metadata.st_ino)) {
     set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime file changed while being read");
     goto cleanup;
   }
@@ -802,265 +803,115 @@ static napi_value throw_authority_error(napi_env env, const char *message) {
 }
 
 #if defined(_WIN32)
-typedef HANDLE authority_handle;
-#define INVALID_AUTHORITY_HANDLE INVALID_HANDLE_VALUE
+typedef HANDLE authority_lock_handle;
+#define INVALID_AUTHORITY_LOCK INVALID_HANDLE_VALUE
 
-static authority_handle open_authority(const char *path, int read_only, private_file_observation *result) {
+static authority_lock_handle open_authority_lock(const char *path) {
   WCHAR wide_path[32768];
+  WCHAR lock_path[32768];
+  size_t length;
   HANDLE handle;
   BY_HANDLE_FILE_INFORMATION basic_information;
   FILE_STANDARD_INFO standard_information;
-  FILE_ID_INFO id_information;
-  DWORD disposition = read_only ? OPEN_EXISTING : OPEN_ALWAYS;
-  DWORD access = GENERIC_READ | (read_only ? 0 : GENERIC_WRITE);
-  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority path was malformed");
-    return INVALID_AUTHORITY_HANDLE;
-  }
-  handle = CreateFileW(wide_path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-    disposition, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-  if (handle == INVALID_HANDLE_VALUE) {
-    DWORD error_number = GetLastError();
-    set_private_error(result, error_number == ERROR_FILE_NOT_FOUND || error_number == ERROR_PATH_NOT_FOUND ? OBSERVATION_NOT_FOUND :
-      error_number == ERROR_ACCESS_DENIED ? OBSERVATION_ACCESS_DENIED : OBSERVATION_NATIVE_ERROR, "open runtime authority");
-    return INVALID_AUTHORITY_HANDLE;
-  }
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return INVALID_AUTHORITY_LOCK;
+  length = wcslen(wide_path);
+  if (length + 6 >= sizeof(lock_path) / sizeof(lock_path[0])) return INVALID_AUTHORITY_LOCK;
+  memcpy(lock_path, wide_path, (length + 1) * sizeof(WCHAR));
+  memcpy(lock_path + length, L".lock", 6 * sizeof(WCHAR));
+  handle = CreateFileW(lock_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return INVALID_AUTHORITY_LOCK;
   if (!GetFileInformationByHandle(handle, &basic_information) ||
       !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
-      !GetFileInformationByHandleEx(handle, FileIdInfo, &id_information, sizeof(id_information)) ||
       (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory ||
-      standard_information.EndOfFile.QuadPart < 0 || !windows_private_security(handle)) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority security policy rejected file");
+      !windows_private_security(handle)) {
     (void)CloseHandle(handle);
-    return INVALID_AUTHORITY_HANDLE;
-  }
-  if (snprintf(result->volume_serial, sizeof(result->volume_serial), "%" PRIu64, (uint64_t)id_information.VolumeSerialNumber) <= 0) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority volume identity was malformed");
-    (void)CloseHandle(handle);
-    return INVALID_AUTHORITY_HANDLE;
-  }
-  {
-    DWORD index;
-    for (index = 0; index < sizeof(id_information.FileId.Identifier); index++) {
-      if (snprintf(result->file_id + index * 2, sizeof(result->file_id) - index * 2, "%02x", id_information.FileId.Identifier[index]) != 2) {
-        set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority file identity was malformed");
-        (void)CloseHandle(handle);
-        return INVALID_AUTHORITY_HANDLE;
-      }
-    }
+    return INVALID_AUTHORITY_LOCK;
   }
   return handle;
 }
 
-static int lock_authority(authority_handle handle) {
+static int lock_authority_name(authority_lock_handle handle) {
   OVERLAPPED overlapped;
   memset(&overlapped, 0, sizeof(overlapped));
   return LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &overlapped) != 0;
 }
 
-static void unlock_authority(authority_handle handle) {
+static void close_authority_lock(authority_lock_handle handle) {
   OVERLAPPED overlapped;
   memset(&overlapped, 0, sizeof(overlapped));
   (void)UnlockFileEx(handle, 0, MAXDWORD, MAXDWORD, &overlapped);
-}
-
-static int read_authority(authority_handle handle, size_t maximum, private_file_observation *result) {
-  LARGE_INTEGER size;
-  LARGE_INTEGER zero;
-  DWORD count;
-  size_t total = 0;
-  zero.QuadPart = 0;
-  if (!GetFileSizeEx(handle, &size) || size.QuadPart < 0 || (uint64_t)size.QuadPart > maximum ||
-      (uint64_t)size.QuadPart > MAX_PRIVATE_FILE_BYTES || !SetFilePointerEx(handle, zero, NULL, FILE_BEGIN)) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "read runtime authority metadata");
-    return 0;
-  }
-  result->byte_count = (size_t)size.QuadPart;
-  result->bytes = result->byte_count == 0 ? NULL : (unsigned char *)malloc(result->byte_count);
-  if (result->byte_count != 0 && result->bytes == NULL) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority allocation failed");
-    return 0;
-  }
-  while (total < result->byte_count) {
-    DWORD request = result->byte_count - total > 1024u * 1024u ? 1024u * 1024u : (DWORD)(result->byte_count - total);
-    if (!ReadFile(handle, result->bytes + total, request, &count, NULL) || count == 0) {
-      set_private_error(result, OBSERVATION_NATIVE_ERROR, "read runtime authority");
-      return 0;
-    }
-    total += count;
-  }
-  result->ok = 1;
-  return 1;
-}
-
-static int append_authority(authority_handle handle, const unsigned char *bytes, size_t length) {
-  LARGE_INTEGER end;
-  size_t total = 0;
-  DWORD written;
-  end.QuadPart = 0;
-  if (!SetFilePointerEx(handle, end, NULL, FILE_END)) return 0;
-  while (total < length) {
-    DWORD request = length - total > 1024u * 1024u ? 1024u * 1024u : (DWORD)(length - total);
-    if (!WriteFile(handle, bytes + total, request, &written, NULL) || written == 0) return 0;
-    total += written;
-  }
-  return FlushFileBuffers(handle) != 0;
+  (void)CloseHandle(handle);
 }
 #else
-typedef int authority_handle;
-#define INVALID_AUTHORITY_HANDLE (-1)
+typedef int authority_lock_handle;
+#define INVALID_AUTHORITY_LOCK (-1)
 
-static authority_handle open_authority(const char *path, int read_only, private_file_observation *result) {
-  int flags = (read_only ? O_RDONLY : O_RDWR | O_CREAT) | O_CLOEXEC;
+static authority_lock_handle open_authority_lock(const char *path) {
+  char directory[MAX_IDENTITY_STRING];
+  const char *separator;
+  size_t length;
+  int flags = O_RDONLY | O_CLOEXEC;
   int descriptor;
   struct stat metadata;
+  if (path == NULL || path[0] != '/') return INVALID_AUTHORITY_LOCK;
+  separator = strrchr(path, '/');
+  if (separator == NULL || separator == path) return INVALID_AUTHORITY_LOCK;
+  length = (size_t)(separator - path);
+  if (length == 0 || length >= sizeof(directory)) return INVALID_AUTHORITY_LOCK;
+  memcpy(directory, path, length);
+  directory[length] = '\0';
+#ifdef O_DIRECTORY
+  flags |= O_DIRECTORY;
+#endif
 #ifdef O_NOFOLLOW
   flags |= O_NOFOLLOW;
 #endif
-  descriptor = open(path, flags, 0600);
-  if (descriptor < 0) {
-    set_private_errno_error(result, errno, "open runtime authority");
-    return INVALID_AUTHORITY_HANDLE;
-  }
-  if (fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0077) != 0 || metadata.st_size < 0) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority security policy rejected file");
+  descriptor = open(directory, flags);
+  if (descriptor < 0) return INVALID_AUTHORITY_LOCK;
+  if (fstat(descriptor, &metadata) != 0 || !S_ISDIR(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0077) != 0) {
     (void)close(descriptor);
-    return INVALID_AUTHORITY_HANDLE;
-  }
-  if (snprintf(result->device, sizeof(result->device), "%llu", (unsigned long long)metadata.st_dev) <= 0 ||
-      snprintf(result->inode, sizeof(result->inode), "%llu", (unsigned long long)metadata.st_ino) <= 0) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority identity was malformed");
-    (void)close(descriptor);
-    return INVALID_AUTHORITY_HANDLE;
+    return INVALID_AUTHORITY_LOCK;
   }
   return descriptor;
 }
 
-static int lock_authority(authority_handle handle) {
+static int lock_authority_name(authority_lock_handle handle) {
   return flock(handle, LOCK_EX) == 0;
 }
 
-static void unlock_authority(authority_handle handle) {
+static void close_authority_lock(authority_lock_handle handle) {
   (void)flock(handle, LOCK_UN);
-}
-
-static int read_authority(authority_handle handle, size_t maximum, private_file_observation *result) {
-  struct stat metadata;
-  size_t total = 0;
-  ssize_t count;
-  if (fstat(handle, &metadata) != 0 || metadata.st_size < 0 || (uint64_t)metadata.st_size > maximum ||
-      (uint64_t)metadata.st_size > MAX_PRIVATE_FILE_BYTES || lseek(handle, 0, SEEK_SET) < 0) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "read runtime authority metadata");
-    return 0;
-  }
-  result->byte_count = (size_t)metadata.st_size;
-  result->bytes = result->byte_count == 0 ? NULL : (unsigned char *)malloc(result->byte_count);
-  if (result->byte_count != 0 && result->bytes == NULL) {
-    set_private_error(result, OBSERVATION_NATIVE_ERROR, "runtime authority allocation failed");
-    return 0;
-  }
-  while (total < result->byte_count) {
-    count = read(handle, result->bytes + total, result->byte_count - total);
-    if (count <= 0) {
-      set_private_error(result, OBSERVATION_NATIVE_ERROR, "read runtime authority");
-      return 0;
-    }
-    total += (size_t)count;
-  }
-  result->ok = 1;
-  return 1;
-}
-
-static int append_authority(authority_handle handle, const unsigned char *bytes, size_t length) {
-  size_t total = 0;
-  ssize_t count;
-  if (lseek(handle, 0, SEEK_END) < 0) return 0;
-  while (total < length) {
-    count = write(handle, bytes + total, length - total);
-    if (count <= 0) return 0;
-    total += (size_t)count;
-  }
-  return fsync(handle) == 0;
+  (void)close(handle);
 }
 #endif
 
-static napi_value with_runtime_authority(napi_env env, napi_callback_info info) {
-  napi_value arguments[4];
-  size_t argument_count = 4;
+static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info info) {
+  napi_value arguments[2];
+  size_t argument_count = 2;
   char path[MAX_IDENTITY_STRING];
-  bool read_only = false;
-  size_t maximum = 0;
   napi_valuetype callback_type;
-  authority_handle handle = INVALID_AUTHORITY_HANDLE;
-  private_file_observation observation;
-  napi_value callback_observation = NULL;
+  authority_lock_handle handle = INVALID_AUTHORITY_LOCK;
   napi_value callback_result = NULL;
   napi_value global = NULL;
-  napi_value result_value = NULL;
-  napi_value append_value = NULL;
-  bool has_append = false;
-  void *append_bytes = NULL;
-  size_t append_length = 0;
-  memset(&observation, 0, sizeof(observation));
-  if (napi_get_cb_info(env, info, &argument_count, arguments, NULL, NULL) != napi_ok || argument_count < 4 ||
-      !get_utf8_argument(env, arguments[0], path, sizeof(path)) || napi_get_value_bool(env, arguments[1], &read_only) != napi_ok ||
-      !get_max_bytes_argument(env, arguments[2], &maximum) || napi_typeof(env, arguments[3], &callback_type) != napi_ok || callback_type != napi_function ||
+  if (napi_get_cb_info(env, info, &argument_count, arguments, NULL, NULL) != napi_ok || argument_count < 2 ||
+      !get_utf8_argument(env, arguments[0], path, sizeof(path)) ||
+      napi_typeof(env, arguments[1], &callback_type) != napi_ok || callback_type != napi_function ||
       napi_get_global(env, &global) != napi_ok) {
-    return throw_authority_error(env, "runtime authority arguments were malformed");
+    return throw_authority_error(env, "runtime authority lock arguments were malformed");
   }
-  handle = open_authority(path, read_only ? 1 : 0, &observation);
-  if (handle == INVALID_AUTHORITY_HANDLE) return throw_authority_error(env, observation.message);
-  if (!lock_authority(handle)) {
-#if defined(_WIN32)
-    (void)CloseHandle(handle);
-#else
-    (void)close(handle);
-#endif
-    return throw_authority_error(env, "lock runtime authority failed");
+  handle = open_authority_lock(path);
+  if (handle == INVALID_AUTHORITY_LOCK) return throw_authority_error(env, "open runtime authority name lock failed");
+  if (!lock_authority_name(handle)) {
+    close_authority_lock(handle);
+    return throw_authority_error(env, "lock runtime authority name failed");
   }
-  if (!read_authority(handle, maximum, &observation)) goto authority_error;
-  callback_observation = make_private_result(env, &observation);
-  if (callback_observation == NULL || napi_call_function(env, global, arguments[3], 1, &callback_observation, &callback_result) != napi_ok) goto authority_exception;
-  if (callback_result == NULL || napi_get_named_property(env, callback_result, "result", &result_value) != napi_ok ||
-      napi_has_named_property(env, callback_result, "append", &has_append) != napi_ok) {
-    set_private_error(&observation, OBSERVATION_NATIVE_ERROR, "runtime authority callback result was malformed");
-    goto authority_error;
+  if (napi_call_function(env, global, arguments[1], 0, NULL, &callback_result) != napi_ok) {
+    close_authority_lock(handle);
+    return NULL;
   }
-  if (has_append) {
-    if (read_only || napi_get_named_property(env, callback_result, "append", &append_value) != napi_ok ||
-        napi_is_buffer(env, append_value, &has_append) != napi_ok || !has_append ||
-        napi_get_buffer_info(env, append_value, &append_bytes, &append_length) != napi_ok ||
-        append_length > maximum - observation.byte_count || !append_authority(handle, (const unsigned char *)append_bytes, append_length)) {
-      set_private_error(&observation, OBSERVATION_NATIVE_ERROR, "append runtime authority failed");
-      goto authority_error;
-    }
-  }
-  free(observation.bytes);
-  unlock_authority(handle);
-#if defined(_WIN32)
-  (void)CloseHandle(handle);
-#else
-  (void)close(handle);
-#endif
-  return result_value;
-authority_error:
-  free(observation.bytes);
-  unlock_authority(handle);
-#if defined(_WIN32)
-  (void)CloseHandle(handle);
-#else
-  (void)close(handle);
-#endif
-  return throw_authority_error(env, observation.message);
-authority_exception:
-  free(observation.bytes);
-  unlock_authority(handle);
-#if defined(_WIN32)
-  (void)CloseHandle(handle);
-#else
-  (void)close(handle);
-#endif
-  return NULL;
+  close_authority_lock(handle);
+  return callback_result;
 }
 
 static int get_pid_argument(napi_env env, napi_value value, uint64_t *pid) {
@@ -1155,9 +1006,9 @@ static napi_value read_private_runtime_file(napi_env env, napi_callback_info inf
     return make_private_result(env, &result);
   }
 #if defined(_WIN32)
-  (void)read_private_file_windows(path, maximum, &result);
+  (void)read_private_file_windows(path, maximum, 1, &result);
 #elif defined(__linux__) || defined(__APPLE__)
-  (void)read_private_file_posix(path, maximum, &result);
+  (void)read_private_file_posix(path, maximum, 1, &result);
 #else
   set_private_error(&result, OBSERVATION_NATIVE_ERROR, "unsupported operating system");
 #endif
@@ -1167,6 +1018,26 @@ static napi_value read_private_runtime_file(napi_env env, napi_callback_info inf
     return output;
   }
 }
+static napi_value read_private_runtime_file_identity(napi_env env, napi_callback_info info) {
+  napi_value argument;
+  size_t argument_count = 1;
+  char path[MAX_IDENTITY_STRING];
+  private_file_observation result;
+  memset(&result, 0, sizeof(result));
+  if (napi_get_cb_info(env, info, &argument_count, &argument, NULL, NULL) != napi_ok || argument_count < 1 ||
+      !get_utf8_argument(env, argument, path, sizeof(path))) {
+    set_private_error(&result, OBSERVATION_NATIVE_ERROR, "runtime file identity argument was malformed");
+    return make_private_result(env, &result);
+  }
+#if defined(_WIN32)
+  (void)read_private_file_windows(path, 0, 0, &result);
+#elif defined(__linux__) || defined(__APPLE__)
+  (void)read_private_file_posix(path, 0, 0, &result);
+#else
+  set_private_error(&result, OBSERVATION_NATIVE_ERROR, "unsupported operating system");
+#endif
+  return make_private_result(env, &result);
+}
 
 NAPI_MODULE_INIT() {
   napi_value platform;
@@ -1174,7 +1045,8 @@ NAPI_MODULE_INIT() {
   napi_value file_security_contract;
   napi_value read_identity;
   napi_value read_file;
-  napi_value with_authority;
+  napi_value read_file_identity;
+  napi_value with_authority_lock;
 #if defined(_WIN32)
   const char *platform_name = "win32";
 #elif defined(__APPLE__)
@@ -1189,12 +1061,14 @@ NAPI_MODULE_INIT() {
       napi_create_int32(env, RUNTIME_FILE_SECURITY_CONTRACT_VERSION, &file_security_contract) != napi_ok ||
       napi_create_function(env, "readProcessIdentity", NAPI_AUTO_LENGTH, read_process_identity, NULL, &read_identity) != napi_ok ||
       napi_create_function(env, "readPrivateRuntimeFile", NAPI_AUTO_LENGTH, read_private_runtime_file, NULL, &read_file) != napi_ok ||
-      napi_create_function(env, "withRuntimeAuthority", NAPI_AUTO_LENGTH, with_runtime_authority, NULL, &with_authority) != napi_ok ||
+      napi_create_function(env, "readPrivateRuntimeFileIdentity", NAPI_AUTO_LENGTH, read_private_runtime_file_identity, NULL, &read_file_identity) != napi_ok ||
+      napi_create_function(env, "withRuntimeAuthorityLock", NAPI_AUTO_LENGTH, with_runtime_authority_lock, NULL, &with_authority_lock) != napi_ok ||
       napi_set_named_property(env, exports, "platform", platform) != napi_ok ||
       napi_set_named_property(env, exports, "identityContractVersion", identity_contract) != napi_ok ||
       napi_set_named_property(env, exports, "runtimeFileSecurityContractVersion", file_security_contract) != napi_ok ||
       napi_set_named_property(env, exports, "readProcessIdentity", read_identity) != napi_ok ||
       napi_set_named_property(env, exports, "readPrivateRuntimeFile", read_file) != napi_ok ||
-      napi_set_named_property(env, exports, "withRuntimeAuthority", with_authority) != napi_ok) return NULL;
+      napi_set_named_property(env, exports, "readPrivateRuntimeFileIdentity", read_file_identity) != napi_ok ||
+      napi_set_named_property(env, exports, "withRuntimeAuthorityLock", with_authority_lock) != napi_ok) return NULL;
   return exports;
 }

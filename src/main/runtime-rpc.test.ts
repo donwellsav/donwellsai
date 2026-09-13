@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
@@ -76,6 +76,24 @@ describe('runtime RPC publication lifecycle', () => {
       await expect(starting).rejects.toThrow(/cancelled/)
       expect(server.isReady()).toBe(false)
     } finally {
+      server.stop()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('retains its owner so failed cleanup can be retried', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-rpc-cleanup-retry-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const server = new RuntimeRpcServer(paths.socketPath, paths.runtimeFile, 'rpc-cleanup-token-123456', {} as RpcDeps)
+    try {
+      await server.start()
+      chmodSync(dirname(paths.runtimeFile), 0o500)
+      expect(server.stop()).toBe('cleanup-failed')
+      chmodSync(dirname(paths.runtimeFile), 0o700)
+      expect(server.stop()).toBe('released')
+      const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      try { expect(store.observe('donwells-app')).toMatchObject({ status: 'vacant' }) } finally { store.close() }
+    } finally {
+      chmodSync(dirname(paths.runtimeFile), 0o700)
       server.stop()
       rmSync(directory, { recursive: true, force: true })
     }

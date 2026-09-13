@@ -1,11 +1,12 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
-import type { RuntimeAuthorityRunner } from './runtime-file-security'
+import type { RuntimeFileIdentityReader } from './runtime-file-security'
 import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
@@ -31,21 +32,8 @@ function stale(identityValue = identity): { status: 'stale'; reason: 'not-found'
   return { status: 'stale', reason: identityValue === identity ? 'not-found' : 'pid-reused' }
 }
 function rewriteAuthority(path: string, mutate: (db: DatabaseSync) => void): void {
-  const bytes = readFileSync(path)
-  const marker = Buffer.from('SQLite format 3\0')
-  const offset = bytes.lastIndexOf(marker)
-  if (offset < 0 || offset + 100 > bytes.length) throw new Error('authority fixture had no SQLite snapshot')
-  const encodedPageSize = bytes.readUInt16BE(offset + 16)
-  const pageSize = encodedPageSize === 1 ? 65_536 : encodedPageSize
-  const length = pageSize * bytes.readUInt32BE(offset + 28)
-  const db = new DatabaseSync(':memory:')
-  try {
-    db.deserialize(bytes.subarray(offset, offset + length))
-    mutate(db)
-    writeFileSync(path, Buffer.from(db.serialize()), { mode: 0o600 })
-  } finally {
-    db.close()
-  }
+  const db = new DatabaseSync(path)
+  try { mutate(db) } finally { db.close() }
 }
 
 describe('compare-bound runtime ownership', () => {
@@ -166,7 +154,7 @@ describe('compare-bound runtime ownership', () => {
     const link = join(directory, 'linked.sqlite')
     writeFileSync(target, Buffer.alloc(0), { mode: 0o600 })
     symlinkSync(target, link)
-    expect(() => new RuntimeOwnershipStore(link)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
+    expect(() => new RuntimeOwnershipStore(link)).toThrowError(expect.objectContaining({ code: 'native-error' }))
 
     const profile = join(directory, 'profile')
     const profileAlias = join(directory, 'profile-alias')
@@ -192,17 +180,11 @@ describe('compare-bound runtime ownership', () => {
   })
   it('rejects a portable Windows authority identity change between operations', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-win-contract-')))
-    let bytes = Buffer.alloc(0)
     let reads = 0
-    const changingRunner: RuntimeAuthorityRunner = (_path, _readOnly, _maximum, callback) => {
-      const response = callback({
-        bytes,
-        fileIdentity: { platform: 'win32', volumeSerial: 'volume', fileId: reads++ === 0 ? 'first' : 'second' }
-      })
-      if (response.append) bytes = Buffer.concat([bytes, response.append])
-      return response.result
-    }
-    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { authorityRunner: changingRunner })
+    const changingIdentity: RuntimeFileIdentityReader = () => ({
+      platform: 'win32', volumeSerial: 'volume', fileId: reads++ < 4 ? 'first' : 'second'
+    })
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { identityReader: changingIdentity })
     try {
       expect(() => store.observe('donwells-app')).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
     } finally {
@@ -229,3 +211,53 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 })
+  it('keeps the authority as WAL SQLite without a write-count lifetime cap', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-sqlite-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    try {
+      for (let index = 0; index < 220; index += 1) {
+        const store = new RuntimeOwnershipStore(databasePath)
+        expect(store.observe('donwells-app')).toEqual({ status: 'vacant', lastGeneration: 0 })
+        store.close()
+      }
+      expect(readFileSync(databasePath).subarray(0, 16).toString('utf8')).toBe('SQLite format 3\0')
+      const database = new DatabaseSync(databasePath, { readOnly: true })
+      try {
+        expect(database.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+      } finally {
+        database.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers an interrupted SQLite transaction and accepts the next write', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-journal-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const initial = new RuntimeOwnershipStore(databasePath)
+    initial.close()
+    try {
+      const script = [
+        "const { DatabaseSync } = require('node:sqlite')",
+        "const db = new DatabaseSync(process.argv[1])",
+        "db.exec('PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN IMMEDIATE')",
+        "db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?)').run('donwells-app', 99)",
+        "process.exit(0)"
+      ].join(';')
+      const interrupted = spawnSync(process.execPath, ['-e', script, databasePath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      expect(interrupted.status).toBe(0)
+      const store = new RuntimeOwnershipStore(databasePath)
+      try {
+        const observed = store.observe('donwells-app')
+        expect(observed).toEqual({ status: 'vacant', lastGeneration: 0 })
+        const ownerId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+        const preparing = store.prepareClaim(candidate(ownerId), observed, null)
+        expect(preparing.generation).toBe(1)
+      } finally {
+        store.close()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })

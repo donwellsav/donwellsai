@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -22,13 +22,9 @@ type NativeAddon = {
   identityContractVersion: number
   runtimeFileSecurityContractVersion: number
   readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
+  readPrivateRuntimeFileIdentity(path: string): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
-  withRuntimeAuthority(
-    path: string,
-    readOnly: boolean,
-    maxBytes: number,
-    callback: (observation: { bytes: Buffer; fileIdentity: Record<string, string> }) => { result: unknown; append?: Buffer }
-  ): unknown
+  withRuntimeAuthorityLock(path: string, callback: () => unknown): unknown
 }
 type SpawnResult = { child: ReturnType<typeof spawn> }
 
@@ -123,6 +119,19 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it('reads authority identity without imposing the bounded locator byte limit', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-metadata-only-'))
+    const file = join(directory, 'runtime-owners.sqlite')
+    try {
+      writeFileSync(file, Buffer.alloc(0), { mode: 0o600 })
+      truncateSync(file, 9 * 1024 * 1024)
+      expect(addon.readPrivateRuntimeFile(file, 1024)).toMatchObject({ ok: false })
+      expect(addon.readPrivateRuntimeFileIdentity(file)).toMatchObject({ ok: true })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it.runIf(process.platform !== 'win32')('distinguishes same bytes at different pathname identities', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-identity-same-bytes-'))
@@ -142,36 +151,39 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it.runIf(process.platform !== 'win32')('keeps authority writes on the validated open handle across pathname replacement', () => {
+  it.runIf(process.platform !== 'win32')('exposes a changed authority identity while the canonical lock remains held', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-open-handle-'))
     const authorityPath = join(directory, 'runtime-owners.sqlite')
     const displacedPath = join(directory, 'validated.sqlite')
-    const attackerBytes = Buffer.from('attacker authority')
-    const trustedBytes = Buffer.from('trusted authority')
     writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
     try {
-      const result = addon.withRuntimeAuthority(authorityPath, false, 1024, observation => {
+      const identities = addon.withRuntimeAuthorityLock(authorityPath, () => {
+        const before = addon.readPrivateRuntimeFileIdentity(authorityPath)
         renameSync(authorityPath, displacedPath)
-        writeFileSync(authorityPath, attackerBytes, { mode: 0o600 })
-        return { result: observation.fileIdentity, append: trustedBytes }
-      })
-      expect(result).toMatchObject({ platform: 'posix' })
-      expect(readFileSync(displacedPath)).toEqual(trustedBytes)
-      expect(readFileSync(authorityPath)).toEqual(attackerBytes)
+        writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+        const after = addon.readPrivateRuntimeFileIdentity(authorityPath)
+        return { before, after }
+      }) as { before: NativePrivateFileResult; after: NativePrivateFileResult }
+      expect(identities.before).toMatchObject({ ok: true })
+      expect(identities.after).toMatchObject({ ok: true })
+      if (!identities.before.ok || !identities.after.ok) throw new Error('authority identities were unexpectedly rejected')
+      expect(identities.before.fileIdentity).not.toEqual(identities.after.fileIdentity)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it('serializes authority append through a private regular file on every platform', () => {
+  it('serializes authority callbacks through a private canonical lock on every platform', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
-    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-append-'))
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-lock-'))
     const authorityPath = join(directory, 'runtime-owners.sqlite')
-    const bytes = Buffer.from('committed frame')
-    writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
+    const bytes = Buffer.from('committed bytes')
     try {
-      const result = addon.withRuntimeAuthority(authorityPath, false, 1024, observation => ({ result: observation.fileIdentity, append: bytes }))
-      expect(result).toMatchObject({ platform: process.platform === 'win32' ? 'win32' : 'posix' })
+      const result = addon.withRuntimeAuthorityLock(authorityPath, () => {
+        writeFileSync(authorityPath, bytes, { mode: 0o600 })
+        return addon.readPrivateRuntimeFileIdentity(authorityPath)
+      }) as NativePrivateFileResult
+      expect(result).toMatchObject({ ok: true, fileIdentity: { platform: process.platform === 'win32' ? 'win32' : 'posix' } })
       expect(readFileSync(authorityPath)).toEqual(bytes)
     } finally {
       rmSync(directory, { recursive: true, force: true })

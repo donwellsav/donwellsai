@@ -156,14 +156,17 @@ export class RuntimeRpcServer {
           authority
         })
       : reconciliation.publication
+    this.publication = publication
+    this.socketPath = publication.owner.endpoint
     if (lifecycleGeneration !== this.lifecycleGeneration) {
       const abandoned = abandonRuntimeOwner(publication)
-      publication.store.close()
+      if (abandoned === 'released') {
+        this.publication = null
+        publication.store.close()
+      }
       if (abandoned !== 'released') throw new Error('Runtime RPC start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Runtime RPC start was cancelled before bind')
     }
-    this.publication = publication
-    this.socketPath = publication.owner.endpoint
     try {
       mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
       if (process.platform !== 'win32') {
@@ -239,7 +242,6 @@ export class RuntimeRpcServer {
     for (const client of this.clients) client.destroy()
     this.clients.clear()
     const publication = this.publication
-    this.publication = null
     let ownsEndpoint = process.platform === 'win32'
     if (process.platform !== 'win32') {
       try { ownsEndpoint = this.boundIno !== null && statSync(this.socketPath).ino === this.boundIno } catch {}
@@ -248,13 +250,14 @@ export class RuntimeRpcServer {
     this.server = null
     this.boundIno = null
     if (!publication) return 'no-owner'
-    try {
-      return publication.owner.state === 'active'
-        ? releaseRuntimeOwner(publication)
-        : abandonRuntimeOwner(publication)
-    } finally {
+    const result = publication.owner.state === 'active'
+      ? releaseRuntimeOwner(publication)
+      : abandonRuntimeOwner(publication)
+    if (result === 'released') {
+      this.publication = null
       publication.store.close()
     }
+    return result
   }
 
   private activePublication(): RuntimePublication | null {

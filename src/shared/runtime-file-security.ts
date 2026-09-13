@@ -10,14 +10,17 @@ export type RuntimeFileIdentity =
 export type NativeRuntimeFileObservation =
   | { ok: true; bytes: Buffer; fileIdentity: Record<string, string> }
   | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
+export type NativeRuntimeFileIdentityObservation =
+  | { ok: true; fileIdentity: Record<string, string> }
+  | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
 
-export type NativeRuntimeAuthorityObservation = { bytes: Buffer; fileIdentity: Record<string, string> }
 
 export type NativeRuntimeFileAddon = {
   platform: unknown
   runtimeFileSecurityContractVersion: unknown
   readPrivateRuntimeFile: unknown
-  withRuntimeAuthority?: unknown
+  readPrivateRuntimeFileIdentity?: unknown
+  withRuntimeAuthorityLock?: unknown
 }
 
 export type RuntimeFileRead = {
@@ -27,12 +30,8 @@ export type RuntimeFileRead = {
 }
 
 export type RuntimeFileReader = (path: string, maxBytes: number) => RuntimeFileRead
-export type RuntimeAuthorityRunner = <T>(
-  path: string,
-  readOnly: boolean,
-  maxBytes: number,
-  callback: (observation: { bytes: Buffer; fileIdentity: RuntimeFileIdentity }) => { result: T; append?: Buffer }
-) => T
+export type RuntimeAuthorityLock = <T>(path: string, callback: () => T) => T
+export type RuntimeFileIdentityReader = (path: string) => RuntimeFileIdentity
 
 export class RuntimeFileSecurityError extends Error {
   readonly code: 'not-found' | 'access-denied' | 'native-error'
@@ -111,24 +110,30 @@ export function createPrivateRuntimeFileReader(addon: NativeRuntimeFileAddon, ex
     return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), fileIdentity }
   }
 }
-export function createRuntimeAuthorityRunner(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeAuthorityRunner {
+export function createPrivateRuntimeFileIdentityReader(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeFileIdentityReader {
+  if (addon.platform !== expectedPlatform) throw new Error('runtime file security addon platform mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime file security addon contract mismatch')
+  if (typeof addon.readPrivateRuntimeFileIdentity !== 'function') throw new Error('runtime file security addon is missing readPrivateRuntimeFileIdentity')
+  const readIdentity = addon.readPrivateRuntimeFileIdentity as (path: string) => NativeRuntimeFileIdentityObservation
+  return path => {
+    if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new RuntimeFileSecurityError('native-error', 'runtime file path was malformed')
+    let observation: NativeRuntimeFileIdentityObservation
+    try { observation = readIdentity(path) } catch (error) {
+      throw new RuntimeFileSecurityError('native-error', (error instanceof Error ? error.message : String(error)).slice(0, 4096))
+    }
+    const failure = observationError(observation)
+    if (failure) throw failure
+    return normalizeIdentity((observation as Extract<NativeRuntimeFileIdentityObservation, { ok: true }>).fileIdentity, expectedPlatform)
+  }
+}
+export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimeAuthorityLock {
   if (addon.platform !== expectedPlatform) throw new Error('runtime authority addon platform mismatch')
   if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime authority addon contract mismatch')
-  if (typeof addon.withRuntimeAuthority !== 'function') throw new Error('runtime authority addon is missing withRuntimeAuthority')
-  const run = addon.withRuntimeAuthority as (
-    path: string,
-    readOnly: boolean,
-    maxBytes: number,
-    callback: (observation: NativeRuntimeAuthorityObservation) => { result: unknown; append?: Buffer }
-  ) => unknown
-  return <T>(path: string, readOnly: boolean, maxBytes: number, callback: (observation: { bytes: Buffer; fileIdentity: RuntimeFileIdentity }) => { result: T; append?: Buffer }): T => {
+  if (typeof addon.withRuntimeAuthorityLock !== 'function') throw new Error('runtime authority addon is missing withRuntimeAuthorityLock')
+  const lock = addon.withRuntimeAuthorityLock as (path: string, callback: () => unknown) => unknown
+  return <T>(path: string, callback: () => T): T => {
     if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new RuntimeFileSecurityError('native-error', 'runtime authority path was malformed')
-    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 8 * 1024 * 1024) throw new RuntimeFileSecurityError('native-error', 'runtime authority size limit was malformed')
-    return run(path, readOnly, maxBytes, observation => {
-      if (typeof observation !== 'object' || observation === null || !Buffer.isBuffer(observation.bytes)) throw new Error('native runtime authority observation was malformed')
-      if (observation.bytes.length > maxBytes) throw new Error('native runtime authority exceeded requested limit')
-      return callback({ bytes: Buffer.from(observation.bytes), fileIdentity: normalizeIdentity(observation.fileIdentity, expectedPlatform) })
-    }) as T
+    return lock(path, callback) as T
   }
 }
 
@@ -146,11 +151,17 @@ export function privateRuntimeFileReader(): RuntimeFileReader {
   if (!defaultReader) defaultReader = createPrivateRuntimeFileReader(loadNativeAddon())
   return defaultReader
 }
-let defaultAuthorityRunner: RuntimeAuthorityRunner | undefined
+let defaultIdentityReader: RuntimeFileIdentityReader | undefined
 
-export function runtimeAuthorityRunner(): RuntimeAuthorityRunner {
-  if (!defaultAuthorityRunner) defaultAuthorityRunner = createRuntimeAuthorityRunner(loadNativeAddon())
-  return defaultAuthorityRunner
+export function privateRuntimeFileIdentityReader(): RuntimeFileIdentityReader {
+  if (!defaultIdentityReader) defaultIdentityReader = createPrivateRuntimeFileIdentityReader(loadNativeAddon())
+  return defaultIdentityReader
+}
+let defaultAuthorityLock: RuntimeAuthorityLock | undefined
+
+export function runtimeAuthorityLock(): RuntimeAuthorityLock {
+  if (!defaultAuthorityLock) defaultAuthorityLock = createRuntimeAuthorityLock(loadNativeAddon())
+  return defaultAuthorityLock
 }
 
 export function canonicalPrivateDirectory(path: string, options: { create?: boolean; requireCanonical?: boolean } = {}): string {

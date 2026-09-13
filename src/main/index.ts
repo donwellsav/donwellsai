@@ -845,9 +845,13 @@ void app.whenReady().then(async () => {
   ipcMain.handle('projectTaskAuthority', (_e, path: string, enabled: boolean) => projectTasks.setAuthority(path, enabled))
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
   operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
-  void terminalBus.connect().catch((e) => {
-    logger.fatal({ err: e }, 'terminal daemon connect failed')
-  })
+  try {
+    await terminalBus.connect()
+  } catch (error) {
+    logger.fatal({ err: error }, 'terminal daemon connect failed')
+    app.exit(1)
+    return
+  }
   registerIpc()
   buildMenu()
   createWindow()

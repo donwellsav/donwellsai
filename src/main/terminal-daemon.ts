@@ -198,14 +198,17 @@ export class TerminalDaemon {
           authority
         })
       : reconciliation.publication
+    this.publication = publication
+    this.paths.socketPath = publication.owner.endpoint
     if (lifecycleGeneration !== this.lifecycleGeneration) {
       const abandoned = abandonRuntimeOwner(publication)
-      publication.store.close()
+      if (abandoned === 'released') {
+        this.publication = null
+        publication.store.close()
+      }
       if (abandoned !== 'released') throw new Error('Terminal daemon start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Terminal daemon start was cancelled before bind')
     }
-    this.publication = publication
-    this.paths.socketPath = publication.owner.endpoint
     let server: Server | null = null
     try {
       server = createServer(socket => this.handleClient(socket))
@@ -286,15 +289,15 @@ export class TerminalDaemon {
   }
   private releaseRuntimeOwner(): RuntimeReleaseResult | 'no-owner' {
     const publication = this.publication
-    this.publication = null
     if (!publication) return 'no-owner'
-    try {
-      return publication.owner.state === 'active'
-        ? releaseRuntimeOwner(publication)
-        : abandonRuntimeOwner(publication)
-    } finally {
+    const result = publication.owner.state === 'active'
+      ? releaseRuntimeOwner(publication)
+      : abandonRuntimeOwner(publication)
+    if (result === 'released') {
+      this.publication = null
       publication.store.close()
     }
+    return result
   }
 
   private handlePtyData(sessionId: string, data: string): void {
