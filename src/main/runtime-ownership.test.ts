@@ -39,6 +39,19 @@ describe('runtime publication state machine', () => {
     }
   })
 
+  it('releases an interrupted preparing claim without disturbing successors', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-interrupted-'))
+    const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    try {
+      expect(publication.owner.state).toBe('preparing')
+      expect(releaseRuntimeOwner(publication)).toBe(true)
+      expect(publication.store.observe('donwells-app')).toEqual({ status: 'vacant' })
+    } finally {
+      publication.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('leaves successor ownership intact when the predecessor releases late', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-successor-'))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'first-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })

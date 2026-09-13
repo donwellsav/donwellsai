@@ -159,7 +159,6 @@ export class DaemonClient {
     const paths = localRuntimePaths(this.userDataDir, 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'current') {
-      if (record.record.processIdentity === null) throw new Error('terminal daemon owner identity is missing; it was not replaced')
       const verdict = runtimeIdentityAuthority().verify(record.record.processIdentity)
       if (verdict.status === 'valid') throw new Error('existing terminal daemon is live; it was not replaced')
       if (verdict.status === 'indeterminate') throw new Error('existing terminal daemon ownership is unverifiable; it was not replaced')

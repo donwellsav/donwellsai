@@ -148,12 +148,15 @@ export class TerminalDaemon {
     for (const client of this.connections) client.destroy()
     this.connections.clear()
     this.clients.clear()
-    if (server) {
-      const closed = Promise.withResolvers<void>()
-      server.close(() => closed.resolve())
-      await closed.promise
+    try {
+      if (server) {
+        const closed = Promise.withResolvers<void>()
+        server.close(() => closed.resolve())
+        await closed.promise
+      }
+    } finally {
+      this.releaseRuntimeOwner()
     }
-    this.releaseRuntimeOwner()
     return true
   }
 
@@ -193,7 +196,13 @@ export class TerminalDaemon {
       this.server = null
       const failed = this.publication
       this.publication = null
-      failed?.store.close()
+      if (failed) {
+        try {
+          failed.store.release(failed.owner)
+        } finally {
+          failed.store.close()
+        }
+      }
       throw error
     }
   }
@@ -212,7 +221,7 @@ export class TerminalDaemon {
     this.publication = null
     if (!publication) return
     try {
-      if (publication.owner.state === 'active') publication.store.release(publication.owner)
+      publication.store.release(publication.owner)
     } finally {
       publication.store.close()
     }

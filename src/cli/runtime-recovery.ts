@@ -69,7 +69,7 @@ function inspectWithBytes(options: RuntimeRecoveryOptions): { inspection: Runtim
   if (parsed.status === 'legacy') {
     return { bytes: source.bytes, inspection: { canonicalProfile, runtimeKind: options.kind, runtimeFile, endpoint: parsed.record.socketPath, pid: parsed.record.pid ?? null, verdict: 'legacy-record', fileIdentity: source.fileIdentity, sha256: source.sha256 } }
   }
-  return { bytes: source.bytes, inspection: { canonicalProfile, runtimeKind: options.kind, runtimeFile, endpoint: parsed.record.socketPath, pid: parsed.record.processIdentity?.pid ?? null, verdict: 'current-owner', fileIdentity: source.fileIdentity, sha256: source.sha256 } }
+  return { bytes: source.bytes, inspection: { canonicalProfile, runtimeKind: options.kind, runtimeFile, endpoint: parsed.record.socketPath, pid: parsed.record.processIdentity.pid, verdict: 'current-owner', fileIdentity: source.fileIdentity, sha256: source.sha256 } }
 }
 
 export function inspectRuntimeRecovery(options: RuntimeRecoveryOptions): RuntimeRecoveryInspection {

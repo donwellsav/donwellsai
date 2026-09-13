@@ -180,7 +180,7 @@ export class RuntimeRpcServer {
     this.boundIno = null
     if (publication) {
       try {
-        if (publication.owner.state === 'active') publication.store.release(publication.owner)
+        publication.store.release(publication.owner)
       } finally {
         publication.store.close()
       }
