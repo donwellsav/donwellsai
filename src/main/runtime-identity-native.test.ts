@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -24,7 +24,7 @@ type NativeAddon = {
   readPrivateRuntimeFile(path: string, maxBytes: number): NativePrivateFileResult
   readPrivateRuntimeFileIdentity(path: string): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
-  withRuntimeAuthorityLock(path: string, callback: () => unknown): unknown
+  withRuntimeAuthorityLock(path: string, callback: (stablePath: string) => unknown): unknown
 }
 type SpawnResult = { child: ReturnType<typeof spawn> }
 
@@ -151,24 +151,17 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it.runIf(process.platform !== 'win32')('exposes a changed authority identity while the canonical lock remains held', () => {
+  it.runIf(process.platform !== 'win32')('rejects an independent canonical swap before reporting success', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-open-handle-'))
     const authorityPath = join(directory, 'runtime-owners.sqlite')
     const displacedPath = join(directory, 'validated.sqlite')
     writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
     try {
-      const identities = addon.withRuntimeAuthorityLock(authorityPath, () => {
-        const before = addon.readPrivateRuntimeFileIdentity(authorityPath)
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => {
         renameSync(authorityPath, displacedPath)
         writeFileSync(authorityPath, Buffer.alloc(0), { mode: 0o600 })
-        const after = addon.readPrivateRuntimeFileIdentity(authorityPath)
-        return { before, after }
-      }) as { before: NativePrivateFileResult; after: NativePrivateFileResult }
-      expect(identities.before).toMatchObject({ ok: true })
-      expect(identities.after).toMatchObject({ ok: true })
-      if (!identities.before.ok || !identities.after.ok) throw new Error('authority identities were unexpectedly rejected')
-      expect(identities.before.fileIdentity).not.toEqual(identities.after.fileIdentity)
+      })).toThrow('canonical identity changed')
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
@@ -185,6 +178,44 @@ describe('native runtime identity adapter', () => {
       }) as NativePrivateFileResult
       expect(result).toMatchObject({ ok: true, fileIdentity: { platform: process.platform === 'win32' ? 'win32' : 'posix' } })
       expect(readFileSync(authorityPath)).toEqual(bytes)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('passes a native-created same-inode alias to the callback and removes it after success', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-alias-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
+    let aliasPath = ''
+    try {
+      addon.withRuntimeAuthorityLock(authorityPath, (stablePath: string) => {
+        aliasPath = stablePath
+        expect(stablePath).not.toBe(authorityPath)
+        const canonical = addon.readPrivateRuntimeFileIdentity(authorityPath)
+        const alias = addon.readPrivateRuntimeFileIdentity(stablePath)
+        expect(canonical).toMatchObject({ ok: true })
+        expect(alias).toEqual(canonical)
+        return 'alias-ok'
+      })
+      expect(aliasPath.length).toBeGreaterThan(0)
+      expect(() => readFileSync(aliasPath)).toThrow()
+      expect(() => readFileSync(aliasPath + '-wal')).toThrow()
+      expect(() => readFileSync(aliasPath + '-shm')).toThrow()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('removes the stable alias when the callback throws', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-alias-error-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
+    try {
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => {
+        throw new Error('callback failed')
+      })).toThrow('callback failed')
+      expect(readdirSync(directory).filter(entry => entry.includes('.donwells-alias-'))).toEqual([])
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

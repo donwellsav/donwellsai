@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolveNativeRuntimeAddonPath } from '@shared/native-addon-path'
 import type {
   ProcessIdentity,
   ProcessIdentityVerdict,
@@ -116,10 +116,7 @@ function nativeReaderFromAddon(addon: RuntimeIdentityAddon): NativeProcessReader
 
 function loadNativeAddon(): RuntimeIdentityAddon {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
-  const packaged = typeof electronProcess.resourcesPath === 'string' && electronProcess.defaultApp !== true
-  const root = packaged ? electronProcess.resourcesPath! : resolve(__dirname, '../..')
-  const relativePath = packaged ? join('native', 'runtime-identity.node') : join('resources', 'native', 'runtime-identity.node')
-  const addon = createRequire(__filename)(join(root, relativePath)) as RuntimeIdentityAddon
+  const addon = createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, electronProcess)) as RuntimeIdentityAddon
   if (addon.platform !== process.platform) throw new Error('runtime identity addon platform mismatch: ' + String(addon.platform))
   if (addon.identityContractVersion !== 1) throw new Error('runtime identity addon contract mismatch')
   return addon

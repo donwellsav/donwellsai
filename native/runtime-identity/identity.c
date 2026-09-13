@@ -13,6 +13,9 @@
 #include <aclapi.h>
 #include <sddl.h>
 #else
+#if !defined(_WIN32)
+#include <dirent.h>
+#endif
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -801,10 +804,11 @@ static napi_value throw_authority_error(napi_env env, const char *message) {
   (void)napi_throw_error(env, NULL, message);
   return NULL;
 }
-
 #if defined(_WIN32)
 typedef HANDLE authority_lock_handle;
 #define INVALID_AUTHORITY_LOCK INVALID_HANDLE_VALUE
+typedef HANDLE authority_file_handle;
+#define INVALID_AUTHORITY_FILE INVALID_HANDLE_VALUE
 
 static authority_lock_handle open_authority_lock(const char *path) {
   WCHAR wide_path[32768];
@@ -831,6 +835,88 @@ static authority_lock_handle open_authority_lock(const char *path) {
   return handle;
 }
 
+static authority_file_handle open_authority_file(const char *path) {
+  WCHAR wide_path[32768];
+  HANDLE handle;
+  BY_HANDLE_FILE_INFORMATION basic_information;
+  FILE_STANDARD_INFO standard_information;
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return INVALID_AUTHORITY_FILE;
+  handle = CreateFileW(wide_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return INVALID_AUTHORITY_FILE;
+  if (!GetFileInformationByHandle(handle, &basic_information) ||
+      !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard_information, sizeof(standard_information)) ||
+      (basic_information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || standard_information.Directory ||
+      !windows_private_security(handle)) {
+    (void)CloseHandle(handle);
+    return INVALID_AUTHORITY_FILE;
+  }
+  return handle;
+}
+
+static int same_authority_file(authority_file_handle first, authority_file_handle second) {
+  BY_HANDLE_FILE_INFORMATION left;
+  BY_HANDLE_FILE_INFORMATION right;
+  if (!GetFileInformationByHandle(first, &left) || !GetFileInformationByHandle(second, &right)) return 0;
+  return left.dwVolumeSerialNumber == right.dwVolumeSerialNumber &&
+    left.nFileIndexHigh == right.nFileIndexHigh && left.nFileIndexLow == right.nFileIndexLow;
+}
+
+static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+  WCHAR wide_path[32768];
+  WCHAR wide_alias[32768];
+  const char *separator;
+  char directory[MAX_IDENTITY_STRING];
+  char basename[MAX_IDENTITY_STRING];
+  size_t directory_length;
+  size_t basename_length;
+  static unsigned int counter = 0;
+  unsigned int index;
+  uint32_t nonce = (uint32_t)GetTickCount() ^ (uint32_t)GetCurrentProcessId() ^ ++counter;
+  if (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0]))) return 0;
+  separator = strrchr(path, '\\');
+  if (separator == NULL) separator = strrchr(path, '/');
+  if (separator == NULL || separator == path || separator[1] == '\0') return 0;
+  directory_length = (size_t)(separator - path);
+  basename_length = strlen(separator + 1);
+  if (directory_length >= sizeof(directory) || basename_length >= sizeof(basename)) return 0;
+  memcpy(directory, path, directory_length);
+  directory[directory_length] = '\0';
+  memcpy(basename, separator + 1, basename_length + 1);
+  for (index = 0; index < 128; index++) {
+    int written = snprintf(alias, capacity, "%s\\.%s.donwells-alias-%08x-%u", directory, basename, nonce, index);
+    if (written <= 0 || (size_t)written >= capacity || !get_windows_path(alias, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) return 0;
+    if (!CreateHardLinkW(wide_alias, wide_path, NULL)) {
+      if (GetLastError() == ERROR_FILE_EXISTS || GetLastError() == ERROR_ALREADY_EXISTS) continue;
+      return 0;
+    }
+    {
+      HANDLE opened = CreateFileW(wide_alias, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+      if (opened != INVALID_HANDLE_VALUE && same_authority_file(canonical, opened) && windows_private_security(opened)) {
+        *alias_handle = opened;
+        return 1;
+      }
+      if (opened != INVALID_HANDLE_VALUE) (void)CloseHandle(opened);
+    }
+    (void)DeleteFileW(wide_alias);
+  }
+  return 0;
+}
+
+static void close_authority_file(authority_file_handle handle) {
+  if (handle != INVALID_AUTHORITY_FILE) (void)CloseHandle(handle);
+}
+
+static void remove_authority_alias(const char *alias) {
+  WCHAR wide_alias[32768];
+  char sidecar[MAX_IDENTITY_STRING];
+  if (!get_windows_path(alias, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) return;
+  (void)DeleteFileW(wide_alias);
+  if (snprintf(sidecar, sizeof(sidecar), "%s-wal", alias) > 0 && get_windows_path(sidecar, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) (void)DeleteFileW(wide_alias);
+  if (snprintf(sidecar, sizeof(sidecar), "%s-shm", alias) > 0 && get_windows_path(sidecar, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0]))) (void)DeleteFileW(wide_alias);
+}
+
 static int lock_authority_name(authority_lock_handle handle) {
   OVERLAPPED overlapped;
   memset(&overlapped, 0, sizeof(overlapped));
@@ -846,6 +932,8 @@ static void close_authority_lock(authority_lock_handle handle) {
 #else
 typedef int authority_lock_handle;
 #define INVALID_AUTHORITY_LOCK (-1)
+typedef int authority_file_handle;
+#define INVALID_AUTHORITY_FILE (-1)
 
 static authority_lock_handle open_authority_lock(const char *path) {
   char directory[MAX_IDENTITY_STRING];
@@ -876,6 +964,122 @@ static authority_lock_handle open_authority_lock(const char *path) {
   return descriptor;
 }
 
+static authority_file_handle open_authority_file(const char *path) {
+  int flags = O_RDWR | O_CLOEXEC | O_CREAT;
+  int descriptor;
+  struct stat metadata;
+#ifdef O_NOFOLLOW
+  flags |= O_NOFOLLOW;
+#endif
+  descriptor = open(path, flags, 0600);
+  if (descriptor < 0) return INVALID_AUTHORITY_FILE;
+  if (fstat(descriptor, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_uid != geteuid() || (metadata.st_mode & 0077) != 0) {
+    (void)close(descriptor);
+    return INVALID_AUTHORITY_FILE;
+  }
+  return descriptor;
+}
+
+static int same_authority_file(authority_file_handle first, authority_file_handle second) {
+  struct stat left;
+  struct stat right;
+  if (fstat(first, &left) != 0 || fstat(second, &right) != 0) return 0;
+  return left.st_dev == right.st_dev && left.st_ino == right.st_ino;
+}
+
+static int authority_parts(const char *path, char *directory, size_t directory_capacity, char *basename, size_t basename_capacity) {
+  const char *separator = strrchr(path, '/');
+  size_t directory_length;
+  size_t basename_length;
+  if (path == NULL || separator == NULL || separator == path || separator[1] == '\0') return 0;
+  directory_length = (size_t)(separator - path);
+  basename_length = strlen(separator + 1);
+  if (directory_length >= directory_capacity || basename_length >= basename_capacity) return 0;
+  memcpy(directory, path, directory_length);
+  directory[directory_length] = '\0';
+  memcpy(basename, separator + 1, basename_length + 1);
+  return 1;
+}
+
+static int authority_alias_path(const char *directory, const char *basename, uint32_t nonce, unsigned int index, char *alias, size_t capacity) {
+  int written = snprintf(alias, capacity, "%s/.%s.donwells-alias-%08x-%u", directory, basename, nonce, index);
+  return written > 0 && (size_t)written < capacity;
+}
+
+static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+  char candidate[MAX_IDENTITY_STRING];
+  authority_file_handle opened;
+  if (strncmp(name, ".", 1) != 0 || strncmp(name + 1, basename, strlen(basename)) != 0 || strstr(name, ".donwells-alias-") == NULL) return 0;
+  if (snprintf(candidate, sizeof(candidate), "%s/%s", directory, name) <= 0 || strlen(candidate) >= capacity) return 0;
+  opened = open(candidate, O_RDWR | O_CLOEXEC
+#ifdef O_NOFOLLOW
+    | O_NOFOLLOW
+#endif
+    , 0);
+  if (opened < 0 || !same_authority_file(canonical, opened)) {
+    if (opened >= 0) (void)close(opened);
+    return 0;
+  }
+  memcpy(alias, candidate, strlen(candidate) + 1);
+  *alias_handle = opened;
+  return 1;
+}
+
+static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+  DIR *entries = opendir(directory);
+  struct dirent *entry;
+  if (entries == NULL) return 0;
+  while ((entry = readdir(entries)) != NULL) {
+    if (open_matching_alias(directory, basename, entry->d_name, canonical, alias, capacity, alias_handle)) {
+      (void)closedir(entries);
+      return 1;
+    }
+  }
+  (void)closedir(entries);
+  return 0;
+}
+
+static int create_authority_alias(const char *path, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+  char directory[MAX_IDENTITY_STRING];
+  char basename[MAX_IDENTITY_STRING];
+  static unsigned int counter = 0;
+  unsigned int index;
+  uint32_t nonce = (uint32_t)arc4random() ^ (uint32_t)getpid() ^ ++counter;
+  if (!authority_parts(path, directory, sizeof(directory), basename, sizeof(basename))) return 0;
+  if (find_existing_alias(directory, basename, canonical, alias, capacity, alias_handle)) return 1;
+  for (index = 0; index < 128; index++) {
+    authority_file_handle opened;
+    if (!authority_alias_path(directory, basename, nonce, index, alias, capacity)) return 0;
+    if (link(path, alias) != 0) {
+      if (errno == EEXIST) continue;
+      return 0;
+    }
+    opened = open(alias, O_RDWR | O_CLOEXEC
+#ifdef O_NOFOLLOW
+      | O_NOFOLLOW
+#endif
+      , 0);
+    if (opened >= 0 && same_authority_file(canonical, opened)) {
+      *alias_handle = opened;
+      return 1;
+    }
+    if (opened >= 0) (void)close(opened);
+    (void)unlink(alias);
+  }
+  return 0;
+}
+
+static void close_authority_file(authority_file_handle handle) {
+  if (handle != INVALID_AUTHORITY_FILE) (void)close(handle);
+}
+
+static void remove_authority_alias(const char *alias) {
+  char sidecar[MAX_IDENTITY_STRING];
+  (void)unlink(alias);
+  if (snprintf(sidecar, sizeof(sidecar), "%s-wal", alias) > 0) (void)unlink(sidecar);
+  if (snprintf(sidecar, sizeof(sidecar), "%s-shm", alias) > 0) (void)unlink(sidecar);
+}
+
 static int lock_authority_name(authority_lock_handle handle) {
   return flock(handle, LOCK_EX) == 0;
 }
@@ -888,30 +1092,82 @@ static void close_authority_lock(authority_lock_handle handle) {
 
 static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info info) {
   napi_value arguments[2];
+  napi_value callback_argument;
   size_t argument_count = 2;
   char path[MAX_IDENTITY_STRING];
+  char alias[MAX_IDENTITY_STRING];
   napi_valuetype callback_type;
-  authority_lock_handle handle = INVALID_AUTHORITY_LOCK;
+  authority_lock_handle lock_handle = INVALID_AUTHORITY_LOCK;
+  authority_file_handle canonical_handle = INVALID_AUTHORITY_FILE;
+  authority_file_handle alias_handle = INVALID_AUTHORITY_FILE;
   napi_value callback_result = NULL;
   napi_value global = NULL;
+  int callback_ok = 0;
   if (napi_get_cb_info(env, info, &argument_count, arguments, NULL, NULL) != napi_ok || argument_count < 2 ||
       !get_utf8_argument(env, arguments[0], path, sizeof(path)) ||
       napi_typeof(env, arguments[1], &callback_type) != napi_ok || callback_type != napi_function ||
       napi_get_global(env, &global) != napi_ok) {
     return throw_authority_error(env, "runtime authority lock arguments were malformed");
   }
-  handle = open_authority_lock(path);
-  if (handle == INVALID_AUTHORITY_LOCK) return throw_authority_error(env, "open runtime authority name lock failed");
-  if (!lock_authority_name(handle)) {
-    close_authority_lock(handle);
+  lock_handle = open_authority_lock(path);
+  if (lock_handle == INVALID_AUTHORITY_LOCK) return throw_authority_error(env, "open runtime authority name lock failed");
+  if (!lock_authority_name(lock_handle)) {
+    close_authority_lock(lock_handle);
     return throw_authority_error(env, "lock runtime authority name failed");
   }
-  if (napi_call_function(env, global, arguments[1], 0, NULL, &callback_result) != napi_ok) {
-    close_authority_lock(handle);
+  canonical_handle = open_authority_file(path);
+  if (canonical_handle == INVALID_AUTHORITY_FILE || !create_authority_alias(path, canonical_handle, alias, sizeof(alias), &alias_handle)) {
+    close_authority_file(canonical_handle);
+    close_authority_lock(lock_handle);
+    return throw_authority_error(env, "create runtime authority stable alias failed");
+  }
+  if (napi_create_string_utf8(env, alias, NAPI_AUTO_LENGTH, &callback_argument) != napi_ok ||
+      napi_call_function(env, global, arguments[1], 1, &callback_argument, &callback_result) != napi_ok) {
+    close_authority_file(alias_handle);
+    close_authority_file(canonical_handle);
+    remove_authority_alias(alias);
+    close_authority_lock(lock_handle);
     return NULL;
   }
-  close_authority_lock(handle);
-  return callback_result;
+  callback_ok = 1;
+  if (!same_authority_file(canonical_handle, alias_handle)) {
+    callback_ok = 0;
+    (void)napi_throw_error(env, NULL, "runtime authority stable alias identity changed");
+  }
+#if defined(_WIN32)
+  {
+    WCHAR wide_path[32768];
+    WCHAR wide_alias[32768];
+    HANDLE final_handle;
+    if (callback_ok && (!get_windows_path(path, wide_path, sizeof(wide_path) / sizeof(wide_path[0])) ||
+        !get_windows_path(alias, wide_alias, sizeof(wide_alias) / sizeof(wide_alias[0])))) callback_ok = 0;
+    final_handle = callback_ok ? CreateFileW(wide_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL) : INVALID_HANDLE_VALUE;
+    if (callback_ok && (final_handle == INVALID_HANDLE_VALUE || !same_authority_file(canonical_handle, final_handle))) {
+      callback_ok = 0;
+      (void)napi_throw_error(env, NULL, "runtime authority canonical identity changed during operation");
+    }
+    if (final_handle != INVALID_HANDLE_VALUE) (void)CloseHandle(final_handle);
+  }
+#else
+  {
+    authority_file_handle final_handle = callback_ok ? open(path, O_RDONLY | O_CLOEXEC
+#ifdef O_NOFOLLOW
+      | O_NOFOLLOW
+#endif
+      , 0) : INVALID_AUTHORITY_FILE;
+    if (callback_ok && (final_handle == INVALID_AUTHORITY_FILE || !same_authority_file(canonical_handle, final_handle))) {
+      callback_ok = 0;
+      (void)napi_throw_error(env, NULL, "runtime authority canonical identity changed during operation");
+    }
+    close_authority_file(final_handle);
+  }
+#endif
+  close_authority_file(alias_handle);
+  close_authority_file(canonical_handle);
+  remove_authority_alias(alias);
+  close_authority_lock(lock_handle);
+  return callback_ok ? callback_result : NULL;
 }
 
 static int get_pid_argument(napi_env env, napi_value value, uint64_t *pid) {

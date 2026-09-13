@@ -370,8 +370,8 @@ export class RuntimeOwnershipStore {
     }
   }
 
-  private openDatabase(readOnly: boolean): DatabaseSync {
-    const db = new DatabaseSync(this.databasePath, { readOnly })
+  private openDatabase(readOnly: boolean, databasePath = this.databasePath): DatabaseSync {
+    const db = new DatabaseSync(databasePath, { readOnly })
     db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000')
     if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
     return db
@@ -381,10 +381,10 @@ export class RuntimeOwnershipStore {
     if (this.closed) throw new RuntimeOwnershipError('DATABASE_CLOSED', 'runtime ownership database is closed')
     if (write && this.readOnly) throw new RuntimeOwnershipError('READ_ONLY', 'runtime ownership database is read-only')
     if (write && !verify) throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership mutation had no durability verification')
-    return this.withAuthorityLock(this.databasePath, () => {
+    return this.withAuthorityLock(this.databasePath, stablePath => {
       this.ensureAuthorityFile()
       this.assertAuthorityIdentity()
-      const db = this.openDatabase(this.readOnly)
+      const db = this.openDatabase(this.readOnly, stablePath)
       let result: T
       try {
         if (write) db.exec('BEGIN IMMEDIATE')
@@ -395,7 +395,7 @@ export class RuntimeOwnershipStore {
       }
       this.assertAuthorityIdentity()
       if (write) {
-        const verifier = this.openDatabase(true)
+        const verifier = this.openDatabase(true, stablePath)
         try { verify!(verifier, result) } finally { verifier.close() }
         this.assertAuthorityIdentity()
       }

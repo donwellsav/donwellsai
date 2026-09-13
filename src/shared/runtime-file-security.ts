@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, resolve } from 'node:path'
+import { resolveNativeRuntimeAddonPath } from './native-addon-path'
 
 export type RuntimeFileIdentity =
   | { platform: 'posix'; device: string; inode: string }
@@ -30,7 +31,7 @@ export type RuntimeFileRead = {
 }
 
 export type RuntimeFileReader = (path: string, maxBytes: number) => RuntimeFileRead
-export type RuntimeAuthorityLock = <T>(path: string, callback: () => T) => T
+export type RuntimeAuthorityLock = <T>(path: string, callback: (stablePath: string) => T) => T
 export type RuntimeFileIdentityReader = (path: string) => RuntimeFileIdentity
 
 export class RuntimeFileSecurityError extends Error {
@@ -130,19 +131,32 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
   if (addon.platform !== expectedPlatform) throw new Error('runtime authority addon platform mismatch')
   if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime authority addon contract mismatch')
   if (typeof addon.withRuntimeAuthorityLock !== 'function') throw new Error('runtime authority addon is missing withRuntimeAuthorityLock')
-  const lock = addon.withRuntimeAuthorityLock as (path: string, callback: () => unknown) => unknown
-  return <T>(path: string, callback: () => T): T => {
+  const lock = addon.withRuntimeAuthorityLock as (path: string, callback: (stablePath: string) => unknown) => unknown
+  return <T>(path: string, callback: (stablePath: string) => T): T => {
     if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new RuntimeFileSecurityError('native-error', 'runtime authority path was malformed')
-    return lock(path, callback) as T
+    let callbackFailed = false
+    let callbackError: unknown
+    const guardedCallback = (stablePath: string): T => {
+      try {
+        return callback(stablePath)
+      } catch (error) {
+        callbackFailed = true
+        callbackError = error
+        throw error
+      }
+    }
+    try {
+      return lock(path, guardedCallback) as T
+    } catch (error) {
+      if (callbackFailed) throw callbackError
+      throw new RuntimeFileSecurityError('native-error', (error instanceof Error ? error.message : String(error)).slice(0, 4096))
+    }
   }
 }
 
 function loadNativeAddon(): NativeRuntimeFileAddon {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
-  const packaged = typeof electronProcess.resourcesPath === 'string' && electronProcess.defaultApp !== true
-  const root = packaged ? electronProcess.resourcesPath! : resolve(__dirname, '../..')
-  const addonPath = packaged ? join('native', 'runtime-identity.node') : join('resources', 'native', 'runtime-identity.node')
-  return createRequire(__filename)(join(root, addonPath)) as NativeRuntimeFileAddon
+  return createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, electronProcess)) as NativeRuntimeFileAddon
 }
 
 let defaultReader: RuntimeFileReader | undefined
