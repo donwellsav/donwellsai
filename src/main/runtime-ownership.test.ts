@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner } from './runtime-ownership'
 
 const identity = {
   pid: process.pid,
@@ -40,13 +40,13 @@ describe('runtime publication state machine', () => {
     }
   })
 
-  it('releases an interrupted preparing claim without disturbing successors', () => {
+  it('preserves an interrupted preparing claim as recovery evidence', () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-publication-interrupted-'))
     const publication = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'donwells-app-runtime.sock')), authToken: 'interrupted-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     try {
       expect(publication.owner.state).toBe('preparing')
-      expect(releaseRuntimeOwner(publication)).toBe(true)
-      expect(publication.store.observe('donwells-app')).toEqual({ status: 'vacant' })
+      expect(releaseRuntimeOwner(publication)).toBe(false)
+      expect(publication.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: publication.owner.ownerId, state: 'preparing' } })
     } finally {
       publication.store.close()
       rmSync(directory, { recursive: true, force: true })
@@ -90,48 +90,47 @@ describe('runtime publication state machine', () => {
     }
   })
 
-  it('finishes a preparing row only after exact authenticated contact', async () => {
+  it('lets only the exact in-memory candidate finish its preparing publication', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-finish-'))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'finish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
-    writeRuntimeRecord(first.paths.runtimeFile, first.locator)
     try {
-      const result = await reconcileRuntimeOwner({
-        userDataDir: directory,
-        kind: 'donwells-app',
-        authority,
-        store: first.store,
-        contact: async record => 'version' in record
-          ? { status: 'exact', ownerId: record.ownerId, generation: record.ownerGeneration, processIdentity: record.processIdentity }
-          : { status: 'legacy' }
-      })
-      expect(result.action).toBe('finish-preparing')
-      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'active', ownerId: first.owner.ownerId, generation: first.owner.generation } })
-      const locator = readRuntimeRecord(first.paths.runtimeFile)
-      expect(locator).toMatchObject({ status: 'current', record: first.locator })
+      const result = await reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, candidate: first, contact: async () => { throw new Error('owned preparing candidate must not contact itself') } })
+      expect(result).toEqual({ action: 'finish-preparing', publication: first })
+      if (result.action !== 'finish-preparing') throw new Error('expected owned preparing action')
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
+      await publishRuntimeOwner(result.publication, () => undefined)
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'active', ownerId: first.owner.ownerId } })
     } finally {
       first.store.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })
 
-  it('republishes an active row when exact contact proves a mismatched locator', async () => {
+  it('never finishes another process preparing row from authenticated contact alone', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-foreign-'))
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'foreign-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    try {
+      await expect(reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, contact: async record => 'version' in record ? { status: 'exact', ownerId: record.ownerId, generation: record.ownerGeneration, processIdentity: record.processIdentity } : { status: 'legacy' } })).rejects.toMatchObject({ code: 'OWNER_LIVE' })
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'preparing' } })
+    } finally {
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('lets only the exact in-memory active candidate republish its locator', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'runtime-reconcile-republish-'))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join(directory, 'first.sock')), authToken: 'republish-reconcile-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
     const wrong: LocalRuntimeRecord = { ...first.locator, authToken: 'wrong-reconcile-token' }
     writeRuntimeRecord(first.paths.runtimeFile, wrong)
     try {
-      const result = await reconcileRuntimeOwner({
-        userDataDir: directory,
-        kind: 'donwells-app',
-        authority,
-        store: first.store,
-        contact: async record => 'version' in record
-          ? { status: 'exact', ownerId: record.ownerId, generation: record.ownerGeneration, processIdentity: record.processIdentity }
-          : { status: 'legacy' }
-      })
-      expect(result.action).toBe('republish-active')
-      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { state: 'active', locatorSha256: expect.any(String) } })
+      const before = first.store.observe('donwells-app')
+      const result = await reconcileRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', authority, store: first.store, candidate: first, contact: async () => { throw new Error('owned active candidate must not contact itself') } })
+      expect(result).toEqual({ action: 'republish-active', publication: first })
+      if (result.action !== 'republish-active') throw new Error('expected owned active action')
+      expect(first.store.observe('donwells-app')).toEqual(before)
+      republishRuntimeOwner(result.publication, first.owner.locatorSha256)
       expect(readRuntimeRecord(first.paths.runtimeFile)).toMatchObject({ status: 'current', record: first.locator })
     } finally {
       first.store.close()

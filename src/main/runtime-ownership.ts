@@ -38,13 +38,14 @@ export type RuntimeReconcileOptions = {
   kind: RuntimeOwnerKind
   authority: RuntimeIdentityAuthority
   store?: RuntimeOwnershipStore
+  candidate?: RuntimePublication
   contact?: (record: LocalRuntimeRecord | LegacyRuntimeRecord, kind: RuntimeOwnerKind) => Promise<RuntimeContactResult>
 }
 
 export type RuntimeReconcileResult =
   | { action: 'claim' }
-  | { action: 'finish-preparing'; owner: RuntimeOwner; locator: LocalRuntimeRecord }
-  | { action: 'republish-active'; owner: RuntimeOwner; locator: LocalRuntimeRecord }
+  | { action: 'finish-preparing'; publication: RuntimePublication }
+  | { action: 'republish-active'; publication: RuntimePublication }
 
 function priorVerdict(observed: RuntimeOwnerObservation, authority: RuntimeIdentityAuthority): ProcessIdentityVerdict | null {
   if (observed.status === 'vacant') return null
@@ -210,36 +211,51 @@ export async function reconcileRuntimeOwner(options: RuntimeReconcileOptions): P
 
     const owner = observed.owner
     const verdict = options.authority.verify(owner.identity)
-    if (locator.status === 'invalid') {
-      if (verdict.status === 'valid' || verdict.status === 'indeterminate') {
-        fail(verdict.status === 'valid' ? 'OWNER_LIVE' : 'OWNER_INDETERMINATE', verdict.status === 'valid' ? 'runtime owner has an invalid locator' : verdict.reason + ': ' + verdict.detail)
+    const locatorBelongsToOwner = locator.status === 'current' && locatorMatchesOwner(locator.record, owner)
+    const exact = locatorBelongsToOwner && locator.sha256 === owner.locatorSha256
+    const candidate = options.candidate
+    const candidateOwnsRow = candidate !== undefined
+      && candidate.paths.runtimeFile === paths.runtimeFile
+      && candidate.paths.ownershipDatabasePath === paths.ownershipDatabasePath
+      && candidate.owner.kind === owner.kind
+      && candidate.owner.ownerId === owner.ownerId
+      && candidate.owner.generation === owner.generation
+      && candidate.owner.state === owner.state
+      && candidate.owner.endpoint === owner.endpoint
+      && candidate.owner.authToken === owner.authToken
+      && sameIdentity(candidate.owner.identity, owner.identity)
+      && locatorMatchesOwner(candidate.locator, owner)
+
+    if (candidateOwnsRow) {
+      if (verdict.status !== 'valid' || !sameIdentity(verdict.current, owner.identity)) {
+        fail(verdict.status === 'indeterminate' ? 'OWNER_INDETERMINATE' : 'OWNER_CHANGED', verdict.status === 'indeterminate' ? verdict.reason + ': ' + verdict.detail : 'in-memory runtime candidate identity is no longer current')
       }
-      return { action: 'claim' }
+      if (owner.state === 'preparing') {
+        if (locator.status !== 'missing' && !locatorBelongsToOwner) fail('RECOVERY_REQUIRED', 'preparing candidate cannot overwrite an unrelated runtime locator')
+        return { action: 'finish-preparing', publication: candidate }
+      }
+      if (exact) fail('OWNER_LIVE', 'runtime owner is already active')
+      return { action: 'republish-active', publication: candidate }
     }
 
-    const rowLocator = ownerLocator(owner)
-    const exact = locator.status === 'current' && exactLocator(locator, owner) && locator.sha256 === owner.locatorSha256
-    const contactTarget = locator.status === 'current' && exactLocator(locator, owner) ? locator.record : rowLocator
-    const result = await contact(contactTarget, options.kind)
-    if (result.status === 'legacy') fail('RECOVERY_REQUIRED', 'runtime owner endpoint is legacy and lacks exact identity')
-    if (result.status === 'exact') {
-      if (owner.state === 'preparing') {
-        let publishedRecord = rowLocator
-        let publishedHash = locatorHash(rowLocator)
-        if (locator.status === 'current' && exactLocator(locator, owner)) {
-          publishedRecord = locator.record
-          publishedHash = locator.sha256
-        } else {
-          writeRuntimeRecord(paths.runtimeFile, publishedRecord)
-        }
-        const active = store.activate(owner, publishedHash)
-        return { action: 'finish-preparing', owner: active, locator: publishedRecord }
+    if (locator.status === 'invalid') fail('RUNTIME_LOCATOR_INVALID', locator.reason)
+    if (locator.status === 'legacy' || (locator.status === 'current' && !locatorBelongsToOwner)) {
+      const contacted = await contact(locator.record, options.kind)
+      if (contacted.status === 'exact' || contacted.status === 'legacy') fail('OWNER_LIVE', 'mismatched runtime locator is still reachable')
+      if (locator.status === 'current') {
+        if (!locatorMatchesKind(locator.record, options.kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
+        const locatorVerdict = options.authority.verify(locator.record.processIdentity)
+        if (locatorVerdict.status === 'valid') fail('OWNER_LIVE', 'mismatched runtime locator identifies a live process')
+        if (locatorVerdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', locatorVerdict.reason + ': ' + locatorVerdict.detail)
       }
-      if (owner.locatorSha256 === null) fail('OWNER_STATE', 'active owner locator hash was missing')
-      if (exact) fail('OWNER_LIVE', 'runtime owner is already active')
-      writeRuntimeRecord(paths.runtimeFile, rowLocator)
-      const active = store.republishActive(owner, owner.locatorSha256, locatorHash(rowLocator))
-      return { action: 'republish-active', owner: active, locator: rowLocator }
+      const recovery = store.findLegacyRecovery({ kind: options.kind, expectedFingerprint: locator.sha256, fileIdentity: locator.fileIdentity, endpoint: locator.record.socketPath })
+      if (!recovery) fail('RECOVERY_REQUIRED', 'mismatched runtime locator requires exact committed recovery')
+    }
+
+    if (locatorBelongsToOwner || locator.status === 'missing') {
+      const contacted = await contact(locatorBelongsToOwner ? locator.record : ownerLocator(owner), options.kind)
+      if (contacted.status === 'exact') fail('OWNER_LIVE', 'runtime owner is still reachable')
+      if (contacted.status === 'legacy') fail('RECOVERY_REQUIRED', 'runtime owner endpoint is legacy and lacks exact identity')
     }
     if (verdict.status === 'valid') fail('OWNER_LIVE', 'runtime owner is still live')
     if (verdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', verdict.reason + ': ' + verdict.detail)
@@ -305,16 +321,12 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
 }
 
 export async function publishRuntimeOwner(publication: RuntimePublication, bind: () => void | Promise<void>): Promise<RuntimeOwner> {
-  try {
-    await bind()
-    writeRuntimeRecord(publication.paths.runtimeFile, publication.locator)
-    const locatorBytes = Buffer.from(JSON.stringify(publication.locator))
-    const locatorSha256 = createHash('sha256').update(locatorBytes).digest('hex')
-    publication.owner = publication.store.activate(publication.owner, locatorSha256)
-    return publication.owner
-  } catch (error) {
-    throw error
-  }
+  await bind()
+  writeRuntimeRecord(publication.paths.runtimeFile, publication.locator)
+  const locatorBytes = Buffer.from(JSON.stringify(publication.locator))
+  const locatorSha256 = createHash('sha256').update(locatorBytes).digest('hex')
+  publication.owner = publication.store.activate(publication.owner, locatorSha256)
+  return publication.owner
 }
 
 export function republishRuntimeOwner(publication: RuntimePublication, expectedLocatorSha256: string | null): RuntimeOwner {
@@ -326,5 +338,6 @@ export function republishRuntimeOwner(publication: RuntimePublication, expectedL
 }
 
 export function releaseRuntimeOwner(publication: RuntimePublication): boolean {
+  if (publication.owner.state !== 'active') return false
   return publication.store.release(publication.owner)
 }

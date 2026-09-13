@@ -1,8 +1,8 @@
 import { parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
-import { chmodSync, mkdirSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
@@ -89,6 +89,7 @@ function cloneRun(run: RunningAgent): RunningAgent {
 /** Detached local execution owner. Client disconnect is never process-exit evidence. */
 export class TerminalDaemon {
   private server: Server | null = null
+  private boundIno: number | null = null
   private readonly pty: PtyManager
   private readonly attention: AttentionInboxService
   private readonly authToken: string
@@ -156,31 +157,36 @@ export class TerminalDaemon {
         await closed.promise
       }
     } finally {
+      this.boundIno = null
       this.releaseRuntimeOwner()
     }
     return true
   }
 
   async start(): Promise<void> {
+    if (this.server) throw new Error('Terminal daemon is already started')
     this.prepareRuntimeDirectory()
     const authority = runtimeIdentityAuthority()
     const reconciliation = await reconcileRuntimeOwner({
       userDataDir: dirname(this.paths.runtimeDir),
       kind: 'terminal-daemon',
-      authority
+      authority,
+      store: this.publication?.store,
+      candidate: this.publication ?? undefined
     })
-    if (reconciliation.action !== 'claim') return
-    const publication = claimRuntimeOwner({
-      userDataDir: dirname(this.paths.runtimeDir),
-      kind: 'terminal-daemon',
-      endpoint: freshRuntimeEndpoint(this.paths.socketPath),
-      authToken: this.authToken,
-      captureIdentity: (generation) => authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation }),
-      authority
-    })
+    const publication = reconciliation.action === 'claim'
+      ? claimRuntimeOwner({
+          userDataDir: dirname(this.paths.runtimeDir),
+          kind: 'terminal-daemon',
+          endpoint: freshRuntimeEndpoint(this.paths.socketPath),
+          authToken: this.authToken,
+          captureIdentity: generation => authority.capture(process.pid, { family: 'terminal-daemon', executablePath: process.execPath, generation }),
+          authority
+        })
+      : reconciliation.publication
     this.publication = publication
     this.paths.socketPath = publication.owner.endpoint
-    const server = createServer((socket) => this.handleClient(socket))
+    const server = createServer(socket => this.handleClient(socket))
     this.server = server
     const listening = Promise.withResolvers<void>()
     const onError = (error: Error): void => {
@@ -196,20 +202,25 @@ export class TerminalDaemon {
     server.listen(this.paths.socketPath)
     try {
       await listening.promise
-      if (process.platform !== 'win32') chmodSync(this.paths.socketPath, 0o600)
-      await publishRuntimeOwner(publication, () => undefined)
-    } catch (error) {
-      if (server.listening) server.close()
-      this.server = null
-      const failed = this.publication
-      this.publication = null
-      if (failed) {
-        try {
-          failed.store.release(failed.owner)
-        } finally {
-          failed.store.close()
-        }
+      if (process.platform !== 'win32') {
+        this.boundIno = statSync(this.paths.socketPath).ino
+        chmodSync(this.paths.socketPath, 0o600)
       }
+      if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
+      else await publishRuntimeOwner(publication, () => undefined)
+    } catch (error) {
+      if (server.listening) {
+        const closed = Promise.withResolvers<void>()
+        server.close(() => closed.resolve())
+        await closed.promise
+      }
+      this.server = null
+      if (process.platform !== 'win32' && this.boundIno !== null) {
+        try {
+          if (lstatSync(this.paths.socketPath).ino === this.boundIno) rmSync(this.paths.socketPath)
+        } catch {}
+      }
+      this.boundIno = null
       throw error
     }
   }
@@ -228,7 +239,7 @@ export class TerminalDaemon {
     this.publication = null
     if (!publication) return
     try {
-      publication.store.release(publication.owner)
+      releaseRuntimeOwner(publication)
     } finally {
       publication.store.close()
     }

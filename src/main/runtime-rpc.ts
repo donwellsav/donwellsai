@@ -8,7 +8,7 @@ import type { ProjectTools } from './project-tools'
 import { parseProjectMemoryListRequest, parseProjectMemoryGetRequest, parseProjectMemoryCreateRequest, parseProjectMemoryUpdateRequest, parseProjectMemoryHistoryRequest, parseProjectMemoryArchiveRequest, type ProjectMemoryApi } from '@shared/project-memory'
 import { createServer, type Server, type Socket } from 'node:net'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
   AppSettings,
@@ -39,7 +39,7 @@ import { verifyWorkspaceDirectory, type GitWorktrees } from './git'
 import type { DaemonClient } from './daemon-client'
 import type { SkillPackagesManager } from './skills'
 import { isObject, validateCommandParams } from '@shared/command-catalog'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, type RuntimePublication } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication } from './runtime-ownership'
 import { readRuntimeRecord } from './local-runtime'
 import { runtimeIdentityAuthority } from './runtime-identity'
 // Authenticated NDJSON; the CLI and UI share domain operations and argument validation.
@@ -133,17 +133,20 @@ export class RuntimeRpcServer {
     const reconciliation = await reconcileRuntimeOwner({
       userDataDir: dirname(this.runtimeFile),
       kind: 'donwells-app',
-      authority
+      authority,
+      store: this.publication?.store,
+      candidate: this.publication ?? undefined
     })
-    if (reconciliation.action !== 'claim') return
-    const publication = claimRuntimeOwner({
-      userDataDir: dirname(this.runtimeFile),
-      kind: 'donwells-app',
-      endpoint: freshRuntimeEndpoint(this.socketPath),
-      authToken: this.authToken,
-      captureIdentity: (generation) => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }),
-      authority
-    })
+    const publication = reconciliation.action === 'claim'
+      ? claimRuntimeOwner({
+          userDataDir: dirname(this.runtimeFile),
+          kind: 'donwells-app',
+          endpoint: freshRuntimeEndpoint(this.socketPath),
+          authToken: this.authToken,
+          captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }),
+          authority
+        })
+      : reconciliation.publication
     this.publication = publication
     this.socketPath = publication.owner.endpoint
     mkdirSync(dirname(this.runtimeFile), { recursive: true, mode: 0o700 })
@@ -155,7 +158,7 @@ export class RuntimeRpcServer {
       chmodSync(directory, 0o700)
     }
     const ready = Promise.withResolvers<void>()
-    const server = createServer((socket) => this.handleClient(socket))
+    const server = createServer(socket => this.handleClient(socket))
     this.server = server
     server.on('error', ready.reject)
     server.listen(this.socketPath, () => ready.resolve())
@@ -165,9 +168,23 @@ export class RuntimeRpcServer {
         this.boundIno = statSync(this.socketPath).ino
         chmodSync(this.socketPath, 0o600)
       }
-      await publishRuntimeOwner(publication, () => undefined)
+      if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
+      else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
-      this.stop()
+      for (const client of this.clients) client.destroy()
+      this.clients.clear()
+      if (server.listening) {
+        const closed = Promise.withResolvers<void>()
+        server.close(() => closed.resolve())
+        await closed.promise
+      }
+      this.server = null
+      if (process.platform !== 'win32' && this.boundIno !== null) {
+        try {
+          if (lstatSync(this.socketPath).ino === this.boundIno) rmSync(this.socketPath)
+        } catch {}
+      }
+      this.boundIno = null
       throw error
     }
   }
@@ -186,7 +203,7 @@ export class RuntimeRpcServer {
     this.boundIno = null
     if (publication) {
       try {
-        publication.store.release(publication.owner)
+        releaseRuntimeOwner(publication)
       } finally {
         publication.store.close()
       }
