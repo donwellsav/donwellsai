@@ -1,4 +1,5 @@
 import type { TerminalSession } from './types'
+import type { ProcessIdentity } from './child-process/process-spec'
 import type { InitializeResponse, RequestPermissionRequest, PromptResponse, SessionNotification } from '@agentclientprotocol/sdk'
 
 export type AcpAgentSnapshot = {
@@ -6,7 +7,7 @@ export type AcpAgentSnapshot = {
   id: string
   workspacePath: string
   protocolSessionId: string | null
-  pid: number | null
+  processIdentity: ProcessIdentity | null
   state: 'starting' | 'ready' | 'working' | 'permission' | 'stopping' | 'exited' | 'uncertain'
   capabilities: InitializeResponse['agentCapabilities']
   permissions: Array<{ id: string; request: RequestPermissionRequest }>

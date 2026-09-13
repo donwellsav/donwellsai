@@ -4,15 +4,16 @@ import { isAbsolute } from 'node:path'
 import { Readable, Transform, Writable } from 'node:stream'
 import type { ChildProcess } from 'node:child_process'
 import { ClientSideConnection, ndJsonStream, type McpServer, type PromptResponse, type RequestPermissionRequest, type RequestPermissionResponse, type SessionNotification } from '@agentclientprotocol/sdk'
-import { parseAgentExecutable, type AgentExecutable, type AcpAgentSnapshot } from '@shared/agent-runtime'
+import { parseAgentExecutable, type AgentExecutable, type AcpAgentSnapshot, type AcpObservation } from '@shared/agent-runtime'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import type { ProcessIdentity, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { version } from '../../../package.json'
 
 export type { AcpAgentSnapshot } from '@shared/agent-runtime'
 
-type Options = {
+export type AcpAgentStartOptions = {
   id?: string
   signal?: AbortSignal
   /** The owning runtime must authorize this existing directory against its registered projects. */
@@ -21,8 +22,20 @@ type Options = {
   env?: NodeJS.ProcessEnv
   mcpServers: McpServer[]
   loadSessionId?: string
+  identity: RuntimeIdentityAuthority
   onChange: (snapshot: AcpAgentSnapshot) => void
 }
+
+export type AcpAgentOwner = {
+  get(): AcpAgentSnapshot
+  observe(afterSequence?: number): Omit<AcpObservation, 'requests'>
+  prompt(text: string): Promise<PromptResponse>
+  cancel(): Promise<void>
+  stop(): Promise<void>
+  answerPermission(id: string, optionId: string | null): void
+}
+
+export type AcpAgentOwnerFactory = (options: AcpAgentStartOptions) => Promise<AcpAgentOwner>
 
 /** One process owner and protocol session; no PTY or implicit native-session attachment. */
 export class AcpAgent {
@@ -38,13 +51,14 @@ export class AcpAgent {
   private stopping?: Promise<void>
   private stderr = ''
 
-  private constructor(private readonly options: Options, workspacePath: string) {
-    this.snapshot = { mode: 'acp', id: options.id ?? randomUUID(), workspacePath, protocolSessionId: null, pid: null, state: 'starting', capabilities: {}, permissions: [] }
-    const launch = parseAgentExecutable(options.launch)
-    const env = sanitizedProcessEnv(options.env ?? process.env)
-    for (const key of Object.keys(env)) if (key.startsWith('DONWELLS_AGENT_HOOK_')) delete env[key]
-    this.child = spawnProcess({ program: launch.executable, args: launch.args, cwd: workspacePath, env, detached: true })
-    this.snapshot.pid = this.child.pid ?? null
+  private constructor(
+    private readonly options: AcpAgentStartOptions,
+    workspacePath: string,
+    child: ChildProcess,
+    processIdentity: ProcessIdentity
+  ) {
+    this.snapshot = { mode: 'acp', id: options.id ?? randomUUID(), workspacePath, protocolSessionId: null, processIdentity, state: 'starting', capabilities: {}, permissions: [] }
+    this.child = child
     this.options.onChange(this.get())
     this.child.stderr!.on('data', chunk => { this.stderr = (this.stderr + String(chunk)).slice(-8192) })
     this.child.on('error', error => this.lost(String(error)))
@@ -71,12 +85,36 @@ export class AcpAgent {
     })
   }
 
-  static async start(options: Options): Promise<AcpAgent> {
+  static async start(options: AcpAgentStartOptions): Promise<AcpAgent> {
     options.signal?.throwIfAborted()
     if (!isAbsolute(options.workspacePath)) throw new Error('ACP workspace must be an absolute directory')
     const path = realpathSync(options.workspacePath)
     if (!statSync(path).isDirectory()) throw new Error('ACP workspace is not a directory')
-    const agent = new AcpAgent(options, path)
+    const launch = parseAgentExecutable(options.launch)
+    const env = sanitizedProcessEnv(options.env ?? process.env)
+    for (const key of Object.keys(env)) if (key.startsWith('DONWELLS_AGENT_HOOK_')) delete env[key]
+    const child = spawnProcess({ program: launch.executable, args: launch.args, cwd: path, env, detached: true })
+    let processIdentity: ProcessIdentity
+    try {
+      if (!child.pid) throw new Error('ACP process did not report a PID')
+      processIdentity = options.identity.capture(child.pid, { family: 'acp-agent' })
+    } catch (error) {
+      const detail = String(error).slice(0, 2048)
+      const terminated = await forceTerminateProcessTree(child).catch(() => false)
+      options.onChange({
+        mode: 'acp',
+        id: options.id ?? randomUUID(),
+        workspacePath: path,
+        protocolSessionId: null,
+        processIdentity: null,
+        state: 'uncertain',
+        capabilities: {},
+        permissions: [],
+        detail: terminated ? detail : (detail + ' ACP process termination could not be verified.').slice(0, 2048)
+      })
+      throw error
+    }
+    const agent = new AcpAgent(options, path, child, processIdentity)
     const abort = () => { void agent.stop().catch(() => {}) }
     options.signal?.addEventListener('abort', abort, { once: true })
     try {

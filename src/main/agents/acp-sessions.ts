@@ -5,23 +5,38 @@ import { DatabaseSync } from 'node:sqlite'
 import { logger } from '@shared/logger'
 import type { McpServer } from '@agentclientprotocol/sdk'
 import type { AcpAgentSnapshot, AcpObservation, AcpPromptRecord, AgentExecutable, AuthenticatedAgentSession, AgentModeSwitchReceipt } from '@shared/agent-runtime'
-import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
-import { AcpAgent } from './acp'
+import type { ProcessIdentityVerdict, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
+import { AcpAgent, type AcpAgentOwner, type AcpAgentOwnerFactory } from './acp'
 
 const identifier = (id: string) => { if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('Invalid ACP identifier'); return id }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const LEGACY_IDENTITY_DETAIL = 'Legacy ACP process identity is unavailable. Previous work was not adopted or replayed.'
+
+type LegacyAcpAgentSnapshot = Omit<AcpAgentSnapshot, 'processIdentity'> & { pid?: number | null }
+type StoredSession = { snapshot: AcpAgentSnapshot; dismissed: boolean }
+type AcpSessionsOptions = {
+  changed: (snapshot: AcpAgentSnapshot) => void
+  identity: RuntimeIdentityAuthority
+  ownerFactory?: AcpAgentOwnerFactory
+}
 
 /** Daemon-owned protocol sessions; journal intent before sending any prompt. */
 export class AcpSessions {
   private readonly path: string
-  private readonly owners = new Map<string, AcpAgent>()
+  private readonly owners = new Map<string, AcpAgentOwner>()
   private readonly starting = new Map<string, AbortController>()
   private readonly stopping = new Set<string>()
   private readonly lastSaved = new Map<string, string>()
   private readonly credentials = new Map<string, string>()
   private readonly switching = new Set<string>()
+  private readonly changed: (snapshot: AcpAgentSnapshot) => void
+  private readonly identity: RuntimeIdentityAuthority
+  private readonly ownerFactory: AcpAgentOwnerFactory
 
-  constructor(userDataDir: string, private readonly changed: (snapshot: AcpAgentSnapshot) => void) {
+  constructor(userDataDir: string, options: AcpSessionsOptions) {
+    this.changed = options.changed
+    this.identity = options.identity
+    this.ownerFactory = options.ownerFactory ?? AcpAgent.start
     mkdirSync(userDataDir, { recursive: true, mode: 0o700 })
     this.path = join(userDataDir, 'acp-sessions.sqlite')
     try { closeSync(openSync(this.path, 'wx', 0o600)) }
@@ -30,14 +45,27 @@ export class AcpSessions {
     if (!file.isFile() || file.isSymbolicLink() || (process.platform !== 'win32' && ((file.mode & 0o077) !== 0 || (process.getuid && file.uid !== process.getuid())))) throw new Error('ACP journal requires a private regular file owned by the current user')
     this.transaction(db => {
       const version = Number(db.prepare('PRAGMA user_version').get()!.user_version)
-      if (version !== 0 && version !== 1) throw new Error('Unsupported ACP journal version')
-      if (!version) {
+      if (version !== 0 && version !== 1 && version !== 2) throw new Error('Unsupported ACP journal version')
+      if (version === 0) {
         if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().length) throw new Error('Unrecognized ACP journal')
-        db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, workspace TEXT NOT NULL, launch_hash TEXT NOT NULL, snapshot TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0); CREATE TABLE requests (run_id TEXT NOT NULL, id TEXT NOT NULL, payload_hash TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY (run_id,id)); PRAGMA user_version=1')
-      }
-      for (const row of db.prepare('SELECT id,snapshot FROM sessions').all()) {
-        const snapshot = JSON.parse(String(row.snapshot)) as AcpAgentSnapshot
-        if (snapshot.state !== 'exited') {
+        db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, workspace TEXT NOT NULL, launch_hash TEXT NOT NULL, snapshot TEXT NOT NULL, dismissed INTEGER NOT NULL DEFAULT 0); CREATE TABLE requests (run_id TEXT NOT NULL, id TEXT NOT NULL, payload_hash TEXT NOT NULL, record TEXT NOT NULL, PRIMARY KEY (run_id,id)); PRAGMA user_version=2')
+      } else if (version === 1) {
+        for (const row of db.prepare('SELECT id,snapshot FROM sessions').all()) {
+          const parsed = JSON.parse(String(row.snapshot)) as LegacyAcpAgentSnapshot
+          const { pid: _legacyPid, ...rest } = parsed
+          const migrated: AcpAgentSnapshot = {
+            ...rest,
+            processIdentity: null,
+            permissions: [],
+            ...(rest.state === 'exited' ? {} : { state: 'uncertain', detail: LEGACY_IDENTITY_DETAIL })
+          }
+          db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(migrated), String(row.id))
+        }
+        db.exec('PRAGMA user_version=2')
+      } else {
+        for (const row of db.prepare('SELECT id,snapshot FROM sessions').all()) {
+          const snapshot = JSON.parse(String(row.snapshot)) as AcpAgentSnapshot
+          if (snapshot.state === 'exited') continue
           snapshot.state = 'uncertain'; snapshot.permissions = []; snapshot.detail = 'Previous daemon ownership was lost. Work will not be replayed.'
           db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(snapshot), String(row.id))
         }
@@ -55,10 +83,29 @@ export class AcpSessions {
     finally { db.close() }
   }
 
-  private saved(workspacePath: string, id: string): AcpAgentSnapshot {
-    const row = this.transaction(db => db.prepare('SELECT snapshot FROM sessions WHERE workspace=? AND id=?').get(workspacePath, identifier(id)))
+  private savedRecord(workspacePath: string, id: string): StoredSession {
+    const row = this.transaction(db => db.prepare('SELECT snapshot,dismissed FROM sessions WHERE workspace=? AND id=?').get(workspacePath, identifier(id)))
     if (!row) throw new Error('ACP session is not owned by this workspace')
-    return JSON.parse(String(row.snapshot)) as AcpAgentSnapshot
+    return { snapshot: JSON.parse(String(row.snapshot)) as AcpAgentSnapshot, dismissed: Number(row.dismissed) !== 0 }
+  }
+
+  private saved(workspacePath: string, id: string): AcpAgentSnapshot {
+    return this.savedRecord(workspacePath, id).snapshot
+  }
+
+  private verdict(snapshot: AcpAgentSnapshot): ProcessIdentityVerdict {
+    return this.identity.verify(snapshot.processIdentity)
+  }
+
+  private retainsRuntimeOwnership(snapshot: AcpAgentSnapshot): boolean {
+    const verdict = this.verdict(snapshot)
+    return snapshot.state !== 'exited' && (verdict.status === 'valid' || (verdict.status === 'indeterminate' && verdict.reason !== 'legacy-record'))
+  }
+
+  private blocksHistoryReuse(prior: StoredSession): boolean {
+    const verdict = this.verdict(prior.snapshot)
+    if (prior.dismissed && verdict.status === 'indeterminate' && verdict.reason === 'legacy-record') return false
+    return prior.snapshot.state !== 'exited' && verdict.status !== 'stale'
   }
 
   private save(snapshot: AcpAgentSnapshot): void {
@@ -75,12 +122,16 @@ export class AcpSessions {
     return this.transaction(db => (workspacePath ? db.prepare('SELECT snapshot FROM sessions WHERE workspace=? AND dismissed=0').all(workspacePath) : db.prepare('SELECT snapshot FROM sessions WHERE dismissed=0').all()).map(row => JSON.parse(String(row.snapshot)) as AcpAgentSnapshot))
   }
 
-  hasOwnedSessions(): boolean { return this.starting.size > 0 || this.switching.size > 0 || this.list().some(run => run.state !== 'exited' && run.pid !== null && probeLocalProcessLiveness(run.pid) !== 'exited') }
+  hasOwnedSessions(): boolean { return this.starting.size > 0 || this.switching.size > 0 || this.list().some(snapshot => this.retainsRuntimeOwnership(snapshot)) }
 
   isSwitching(sessionId: string): boolean { return this.switching.has(sessionId) }
 
   ownsHistory(workspacePath: string, protocolSessionId: string): boolean {
-    return this.list(workspacePath).some(run => run.protocolSessionId === protocolSessionId && run.state !== 'exited' && (!run.pid || probeLocalProcessLiveness(run.pid) !== 'exited'))
+    const rows = this.transaction(db => db.prepare('SELECT snapshot,dismissed FROM sessions WHERE workspace=?').all(workspacePath))
+    return rows.some(row => {
+      const prior = { snapshot: JSON.parse(String(row.snapshot)) as AcpAgentSnapshot, dismissed: Number(row.dismissed) !== 0 }
+      return prior.snapshot.protocolSessionId === protocolSessionId && this.blocksHistoryReuse(prior)
+    })
   }
 
   switchResult(workspacePath: string, requestId: string): AgentModeSwitchReceipt {
@@ -116,7 +167,7 @@ export class AcpSessions {
     const expected = this.credentials.get(runId), owner = this.owners.get(runId)
     if (!expected || sessionId !== runId || typeof token !== 'string' || Buffer.byteLength(token) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(token), Buffer.from(expected)) || !owner) return undefined
     const snapshot = owner.get()
-    if (!['ready', 'working', 'permission'].includes(snapshot.state) || !snapshot.pid || probeLocalProcessLiveness(snapshot.pid) !== 'live') return undefined
+    if (!['ready', 'working', 'permission'].includes(snapshot.state) || this.verdict(snapshot).status !== 'valid') return undefined
     return { id: runId, sessionId, workspacePath: snapshot.workspacePath, liveness: 'live', mode: 'acp' }
   }
 
@@ -131,12 +182,12 @@ export class AcpSessions {
     }
     let loadSessionId: string | undefined
     if (loadRunId) {
-      const prior = this.saved(workspacePath, loadRunId)
-      if (this.starting.has(loadRunId) || prior.pid && probeLocalProcessLiveness(prior.pid) !== 'exited') throw new Error('Previous ACP process must be verified stopped before loading its session')
-      if (!prior.protocolSessionId) throw new Error('Previous ACP session has no protocol history to load')
-      loadSessionId = prior.protocolSessionId
+      const prior = this.savedRecord(workspacePath, loadRunId)
+      if (this.starting.has(loadRunId) || this.blocksHistoryReuse(prior)) throw new Error('Previous ACP process must be verified stopped before loading its session')
+      if (!prior.snapshot.protocolSessionId) throw new Error('Previous ACP session has no protocol history to load')
+      loadSessionId = prior.snapshot.protocolSessionId
     }
-    const initial: AcpAgentSnapshot = { mode: 'acp', id, workspacePath, protocolSessionId: loadSessionId ?? null, pid: null, state: 'starting', capabilities: {}, permissions: [] }
+    const initial: AcpAgentSnapshot = { mode: 'acp', id, workspacePath, protocolSessionId: loadSessionId ?? null, processIdentity: null, state: 'starting', capabilities: {}, permissions: [] }
     this.transaction(db => db.prepare('INSERT INTO sessions (id,workspace,launch_hash,snapshot) VALUES (?,?,?,?)').run(id, workspacePath, launchHash, JSON.stringify(initial)))
     const token = randomBytes(32).toString('hex')
     this.credentials.set(id, token)
@@ -145,13 +196,15 @@ export class AcpSessions {
     const controller = new AbortController()
     this.starting.set(id, controller)
     const start = async () => {
+      await Promise.resolve()
       if (loadRunId) {
-        // A lost prompt stays uncertain; finish its process cleanup without deleting its journal.
-        await this.owners.get(loadRunId)?.stop()
-        const prior = this.saved(workspacePath, loadRunId)
-        if (prior.pid && probeLocalProcessLiveness(prior.pid) !== 'exited') throw new Error('Previous ACP process termination could not be verified')
+        const priorOwner = this.owners.get(loadRunId)
+        if (priorOwner) {
+          await priorOwner.stop()
+          if (this.verdict(this.saved(workspacePath, loadRunId)).status !== 'stale') throw new Error('Previous ACP process termination could not be verified')
+        }
       }
-      return AcpAgent.start({ id, signal: controller.signal, workspacePath, launch, mcpServers: scopedServers, loadSessionId, onChange: snapshot => this.save(snapshot) })
+      return this.ownerFactory({ id, signal: controller.signal, workspacePath, launch, mcpServers: scopedServers, loadSessionId, identity: this.identity, onChange: snapshot => this.save(snapshot) })
     }
     void start().then(async owner => {
       this.owners.set(id, owner)
@@ -159,7 +212,13 @@ export class AcpSessions {
       else if (initialContext?.trim()) this.prompt(workspacePath, id, 'reviewed-context', initialContext)
     }).catch(error => {
       const snapshot = this.saved(workspacePath, id)
-      this.save({ ...snapshot, state: snapshot.pid && probeLocalProcessLiveness(snapshot.pid) !== 'exited' ? 'uncertain' : 'exited', permissions: [], detail: String(error) })
+      const verdict = this.verdict(snapshot)
+      this.save({
+        ...snapshot,
+        state: verdict.status === 'stale' ? 'exited' : 'uncertain',
+        permissions: [],
+        detail: snapshot.state === 'uncertain' && snapshot.detail ? snapshot.detail : String(error).slice(0, 2048)
+      })
     }).finally(() => { this.starting.delete(id); this.stopping.delete(id) })
     return this.saved(workspacePath, id)
   }
@@ -195,8 +254,10 @@ export class AcpSessions {
 
   async control(workspacePath: string, id: string, operation: 'stop' | 'cancel' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<AcpAgentSnapshot> {
     const saved = this.saved(workspacePath, id), owner = this.owners.get(id)
+    const verdict = this.verdict(saved)
     if (operation === 'dismiss') {
-      if (this.starting.has(id) || saved.pid && probeLocalProcessLiveness(saved.pid) !== 'exited') throw new Error('ACP process remains live or unverifiable')
+      const dismissibleLegacy = verdict.status === 'indeterminate' && verdict.reason === 'legacy-record'
+      if (this.starting.has(id) || verdict.status === 'valid' || (verdict.status === 'indeterminate' && !dismissibleLegacy)) throw new Error('ACP process remains live or unverifiable')
       this.transaction(db => { db.prepare('DELETE FROM requests WHERE run_id=?').run(id); db.prepare('UPDATE sessions SET dismissed=1 WHERE id=?').run(id) })
       this.owners.delete(id); this.lastSaved.delete(id)
       this.credentials.delete(id)
@@ -204,12 +265,29 @@ export class AcpSessions {
     }
     if (operation === 'stop' && this.starting.has(id)) { this.stopping.add(id); this.starting.get(id)!.abort(); return this.saved(workspacePath, id) }
     if (!owner) {
-      if (operation === 'stop' && (!saved.pid || probeLocalProcessLiveness(saved.pid) === 'exited')) { const stopped = { ...saved, state: 'exited' as const }; this.save(stopped); return stopped }
+      if (operation === 'stop' && verdict.status === 'stale') {
+        const stopped = { ...saved, state: 'exited' as const, permissions: [] }
+        this.save(stopped)
+        return stopped
+      }
+      if (operation === 'stop' && verdict.status === 'indeterminate') {
+        const uncertain = { ...saved, state: 'uncertain' as const, permissions: [] }
+        this.save(uncertain)
+        return uncertain
+      }
       throw new Error('ACP process ownership is unavailable; no input or signal was sent')
     }
     if (operation === 'permission') owner.answerPermission(identifier(permissionId!), optionId ?? null)
     else if (operation === 'cancel') await owner.cancel()
-    else await owner.stop()
+    else {
+      await owner.stop()
+      const stopped = owner.get()
+      if (this.verdict(stopped).status !== 'stale') {
+        const uncertain = { ...stopped, state: 'uncertain' as const, permissions: [], detail: 'ACP process stop could not be verified' }
+        this.save(uncertain)
+        return uncertain
+      }
+    }
     return owner.get()
   }
 }

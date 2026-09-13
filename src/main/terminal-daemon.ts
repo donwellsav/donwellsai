@@ -21,7 +21,7 @@ import {
   ATTENTION_INBOX_CAPABILITY,
   parseAttentionAcknowledgeRequest
 } from '@shared/attention-inbox'
-import { probeLocalProcessLiveness } from '@shared/child-process/execution-host'
+import type { RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import type { TerminalSession } from '@shared/types'
 import { AttentionInboxService } from './attention-inbox-service'
 import { AttentionInboxStore } from './attention-inbox-store'
@@ -107,17 +107,20 @@ export class TerminalDaemon {
   private readonly agentsBySession = new Map<string, AgentRecord>()
   private readonly agentsByRun = new Map<string, AgentRecord>()
   private readonly acp: AcpSessions
+  private readonly identity: RuntimeIdentityAuthority
   constructor(opts: {
     userDataDir: string
     authToken: string
     shell?: string
     emitterCommand?: readonly string[]
+    identity?: RuntimeIdentityAuthority
   }) {
     const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
     this.authToken = opts.authToken
+    this.identity = opts.identity ?? runtimeIdentityAuthority()
     this.paths = localRuntimePaths(userDataDir, 'terminal')
     this.baseEndpointPath = this.paths.socketPath
-    this.acp = new AcpSessions(userDataDir, snapshot => this.broadcast({ event: 'acp', snapshot }))
+    this.acp = new AcpSessions(userDataDir, { changed: snapshot => this.broadcast({ event: 'acp', snapshot }), identity: this.identity })
     this.emitterCommand = opts.emitterCommand ?? [
       process.execPath,
       process.argv[1] ?? '',
@@ -656,7 +659,7 @@ export class TerminalDaemon {
               const prior = this.acp.observe(workspacePath, sessionId).snapshot
               if (!['ready', 'exited'].includes(prior.state) || !prior.protocolSessionId) throw new Error('Finish or stop the current ACP turn before switching')
               const stopped = await this.acp.control(workspacePath, sessionId, 'stop')
-              if (stopped.pid && probeLocalProcessLiveness(stopped.pid) !== 'exited') throw new Error('ACP process stop could not be verified')
+              if (this.identity.verify(stopped.processIdentity).status !== 'stale') throw new Error('ACP process stop could not be verified')
               return { native: this.createAgent(workspacePath, 'opencode', 'opencode', 100, 30, { executable, args: [workspacePath, '--session', prior.protocolSessionId] }) }
             }
             const native = this.agentsBySession.get(sessionId)
