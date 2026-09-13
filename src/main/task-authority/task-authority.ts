@@ -1,0 +1,2208 @@
+import { createHash, randomUUID } from 'node:crypto'
+import type { DatabaseSync } from 'node:sqlite'
+import type { ProcessIdentity } from '@shared/child-process/process-spec'
+import {
+  assertBindableProcessIdentity,
+  assertAuthorityUuid,
+  canonicalExternalTaskId,
+  canonicalResourceKey,
+  connectionDeniedProfile,
+  connectionDeniedProject,
+  parseAuthorityConnection,
+  parseProjectionLimit,
+  parseTaskExecutionSpecification,
+  parseTaskQueryCursor,
+  parseVerificationArtifact,
+  TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS,
+  TASK_AUTHORITY_DEFAULT_OFFER_TTL_MS,
+  TASK_AUTHORITY_MAX_BATCH,
+  TASK_AUTHORITY_MAX_ERROR_TEXT,
+  TASK_AUTHORITY_MAX_LEASE_TTL_MS,
+  TASK_AUTHORITY_MAX_TITLE,
+  TASK_AUTHORITY_MAX_USER_TEXT,
+  TASK_AUTHORITY_MIN_LEASE_TTL_MS,
+  TaskAuthorityError,
+  TaskAuthorityValidationError,
+  type TaskExecutionSpecificationInput,
+  type AdminCancelRunGroupInput,
+  type AdminCancelScheduleExecutionInput,
+  type AdminCancellationInput,
+  type AdminCreateRunGroupInput,
+  type AdminCreateScheduleInput,
+  type AdminCreateTaskInput,
+  type AdminDeleteRunGroupInput,
+  type AdminDeleteScheduleInput,
+  type AdminDuplicateScheduleInput,
+  type AdminRetryFailedTaskInput,
+  type AdminRetryRunGroupInput,
+  type AdminSetDependenciesInput,
+  type AdminUpdateScheduleInput,
+  type AdminUpdateTaskInput,
+  type AttemptSnapshot,
+  type AttemptState,
+  type AuthenticatedAttentionAcknowledgement,
+  type AuthenticatedAuthorityConnection,
+  type AuthenticatedClaimInput,
+  type AuthenticatedHandoffAcceptInput,
+  type AuthenticatedHandoffCancelInput,
+  type AuthenticatedHandoffOfferInput,
+  type AuthenticatedMailboxInput,
+  type AuthenticatedTakeoverInput,
+  type AuthorizedTaskOperation,
+  type ClaimResult,
+  type EnqueueDueScheduleInput,
+  type EnqueueManualScheduleExecutionInput,
+  type HandoffOffer,
+  type LeaseToken,
+  type ResourceReservationSnapshot,
+  type ReviewedArtifactAdoptionInput,
+  type RunGroupSnapshot,
+  type RunMemberState,
+  type ScheduleExecutionPage,
+  type ScheduleExecutionQuery,
+  type ScheduleExecutionSnapshot,
+  type ScheduleExecutionState,
+  type ScheduleSnapshot,
+  type SpawnAdmission,
+  type TaskAuthority,
+  type TaskMailboxEntry,
+  type TaskProjection,
+  type TaskQuery,
+  type TaskScheduleSpec,
+  type TaskSnapshot,
+  type TaskStatus,
+  type TrustedBeginSpawnInput,
+  type TrustedExitAcknowledgement,
+  type TrustedExpiredOwnerReconciliationInput
+} from '@shared/task-authority'
+import { MAX_PARALLELISM } from '@shared/operational-runs'
+import { DeferredAuthorityError, openTaskAuthorityDatabase, type TaskAuthorityDatabase } from './schema'
+
+type Row = Record<string, unknown>
+
+const ACTIVE_STATES: Record<string, true> = { claimed: true, launching: true, running: true }
+const TERMINAL_ATTEMPT_STATES: Record<string, true> = { cancelled: true, exited: true, completed: true, failed: true }
+const TERMINAL_MEMBER_STATES: Record<string, true> = { cancelled: true, completed: true, failed: true }
+const TERMINAL_TASK_STATUSES: Record<string, true> = { cancelled: true, done: true, failed: true }
+const TERMINAL_EXECUTION_STATES: Record<string, true> = { cancelled: true, succeeded: true, failed: true }
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function authorityNowMs(db: DatabaseSync): number {
+  const row = db.prepare("SELECT unixepoch('subsec') * 1000 AS ms").get() as Row
+  return int(row['ms'])
+}
+
+function text(value: unknown): string {
+  return String(value)
+}
+
+function textOrNull(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value)
+}
+
+function int(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) {
+    throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', 'persisted task authority value was not a safe integer')
+  }
+  return parsed
+}
+
+function bool(value: unknown): boolean {
+  return value === 1 || value === true
+}
+
+function parseJson(value: unknown): unknown {
+  return JSON.parse(String(value))
+}
+
+function boundedField(value: unknown, field: string, maximum: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes('\0')) {
+    throw new TaskAuthorityValidationError(field, `must be a non-empty string of at most ${maximum} characters`)
+  }
+  return value
+}
+
+function boundedText(value: unknown, field: string, maximum: number, allowEmpty = true): string {
+  if (typeof value !== 'string' || (!allowEmpty && value.length === 0) || value.length > maximum || value.includes('\0')) {
+    throw new TaskAuthorityValidationError(field, `must be a string of at most ${maximum} characters`)
+  }
+  return value
+}
+
+function entityVersion(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new TaskAuthorityValidationError(field, 'must be a positive integer')
+  }
+  return value
+}
+
+function ttlMs(value: unknown, field: string, fallback: number): number {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < TASK_AUTHORITY_MIN_LEASE_TTL_MS || value > TASK_AUTHORITY_MAX_LEASE_TTL_MS) {
+    throw new TaskAuthorityValidationError(field, `must be an integer from ${TASK_AUTHORITY_MIN_LEASE_TTL_MS} to ${TASK_AUTHORITY_MAX_LEASE_TTL_MS} milliseconds`)
+  }
+  return value
+}
+
+function isoTimestamp(value: unknown, field: string): string {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new TaskAuthorityValidationError(field, 'must be an ISO 8601 timestamp')
+  }
+  return new Date(value).toISOString()
+}
+
+function optionalIsoTimestamp(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null
+  return isoTimestamp(value, field)
+}
+
+function encodeCursor(parts: readonly (string | number)[]): string {
+  return Buffer.from(JSON.stringify(parts), 'utf8').toString('base64url')
+}
+
+function decodeCursor(cursor: string): Array<string | number> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+  } catch {
+    throw new TaskAuthorityValidationError('cursor', 'was malformed')
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some(part => typeof part !== 'string' && typeof part !== 'number')) {
+    throw new TaskAuthorityValidationError('cursor', 'was malformed')
+  }
+  return parsed as Array<string | number>
+}
+
+// ---------------------------------------------------------------------------
+// Row loading and snapshots
+// ---------------------------------------------------------------------------
+
+function loadTaskRow(db: DatabaseSync, projectId: string, taskId: string): Row {
+  const row = db.prepare('SELECT * FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row | undefined
+  if (!row) throw new TaskAuthorityError('TASK_NOT_FOUND', `task ${taskId} was not found in project ${projectId}`)
+  return row
+}
+
+function loadAttemptRow(db: DatabaseSync, projectId: string, attemptId: string): Row {
+  const row = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId) as Row | undefined
+  if (!row) throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} was not found in project ${projectId}`)
+  return row
+}
+
+function loadLeaseRow(db: DatabaseSync, projectId: string, leaseId: string): Row {
+  const row = db.prepare('SELECT * FROM leases WHERE project_id = ? AND id = ?').get(projectId, leaseId) as Row | undefined
+  if (!row) throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} was not found in project ${projectId}`)
+  return row
+}
+
+function effectiveExpiryMs(db: DatabaseSync, lease: Row): number {
+  const row = db.prepare('SELECT COALESCE(MAX(expires_at_ms), ?) AS expiry FROM lease_renewals WHERE project_id = ? AND lease_id = ?')
+    .get(int(lease['initial_expires_at_ms']), text(lease['project_id']), text(lease['id'])) as Row
+  return int(row['expiry'])
+}
+
+function leaseSnapshot(db: DatabaseSync, lease: Row): { leaseId: string; ownerId: string; generation: number; issuedAt: string; expiresAt: string; expiresAtMs: number } {
+  const expiryMs = effectiveExpiryMs(db, lease)
+  return {
+    leaseId: text(lease['id']),
+    ownerId: text(lease['owner_id']),
+    generation: int(lease['generation']),
+    issuedAt: new Date(int(lease['issued_at_ms'])).toISOString(),
+    expiresAt: new Date(expiryMs).toISOString(),
+    expiresAtMs: expiryMs
+  }
+}
+
+function latestLaunchIntent(db: DatabaseSync, projectId: string, attemptId: string): Row | undefined {
+  return db.prepare('SELECT * FROM launch_intents WHERE project_id = ? AND attempt_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(projectId, attemptId) as Row | undefined
+}
+
+function attemptSnapshot(db: DatabaseSync, attempt: Row): AttemptSnapshot {
+  const projectId = text(attempt['project_id'])
+  const attemptId = text(attempt['id'])
+  const leaseId = textOrNull(attempt['current_lease_id'])
+  const lease = leaseId === null ? null : loadLeaseRow(db, projectId, leaseId)
+  const intent = latestLaunchIntent(db, projectId, attemptId)
+  const reservation = db.prepare("SELECT * FROM resource_reservations WHERE project_id = ? AND attempt_id = ? AND state IN ('reserved','quarantined') ORDER BY created_at DESC, rowid DESC LIMIT 1").get(projectId, attemptId) as Row | undefined
+  const progress = db.prepare("SELECT payload_json FROM task_events WHERE project_id = ? AND task_id = ? AND attempt_id = ? AND event_type = 'task-progress' ORDER BY sequence DESC LIMIT 1").get(projectId, text(attempt['task_id']), attemptId) as Row | undefined
+  let processIdentity: ProcessIdentity | null = null
+  const identityJson = intent === undefined ? null : textOrNull(intent['process_identity_json'])
+  if (identityJson !== null) processIdentity = parseJson(identityJson) as ProcessIdentity
+  let lastProgress: string | null = null
+  if (progress !== undefined) {
+    const payload = parseJson(progress['payload_json']) as Record<string, unknown>
+    lastProgress = typeof payload['detail'] === 'string' ? payload['detail'] : null
+  }
+  return {
+    projectId,
+    taskId: text(attempt['task_id']),
+    attemptId,
+    sequence: int(attempt['sequence']),
+    retryOfAttemptId: textOrNull(attempt['retry_of_attempt_id']),
+    provenance: text(attempt['provenance_kind']) as AttemptSnapshot['provenance'],
+    state: text(attempt['state']) as AttemptSnapshot['state'],
+    specificationId: text(attempt['specification_id']),
+    currentLease: lease === null ? null : leaseSnapshot(db, lease),
+    runtime: intent === undefined ? null : {
+      sessionId: textOrNull(intent['session_id']),
+      processIdentity,
+      launchIntentId: text(intent['id']),
+      launchState: text(intent['state']) as 'planned' | 'spawning' | 'reconciling-no-spawn' | 'stopped',
+      stopState: text(intent['stop_state']) as 'none' | 'requested' | 'exited'
+    },
+    reservation: reservation === undefined ? null : {
+      resourceKey: text(reservation['canonical_resource_key']),
+      canonicalResourceKey: text(reservation['canonical_resource_key']),
+      state: text(reservation['state']) as ResourceReservationSnapshot['state']
+    },
+    lastProgress,
+    startedAt: text(attempt['started_at']),
+    finishedAt: textOrNull(attempt['finished_at'])
+  }
+}
+
+function dependencyStatus(db: DatabaseSync, projectId: string, taskId: string): { dependencies: string[]; dependencyBlocked: boolean } {
+  const rows = db.prepare('SELECT depends_on_task_id FROM task_dependencies WHERE project_id = ? AND task_id = ? ORDER BY depends_on_task_id').all(projectId, taskId) as Row[]
+  const dependencies = rows.map(row => text(row['depends_on_task_id']))
+  let dependencyBlocked = false
+  for (const dependsOn of dependencies) {
+    const dep = db.prepare('SELECT status FROM tasks WHERE project_id = ? AND id = ?').get(projectId, dependsOn) as Row | undefined
+    if (!dep || text(dep['status']) !== 'done') dependencyBlocked = true
+  }
+  return { dependencies, dependencyBlocked }
+}
+
+function taskSnapshot(db: DatabaseSync, task: Row): TaskSnapshot {
+  const projectId = text(task['project_id'])
+  const taskId = text(task['id'])
+  const { dependencies, dependencyBlocked } = dependencyStatus(db, projectId, taskId)
+  const status = text(task['status']) as TaskStatus
+  const cancelState = text(task['cancel_state']) as TaskSnapshot['cancelState']
+  const currentAttemptId = textOrNull(task['current_attempt_id'])
+  return {
+    projectId,
+    taskId,
+    externalTaskId: text(task['external_task_id']),
+    title: text(task['title']),
+    body: text(task['body']),
+    status,
+    priority: int(task['priority']),
+    dependencies,
+    dependencyBlocked,
+    runnable: status === 'todo' && !dependencyBlocked && cancelState === 'none',
+    cancelState,
+    currentAttempt: currentAttemptId === null ? null : attemptSnapshot(db, loadAttemptRow(db, projectId, currentAttemptId)),
+    entityVersion: int(task['entity_version']),
+    createdAt: text(task['created_at']),
+    updatedAt: text(task['updated_at'])
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+function appendTaskEvent(db: DatabaseSync, projectId: string, taskId: string, attemptId: string | null, eventType: string, entityVersion: number, payload: Record<string, unknown>): void {
+  db.prepare('INSERT INTO task_events(event_id, project_id, task_id, attempt_id, event_type, entity_version, payload_json, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(randomUUID(), projectId, taskId, attemptId, eventType, entityVersion, JSON.stringify(payload), nowIso())
+}
+
+function appendProfileEvent(db: DatabaseSync, profileId: string, runGroupId: string | null, eventType: string, entityVersion: number, payload: Record<string, unknown>): void {
+  db.prepare('INSERT INTO authority_profile_events(event_id, profile_id, run_group_id, event_type, entity_version, payload_json, created_at) VALUES (?,?,?,?,?,?,?)')
+    .run(randomUUID(), profileId, runGroupId, eventType, entityVersion, JSON.stringify(payload), nowIso())
+}
+
+// ---------------------------------------------------------------------------
+// Authorization and fencing
+// ---------------------------------------------------------------------------
+
+function requireAdministrator(connection: AuthenticatedAuthorityConnection): void {
+  if (connection.role !== 'administrator') {
+    throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not perform administrator task authority intents`)
+  }
+}
+
+function requireWorker(connection: AuthenticatedAuthorityConnection, projectId: string): string {
+  if (connection.role !== 'worker') {
+    throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not act as a task worker`)
+  }
+  if (connection.ownerId === undefined) {
+    throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'worker connection carried no authenticated owner identity')
+  }
+  if (connectionDeniedProject(connection, projectId)) {
+    throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `worker connection is not authorized for project ${projectId}`)
+  }
+  return connection.ownerId
+}
+
+function requireReviewer(connection: AuthenticatedAuthorityConnection, projectId: string): string {
+  if (connection.role !== 'reviewer' && connection.role !== 'administrator') {
+    throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not review task authority artifacts`)
+  }
+  if (connection.role === 'reviewer' && connectionDeniedProject(connection, projectId)) {
+    throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `reviewer connection is not authorized for project ${projectId}`)
+  }
+  return connection.ownerId ?? connection.connectionId
+}
+
+function requireAdminProject(connection: AuthenticatedAuthorityConnection, projectId: string): void {
+  requireAdministrator(connection)
+  if (connection.authorizedProjectIds !== undefined && !connection.authorizedProjectIds.includes(projectId)) {
+    throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `administrator connection is not authorized for project ${projectId}`)
+  }
+}
+
+function requireAdminProfile(connection: AuthenticatedAuthorityConnection, profileId: string): void {
+  requireAdministrator(connection)
+  if (connectionDeniedProfile(connection, profileId)) {
+    throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `administrator connection is not authorized for profile ${profileId}`)
+  }
+}
+
+function requireAdminProjectOrWorkerRead(connection: AuthenticatedAuthorityConnection, projectId: string): void {
+  if (connection.role === 'administrator') {
+    if (connection.authorizedProjectIds !== undefined && !connection.authorizedProjectIds.includes(projectId)) {
+      throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `administrator connection is not authorized for project ${projectId}`)
+    }
+    return
+  }
+  if (connectionDeniedProject(connection, projectId)) {
+    throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `connection is not authorized for project ${projectId}`)
+  }
+}
+
+type FencedWrite = Readonly<{ task: Row; attempt: Row; lease: Row; expiryMs: number }>
+
+/**
+ * Runs the ordinary-write predicate and dissects every failure into a
+ * deterministic typed error: cancelled, expired, handoff-pending,
+ * authorization-denied, project-mismatch, or stale-authority.
+ */
+function requireFencedWrite(db: DatabaseSync, token: LeaseToken, ownerId: string): FencedWrite {
+  const task = db.prepare('SELECT * FROM tasks WHERE project_id = ? AND id = ?').get(token.projectId, token.taskId) as Row | undefined
+  if (!task) throw new TaskAuthorityError('TASK_NOT_FOUND', `task ${token.taskId} was not found in project ${token.projectId}`)
+  const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(token.projectId, token.attemptId, token.taskId) as Row | undefined
+  if (!attempt || textOrNull(attempt['current_lease_id']) !== token.leaseId) {
+    throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} is not the current attempt of task ${token.taskId}`)
+  }
+  const lease = db.prepare('SELECT * FROM leases WHERE project_id = ? AND id = ? AND attempt_id = ?').get(token.projectId, token.leaseId, token.attemptId) as Row | undefined
+  if (!lease || int(lease['generation']) !== token.generation) {
+    throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${token.leaseId} generation ${token.generation} is not current for attempt ${token.attemptId}`)
+  }
+  if (text(task['cancel_state']) !== 'none') throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} has cancellation requested`)
+  const cancellingMember = db.prepare(
+    "SELECT 1 FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.project_id = ? AND rm.task_id = ? AND (rg.state IN ('cancelling','cancelled') OR rm.state IN ('cancelling','cancelled')) LIMIT 1"
+  ).get(token.projectId, token.taskId) as Row | undefined
+  if (cancellingMember) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling run group or member`)
+  const cancellingExecution = db.prepare(
+    "SELECT 1 FROM schedule_executions WHERE project_id = ? AND task_id = ? AND state IN ('cancelling','cancelled') LIMIT 1"
+  ).get(token.projectId, token.taskId) as Row | undefined
+  if (cancellingExecution) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling schedule execution`)
+  const attemptState = text(attempt['state']) as AttemptState
+  if (attemptState === 'quarantined') throw new TaskAuthorityError('RESOURCE_QUARANTINED', `attempt ${token.attemptId} is quarantined`)
+  if (!ACTIVE_STATES[attemptState]) throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} is ${attemptState} and no longer writable`)
+  if (text(lease['owner_id']) !== ownerId) {
+    throw new TaskAuthorityError('AUTHORIZATION_DENIED', `lease ${token.leaseId} belongs to a different authenticated owner`)
+  }
+  const expiryMs = effectiveExpiryMs(db, lease)
+  if (expiryMs <= authorityNowMs(db)) throw new TaskAuthorityError('LEASE_EXPIRED', `lease ${token.leaseId} expired before the write`)
+  const liveOffer = db.prepare(
+    "SELECT 1 FROM handoff_offers WHERE project_id = ? AND task_id = ? AND attempt_id = ? AND status = 'pending' AND expires_at_ms > unixepoch('subsec') * 1000 LIMIT 1"
+  ).get(token.projectId, token.taskId, token.attemptId) as Row | undefined
+  if (liveOffer) throw new TaskAuthorityError('HANDOFF_PENDING', `attempt ${token.attemptId} has a live handoff offer`)
+  return { task, attempt, lease, expiryMs }
+}
+
+function parseLeaseToken(value: unknown, field = 'token'): LeaseToken {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError(field, 'must be a lease token object')
+  }
+  const record = value as Record<string, unknown>
+  const allowed = ['projectId', 'taskId', 'attemptId', 'ownerId', 'leaseId', 'generation', 'expiresAt']
+  for (const key of Object.keys(record)) {
+    if (!allowed.includes(key)) throw new TaskAuthorityValidationError(field, `unknown key "${key}"`)
+  }
+  return {
+    projectId: boundedField(record['projectId'], `${field}.projectId`, 128),
+    taskId: assertAuthorityUuid(record['taskId'], `${field}.taskId`),
+    attemptId: assertAuthorityUuid(record['attemptId'], `${field}.attemptId`),
+    ownerId: assertAuthorityUuid(record['ownerId'], `${field}.ownerId`),
+    leaseId: assertAuthorityUuid(record['leaseId'], `${field}.leaseId`),
+    generation: entityVersion(record['generation'], `${field}.generation`),
+    expiresAt: isoTimestamp(record['expiresAt'], `${field}.expiresAt`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Specifications and shared mutation helpers
+// ---------------------------------------------------------------------------
+
+function insertSpecification(db: DatabaseSync, projectId: string, taskId: string, specification: TaskExecutionSpecificationInput): string {
+  const specificationId = randomUUID()
+  const commandJson = JSON.stringify(specification.command)
+  const targetJson = JSON.stringify(specification.target)
+  const verificationJson = JSON.stringify(specification.verification)
+  db.prepare('INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, created_at) VALUES (?,?,?,?,?,?,?,?)')
+    .run(specificationId, projectId, taskId, commandJson, targetJson, verificationJson, sha256(commandJson + targetJson + verificationJson), nowIso())
+  return specificationId
+}
+
+function ensureProject(db: DatabaseSync, projectId: string, repositoryId: string | undefined, workspaceRoot: string | undefined): void {
+  const existing = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId) as Row | undefined
+  if (existing) return
+  db.prepare('INSERT INTO projects(id, repository_id, workspace_root, version) VALUES (?,?,?,1)').run(projectId, repositoryId ?? '', workspaceRoot ?? '')
+}
+
+function insertAttemptWithLease(db: DatabaseSync, projectId: string, taskId: string, sequence: number, retryOfAttemptId: string | null, specificationId: string, ownerId: string, ttl: number, nowMs: number): { attemptId: string; leaseId: string } {
+  const attemptId = randomUUID()
+  const leaseId = randomUUID()
+  db.prepare('INSERT INTO leases(id, project_id, task_id, attempt_id, owner_id, generation, issued_at_ms, initial_expires_at_ms) VALUES (?,?,?,?,?,1,?,?)')
+    .run(leaseId, projectId, taskId, attemptId, ownerId, nowMs, nowMs + ttl)
+  db.prepare("INSERT INTO attempts(id, project_id, task_id, sequence, retry_of_attempt_id, provenance_kind, state, specification_id, current_lease_id, started_at, finished_at) VALUES (?,?,?,?,?,'native','claimed',?,?,?,NULL)")
+    .run(attemptId, projectId, taskId, sequence, retryOfAttemptId, specificationId, leaseId, nowIso())
+  return { attemptId, leaseId }
+}
+
+function tokenFor(projectId: string, taskId: string, attemptId: string, lease: Row, expiryMs: number): LeaseToken {
+  return {
+    projectId,
+    taskId,
+    attemptId,
+    ownerId: text(lease['owner_id']),
+    leaseId: text(lease['id']),
+    generation: int(lease['generation']),
+    expiresAt: new Date(expiryMs).toISOString()
+  }
+}
+
+function bumpTask(db: DatabaseSync, projectId: string, taskId: string, set: string, params: Array<string | number | null>): number {
+  db.prepare(`UPDATE tasks SET ${set}, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?`).run(...params, nowIso(), projectId, taskId)
+  const updated = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row | undefined
+  if (!updated) throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} changed concurrently`)
+  return int(updated['entity_version'])
+}
+
+function syncMemberState(db: DatabaseSync, projectId: string, taskId: string, state: RunMemberState): void {
+  db.prepare("UPDATE run_members SET state = ? WHERE project_id = ? AND task_id = ? AND state NOT IN ('cancelled','completed')").run(state, projectId, taskId)
+}
+
+function releaseReservation(db: DatabaseSync, projectId: string, attemptId: string): void {
+  db.prepare("UPDATE resource_reservations SET state = 'released', released_at = ? WHERE project_id = ? AND attempt_id = ? AND state IN ('reserved','quarantined')").run(nowIso(), projectId, attemptId)
+}
+
+function syncExecutionForTask(db: DatabaseSync, projectId: string, taskId: string, apply: (execution: Row) => { state: ScheduleExecutionState; attemptId?: string | null }): void {
+  const execution = db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND task_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(projectId, taskId) as Row | undefined
+  if (!execution) return
+  const next = apply(execution)
+  db.prepare('UPDATE schedule_executions SET state = ?, attempt_id = COALESCE(?, attempt_id), entity_version = entity_version + 1 WHERE project_id = ? AND id = ?')
+    .run(next.state, next.attemptId === undefined ? null : next.attemptId, projectId, text(execution['id']))
+}
+
+function stopLaunchIntent(db: DatabaseSync, projectId: string, attemptId: string, state: string, stopState: string): void {
+  db.prepare('UPDATE launch_intents SET state = ?, stop_state = ?, updated_at = ? WHERE project_id = ? AND attempt_id = ? AND state IN (?,?)')
+    .run(state, stopState, nowIso(), projectId, attemptId, 'planned', 'spawning')
+}
+
+function nextAttemptSequence(db: DatabaseSync, projectId: string, taskId: string): number {
+  const row = db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS seq FROM attempts WHERE project_id = ? AND task_id = ?').get(projectId, taskId) as Row
+  return int(row['seq'])
+}
+
+function assertTaskClaimable(db: DatabaseSync, task: Row): void {
+  const projectId = text(task['project_id'])
+  const taskId = text(task['id'])
+  if (text(task['cancel_state']) !== 'none' || text(task['status']) === 'cancelling' || text(task['status']) === 'cancelled') {
+    throw new TaskAuthorityError('TASK_CANCELLED', `task ${taskId} has cancellation requested`)
+  }
+  if (text(task['status']) === 'blocked') throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `task ${taskId} is explicitly blocked`)
+  if (text(task['status']) !== 'todo') throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `task ${taskId} is ${text(task['status'])} and cannot be claimed`)
+  if (textOrNull(task['current_attempt_id']) !== null) throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} already has a current attempt`)
+  const unfinished = db.prepare(
+    "SELECT 1 FROM task_dependencies d JOIN tasks dep ON dep.project_id = d.project_id AND dep.id = d.depends_on_task_id WHERE d.project_id = ? AND d.task_id = ? AND dep.status <> 'done' LIMIT 1"
+  ).get(projectId, taskId) as Row | undefined
+  if (unfinished) throw new TaskAuthorityError('DEPENDENCY_BLOCKED', `task ${taskId} has an unfinished dependency`)
+}
+
+function assertNoDependencyCycle(db: DatabaseSync, projectId: string, taskId: string): void {
+  const edges = db.prepare('SELECT task_id, depends_on_task_id FROM task_dependencies WHERE project_id = ?').all(projectId) as Row[]
+  const adjacency = new Map<string, string[]>()
+  for (const edge of edges) {
+    const from = text(edge['task_id'])
+    const to = text(edge['depends_on_task_id'])
+    const list = adjacency.get(from) ?? []
+    list.push(to)
+    adjacency.set(from, list)
+  }
+  const visited = new Set<string>()
+  const stack = new Set<string>()
+  const visit = (node: string): boolean => {
+    if (stack.has(node)) return true
+    if (visited.has(node)) return false
+    visited.add(node)
+    stack.add(node)
+    for (const next of adjacency.get(node) ?? []) {
+      if (visit(next)) return true
+    }
+    stack.delete(node)
+    return false
+  }
+  if (visit(taskId)) {
+    throw new TaskAuthorityError('DEPENDENCY_BLOCKED', `dependency edges for task ${taskId} would create a cycle`)
+  }
+}
+
+function quarantineAttempt(db: DatabaseSync, projectId: string, taskId: string, attemptId: string, reason: string): void {
+  db.prepare("UPDATE attempts SET state = 'quarantined' WHERE project_id = ? AND id = ? AND state NOT IN ('cancelled','exited','completed','failed')").run(projectId, attemptId)
+  db.prepare("UPDATE resource_reservations SET state = 'quarantined' WHERE project_id = ? AND attempt_id = ? AND state = 'reserved'").run(projectId, attemptId)
+  db.prepare("UPDATE tasks SET status = 'quarantined', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ? AND status NOT IN ('cancelled','done')").run(nowIso(), projectId, taskId)
+  syncMemberState(db, projectId, taskId, 'quarantined')
+  appendTaskEvent(db, projectId, taskId, attemptId, 'attempt-quarantined', int(loadTaskRow(db, projectId, taskId)['entity_version']), { reason })
+}
+
+function assertCompletionRequirements(db: DatabaseSync, token: LeaseToken): void {
+  const attempt = loadAttemptRow(db, token.projectId, token.attemptId)
+  const specification = db.prepare('SELECT verification_json FROM execution_specifications WHERE project_id = ? AND id = ?').get(token.projectId, text(attempt['specification_id'])) as Row | undefined
+  if (!specification) throw new TaskAuthorityError('STALE_AUTHORITY', `specification ${text(attempt['specification_id'])} was not found`)
+  const verification = parseJson(specification['verification_json']) as { requiredArtifacts?: Array<{ path: string; relationship: string }> }
+  for (const required of verification.requiredArtifacts ?? []) {
+    const satisfied = db.prepare(
+      `SELECT 1 FROM verification_artifacts va WHERE va.project_id = ? AND va.task_id = ? AND va.path = ? AND va.relationship = ? AND (
+        (va.provenance_kind = 'native' AND va.attempt_id = ? AND va.lease_id = ? AND va.generation = ?)
+        OR (va.provenance_kind = 'imported-legacy' AND EXISTS (SELECT 1 FROM artifact_adoptions ad WHERE ad.artifact_id = va.id AND ad.project_id = va.project_id AND ad.current_attempt_id = ?))
+      ) LIMIT 1`
+    ).get(token.projectId, token.taskId, required.path, required.relationship, token.attemptId, token.leaseId, token.generation, token.attemptId) as Row | undefined
+    if (!satisfied) {
+      throw new TaskAuthorityError('COMPLETION_REJECTED', `required verification artifact ${required.path} (${required.relationship}) is not satisfied for the current attempt`)
+    }
+  }
+}
+
+function reconciliationReason(verdict: unknown): string {
+  const status = (verdict as Record<string, unknown>)['status']
+  if (status === 'valid') return 'child process identity verified live'
+  if (status === 'stale') return `child process confirmed exited: ${JSON.stringify((verdict as Record<string, unknown>)['reason'])}`
+  return `child process observation indeterminate: ${JSON.stringify((verdict as Record<string, unknown>)['detail'])}`
+}
+
+/**
+ * Fencing side effects (quarantine, offer expiry) commit before the semantic
+ * error is reported; the transaction wrapper persists them and rethrows.
+ */
+function failAfterCommit(code: InstanceType<typeof TaskAuthorityError>['code'], message: string): never {
+  throw new DeferredAuthorityError(new TaskAuthorityError(code, message))
+}
+
+// ---------------------------------------------------------------------------
+// Schedule helpers
+// ---------------------------------------------------------------------------
+
+function parseScheduleSpec(value: unknown, field = 'spec'): TaskScheduleSpec {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError(field, 'must be an object')
+  }
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (!['profileId', 'taskTitle', 'cadence', 'command', 'target', 'verification'].includes(key)) {
+      throw new TaskAuthorityValidationError(field, `unknown key "${key}"`)
+    }
+  }
+  const profileId = boundedField(record['profileId'], `${field}.profileId`, 128)
+  const taskTitle = boundedText(record['taskTitle'], `${field}.taskTitle`, TASK_AUTHORITY_MAX_TITLE, false)
+  const cadence = record['cadence']
+  if (typeof cadence !== 'object' || cadence === null || Array.isArray(cadence)) {
+    throw new TaskAuthorityValidationError(`${field}.cadence`, 'must be an object')
+  }
+  const cadenceRecord = cadence as Record<string, unknown>
+  let parsedCadence: TaskScheduleSpec['cadence']
+  if (cadenceRecord['kind'] === 'interval') {
+    const minutes = cadenceRecord['minutes']
+    if (typeof minutes !== 'number' || !Number.isSafeInteger(minutes) || minutes < 1 || minutes > 60 * 24 * 31) {
+      throw new TaskAuthorityValidationError(`${field}.cadence.minutes`, 'must be an integer number of minutes')
+    }
+    parsedCadence = { kind: 'interval', minutes }
+  } else if (cadenceRecord['kind'] === 'daily') {
+    const time = cadenceRecord['time']
+    const timeZone = cadenceRecord['timeZone']
+    if (typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw new TaskAuthorityValidationError(`${field}.cadence.time`, 'must be HH:MM')
+    }
+    if (typeof timeZone !== 'string' || timeZone.length === 0 || timeZone.length > 128) {
+      throw new TaskAuthorityValidationError(`${field}.cadence.timeZone`, 'must be an IANA time zone name')
+    }
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone })
+    } catch {
+      throw new TaskAuthorityValidationError(`${field}.cadence.timeZone`, 'must be an IANA time zone name')
+    }
+    parsedCadence = { kind: 'daily', time, timeZone }
+  } else {
+    throw new TaskAuthorityValidationError(`${field}.cadence.kind`, 'must be "interval" or "daily"')
+  }
+  const specification = parseTaskExecutionSpecification({ command: record['command'], target: record['target'], verification: record['verification'] }, field)
+  return { profileId, taskTitle, cadence: parsedCadence, command: specification.command, target: specification.target, verification: specification.verification }
+}
+
+function scheduleDefinitionJson(spec: TaskScheduleSpec): string {
+  return JSON.stringify({
+    profileId: spec.profileId,
+    taskTitle: spec.taskTitle,
+    cadence: spec.cadence,
+    command: spec.command,
+    target: spec.target,
+    verification: spec.verification
+  })
+}
+
+function readScheduleSpec(definitionJson: string): TaskScheduleSpec {
+  return parseScheduleSpec(parseJson(definitionJson), 'persisted schedule definition')
+}
+
+function scheduleSnapshot(db: DatabaseSync, row: Row): ScheduleSnapshot {
+  const spec = readScheduleSpec(text(row['definition_json']))
+  return {
+    scheduleId: text(row['id']),
+    projectId: text(row['project_id']),
+    profileId: spec.profileId,
+    taskTitle: spec.taskTitle,
+    cadence: spec.cadence,
+    command: spec.command,
+    target: spec.target,
+    verification: spec.verification,
+    enabled: bool(row['enabled']),
+    entityVersion: int(row['entity_version']),
+    nextRunAt: textOrNull(row['next_run_at']),
+    createdAt: text(row['created_at']),
+    updatedAt: text(row['updated_at'])
+  }
+}
+
+function loadSchedule(db: DatabaseSync, projectId: string, scheduleId: string): Row {
+  const row = db.prepare('SELECT * FROM schedules WHERE project_id = ? AND id = ?').get(projectId, scheduleId) as Row | undefined
+  if (!row) throw new TaskAuthorityError('TASK_NOT_FOUND', `schedule ${scheduleId} was not found in project ${projectId}`)
+  return row
+}
+
+function nextIntervalRun(spec: TaskScheduleSpec, afterIso: string): string {
+  return new Date(Date.parse(afterIso) + (spec.cadence.kind === 'interval' ? spec.cadence.minutes * 60_000 : 24 * 60 * 60_000)).toISOString()
+}
+
+function zonedUtcParts(instant: Date, timeZone: string): { zonedUtc: number; year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(instant).reduce<Record<string, string>>((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value
+    return acc
+  }, {})
+  const year = Number(parts['year'])
+  const month = Number(parts['month'])
+  const day = Number(parts['day'])
+  const zonedUtc = Date.UTC(year, month - 1, day, Number(parts['hour']) % 24, Number(parts['minute']), Number(parts['second']))
+  return { zonedUtc, year, month, day }
+}
+
+function computeNextRunAt(spec: TaskScheduleSpec, afterIso: string): string {
+  if (spec.cadence.kind === 'interval') return nextIntervalRun(spec, afterIso)
+  const [hours, minutes] = spec.cadence.time.split(':').map(part => Number(part))
+  const anchor = new Date(afterIso)
+  for (let dayOffset = 0; dayOffset < 3; dayOffset += 1) {
+    const probe = new Date(anchor.getTime() + dayOffset * 24 * 60 * 60_000)
+    const zoned = zonedUtcParts(probe, spec.cadence.timeZone)
+    const zoneOffsetMs = zoned.zonedUtc - probe.getTime()
+    const wallUtc = Date.UTC(zoned.year, zoned.month - 1, zoned.day, hours, minutes, 0)
+    const candidate = new Date(wallUtc - zoneOffsetMs)
+    if (candidate.getTime() > anchor.getTime()) return candidate.toISOString()
+  }
+  throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', 'could not compute the next daily schedule occurrence')
+}
+
+function executionSnapshot(row: Row): ScheduleExecutionSnapshot {
+  return {
+    projectId: text(row['project_id']),
+    scheduleId: text(row['schedule_id']),
+    executionId: text(row['id']),
+    trigger: text(row['trigger']) as ScheduleExecutionSnapshot['trigger'],
+    idempotencyKey: text(row['idempotency_key']),
+    intentSha256: text(row['intent_sha256']),
+    taskId: text(row['task_id']),
+    attemptId: textOrNull(row['attempt_id']),
+    dueAt: textOrNull(row['due_at']),
+    state: text(row['state']) as ScheduleExecutionState,
+    entityVersion: int(row['entity_version']),
+    createdAt: text(row['created_at'])
+  }
+}
+
+function findExecutionReceipt(db: DatabaseSync, projectId: string, scheduleId: string, trigger: string, idempotencyKey: string): Row | undefined {
+  return db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND schedule_id = ? AND trigger = ? AND idempotency_key = ?').get(projectId, scheduleId, trigger, idempotencyKey) as Row | undefined
+}
+
+function intentSha256(value: Record<string, unknown>): string {
+  return sha256(JSON.stringify(value))
+}
+
+/** Deterministic fingerprint binding a launch intent row to its attempt/lease tuple. */
+export function launchIntentFingerprint(launchIntentId: string, attemptId: string, leaseId: string): string {
+  return sha256(JSON.stringify({ launchIntentId, attemptId, leaseId }))
+}
+
+// ---------------------------------------------------------------------------
+// The authority
+// ---------------------------------------------------------------------------
+
+export class SqliteTaskAuthority implements TaskAuthority {
+  private readonly database: TaskAuthorityDatabase
+
+  constructor(database: TaskAuthorityDatabase) {
+    this.database = database
+  }
+
+  static open(options: Parameters<typeof openTaskAuthorityDatabase>[0] = {}): SqliteTaskAuthority {
+    return new SqliteTaskAuthority(openTaskAuthorityDatabase(options))
+  }
+
+  get databasePath(): string {
+    return this.database.databasePath
+  }
+
+  close(): void {
+    this.database.close()
+  }
+
+  // -- admin task intents ---------------------------------------------------
+
+  createTask(input: AdminCreateTaskInput): TaskSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const externalTaskId = boundedField(input?.['externalTaskId'], 'externalTaskId', 128)
+    const title = boundedText(input?.['title'], 'title', TASK_AUTHORITY_MAX_TITLE, false)
+    const body = boundedText(input?.['body'] ?? '', 'body', TASK_AUTHORITY_MAX_USER_TEXT)
+    const priority = input?.['priority'] ?? 0
+    if (typeof priority !== 'number' || !Number.isSafeInteger(priority) || Math.abs(priority) > 1_000_000) {
+      throw new TaskAuthorityValidationError('priority', 'must be an integer')
+    }
+    const status = input?.['status'] ?? 'todo'
+    if (status !== 'todo' && status !== 'blocked') {
+      throw new TaskAuthorityValidationError('status', 'must be "todo" or "blocked"')
+    }
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      ensureProject(db, projectId, input?.['repositoryId'], input?.['workspaceRoot'])
+      const canonical = canonicalExternalTaskId(externalTaskId)
+      const existing = db.prepare('SELECT id FROM tasks WHERE project_id = ? AND external_task_id_canonical = ?').get(projectId, canonical) as Row | undefined
+      if (existing) {
+        throw new TaskAuthorityValidationError('externalTaskId', `task "${externalTaskId}" already exists in project ${projectId}`)
+      }
+      const taskId = randomUUID()
+      const created = nowIso()
+      db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,NULL,'none',1,?,?)")
+        .run(taskId, projectId, externalTaskId, canonical, title, body, status, priority, created, created)
+      appendTaskEvent(db, projectId, taskId, null, 'task-created', 1, { externalTaskId, title, priority, status })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  updateTask(input: AdminUpdateTaskInput): TaskSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      if (int(task['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} entity version ${expectedEntityVersion} did not match ${int(task['entity_version'])}`)
+      }
+      if (TERMINAL_TASK_STATUSES[text(task['status']) as TaskStatus]) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} is terminal and cannot be updated`)
+      }
+      const nextTitle = input?.['title'] === undefined ? text(task['title']) : boundedText(input['title'], 'title', TASK_AUTHORITY_MAX_TITLE, false)
+      const nextBody = input?.['body'] === undefined ? text(task['body']) : boundedText(input['body'], 'body', TASK_AUTHORITY_MAX_USER_TEXT)
+      const nextPriority = input?.['priority'] === undefined ? int(task['priority']) : input['priority']
+      if (typeof nextPriority !== 'number' || !Number.isSafeInteger(nextPriority) || Math.abs(nextPriority) > 1_000_000) {
+        throw new TaskAuthorityValidationError('priority', 'must be an integer')
+      }
+      const nextStatus = input?.['status'] ?? text(task['status'])
+      if (nextStatus !== 'todo' && nextStatus !== 'blocked' && nextStatus !== text(task['status'])) {
+        throw new TaskAuthorityValidationError('status', 'may only be set to "todo" or "blocked"')
+      }
+      const version = bumpTask(db, projectId, taskId, 'title = ?, body = ?, priority = ?, status = ?', [nextTitle, nextBody, nextPriority, nextStatus])
+      appendTaskEvent(db, projectId, taskId, textOrNull(task['current_attempt_id']), 'task-updated', version, { title: nextTitle, priority: nextPriority, status: nextStatus })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  setDependencies(input: AdminSetDependenciesInput): TaskSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const dependsOn = input?.['dependsOnTaskIds']
+    if (!Array.isArray(dependsOn) || dependsOn.length > TASK_AUTHORITY_MAX_BATCH) {
+      throw new TaskAuthorityValidationError('dependsOnTaskIds', `must be an array of at most ${TASK_AUTHORITY_MAX_BATCH} task IDs`)
+    }
+    const dependsOnIds = dependsOn.map((id, index) => assertAuthorityUuid(id, `dependsOnTaskIds[${index}]`))
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      if (int(task['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} entity version ${expectedEntityVersion} did not match ${int(task['entity_version'])}`)
+      }
+      for (const dependsOnId of dependsOnIds) {
+        if (dependsOnId === taskId) throw new TaskAuthorityError('DEPENDENCY_BLOCKED', 'a task cannot depend on itself')
+        const dep = db.prepare('SELECT id FROM tasks WHERE project_id = ? AND id = ?').get(projectId, dependsOnId) as Row | undefined
+        if (!dep) throw new TaskAuthorityError('TASK_NOT_FOUND', `dependency task ${dependsOnId} was not found in project ${projectId}`)
+      }
+      db.prepare('DELETE FROM task_dependencies WHERE project_id = ? AND task_id = ?').run(projectId, taskId)
+      for (const dependsOnId of dependsOnIds) {
+        db.prepare('INSERT INTO task_dependencies(project_id, task_id, depends_on_task_id) VALUES (?,?,?)').run(projectId, taskId, dependsOnId)
+      }
+      assertNoDependencyCycle(db, projectId, taskId)
+      const version = bumpTask(db, projectId, taskId, 'status = ?', [text(task['status'])])
+      appendTaskEvent(db, projectId, taskId, textOrNull(task['current_attempt_id']), 'task-dependencies-set', version, { dependsOnTaskIds: dependsOnIds })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  // -- schedules ------------------------------------------------------------
+
+  createSchedule(input: AdminCreateScheduleInput): ScheduleSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const spec = parseScheduleSpec(input?.['spec'])
+    const enabled = input?.['enabled'] ?? true
+    if (typeof enabled !== 'boolean') throw new TaskAuthorityValidationError('enabled', 'must be a boolean')
+    const nextRunAt = optionalIsoTimestamp(input?.['nextRunAt'], 'nextRunAt')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      ensureProject(db, projectId, input?.['repositoryId'], input?.['workspaceRoot'])
+      const scheduleId = randomUUID()
+      const created = nowIso()
+      db.prepare('INSERT INTO schedules(id, project_id, definition_json, enabled, entity_version, next_run_at, created_at, updated_at) VALUES (?,?,?,?,1,?,?,?)')
+        .run(scheduleId, projectId, scheduleDefinitionJson(spec), enabled ? 1 : 0, nextRunAt, created, created)
+      appendProfileEvent(db, spec.profileId, null, 'schedule-created', 1, { projectId, scheduleId })
+      return scheduleSnapshot(db, loadSchedule(db, projectId, scheduleId))
+    })
+  }
+
+  updateSchedule(input: AdminUpdateScheduleInput): ScheduleSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const spec = input?.['spec'] === undefined ? undefined : parseScheduleSpec(input['spec'])
+    const enabled = input?.['enabled']
+    if (enabled !== undefined && typeof enabled !== 'boolean') throw new TaskAuthorityValidationError('enabled', 'must be a boolean')
+    const nextRunAt = input === undefined ? undefined : 'nextRunAt' in input ? optionalIsoTimestamp(input['nextRunAt'], 'nextRunAt') : undefined
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const schedule = loadSchedule(db, projectId, scheduleId)
+      if (int(schedule['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} entity version ${expectedEntityVersion} did not match ${int(schedule['entity_version'])}`)
+      }
+      const previous = scheduleSnapshot(db, schedule)
+      const merged = spec ?? previous
+      const enabledValue = enabled === undefined ? previous.enabled : enabled
+      const nextRunValue = nextRunAt === undefined ? previous.nextRunAt : nextRunAt
+      db.prepare('UPDATE schedules SET definition_json = ?, enabled = ?, next_run_at = ?, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?')
+        .run(scheduleDefinitionJson(merged), enabledValue ? 1 : 0, nextRunValue, nowIso(), projectId, scheduleId)
+      appendProfileEvent(db, merged.profileId, null, 'schedule-updated', expectedEntityVersion + 1, { projectId, scheduleId })
+      return scheduleSnapshot(db, loadSchedule(db, projectId, scheduleId))
+    })
+  }
+
+  duplicateSchedule(input: AdminDuplicateScheduleInput): ScheduleSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const schedule = loadSchedule(db, projectId, scheduleId)
+      if (int(schedule['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} entity version ${expectedEntityVersion} did not match ${int(schedule['entity_version'])}`)
+      }
+      const copyId = randomUUID()
+      const created = nowIso()
+      db.prepare('INSERT INTO schedules(id, project_id, definition_json, enabled, entity_version, next_run_at, created_at, updated_at) VALUES (?,?,?,0,1,?,?,?)')
+        .run(copyId, projectId, text(schedule['definition_json']), textOrNull(schedule['next_run_at']), created, created)
+      const spec = readScheduleSpec(text(schedule['definition_json']))
+      appendProfileEvent(db, spec.profileId, null, 'schedule-duplicated', 1, { projectId, scheduleId, duplicateId: copyId })
+      return scheduleSnapshot(db, loadSchedule(db, projectId, copyId))
+    })
+  }
+
+  deleteSchedule(input: AdminDeleteScheduleInput): ScheduleSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const schedule = loadSchedule(db, projectId, scheduleId)
+      if (int(schedule['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} entity version ${expectedEntityVersion} did not match ${int(schedule['entity_version'])}`)
+      }
+      const snapshot = scheduleSnapshot(db, schedule)
+      db.prepare('DELETE FROM schedules WHERE project_id = ? AND id = ?').run(projectId, scheduleId)
+      appendProfileEvent(db, snapshot.profileId, null, 'schedule-deleted', expectedEntityVersion, { projectId, scheduleId })
+      return snapshot
+    })
+  }
+
+  enqueueDueSchedule(input: EnqueueDueScheduleInput): ScheduleExecutionSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    if (connection.role !== 'daemon-scheduler') {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not enqueue due schedule executions`)
+    }
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const expectedNextRunAt = isoTimestamp(input?.['expectedNextRunAt'], 'expectedNextRunAt')
+    return this.database.withImmediate(db => {
+      const schedule = db.prepare('SELECT * FROM schedules WHERE project_id = ? AND id = ?').get(projectId, scheduleId) as Row | undefined
+      if (!schedule) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'connection is not authorized to enqueue this schedule occurrence')
+      const spec = readScheduleSpec(text(schedule['definition_json']))
+      if (connectionDeniedProject(connection, projectId) || connectionDeniedProfile(connection, spec.profileId)) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'connection is not authorized for this schedule occurrence scope')
+      }
+      const dueKey = expectedNextRunAt
+      const fingerprint = intentSha256({ projectId, scheduleId, trigger: 'due', dueAt: dueKey })
+      const existing = findExecutionReceipt(db, projectId, scheduleId, 'due', dueKey)
+      if (existing) {
+        if (text(existing['intent_sha256']) !== fingerprint) {
+          throw new TaskAuthorityError('IDEMPOTENCY_CONFLICT', `due occurrence ${dueKey} was already enqueued with a different intent`)
+        }
+        return executionSnapshot(existing)
+      }
+      if (!bool(schedule['enabled'])) {
+        throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `schedule ${scheduleId} is disabled`)
+      }
+      if (int(schedule['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} entity version ${expectedEntityVersion} did not match ${int(schedule['entity_version'])}`)
+      }
+      const storedNextRunAt = textOrNull(schedule['next_run_at'])
+      if (storedNextRunAt === null || Date.parse(storedNextRunAt) !== Date.parse(expectedNextRunAt)) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} next run ${expectedNextRunAt} did not match the stored occurrence`)
+      }
+      const execution = this.materializeExecution(db, projectId, schedule, spec, 'due', dueKey, fingerprint, dueKey)
+      db.prepare('UPDATE schedules SET next_run_at = ?, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?')
+        .run(computeNextRunAt(spec, dueKey), nowIso(), projectId, scheduleId)
+      appendProfileEvent(db, spec.profileId, null, 'schedule-due-enqueued', int(schedule['entity_version']) + 1, { projectId, scheduleId, executionId: execution.executionId, dueAt: dueKey })
+      return execution
+    })
+  }
+
+  enqueueManualScheduleExecution(input: EnqueueManualScheduleExecutionInput): ScheduleExecutionSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    if (connection.role !== 'administrator') {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not enqueue manual schedule executions`)
+    }
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const requestId = boundedField(input?.['requestId'], 'requestId', 128)
+    return this.database.withImmediate(db => {
+      const schedule = db.prepare('SELECT * FROM schedules WHERE project_id = ? AND id = ?').get(projectId, scheduleId) as Row | undefined
+      if (!schedule) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'connection is not authorized to enqueue this schedule execution')
+      const spec = readScheduleSpec(text(schedule['definition_json']))
+      if (connectionDeniedProject(connection, projectId) || connectionDeniedProfile(connection, spec.profileId)) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'connection is not authorized for this schedule execution scope')
+      }
+      const fingerprint = intentSha256({ projectId, scheduleId, trigger: 'manual', requestId })
+      const existing = findExecutionReceipt(db, projectId, scheduleId, 'manual', requestId)
+      if (existing) {
+        if (text(existing['intent_sha256']) !== fingerprint) {
+          throw new TaskAuthorityError('IDEMPOTENCY_CONFLICT', `manual execution ${requestId} was already enqueued with a different intent`)
+        }
+        return executionSnapshot(existing)
+      }
+      if (int(schedule['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule ${scheduleId} entity version ${expectedEntityVersion} did not match ${int(schedule['entity_version'])}`)
+      }
+      const execution = this.materializeExecution(db, projectId, schedule, spec, 'manual', requestId, fingerprint, null)
+      appendProfileEvent(db, spec.profileId, null, 'schedule-manual-enqueued', int(schedule['entity_version']), { projectId, scheduleId, executionId: execution.executionId, requestId })
+      return execution
+    })
+  }
+
+  private materializeExecution(db: DatabaseSync, projectId: string, schedule: Row, spec: TaskScheduleSpec, trigger: 'due' | 'manual', idempotencyKey: string, fingerprint: string, dueAt: string | null): ScheduleExecutionSnapshot {
+    const scheduleId = text(schedule['id'])
+    const taskId = randomUUID()
+    const executionId = randomUUID()
+    const created = nowIso()
+    const externalTaskId = `${scheduleId}:${idempotencyKey}`.slice(0, 128)
+    ensureProject(db, projectId, undefined, undefined)
+    db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at) VALUES (?,?,?,?,?,?,'todo',0,NULL,'none',1,?,?)")
+      .run(taskId, projectId, externalTaskId, canonicalExternalTaskId(externalTaskId), spec.taskTitle, '', created, created)
+    insertSpecification(db, projectId, taskId, { command: spec.command, target: spec.target, verification: spec.verification })
+    db.prepare("INSERT INTO schedule_executions(id, project_id, schedule_id, trigger, idempotency_key, intent_sha256, task_id, attempt_id, due_at, state, entity_version, created_at) VALUES (?,?,?,?,?,?,?,NULL,?,'queued',1,?)")
+      .run(executionId, projectId, scheduleId, trigger, idempotencyKey, fingerprint, taskId, dueAt, created)
+    appendTaskEvent(db, projectId, taskId, null, 'schedule-execution-enqueued', 1, { scheduleId, executionId, trigger, dueAt })
+    return executionSnapshot(db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND id = ?').get(projectId, executionId) as Row)
+  }
+
+  listScheduleExecutions(input: ScheduleExecutionQuery): ScheduleExecutionPage {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = input?.['projectId'] === undefined ? undefined : boundedField(input['projectId'], 'projectId', 128)
+    const scheduleId = input?.['scheduleId'] === undefined ? undefined : assertAuthorityUuid(input['scheduleId'], 'scheduleId')
+    const state = input?.['state']
+    if (state !== undefined && !['queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed'].includes(state)) {
+      throw new TaskAuthorityValidationError('state', 'must be a known schedule execution state')
+    }
+    const limit = parseProjectionLimit(input?.['limit'])
+    const cursor = input?.['cursor'] === undefined ? null : decodeCursor(parseTaskQueryCursor(input['cursor']))
+    if (projectId !== undefined) requireAdminProjectOrWorkerRead(connection, projectId)
+    else if (connection.role !== 'administrator') {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'unscoped schedule execution listing requires an administrator connection')
+    }
+    return this.database.withReadOnly(db => {
+      const clauses: string[] = []
+      const params: string[] = []
+      if (projectId !== undefined) { clauses.push('project_id = ?'); params.push(projectId) }
+      if (scheduleId !== undefined) { clauses.push('schedule_id = ?'); params.push(scheduleId) }
+      if (state !== undefined) { clauses.push('state = ?'); params.push(state) }
+      if (cursor !== null) {
+        clauses.push('(created_at > ? OR (created_at = ? AND id > ?))')
+        params.push(String(cursor[0]), String(cursor[0]), String(cursor[1]))
+      }
+      const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : ''
+      const rows = db.prepare(`SELECT * FROM schedule_executions${where} ORDER BY created_at, id LIMIT ?`).all(...params, limit + 1) as Row[]
+      const page = rows.slice(0, limit)
+      const nextCursor = rows.length > limit && page.length > 0
+        ? encodeCursor([text(page[page.length - 1]['created_at']), text(page[page.length - 1]['id'])])
+        : null
+      return { executions: page.map(executionSnapshot), nextCursor }
+    })
+  }
+
+  cancelScheduleExecution(input: AdminCancelScheduleExecutionInput): ScheduleExecutionSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
+    const executionId = assertAuthorityUuid(input?.['executionId'], 'executionId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const execution = db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND schedule_id = ? AND id = ?').get(projectId, scheduleId, executionId) as Row | undefined
+      if (!execution) throw new TaskAuthorityError('TASK_NOT_FOUND', `schedule execution ${executionId} was not found`)
+      if (int(execution['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule execution ${executionId} entity version ${expectedEntityVersion} did not match ${int(execution['entity_version'])}`)
+      }
+      if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `schedule execution ${executionId} is already terminal`)
+      }
+      const taskId = text(execution['task_id'])
+      db.prepare("UPDATE schedule_executions SET state = 'cancelling', entity_version = entity_version + 1 WHERE project_id = ? AND id = ?").run(projectId, executionId)
+      db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
+      const attemptId = textOrNull(loadTaskRow(db, projectId, taskId)['current_attempt_id'])
+      if (attemptId !== null) {
+        const attempt = loadAttemptRow(db, projectId, attemptId)
+        if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
+          db.prepare("UPDATE attempts SET state = 'cancelling', finished_at = NULL WHERE project_id = ? AND id = ?").run(projectId, attemptId)
+        }
+      }
+      syncMemberState(db, projectId, taskId, 'cancelling')
+      appendTaskEvent(db, projectId, taskId, attemptId, 'schedule-execution-cancelling', int(execution['entity_version']) + 1, { executionId })
+      return executionSnapshot(db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND id = ?').get(projectId, executionId) as Row)
+    })
+  }
+
+  // -- run groups -----------------------------------------------------------
+
+  createRunGroup(input: AdminCreateRunGroupInput): RunGroupSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const profileId = boundedField(input?.['profileId'], 'profileId', 128)
+    const name = boundedText(input?.['name'], 'name', TASK_AUTHORITY_MAX_TITLE, false)
+    const concurrency = input?.['concurrency']
+    if (typeof concurrency !== 'number' || !Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > MAX_PARALLELISM) {
+      throw new TaskAuthorityValidationError('concurrency', `must be an integer from 1 to ${MAX_PARALLELISM}`)
+    }
+    const members = input?.['members']
+    if (!Array.isArray(members) || members.length === 0 || members.length > TASK_AUTHORITY_MAX_BATCH) {
+      throw new TaskAuthorityValidationError('members', `must be a non-empty array of at most ${TASK_AUTHORITY_MAX_BATCH} members`)
+    }
+    return this.database.withImmediate(db => {
+      requireAdminProfile(connection, profileId)
+      const runGroupId = randomUUID()
+      const created = nowIso()
+      db.prepare("INSERT INTO run_groups(id, profile_id, name, retry_of_run_group_id, concurrency, state, entity_version, created_at, updated_at) VALUES (?,?,?,NULL,?,'active',1,?,?)").run(runGroupId, profileId, name, concurrency, created, created)
+      members.forEach((member, ordinal) => {
+        const memberProject = boundedField(member?.['projectId'], `members[${ordinal}].projectId`, 128)
+        const memberTask = assertAuthorityUuid(member?.['taskId'], `members[${ordinal}].taskId`)
+        loadTaskRow(db, memberProject, memberTask)
+        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state) VALUES (?,?,?,NULL,?,'queued')").run(runGroupId, memberProject, memberTask, ordinal)
+      })
+      appendProfileEvent(db, profileId, runGroupId, 'run-group-created', 1, { name, concurrency, members: members.length })
+      return runGroupSnapshot(db, loadRunGroup(db, runGroupId))
+    })
+  }
+
+  retryRunGroup(input: AdminRetryRunGroupInput): RunGroupSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const requestId = boundedField(input?.['requestId'], 'requestId', 128)
+    assertAuthorityUuid(input?.['ownerId'], 'ownerId')
+    const memberTaskIds = input?.['memberTaskIds']
+    if (!Array.isArray(memberTaskIds) || memberTaskIds.length === 0 || memberTaskIds.length > TASK_AUTHORITY_MAX_BATCH) {
+      throw new TaskAuthorityValidationError('memberTaskIds', `must be a non-empty array of at most ${TASK_AUTHORITY_MAX_BATCH} members`)
+    }
+    const selected = memberTaskIds.map((member, index) => ({
+      projectId: boundedField(member?.['projectId'], `memberTaskIds[${index}].projectId`, 128),
+      taskId: assertAuthorityUuid(member?.['taskId'], `memberTaskIds[${index}].taskId`)
+    }))
+    const fingerprint = intentSha256({
+      runGroupId,
+      requestId,
+      memberTaskIds: [...selected].sort((a, b) => `${a.projectId}:${a.taskId}`.localeCompare(`${b.projectId}:${b.taskId}`))
+    })
+    return this.database.withImmediate(db => {
+      const source = db.prepare('SELECT * FROM run_groups WHERE id = ?').get(runGroupId) as Row | undefined
+      if (!source) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'connection is not authorized to retry this run group')
+      const profileId = text(source['profile_id'])
+      requireAdminProfile(connection, profileId)
+      const receipt = db.prepare('SELECT * FROM run_group_mutation_receipts WHERE profile_id = ? AND request_id = ?').get(profileId, requestId) as Row | undefined
+      if (receipt) {
+        if (text(receipt['intent_sha256']) !== fingerprint) {
+          throw new TaskAuthorityError('IDEMPOTENCY_CONFLICT', `run group retry request ${requestId} was already used with a different intent`)
+        }
+        return runGroupSnapshot(db, loadRunGroup(db, text(receipt['result_run_group_id'])))
+      }
+      if (int(source['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `run group ${runGroupId} entity version ${expectedEntityVersion} did not match ${int(source['entity_version'])}`)
+      }
+      if (text(source['state']) !== 'active') {
+        throw new TaskAuthorityError('TASK_CANCELLED', `run group ${runGroupId} is ${text(source['state'])} and cannot be retried`)
+      }
+      const newGroupId = randomUUID()
+      const created = nowIso()
+      db.prepare("INSERT INTO run_groups(id, profile_id, name, retry_of_run_group_id, concurrency, state, entity_version, created_at, updated_at) VALUES (?,?,?,?,?,'active',1,?,?)")
+        .run(newGroupId, profileId, `${text(source['name'])} (retry)`, runGroupId, int(source['concurrency']), created, created)
+      selected.forEach((member, ordinal) => {
+        const sourceMember = db.prepare('SELECT * FROM run_members WHERE run_group_id = ? AND project_id = ? AND task_id = ?').get(runGroupId, member.projectId, member.taskId) as Row | undefined
+        if (!sourceMember) throw new TaskAuthorityError('TASK_NOT_FOUND', `task ${member.taskId} is not a member of run group ${runGroupId}`)
+        if (text(sourceMember['state']) !== 'failed') {
+          throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `member ${member.taskId} is ${text(sourceMember['state'])}; only failed members can be retried`)
+        }
+        const sourceAttemptId = textOrNull(loadTaskRow(db, member.projectId, member.taskId)['current_attempt_id'])
+        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state) VALUES (?,?,?,?,?,'queued')")
+          .run(newGroupId, member.projectId, member.taskId, sourceAttemptId, ordinal)
+        db.prepare("UPDATE tasks SET status = 'todo', cancel_state = 'none', current_attempt_id = NULL, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?")
+          .run(nowIso(), member.projectId, member.taskId)
+      })
+      db.prepare('INSERT INTO run_group_mutation_receipts(profile_id, request_id, intent_sha256, result_run_group_id, created_at) VALUES (?,?,?,?,?)')
+        .run(profileId, requestId, fingerprint, newGroupId, created)
+      appendProfileEvent(db, profileId, newGroupId, 'run-group-retried', 1, { sourceRunGroupId: runGroupId, requestId, members: selected.map(member => `${member.projectId}:${member.taskId}`) })
+      return runGroupSnapshot(db, loadRunGroup(db, newGroupId))
+    })
+  }
+
+  cancelRunGroup(input: AdminCancelRunGroupInput): RunGroupSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const profileId = boundedField(input?.['profileId'], 'profileId', 128)
+    const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProfile(connection, profileId)
+      const group = loadRunGroup(db, runGroupId)
+      if (text(group['profile_id']) !== profileId) {
+        throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `run group ${runGroupId} does not belong to profile ${profileId}`)
+      }
+      if (int(group['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `run group ${runGroupId} entity version ${expectedEntityVersion} did not match ${int(group['entity_version'])}`)
+      }
+      if (text(group['state']) !== 'active') {
+        return runGroupSnapshot(db, group)
+      }
+      db.prepare("UPDATE run_groups SET state = 'cancelling', entity_version = entity_version + 1, updated_at = ? WHERE id = ?").run(nowIso(), runGroupId)
+      const members = db.prepare('SELECT * FROM run_members WHERE run_group_id = ?').all(runGroupId) as Row[]
+      for (const member of members) {
+        const memberProject = text(member['project_id'])
+        const memberTask = text(member['task_id'])
+        if (TERMINAL_MEMBER_STATES[text(member['state']) as RunMemberState]) continue
+        db.prepare("UPDATE run_members SET state = 'cancelling' WHERE run_group_id = ? AND project_id = ? AND task_id = ?").run(runGroupId, memberProject, memberTask)
+        db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ? AND status NOT IN ('done','cancelled','failed')")
+          .run(nowIso(), memberProject, memberTask)
+        const attemptId = textOrNull(loadTaskRow(db, memberProject, memberTask)['current_attempt_id'])
+        if (attemptId !== null) {
+          const attempt = loadAttemptRow(db, memberProject, attemptId)
+          if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
+            db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(memberProject, attemptId)
+          }
+        }
+        syncExecutionForTask(db, memberProject, memberTask, execution => {
+          if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
+          return { state: 'cancelling' }
+        })
+        appendTaskEvent(db, memberProject, memberTask, attemptId, 'run-group-cancelling', int(group['entity_version']) + 1, { runGroupId })
+      }
+      appendProfileEvent(db, profileId, runGroupId, 'run-group-cancelling', int(group['entity_version']) + 1, { runGroupId })
+      return runGroupSnapshot(db, loadRunGroup(db, runGroupId))
+    })
+  }
+
+  deleteRunGroup(input: AdminDeleteRunGroupInput): RunGroupSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const profileId = boundedField(input?.['profileId'], 'profileId', 128)
+    const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProfile(connection, profileId)
+      const group = loadRunGroup(db, runGroupId)
+      if (text(group['profile_id']) !== profileId) {
+        throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `run group ${runGroupId} does not belong to profile ${profileId}`)
+      }
+      if (int(group['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `run group ${runGroupId} entity version ${expectedEntityVersion} did not match ${int(group['entity_version'])}`)
+      }
+      const child = db.prepare('SELECT id FROM run_groups WHERE retry_of_run_group_id = ? LIMIT 1').get(runGroupId) as Row | undefined
+      if (child) throw new TaskAuthorityError('STALE_AUTHORITY', `run group ${runGroupId} has retry lineage and cannot be deleted`)
+      const members = db.prepare('SELECT * FROM run_members WHERE run_group_id = ?').all(runGroupId) as Row[]
+      for (const member of members) {
+        if (!TERMINAL_MEMBER_STATES[text(member['state']) as RunMemberState]) {
+          throw new TaskAuthorityError('STALE_AUTHORITY', `run group ${runGroupId} still has non-terminal linked work`)
+        }
+      }
+      const snapshot = runGroupSnapshot(db, group)
+      db.prepare('DELETE FROM run_members WHERE run_group_id = ?').run(runGroupId)
+      db.prepare('DELETE FROM run_groups WHERE id = ?').run(runGroupId)
+      appendProfileEvent(db, profileId, runGroupId, 'run-group-deleted', expectedEntityVersion, { runGroupId })
+      return snapshot
+    })
+  }
+
+  // -- claims ---------------------------------------------------------------
+
+  claim(input: AuthenticatedClaimInput): ClaimResult {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const specification = parseTaskExecutionSpecification(input?.['specification'])
+    const ttl = ttlMs(input?.['leaseTtlMs'], 'leaseTtlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
+    const taskId = input?.['taskId'] === undefined ? undefined : assertAuthorityUuid(input['taskId'], 'taskId')
+    const externalTaskId = input?.['externalTaskId'] === undefined ? undefined : boundedField(input['externalTaskId'], 'externalTaskId', 128)
+    if (taskId === undefined && externalTaskId === undefined) {
+      throw new TaskAuthorityValidationError('claim', 'either taskId or externalTaskId is required')
+    }
+    return this.database.withImmediate(db => {
+      const ownerId = requireWorker(connection, projectId)
+      const nowMs = authorityNowMs(db)
+      let task: Row | undefined
+      if (taskId !== undefined) {
+        task = db.prepare('SELECT * FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row | undefined
+        if (!task) throw new TaskAuthorityError('TASK_NOT_FOUND', `task ${taskId} was not found in project ${projectId}`)
+      } else {
+        task = db.prepare('SELECT * FROM tasks WHERE project_id = ? AND external_task_id_canonical = ?').get(projectId, canonicalExternalTaskId(externalTaskId as string)) as Row | undefined
+        if (!task) throw new TaskAuthorityError('TASK_NOT_FOUND', `task "${externalTaskId}" was not found in project ${projectId}`)
+      }
+      assertTaskClaimable(db, task)
+      const taskIdValue = text(task['id'])
+      const member = db.prepare('SELECT rm.*, rg.state AS group_state, rg.concurrency AS group_concurrency, rg.id AS group_id FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.project_id = ? AND rm.task_id = ? ORDER BY rm.rowid DESC LIMIT 1').get(projectId, taskIdValue) as Row | undefined
+      if (member !== undefined) {
+        if (text(member['group_state']) !== 'active') throw new TaskAuthorityError('TASK_CANCELLED', `run group ${text(member['group_id'])} is ${text(member['group_state'])}`)
+        if (text(member['state']) !== 'queued') throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `run member is ${text(member['state'])} and cannot be claimed`)
+        const consuming = db.prepare(
+          "SELECT COUNT(*) AS count FROM run_members m JOIN tasks t ON t.project_id = m.project_id AND t.id = m.task_id JOIN attempts a ON a.project_id = t.project_id AND a.id = t.current_attempt_id WHERE m.run_group_id = ? AND a.state IN ('claimed','launching','running','cancelling','quarantined')"
+        ).get(text(member['group_id'])) as Row
+        if (int(consuming['count']) >= int(member['group_concurrency'])) {
+          throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `run group ${text(member['group_id'])} has no free concurrency`)
+        }
+      }
+      const specificationId = insertSpecification(db, projectId, taskIdValue, specification)
+      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskIdValue, nextAttemptSequence(db, projectId, taskIdValue), null, specificationId, ownerId, ttl, nowMs)
+      db.prepare("UPDATE tasks SET current_attempt_id = ?, status = 'in-progress', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(attemptId, nowIso(), projectId, taskIdValue)
+      db.prepare("UPDATE run_members SET state = 'claimed' WHERE project_id = ? AND task_id = ? AND state = 'queued'").run(projectId, taskIdValue)
+      syncExecutionForTask(db, projectId, taskIdValue, () => ({ state: 'running', attemptId }))
+      const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskIdValue) as Row
+      appendTaskEvent(db, projectId, taskIdValue, attemptId, 'task-claimed', int(versionRow['entity_version']), { ownerId, leaseId, generation: 1 })
+      const lease = loadLeaseRow(db, projectId, leaseId)
+      return {
+        task: taskSnapshot(db, loadTaskRow(db, projectId, taskIdValue)),
+        attempt: attemptSnapshot(db, loadAttemptRow(db, projectId, attemptId)),
+        token: tokenFor(projectId, taskIdValue, attemptId, lease, nowMs + ttl)
+      }
+    })
+  }
+
+  // -- ordinary fenced writes -------------------------------------------------
+
+  write(input: AuthorizedTaskOperation): TaskSnapshot {
+    if (typeof input !== 'object' || input === null) {
+      throw new TaskAuthorityValidationError('operation', 'must be an operation object')
+    }
+    const record = input as Record<string, unknown>
+    const kind = record['kind']
+    const connection = parseAuthorityConnection(record['connection'])
+    switch (kind) {
+      case 'heartbeat': {
+        const token = parseLeaseToken(record['token'])
+        const ttl = ttlMs(record['ttlMs'], 'ttlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          const expiresAtMs = authorityNowMs(db) + ttl
+          db.prepare('INSERT INTO lease_renewals(id, project_id, task_id, attempt_id, lease_id, expires_at_ms, created_at_ms) VALUES (?,?,?,?,?,?,?)')
+            .run(randomUUID(), token.projectId, token.taskId, token.attemptId, token.leaseId, expiresAtMs, authorityNowMs(db))
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'lease-renewed', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { leaseId: token.leaseId, expiresAtMs })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'progress': {
+        const token = parseLeaseToken(record['token'])
+        const detail = boundedText(record['detail'], 'detail', TASK_AUTHORITY_MAX_USER_TEXT, false)
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'task-progress', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { detail })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'record-launch-intent': {
+        const token = parseLeaseToken(record['token'])
+        const specificationId = assertAuthorityUuid(record['specificationId'], 'specificationId')
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          const { attempt } = requireFencedWrite(db, token, ownerId)
+          if (text(attempt['specification_id']) !== specificationId) {
+            throw new TaskAuthorityError('STALE_AUTHORITY', `specification ${specificationId} is not the current attempt specification`)
+          }
+          const existing = latestLaunchIntent(db, token.projectId, token.attemptId)
+          if (existing !== undefined && text(existing['state']) !== 'planned') {
+            throw new TaskAuthorityError('STALE_AUTHORITY', `launch intent ${text(existing['id'])} is already ${text(existing['state'])}`)
+          }
+          if (existing === undefined) {
+            const created = nowIso()
+            db.prepare("INSERT INTO launch_intents(id, project_id, task_id, attempt_id, lease_id, state, session_id, process_identity_json, stop_state, created_at, updated_at) VALUES (?,?,?,?,?,'planned',NULL,NULL,'none',?,?)")
+              .run(randomUUID(), token.projectId, token.taskId, token.attemptId, token.leaseId, created, created)
+          }
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'launch-intent-recorded', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { specificationId })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'bind-runtime': {
+        const token = parseLeaseToken(record['token'])
+        const sessionId = boundedField(record['sessionId'], 'sessionId', 128)
+        const processIdentity = record['processIdentity']
+        if (typeof processIdentity !== 'object' || processIdentity === null) {
+          throw new TaskAuthorityValidationError('processIdentity', 'must be a process identity object')
+        }
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          assertBindableProcessIdentity(processIdentity as ProcessIdentity)
+          const intent = latestLaunchIntent(db, token.projectId, token.attemptId)
+          if (!intent || text(intent['state']) !== 'spawning') {
+            throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} has no spawning launch intent to bind`)
+          }
+          db.prepare('UPDATE launch_intents SET session_id = ?, process_identity_json = ?, updated_at = ? WHERE project_id = ? AND id = ?')
+            .run(sessionId, JSON.stringify(processIdentity), nowIso(), token.projectId, text(intent['id']))
+          db.prepare("UPDATE attempts SET state = 'running' WHERE project_id = ? AND id = ? AND state = 'launching'").run(token.projectId, token.attemptId)
+          syncMemberState(db, token.projectId, token.taskId, 'running')
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'runtime-bound', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { sessionId, launchIntentId: text(intent['id']) })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'bind-worktree': {
+        const token = parseLeaseToken(record['token'])
+        const resourceKey = boundedField(record['resourceKey'], 'resourceKey', 128)
+        const worktreePath = boundedText(record['worktreePath'], 'worktreePath', 128, false)
+        const repositoryId = boundedField(record['repositoryId'], 'repositoryId', 128)
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          const canonical = canonicalResourceKey(resourceKey)
+          const conflicting = db.prepare("SELECT attempt_id FROM resource_reservations WHERE canonical_resource_key = ? AND state IN ('reserved','quarantined') AND attempt_id <> ? LIMIT 1").get(canonical, token.attemptId) as Row | undefined
+          if (conflicting) {
+            throw new TaskAuthorityError('RESOURCE_QUARANTINED', `canonical resource ${canonical} is already reserved by another attempt`)
+          }
+          const existing = db.prepare("SELECT id FROM resource_reservations WHERE project_id = ? AND attempt_id = ? AND state IN ('reserved','quarantined') LIMIT 1").get(token.projectId, token.attemptId) as Row | undefined
+          if (!existing) {
+            db.prepare("INSERT INTO resource_reservations(id, canonical_resource_key, project_id, attempt_id, state, created_at, released_at) VALUES (?,?,?,?,'reserved',?,NULL)")
+              .run(randomUUID(), canonical, token.projectId, token.attemptId, nowIso())
+          }
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'worktree-bound', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { resourceKey: canonical, worktreePath, repositoryId })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'attach-artifact': {
+        const token = parseLeaseToken(record['token'])
+        const artifact = parseVerificationArtifact(record['artifact'])
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          db.prepare("INSERT INTO verification_artifacts(id, project_id, task_id, attempt_id, lease_id, generation, provenance_kind, path, sha256, bytes, source_fingerprint, relationship, attached_at) VALUES (?,?,?,?,?,?,'native',?,?,?,?,?,?)")
+            .run(randomUUID(), token.projectId, token.taskId, token.attemptId, token.leaseId, token.generation, artifact.path, artifact.sha256, artifact.bytes, artifact.sourceFingerprint, artifact.relationship, nowIso())
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'artifact-attached', int(loadTaskRow(db, token.projectId, token.taskId)['entity_version']), { path: artifact.path, relationship: artifact.relationship })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'complete': {
+        const token = parseLeaseToken(record['token'])
+        const result = record['result']
+        if (typeof result !== 'object' || result === null) throw new TaskAuthorityValidationError('result', 'must be a completion object')
+        const summary = boundedText((result as Record<string, unknown>)['summary'], 'result.summary', TASK_AUTHORITY_MAX_USER_TEXT, false)
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          assertCompletionRequirements(db, token)
+          db.prepare("UPDATE attempts SET state = 'completed', finished_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), token.projectId, token.attemptId)
+          stopLaunchIntent(db, token.projectId, token.attemptId, 'stopped', 'exited')
+          releaseReservation(db, token.projectId, token.attemptId)
+          syncMemberState(db, token.projectId, token.taskId, 'completed')
+          syncExecutionForTask(db, token.projectId, token.taskId, () => ({ state: 'succeeded' }))
+          const version = bumpTask(db, token.projectId, token.taskId, "status = 'done', cancel_state = 'none'", [])
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'task-completed', version, { summary })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      case 'fail': {
+        const token = parseLeaseToken(record['token'])
+        const error = boundedText(record['error'], 'error', TASK_AUTHORITY_MAX_ERROR_TEXT, false)
+        return this.database.withImmediate(db => {
+          const ownerId = requireWorker(connection, token.projectId)
+          requireFencedWrite(db, token, ownerId)
+          db.prepare("UPDATE attempts SET state = 'failed', finished_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), token.projectId, token.attemptId)
+          stopLaunchIntent(db, token.projectId, token.attemptId, 'stopped', 'exited')
+          releaseReservation(db, token.projectId, token.attemptId)
+          syncMemberState(db, token.projectId, token.taskId, 'failed')
+          syncExecutionForTask(db, token.projectId, token.taskId, () => ({ state: 'failed' }))
+          const version = bumpTask(db, token.projectId, token.taskId, "status = 'failed', cancel_state = 'none'", [])
+          appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'task-failed', version, { error })
+          return taskSnapshot(db, loadTaskRow(db, token.projectId, token.taskId))
+        })
+      }
+      default:
+        throw new TaskAuthorityValidationError('kind', 'must be a known authorized task operation')
+    }
+  }
+
+  beginSpawn(input: TrustedBeginSpawnInput): SpawnAdmission {
+    const token = parseLeaseToken(input?.['token'])
+    const launchIntentId = assertAuthorityUuid(input?.['launchIntentId'], 'launchIntentId')
+    const expectedSpecificationId = assertAuthorityUuid(input?.['expectedSpecificationId'], 'expectedSpecificationId')
+    return this.database.withImmediate(db => {
+      const task = loadTaskRow(db, token.projectId, token.taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(token.projectId, token.attemptId, token.taskId) as Row | undefined
+      if (!attempt || textOrNull(attempt['current_lease_id']) !== token.leaseId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} is not current for task ${token.taskId}`)
+      }
+      const lease = loadLeaseRow(db, token.projectId, token.leaseId)
+      if (int(lease['generation']) !== token.generation) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${token.leaseId} generation ${token.generation} is not current`)
+      }
+      if (text(task['cancel_state']) !== 'none') throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} has cancellation requested`)
+      if (text(attempt['state']) === 'quarantined') throw new TaskAuthorityError('RESOURCE_QUARANTINED', `attempt ${token.attemptId} is quarantined`)
+      if (!ACTIVE_STATES[text(attempt['state']) as AttemptState]) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} is ${text(attempt['state'])} and cannot admit a spawn`)
+      }
+      const cancellingMember = db.prepare(
+        "SELECT 1 FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.project_id = ? AND rm.task_id = ? AND (rg.state IN ('cancelling','cancelled') OR rm.state IN ('cancelling','cancelled')) LIMIT 1"
+      ).get(token.projectId, token.taskId) as Row | undefined
+      if (cancellingMember) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling run group or member`)
+      const cancellingExecution = db.prepare(
+        "SELECT 1 FROM schedule_executions WHERE project_id = ? AND task_id = ? AND state IN ('cancelling','cancelled') LIMIT 1"
+      ).get(token.projectId, token.taskId) as Row | undefined
+      if (cancellingExecution) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling schedule execution`)
+      if (effectiveExpiryMs(db, lease) <= authorityNowMs(db)) throw new TaskAuthorityError('LEASE_EXPIRED', `lease ${token.leaseId} expired before spawn admission`)
+      if (text(attempt['specification_id']) !== expectedSpecificationId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `specification ${expectedSpecificationId} did not match the attempt specification`)
+      }
+      const existing = db.prepare('SELECT * FROM launch_intents WHERE project_id = ? AND id = ?').get(token.projectId, launchIntentId) as Row | undefined
+      if (existing) {
+        if (text(existing['attempt_id']) !== token.attemptId || text(existing['lease_id']) !== token.leaseId) {
+          throw new TaskAuthorityError('STALE_AUTHORITY', `launch intent ${launchIntentId} is bound to a different attempt or lease`)
+        }
+        if (text(existing['state']) === 'planned') {
+          db.prepare("UPDATE launch_intents SET state = 'spawning', updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), token.projectId, launchIntentId)
+        } else if (text(existing['state']) !== 'spawning') {
+          throw new TaskAuthorityError('STALE_AUTHORITY', `launch intent ${launchIntentId} is already ${text(existing['state'])}`)
+        }
+      } else {
+        const created = nowIso()
+        db.prepare("INSERT INTO launch_intents(id, project_id, task_id, attempt_id, lease_id, state, session_id, process_identity_json, stop_state, created_at, updated_at) VALUES (?,?,?,?,?,'spawning',NULL,NULL,'none',?,?)")
+          .run(launchIntentId, token.projectId, token.taskId, token.attemptId, token.leaseId, created, created)
+      }
+      if (text(attempt['state']) === 'claimed') {
+        db.prepare("UPDATE attempts SET state = 'launching' WHERE project_id = ? AND id = ?").run(token.projectId, token.attemptId)
+        db.prepare("UPDATE run_members SET state = 'launching' WHERE project_id = ? AND task_id = ? AND state = 'claimed'").run(token.projectId, token.taskId)
+      }
+      const admittedAt = nowIso()
+      appendTaskEvent(db, token.projectId, token.taskId, token.attemptId, 'spawn-admitted', int(task['entity_version']), { launchIntentId, specificationId: expectedSpecificationId })
+      return {
+        projectId: token.projectId,
+        taskId: token.taskId,
+        attemptId: token.attemptId,
+        leaseId: token.leaseId,
+        leaseGeneration: token.generation,
+        launchIntentId,
+        specificationId: expectedSpecificationId,
+        admittedAt
+      }
+    })
+  }
+
+  // -- handoff, takeover, reconciliation ---------------------------------------
+
+  offerHandoff(input: AuthenticatedHandoffOfferInput): HandoffOffer {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const targetOwnerId = assertAuthorityUuid(input?.['targetOwnerId'], 'targetOwnerId')
+    const ttl = ttlMs(input?.['ttlMs'], 'ttlMs', TASK_AUTHORITY_DEFAULT_OFFER_TTL_MS)
+    return this.database.withImmediate(db => {
+      const ownerId = requireWorker(connection, projectId)
+      const token: LeaseToken = {
+        projectId, taskId, attemptId, ownerId, leaseId, generation,
+        expiresAt: new Date(authorityNowMs(db) + ttl).toISOString()
+      }
+      requireFencedWrite(db, token, ownerId)
+      const existing = db.prepare(
+        "SELECT id FROM handoff_offers WHERE project_id = ? AND task_id = ? AND attempt_id = ? AND status = 'pending' LIMIT 1"
+      ).get(projectId, taskId, attemptId) as Row | undefined
+      if (existing) throw new TaskAuthorityError('HANDOFF_PENDING', `attempt ${attemptId} already has a live handoff offer`)
+      const offerId = randomUUID()
+      db.prepare("INSERT INTO handoff_offers(id, project_id, task_id, attempt_id, source_owner_id, target_owner_id, source_lease_id, source_generation, status, expires_at_ms, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL)")
+        .run(offerId, projectId, taskId, attemptId, ownerId, targetOwnerId, leaseId, generation, authorityNowMs(db) + ttl, nowIso())
+      appendTaskEvent(db, projectId, taskId, attemptId, 'handoff-offered', int(loadTaskRow(db, projectId, taskId)['entity_version']), { offerId, targetOwnerId })
+      return handoffOfferSnapshot(db.prepare('SELECT * FROM handoff_offers WHERE project_id = ? AND id = ?').get(projectId, offerId) as Row)
+    })
+  }
+
+  cancelHandoff(input: AuthenticatedHandoffCancelInput): HandoffOffer {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const offerId = assertAuthorityUuid(input?.['offerId'], 'offerId')
+    return this.database.withImmediate(db => {
+      const ownerId = requireWorker(connection, projectId)
+      const offer = db.prepare('SELECT * FROM handoff_offers WHERE project_id = ? AND id = ?').get(projectId, offerId) as Row | undefined
+      if (!offer || text(offer['status']) !== 'pending'
+        || text(offer['task_id']) !== taskId || text(offer['attempt_id']) !== attemptId
+        || text(offer['source_owner_id']) !== ownerId || text(offer['source_lease_id']) !== leaseId
+        || int(offer['source_generation']) !== generation) {
+        throw new TaskAuthorityError('HANDOFF_INVALID', `handoff offer ${offerId} is not a pending offer bound to the source tuple`)
+      }
+      db.prepare("UPDATE handoff_offers SET status = 'cancelled', resolved_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, offerId)
+      appendTaskEvent(db, projectId, taskId, attemptId, 'handoff-cancelled', int(loadTaskRow(db, projectId, taskId)['entity_version']), { offerId })
+      return handoffOfferSnapshot(db.prepare('SELECT * FROM handoff_offers WHERE project_id = ? AND id = ?').get(projectId, offerId) as Row)
+    })
+  }
+
+  acceptHandoff(input: AuthenticatedHandoffAcceptInput): ClaimResult {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const offerId = assertAuthorityUuid(input?.['offerId'], 'offerId')
+    return this.database.withImmediate(db => {
+      const ownerId = requireWorker(connection, projectId)
+      const offer = db.prepare('SELECT * FROM handoff_offers WHERE project_id = ? AND id = ?').get(projectId, offerId) as Row | undefined
+      if (!offer) throw new TaskAuthorityError('HANDOFF_INVALID', `handoff offer ${offerId} was not found`)
+      if (text(offer['status']) !== 'pending') {
+        throw new TaskAuthorityError('HANDOFF_INVALID', `handoff offer ${offerId} is ${text(offer['status'])} and cannot authorize transfer`)
+      }
+      if (text(offer['target_owner_id']) !== ownerId) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'authenticated target does not match the handoff offer target')
+      }
+      const task = loadTaskRow(db, projectId, taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, attemptId, taskId) as Row | undefined
+      if (!attempt || textOrNull(attempt['current_lease_id']) !== text(offer['source_lease_id']) || text(offer['attempt_id']) !== attemptId) {
+        throw new TaskAuthorityError('HANDOFF_INVALID', `handoff offer ${offerId} is not bound to the current attempt tuple`)
+      }
+      const sourceLease = loadLeaseRow(db, projectId, text(offer['source_lease_id']))
+      if (int(sourceLease['generation']) !== int(offer['source_generation'])) {
+        throw new TaskAuthorityError('HANDOFF_INVALID', `handoff offer ${offerId} source generation no longer matches the lease`)
+      }
+      if (text(task['cancel_state']) !== 'none') throw new TaskAuthorityError('TASK_CANCELLED', `task ${taskId} has cancellation requested`)
+      if (text(attempt['state']) === 'quarantined') throw new TaskAuthorityError('RESOURCE_QUARANTINED', `attempt ${attemptId} is quarantined`)
+      if (!ACTIVE_STATES[text(attempt['state']) as AttemptState]) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} is ${text(attempt['state'])} and cannot accept a handoff`)
+      }
+      const nowMs = authorityNowMs(db)
+      if (int(offer['expires_at_ms']) <= nowMs) {
+        db.prepare("UPDATE handoff_offers SET status = 'expired', resolved_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, offerId)
+        appendTaskEvent(db, projectId, taskId, attemptId, 'handoff-expired', int(task['entity_version']), { offerId })
+        failAfterCommit('HANDOFF_INVALID', `handoff offer ${offerId} expired and cannot authorize transfer`)
+      }
+      const newLeaseId = randomUUID()
+      const newGeneration = int(offer['source_generation']) + 1
+      db.prepare('INSERT INTO leases(id, project_id, task_id, attempt_id, owner_id, generation, issued_at_ms, initial_expires_at_ms) VALUES (?,?,?,?,?,?,?,?)')
+        .run(newLeaseId, projectId, taskId, attemptId, ownerId, newGeneration, nowMs, nowMs + TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
+      db.prepare('UPDATE attempts SET current_lease_id = ? WHERE project_id = ? AND id = ?').run(newLeaseId, projectId, attemptId)
+      db.prepare("UPDATE handoff_offers SET status = 'accepted', resolved_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, offerId)
+      const version = bumpTask(db, projectId, taskId, "status = 'in-progress', cancel_state = 'none'", [])
+      appendTaskEvent(db, projectId, taskId, attemptId, 'handoff-accepted', version, { offerId, leaseId: newLeaseId, generation: newGeneration })
+      const lease = loadLeaseRow(db, projectId, newLeaseId)
+      const expiryMs = effectiveExpiryMs(db, lease)
+      return {
+        task: taskSnapshot(db, loadTaskRow(db, projectId, taskId)),
+        attempt: attemptSnapshot(db, loadAttemptRow(db, projectId, attemptId)),
+        token: tokenFor(projectId, taskId, attemptId, lease, expiryMs)
+      }
+    })
+  }
+
+  takeOverExpired(input: AuthenticatedTakeoverInput): ClaimResult {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const ttl = ttlMs(input?.['leaseTtlMs'], 'leaseTtlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
+    return this.database.withImmediate(db => {
+      const ownerId = requireWorker(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, attemptId, taskId) as Row | undefined
+      if (!attempt || textOrNull(attempt['current_lease_id']) !== leaseId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} is not the current lease of attempt ${attemptId}`)
+      }
+      const lease = loadLeaseRow(db, projectId, leaseId)
+      if (int(lease['generation']) !== generation) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} generation ${generation} is not current`)
+      }
+      if (text(task['cancel_state']) !== 'none') throw new TaskAuthorityError('TASK_CANCELLED', `task ${taskId} has cancellation requested`)
+      const liveOffer = db.prepare(
+        "SELECT 1 FROM handoff_offers WHERE project_id = ? AND task_id = ? AND attempt_id = ? AND status = 'pending' AND expires_at_ms > unixepoch('subsec') * 1000 LIMIT 1"
+      ).get(projectId, taskId, attemptId) as Row | undefined
+      if (liveOffer) throw new TaskAuthorityError('HANDOFF_PENDING', `attempt ${attemptId} has a live handoff offer`)
+      const attemptState = text(attempt['state']) as AttemptState
+      if (TERMINAL_ATTEMPT_STATES[attemptState]) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} is ${attemptState} and cannot be taken over`)
+      }
+      const nowMs = authorityNowMs(db)
+      if (effectiveExpiryMs(db, lease) > nowMs) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} has not expired; takeover requires an expired lease`)
+      }
+      const intent = latestLaunchIntent(db, projectId, attemptId)
+      if (intent !== undefined) {
+        const intentState = text(intent['state'])
+        if (intentState === 'planned') {
+          db.prepare("UPDATE launch_intents SET state = 'reconciling-no-spawn', updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, text(intent['id']))
+        } else if (intentState === 'spawning') {
+          if (textOrNull(intent['process_identity_json']) === null) {
+            quarantineAttempt(db, projectId, taskId, attemptId, 'launch intent is spawning without a returned identity')
+            failAfterCommit('RESOURCE_QUARANTINED', `attempt ${attemptId} is spawning without a returned identity and cannot transfer`)
+          }
+          const fingerprint = launchIntentFingerprint(text(intent['id']), attemptId, leaseId)
+          const receipt = db.prepare('SELECT verdict FROM runtime_reconciliations WHERE project_id = ? AND attempt_id = ? AND lease_id = ? AND generation = ? AND launch_intent_sha256 = ? ORDER BY sequence DESC LIMIT 1')
+            .get(projectId, attemptId, leaseId, generation, fingerprint) as Row | undefined
+          if (!receipt) {
+            throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} requires expired-owner reconciliation before takeover`)
+          }
+          if (text(receipt['verdict']) !== 'stale') {
+            quarantineAttempt(db, projectId, taskId, attemptId, `latest reconciliation verdict is ${text(receipt['verdict'])}`)
+            failAfterCommit('RESOURCE_QUARANTINED', `attempt ${attemptId} child process is ${text(receipt['verdict'])} and cannot transfer`)
+          }
+        }
+      }
+      const newLeaseId = randomUUID()
+      const newGeneration = generation + 1
+      db.prepare('INSERT INTO leases(id, project_id, task_id, attempt_id, owner_id, generation, issued_at_ms, initial_expires_at_ms) VALUES (?,?,?,?,?,?,?,?)')
+        .run(newLeaseId, projectId, taskId, attemptId, ownerId, newGeneration, nowMs, nowMs + ttl)
+      db.prepare("UPDATE attempts SET state = 'claimed', current_lease_id = ?, finished_at = NULL WHERE project_id = ? AND id = ?").run(newLeaseId, projectId, attemptId)
+      db.prepare("UPDATE resource_reservations SET state = 'reserved' WHERE project_id = ? AND attempt_id = ? AND state = 'quarantined'").run(projectId, attemptId)
+      db.prepare("UPDATE tasks SET status = 'in-progress', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
+      db.prepare("UPDATE run_members SET state = 'claimed' WHERE project_id = ? AND task_id = ? AND state IN ('launching','running','quarantined')").run(projectId, taskId)
+      const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row
+      appendTaskEvent(db, projectId, taskId, attemptId, 'lease-takeover', int(versionRow['entity_version']), { leaseId: newLeaseId, generation: newGeneration, ownerId })
+      const newLease = loadLeaseRow(db, projectId, newLeaseId)
+      return {
+        task: taskSnapshot(db, loadTaskRow(db, projectId, taskId)),
+        attempt: attemptSnapshot(db, loadAttemptRow(db, projectId, attemptId)),
+        token: tokenFor(projectId, taskId, attemptId, newLease, nowMs + ttl)
+      }
+    })
+  }
+
+  reconcileExpiredOwner(input: TrustedExpiredOwnerReconciliationInput): TaskSnapshot {
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const launchIntentSha256 = boundedField(input?.['launchIntentSha256'], 'launchIntentSha256', 64)
+    const processIdentity = input?.['processIdentity']
+    const verdict = input?.['verdict']
+    if (typeof processIdentity !== 'object' || processIdentity === null) {
+      throw new TaskAuthorityValidationError('processIdentity', 'must be a process identity object')
+    }
+    if (typeof verdict !== 'object' || verdict === null) {
+      throw new TaskAuthorityValidationError('verdict', 'must be a process identity verdict')
+    }
+    return this.database.withImmediate(db => {
+      const task = loadTaskRow(db, projectId, taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, attemptId, taskId) as Row | undefined
+      if (!attempt || textOrNull(attempt['current_lease_id']) !== leaseId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} is not the current lease of attempt ${attemptId}`)
+      }
+      const lease = loadLeaseRow(db, projectId, leaseId)
+      if (int(lease['generation']) !== generation) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} generation ${generation} is not current`)
+      }
+      const nowMs = authorityNowMs(db)
+      if (effectiveExpiryMs(db, lease) > nowMs) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} has not expired; reconciliation requires an expired owner`)
+      }
+      const intent = latestLaunchIntent(db, projectId, attemptId)
+      if (!intent) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} has no launch intent to reconcile`)
+      }
+      if (launchIntentFingerprint(text(intent['id']), attemptId, leaseId) !== launchIntentSha256) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `launch intent hash did not match attempt ${attemptId} lease tuple`)
+      }
+      const verdictStatus = (verdict as Record<string, unknown>)['status']
+      if (verdictStatus !== 'valid' && verdictStatus !== 'stale' && verdictStatus !== 'indeterminate') {
+        throw new TaskAuthorityValidationError('verdict.status', 'must be a known verdict status')
+      }
+      const observation = sha256(JSON.stringify({ processIdentity, verdict }))
+      const existing = db.prepare('SELECT id FROM runtime_reconciliations WHERE project_id = ? AND attempt_id = ? AND lease_id = ? AND generation = ? AND launch_intent_sha256 = ? AND verdict = ? AND observation_sha256 = ?')
+        .get(projectId, attemptId, leaseId, generation, launchIntentSha256, verdictStatus, observation) as Row | undefined
+      if (existing) {
+        return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+      }
+      const sequenceRow = db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS seq FROM runtime_reconciliations WHERE project_id = ? AND attempt_id = ? AND lease_id = ? AND generation = ? AND launch_intent_sha256 = ?')
+        .get(projectId, attemptId, leaseId, generation, launchIntentSha256) as Row
+      db.prepare('INSERT INTO runtime_reconciliations(id, project_id, task_id, attempt_id, lease_id, generation, launch_intent_sha256, sequence, process_identity_json, observation_sha256, verdict, reason, observed_at_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(randomUUID(), projectId, taskId, attemptId, leaseId, generation, launchIntentSha256, int(sequenceRow['seq']), JSON.stringify(processIdentity), observation, verdictStatus, reconciliationReason(verdict), nowMs)
+      if (verdictStatus === 'valid' || verdictStatus === 'indeterminate') {
+        quarantineAttempt(db, projectId, taskId, attemptId, `expired owner reconciliation verdict was ${verdictStatus}`)
+      } else {
+        db.prepare("UPDATE launch_intents SET stop_state = 'exited', updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, text(intent['id']))
+      }
+      appendTaskEvent(db, projectId, taskId, attemptId, 'runtime-reconciled', int(task['entity_version']), { launchIntentSha256, verdict: verdictStatus, sequence: int(sequenceRow['seq']) })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  // -- cancellation, recovery, adoption, mailbox, projection -------------------
+
+  requestCancellation(input: AdminCancellationInput): TaskSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      if (int(task['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} entity version ${expectedEntityVersion} did not match ${int(task['entity_version'])}`)
+      }
+      if (TERMINAL_TASK_STATUSES[text(task['status']) as TaskStatus]) {
+        return taskSnapshot(db, task)
+      }
+      if (text(task['status']) !== 'cancelling') {
+        db.prepare("UPDATE tasks SET status = 'cancelling', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
+      }
+      db.prepare("UPDATE tasks SET cancel_state = 'requested' WHERE project_id = ? AND id = ?").run(projectId, taskId)
+      const attemptId = textOrNull(task['current_attempt_id'])
+      if (attemptId !== null) {
+        const attempt = loadAttemptRow(db, projectId, attemptId)
+        if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
+          db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(projectId, attemptId)
+        }
+      }
+      syncMemberState(db, projectId, taskId, 'cancelling')
+      syncExecutionForTask(db, projectId, taskId, execution => {
+        if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
+        return { state: 'cancelling' }
+      })
+      const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row
+      appendTaskEvent(db, projectId, taskId, attemptId, 'cancellation-requested', int(versionRow['entity_version']), {})
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  acknowledgeExit(input: TrustedExitAcknowledgement): TaskSnapshot {
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const reason = boundedText(input?.['reason'] ?? 'daemon-confirmed exit', 'reason', TASK_AUTHORITY_MAX_ERROR_TEXT)
+    return this.database.withImmediate(db => {
+      const task = loadTaskRow(db, projectId, taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, attemptId, taskId) as Row | undefined
+      if (!attempt || textOrNull(attempt['current_lease_id']) !== leaseId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} is not the current lease of attempt ${attemptId}`)
+      }
+      const lease = loadLeaseRow(db, projectId, leaseId)
+      if (int(lease['generation']) !== generation) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} generation ${generation} is not current`)
+      }
+      if (text(attempt['state']) !== 'cancelling') {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} is ${text(attempt['state'])}; only cancelling attempts accept exit acknowledgement`)
+      }
+      db.prepare("UPDATE attempts SET state = 'cancelled', finished_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, attemptId)
+      stopLaunchIntent(db, projectId, attemptId, 'stopped', 'exited')
+      releaseReservation(db, projectId, attemptId)
+      db.prepare("UPDATE run_members SET state = 'cancelled' WHERE project_id = ? AND task_id = ? AND state <> 'completed'").run(projectId, taskId)
+      syncExecutionForTask(db, projectId, taskId, () => ({ state: 'cancelled' }))
+      const version = bumpTask(db, projectId, taskId, "status = 'cancelled'", [])
+      appendTaskEvent(db, projectId, taskId, attemptId, 'exit-acknowledged', version, { reason })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  retryFailedTask(input: AdminRetryFailedTaskInput): ClaimResult {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
+    const ownerId = assertAuthorityUuid(input?.['ownerId'], 'ownerId')
+    const specification = input?.['specification'] === undefined ? undefined : parseTaskExecutionSpecification(input['specification'])
+    const ttl = ttlMs(input?.['leaseTtlMs'], 'leaseTtlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
+    return this.database.withImmediate(db => {
+      requireAdminProject(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      if (int(task['entity_version']) !== expectedEntityVersion) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} entity version ${expectedEntityVersion} did not match ${int(task['entity_version'])}`)
+      }
+      if (text(task['status']) !== 'failed') {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} is ${text(task['status'])}; only failed tasks can be retried`)
+      }
+      const failedAttemptId = textOrNull(task['current_attempt_id'])
+      if (failedAttemptId === null) throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} has no failed attempt to retry`)
+      const failedAttempt = loadAttemptRow(db, projectId, failedAttemptId)
+      if (text(failedAttempt['state']) !== 'failed') {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${failedAttemptId} is ${text(failedAttempt['state'])}; retry requires a failed attempt`)
+      }
+      const nowMs = authorityNowMs(db)
+      const specificationId = specification === undefined ? text(failedAttempt['specification_id']) : insertSpecification(db, projectId, taskId, specification)
+      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskId, nextAttemptSequence(db, projectId, taskId), failedAttemptId, specificationId, ownerId, ttl, nowMs)
+      db.prepare("UPDATE tasks SET current_attempt_id = ?, status = 'in-progress', cancel_state = 'none', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?")
+        .run(attemptId, nowIso(), projectId, taskId)
+      db.prepare("UPDATE run_members SET state = 'claimed' WHERE project_id = ? AND task_id = ? AND state = 'failed'").run(projectId, taskId)
+      const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row
+      appendTaskEvent(db, projectId, taskId, attemptId, 'task-retried', int(versionRow['entity_version']), { retryOfAttemptId: failedAttemptId, ownerId })
+      const lease = loadLeaseRow(db, projectId, leaseId)
+      return {
+        task: taskSnapshot(db, loadTaskRow(db, projectId, taskId)),
+        attempt: attemptSnapshot(db, loadAttemptRow(db, projectId, attemptId)),
+        token: tokenFor(projectId, taskId, attemptId, lease, nowMs + ttl)
+      }
+    })
+  }
+
+  adoptArtifact(input: ReviewedArtifactAdoptionInput): TaskSnapshot {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const artifactId = assertAuthorityUuid(input?.['artifactId'], 'artifactId')
+    const reviewReceiptSha256 = boundedField(input?.['reviewReceiptSha256'], 'reviewReceiptSha256', 64)
+    return this.database.withImmediate(db => {
+      const reviewerId = requireReviewer(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      const artifact = db.prepare('SELECT * FROM verification_artifacts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, artifactId, taskId) as Row | undefined
+      if (!artifact) throw new TaskAuthorityError('TASK_NOT_FOUND', `artifact ${artifactId} was not found for task ${taskId}`)
+      if (text(artifact['provenance_kind']) !== 'imported-legacy') {
+        throw new TaskAuthorityError('COMPLETION_REJECTED', 'native artifacts are already lease-bound and need no adoption')
+      }
+      const currentAttemptId = textOrNull(task['current_attempt_id'])
+      if (currentAttemptId === null) throw new TaskAuthorityError('STALE_AUTHORITY', `task ${taskId} has no current attempt to adopt into`)
+      const existing = db.prepare('SELECT * FROM artifact_adoptions WHERE project_id = ? AND current_attempt_id = ? AND artifact_id = ?').get(projectId, currentAttemptId, artifactId) as Row | undefined
+      if (existing) {
+        if (text(existing['review_receipt_sha256']) !== reviewReceiptSha256 || text(existing['reviewer_id']) !== reviewerId) {
+          throw new TaskAuthorityError('IDEMPOTENCY_CONFLICT', `artifact ${artifactId} was already adopted with a different review`)
+        }
+        return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+      }
+      db.prepare('INSERT INTO artifact_adoptions(id, project_id, task_id, current_attempt_id, source_attempt_id, artifact_id, reviewer_id, review_receipt_sha256, adopted_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(randomUUID(), projectId, taskId, currentAttemptId, textOrNull(artifact['attempt_id']), artifactId, reviewerId, reviewReceiptSha256, nowIso())
+      appendTaskEvent(db, projectId, taskId, currentAttemptId, 'artifact-adopted', int(task['entity_version']), { artifactId, reviewerId })
+      return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
+    })
+  }
+
+  appendMailbox(input: AuthenticatedMailboxInput): TaskMailboxEntry {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const kind = input?.['kind']
+    if (kind !== 'attention' && kind !== 'progress' && kind !== 'artifact' && kind !== 'system') {
+      throw new TaskAuthorityValidationError('kind', 'must be a known mailbox kind')
+    }
+    const payload = input?.['payload']
+    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+      throw new TaskAuthorityValidationError('payload', 'must be an object')
+    }
+    const payloadJson = JSON.stringify(payload)
+    if (payloadJson.length > TASK_AUTHORITY_MAX_USER_TEXT) {
+      throw new TaskAuthorityValidationError('payload', `must serialize to at most ${TASK_AUTHORITY_MAX_USER_TEXT} characters`)
+    }
+    return this.database.withImmediate(db => {
+      requireWorker(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      const attemptId = textOrNull(task['current_attempt_id'])
+      const entryId = randomUUID()
+      db.prepare('INSERT INTO task_mailbox(id, project_id, task_id, attempt_id, lease_id, generation, kind, payload_json, acknowledged_at, created_at) VALUES (?,?,?,?,NULL,NULL,?,?,NULL,?)')
+        .run(entryId, projectId, taskId, attemptId, kind, payloadJson, nowIso())
+      appendTaskEvent(db, projectId, taskId, attemptId, 'mailbox-appended', int(task['entity_version']), { entryId, kind })
+      return mailboxEntrySnapshot(db.prepare('SELECT * FROM task_mailbox WHERE project_id = ? AND id = ?').get(projectId, entryId) as Row)
+    })
+  }
+
+  acknowledgeAttention(input: AuthenticatedAttentionAcknowledgement): TaskMailboxEntry {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const mailboxEntryId = assertAuthorityUuid(input?.['mailboxEntryId'], 'mailboxEntryId')
+    return this.database.withImmediate(db => {
+      requireReviewer(connection, projectId)
+      const task = loadTaskRow(db, projectId, taskId)
+      const entry = db.prepare('SELECT * FROM task_mailbox WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, mailboxEntryId, taskId) as Row | undefined
+      if (!entry) throw new TaskAuthorityError('TASK_NOT_FOUND', `mailbox entry ${mailboxEntryId} was not found for task ${taskId}`)
+      if (text(entry['kind']) !== 'attention') {
+        throw new TaskAuthorityValidationError('mailboxEntryId', 'only attention entries can be acknowledged')
+      }
+      if (textOrNull(entry['acknowledged_at']) === null) {
+        db.prepare('UPDATE task_mailbox SET acknowledged_at = ? WHERE project_id = ? AND id = ?').run(nowIso(), projectId, mailboxEntryId)
+      }
+      appendTaskEvent(db, projectId, taskId, textOrNull(task['current_attempt_id']), 'attention-acknowledged', int(task['entity_version']), { mailboxEntryId })
+      return mailboxEntrySnapshot(db.prepare('SELECT * FROM task_mailbox WHERE project_id = ? AND id = ?').get(projectId, mailboxEntryId) as Row)
+    })
+  }
+
+  query(input: TaskQuery): TaskProjection {
+    const connection = parseAuthorityConnection(input?.['connection'])
+    const projectId = input?.['projectId'] === undefined ? undefined : boundedField(input['projectId'], 'projectId', 128)
+    const status = input?.['status']
+    if (status !== undefined && !['todo', 'blocked', 'in-progress', 'cancelling', 'cancelled', 'done', 'failed', 'quarantined'].includes(status)) {
+      throw new TaskAuthorityValidationError('status', 'must be a known task status')
+    }
+    const runnableOnly = input?.['runnableOnly'] ?? false
+    if (typeof runnableOnly !== 'boolean') throw new TaskAuthorityValidationError('runnableOnly', 'must be a boolean')
+    const limit = parseProjectionLimit(input?.['limit'])
+    const cursor = input?.['cursor'] === undefined ? null : decodeCursor(parseTaskQueryCursor(input['cursor']))
+    if (projectId !== undefined) {
+      if (connection.role === 'administrator') {
+        if (connection.authorizedProjectIds !== undefined && !connection.authorizedProjectIds.includes(projectId)) {
+          throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `administrator connection is not authorized for project ${projectId}`)
+        }
+      } else if (connectionDeniedProject(connection, projectId)) {
+        throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', `connection is not authorized for project ${projectId}`)
+      }
+    } else if (connection.role !== 'administrator') {
+      if (connection.authorizedProjectIds === undefined) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'unscoped task projection requires an administrator connection')
+      }
+    }
+    return this.database.withReadOnly(db => {
+      const clauses: string[] = []
+      const params: Array<string | number> = []
+      if (projectId !== undefined) {
+        clauses.push('project_id = ?')
+        params.push(projectId)
+      } else if (connection.role !== 'administrator' && connection.authorizedProjectIds !== undefined) {
+        clauses.push(`project_id IN (${connection.authorizedProjectIds.map(() => '?').join(',')})`)
+        params.push(...connection.authorizedProjectIds)
+      }
+      if (status !== undefined) { clauses.push('status = ?'); params.push(status) }
+      if (runnableOnly) {
+        clauses.push("status = 'todo'", "cancel_state = 'none'", 'current_attempt_id IS NULL')
+        clauses.push("NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks dep ON dep.project_id = d.project_id AND dep.id = d.depends_on_task_id WHERE d.project_id = tasks.project_id AND d.task_id = tasks.id AND dep.status <> 'done')")
+      }
+      if (cursor !== null) {
+        clauses.push('(priority > ? OR (priority = ? AND created_at > ?) OR (priority = ? AND created_at = ? AND id > ?))')
+        const priority = Number(cursor[0])
+        params.push(priority, priority, String(cursor[1]), priority, String(cursor[1]), String(cursor[2]))
+      }
+      const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : ''
+      const rows = db.prepare(`SELECT * FROM tasks${where} ORDER BY priority, created_at, id LIMIT ?`).all(...params, limit + 1) as Row[]
+      const page = rows.slice(0, limit)
+      const last = page[page.length - 1]
+      const nextCursor = rows.length > limit && last !== undefined
+        ? encodeCursor([int(last['priority']), text(last['created_at']), text(last['id'])])
+        : null
+      return { tasks: page.map(row => taskSnapshot(db, row)), nextCursor }
+    })
+  }
+
+  // __APPEND_7__
+}
+
+// ---------------------------------------------------------------------------
+// Run group, mailbox, and handoff snapshots
+// ---------------------------------------------------------------------------
+
+function loadRunGroup(db: DatabaseSync, runGroupId: string): Row {
+  const row = db.prepare('SELECT * FROM run_groups WHERE id = ?').get(runGroupId) as Row | undefined
+  if (!row) throw new TaskAuthorityError('TASK_NOT_FOUND', `run group ${runGroupId} was not found`)
+  return row
+}
+
+function runGroupSnapshot(db: DatabaseSync, group: Row): RunGroupSnapshot {
+  const members = db.prepare('SELECT * FROM run_members WHERE run_group_id = ? ORDER BY ordinal').all(text(group['id'])) as Row[]
+  return {
+    runGroupId: text(group['id']),
+    profileId: text(group['profile_id']),
+    name: text(group['name']),
+    retryOfRunGroupId: textOrNull(group['retry_of_run_group_id']),
+    concurrency: int(group['concurrency']),
+    state: text(group['state']) as RunGroupSnapshot['state'],
+    entityVersion: int(group['entity_version']),
+    members: members.map(member => ({
+      projectId: text(member['project_id']),
+      taskId: text(member['task_id']),
+      attemptId: textOrNull(member['source_attempt_id']),
+      ordinal: int(member['ordinal']),
+      state: text(member['state']) as RunGroupSnapshot['members'][number]['state']
+    })),
+    createdAt: text(group['created_at']),
+    updatedAt: text(group['updated_at'])
+  }
+}
+
+function handoffOfferSnapshot(offer: Row): HandoffOffer {
+  return {
+    offerId: text(offer['id']),
+    projectId: text(offer['project_id']),
+    taskId: text(offer['task_id']),
+    attemptId: text(offer['attempt_id']),
+    sourceOwnerId: text(offer['source_owner_id']),
+    targetOwnerId: text(offer['target_owner_id']),
+    sourceLeaseId: text(offer['source_lease_id']),
+    sourceGeneration: int(offer['source_generation']),
+    status: text(offer['status']) as HandoffOffer['status'],
+    expiresAt: new Date(int(offer['expires_at_ms'])).toISOString(),
+    createdAt: text(offer['created_at']),
+    resolvedAt: textOrNull(offer['resolved_at'])
+  }
+}
+
+function mailboxEntrySnapshot(entry: Row): TaskMailboxEntry {
+  return {
+    entryId: text(entry['id']),
+    projectId: text(entry['project_id']),
+    taskId: text(entry['task_id']),
+    attemptId: textOrNull(entry['attempt_id']),
+    leaseId: textOrNull(entry['lease_id']),
+    generation: entry['generation'] === null || entry['generation'] === undefined ? null : int(entry['generation']),
+    kind: text(entry['kind']) as TaskMailboxEntry['kind'],
+    payload: parseJson(entry['payload_json']) as Record<string, unknown>,
+    acknowledgedAt: textOrNull(entry['acknowledged_at']),
+    createdAt: text(entry['created_at'])
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Daemon-internal migration source surface (Task 3 builds the importer on this)
+// ---------------------------------------------------------------------------
+
+export type TaskAuthorityMigrationMappingInput = Readonly<{
+  entityKind: string
+  sourceEntityKey: string
+  authorityEntityId: string
+  sourceFingerprint: string
+  state?: 'active' | 'superseded' | 'retired'
+}>
+
+export type TaskAuthorityMigrationSourceInput = Readonly<{
+  scopeKind: 'project' | 'profile'
+  scopeId: string
+  projectId?: string
+  sourceKind: string
+  canonicalSourcePath: string
+  sourceSha256: string
+  normalizedJson: string
+  phase?: 'imported' | 'superseded' | 'retired'
+  supersedesSourceId?: string
+  entityMappings?: readonly TaskAuthorityMigrationMappingInput[]
+}>
+
+export type TaskAuthorityMigrationSourceReceipt = Readonly<{
+  sourceId: string
+  created: boolean
+}>
+
+function migrationPhase(value: unknown, field: string): 'imported' | 'superseded' | 'retired' {
+  if (value === undefined) return 'imported'
+  if (value !== 'imported' && value !== 'superseded' && value !== 'retired') {
+    throw new TaskAuthorityValidationError(field, 'must be a known migration phase')
+  }
+  return value
+}
+
+/**
+ * Records an immutable imported-source snapshot and its entity mappings. The
+ * UNIQUE(scope_kind, scope_id, source_kind, canonical_source_path,
+ * source_sha256) constraint plus BEGIN IMMEDIATE make concurrent recording of
+ * the same source deterministic: exactly one row wins, every caller receives
+ * the same source ID, and native authority rows are never touched here.
+ */
+export function recordMigrationSource(database: TaskAuthorityDatabase, input: TaskAuthorityMigrationSourceInput): TaskAuthorityMigrationSourceReceipt {
+  const scopeKind = input?.['scopeKind']
+  if (scopeKind !== 'project' && scopeKind !== 'profile') {
+    throw new TaskAuthorityValidationError('scopeKind', 'must be "project" or "profile"')
+  }
+  const scopeId = boundedField(input?.['scopeId'], 'scopeId', 128)
+  const sourceKind = boundedField(input?.['sourceKind'], 'sourceKind', 128)
+  const canonicalSourcePath = boundedField(input?.['canonicalSourcePath'], 'canonicalSourcePath', 128)
+  const sourceSha256 = boundedField(input?.['sourceSha256'], 'sourceSha256', 64)
+  const normalizedJson = boundedText(input?.['normalizedJson'], 'normalizedJson', TASK_AUTHORITY_MAX_USER_TEXT)
+  const phase = migrationPhase(input?.['phase'], 'phase')
+  const mappings = input?.['entityMappings'] ?? []
+  if (!Array.isArray(mappings) || mappings.length > TASK_AUTHORITY_MAX_BATCH) {
+    throw new TaskAuthorityValidationError('entityMappings', `must be an array of at most ${TASK_AUTHORITY_MAX_BATCH} mappings`)
+  }
+  const projectId = input?.['projectId'] === undefined ? null : boundedField(input['projectId'], 'projectId', 128)
+  const supersedesSourceId = input?.['supersedesSourceId'] === undefined ? null : assertAuthorityUuid(input['supersedesSourceId'], 'supersedesSourceId')
+  return database.withImmediate(db => {
+    const existing = db.prepare('SELECT id FROM migration_sources WHERE scope_kind = ? AND scope_id = ? AND source_kind = ? AND canonical_source_path = ? AND source_sha256 = ?')
+      .get(scopeKind, scopeId, sourceKind, canonicalSourcePath, sourceSha256) as Row | undefined
+    let sourceId: string
+    let created: boolean
+    if (existing) {
+      sourceId = text(existing['id'])
+      created = false
+    } else {
+      sourceId = randomUUID()
+      db.prepare('INSERT INTO migration_sources(id, scope_kind, scope_id, project_id, source_kind, canonical_source_path, source_sha256, normalized_json, phase, supersedes_source_id, retired_path, fence_receipt_json, imported_at) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)')
+        .run(sourceId, scopeKind, scopeId, projectId, sourceKind, canonicalSourcePath, sourceSha256, normalizedJson, phase, supersedesSourceId, nowIso())
+      created = true
+    }
+    for (const mapping of mappings) {
+      const entityKind = boundedField(mapping?.['entityKind'], 'entityKind', 128)
+      const sourceEntityKey = boundedField(mapping?.['sourceEntityKey'], 'sourceEntityKey', 128)
+      const authorityEntityId = boundedField(mapping?.['authorityEntityId'], 'authorityEntityId', 128)
+      const sourceFingerprint = boundedField(mapping?.['sourceFingerprint'], 'sourceFingerprint', 128)
+      const mappingState = mapping?.['state'] ?? 'active'
+      if (mappingState !== 'active' && mappingState !== 'superseded' && mappingState !== 'retired') {
+        throw new TaskAuthorityValidationError('entityMappings.state', 'must be a known mapping state')
+      }
+      db.prepare('INSERT INTO migration_entity_mappings(source_id, entity_kind, source_entity_key, authority_entity_id, source_fingerprint, state) VALUES (?,?,?,?,?,?) ON CONFLICT(source_id, entity_kind, source_entity_key) DO UPDATE SET authority_entity_id = excluded.authority_entity_id, source_fingerprint = excluded.source_fingerprint, state = excluded.state')
+        .run(sourceId, entityKind, sourceEntityKey, authorityEntityId, sourceFingerprint, mappingState)
+    }
+    if (supersedesSourceId !== null) {
+      db.prepare("UPDATE migration_sources SET phase = 'superseded' WHERE id = ? AND phase = 'imported'").run(supersedesSourceId)
+      db.prepare("UPDATE migration_entity_mappings SET state = 'superseded' WHERE source_id = ? AND state = 'active'").run(supersedesSourceId)
+    }
+    return { sourceId, created }
+  })
+}
+
+/** Terminal metadata compaction for a recorded source; native rows are untouched. */
+export function retireMigrationSource(database: TaskAuthorityDatabase, sourceId: string, retiredPath: string): void {
+  const retired = boundedField(retiredPath, 'retiredPath', 128)
+  database.withImmediate(db => {
+    const existing = db.prepare('SELECT id FROM migration_sources WHERE id = ?').get(assertAuthorityUuid(sourceId, 'sourceId')) as Row | undefined
+    if (!existing) throw new TaskAuthorityError('TASK_NOT_FOUND', `migration source ${sourceId} was not found`)
+    db.prepare("UPDATE migration_sources SET phase = 'retired', retired_path = ? WHERE id = ?").run(retired, sourceId)
+    db.prepare("UPDATE migration_entity_mappings SET state = 'retired' WHERE source_id = ? AND state <> 'retired'").run(sourceId)
+  })
+}
