@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
-import { lstatSync, rmSync } from 'node:fs'
+import { lstatSync, linkSync, renameSync, rmSync, type Stats } from 'node:fs'
 import type { ProcessIdentity, ProcessIdentityVerdict, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import {
   readVerifiedRecoveryEvidence,
@@ -10,7 +10,7 @@ import {
   type RuntimeOwnerKind,
   type RuntimeOwnerObservation
 } from '@shared/runtime-ownership'
-import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
+import { canonicalPrivateDirectory, type RuntimeFileIdentity } from '@shared/runtime-file-security'
 import { logger } from '@shared/logger'
 import { localRuntimePaths, parseRuntimeRecordBytes, readRuntimeRecord, writeRuntimeRecord, type LegacyRuntimeRecord, type LocalRuntimeRecord, type LocalRuntimePaths, type RuntimeRecordRead } from './local-runtime'
 export type RuntimePublication = {
@@ -20,7 +20,7 @@ export type RuntimePublication = {
   locator: LocalRuntimeRecord
   locatorFileIdentity: Record<string, string> | null
   /** Endpoint from the displaced owner; removed only after successor activation. */
-  predecessor?: { ownerId: string; generation: number; endpoint: string; endpointFileIdentity: { device: string; inode: string } | null }
+  predecessor?: { ownerId: string; generation: number; endpoint: string; endpointFileIdentity: RuntimeFileIdentity | null }
 }
 
 export type RuntimeClaimOptions = {
@@ -350,15 +350,7 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
         ownerId: observed.owner.ownerId,
         generation: observed.owner.generation,
         endpoint: observed.owner.endpoint,
-        endpointFileIdentity: (() => {
-          if (process.platform === 'win32') return null
-          try {
-            const stat = lstatSync(observed.owner.endpoint)
-            return { device: String(stat.dev), inode: String(stat.ino) }
-          } catch {
-            return null
-          }
-        })()
+        endpointFileIdentity: observed.owner.endpointFileIdentity
       }
       : undefined
     return { store, paths, owner, locator, locatorFileIdentity: null, ...(predecessor === undefined ? {} : { predecessor }) }
@@ -367,19 +359,88 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
   }
 }
 
+export type RuntimeEndpointCleanupOperations = {
+  rename: (source: string, destination: string) => void
+  stat: (path: string) => Stats
+  link: (existingPath: string, newPath: string) => void
+  remove: (path: string) => void
+}
+
+const DEFAULT_ENDPOINT_CLEANUP_OPERATIONS: RuntimeEndpointCleanupOperations = {
+  rename: renameSync,
+  stat: lstatSync,
+  link: linkSync,
+  remove: path => rmSync(path)
+}
+
+function errorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code
+}
+
+function matchesEndpointIdentity(stat: Stats, expected: RuntimeFileIdentity): boolean {
+  return expected.platform === 'posix' && stat.isSocket() && String(stat.dev) === expected.device && String(stat.ino) === expected.inode
+}
+
+function restoreQuarantinedEndpoint(endpoint: string, quarantine: string, operations: RuntimeEndpointCleanupOperations): 'restored' | 'replaced' {
+  try {
+    operations.link(quarantine, endpoint)
+  } catch (error) {
+    if (errorCode(error) === 'EEXIST') return 'replaced'
+    throw error
+  }
+  operations.remove(quarantine)
+  return 'restored'
+}
+
+export function removeRuntimeEndpointIfOwned(
+  endpoint: string,
+  expected: RuntimeFileIdentity,
+  operations: RuntimeEndpointCleanupOperations = DEFAULT_ENDPOINT_CLEANUP_OPERATIONS
+): 'removed' | 'missing' | 'preserved' | 'replacement-present' {
+  const quarantine = endpoint + '.cleanup-' + randomUUID()
+  try {
+    operations.rename(endpoint, quarantine)
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return 'missing'
+    throw error
+  }
+
+  let stat: Stats
+  try {
+    stat = operations.stat(quarantine)
+  } catch (error) {
+    restoreQuarantinedEndpoint(endpoint, quarantine, operations)
+    throw error
+  }
+  if (matchesEndpointIdentity(stat, expected)) {
+    operations.remove(quarantine)
+    return 'removed'
+  }
+  return restoreQuarantinedEndpoint(endpoint, quarantine, operations) === 'restored' ? 'preserved' : 'replacement-present'
+}
+
+function publishedEndpointIdentity(endpoint: string): RuntimeFileIdentity | null {
+  if (process.platform === 'win32') return null
+  try {
+    const stat = lstatSync(endpoint)
+    if (!stat.isSocket()) fail('RUNTIME_PUBLICATION_FAILED', 'bound runtime endpoint was not a socket')
+    return { platform: 'posix', device: String(stat.dev), inode: String(stat.ino) }
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return null
+    throw error
+  }
+}
+
 function removeDisplacedEndpoint(publication: RuntimePublication): void {
   const predecessor = publication.predecessor
   if (predecessor === undefined || predecessor.endpoint === publication.owner.endpoint) return
   try {
     if (predecessor.endpointFileIdentity === null) return
-    const stat = lstatSync(predecessor.endpoint)
-    if (String(stat.dev) !== predecessor.endpointFileIdentity.device || String(stat.ino) !== predecessor.endpointFileIdentity.inode) return
-    if (process.platform !== 'win32' && !stat.isSocket()) {
-      fail('PREDECESSOR_CLEANUP_FAILED', 'displaced runtime endpoint was replaced by a non-socket')
+    const result = removeRuntimeEndpointIfOwned(predecessor.endpoint, predecessor.endpointFileIdentity)
+    if (result === 'replacement-present') {
+      logger.warn({ endpoint: predecessor.endpoint, ownerId: predecessor.ownerId, generation: predecessor.generation }, 'runtime predecessor cleanup quarantined the displaced endpoint because its pathname was replaced concurrently')
     }
-    rmSync(predecessor.endpoint)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
     logger.warn({ err: error, endpoint: predecessor.endpoint, ownerId: predecessor.ownerId, generation: predecessor.generation }, 'runtime predecessor endpoint cleanup failed after successor activation')
   } finally {
     publication.predecessor = undefined
@@ -388,6 +449,9 @@ function removeDisplacedEndpoint(publication: RuntimePublication): void {
 
 export async function publishRuntimeOwner(publication: RuntimePublication, bind: () => void | Promise<void>): Promise<RuntimeOwner> {
   await bind()
+  const endpointFileIdentity = publishedEndpointIdentity(publication.owner.endpoint)
+  if (endpointFileIdentity !== null) publication.owner = publication.store.recordBoundEndpoint(publication.owner, endpointFileIdentity)
+
   writeRuntimeRecord(publication.paths.runtimeFile, publication.locator)
   const locatorBytes = Buffer.from(JSON.stringify(publication.locator))
   const locatorSha256 = createHash('sha256').update(locatorBytes).digest('hex')

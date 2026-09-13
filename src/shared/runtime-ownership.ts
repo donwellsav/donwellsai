@@ -15,6 +15,7 @@ export type RuntimeOwner = {
   endpoint: string
   authToken: string
   locatorSha256: string | null
+  endpointFileIdentity: RuntimeFileIdentity | null
 }
 
 export type RuntimeOwnerObservation =
@@ -88,6 +89,32 @@ function identityJson(identity: ProcessIdentity): string {
   return JSON.stringify(identity)
 }
 
+function endpointIdentityJson(identity: RuntimeFileIdentity | null): string | null {
+  if (identity === null) return null
+  const serialized = JSON.stringify(identity)
+  parseEndpointIdentity(serialized)
+  return serialized
+}
+
+function parseEndpointIdentity(value: unknown): RuntimeFileIdentity | null {
+  if (value === null) return null
+  let identity: unknown
+  try { identity = JSON.parse(String(value)) } catch {
+    throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime endpoint identity was malformed')
+  }
+  if (typeof identity !== 'object' || identity === null || Array.isArray(identity)) {
+    throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime endpoint identity was malformed')
+  }
+  const fields = identity as Record<string, unknown>
+  if (fields['platform'] === 'posix' && typeof fields['device'] === 'string' && fields['device'] && typeof fields['inode'] === 'string' && fields['inode']) {
+    return { platform: 'posix', device: fields['device'], inode: fields['inode'] }
+  }
+  if (fields['platform'] === 'win32' && typeof fields['volumeSerial'] === 'string' && fields['volumeSerial'] && typeof fields['fileId'] === 'string' && fields['fileId']) {
+    return { platform: 'win32', volumeSerial: fields['volumeSerial'], fileId: fields['fileId'] }
+  }
+  throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime endpoint identity was malformed')
+}
+
 function rowHash(row: RuntimeOwner): string {
   return createHash('sha256').update(JSON.stringify({
     kind: row.kind,
@@ -97,6 +124,7 @@ function rowHash(row: RuntimeOwner): string {
     identity_json: identityJson(row.identity),
     endpoint: row.endpoint,
     auth_token: row.authToken,
+    endpoint_identity_json: endpointIdentityJson(row.endpointFileIdentity),
     locator_sha256: row.locatorSha256
   })).digest('hex')
 }
@@ -126,12 +154,13 @@ function parseRow(row: Record<string, unknown>): RuntimeOwner {
   const endpoint = row['endpoint']
   const authToken = row['auth_token']
   const locatorSha256 = row['locator_sha256'] === null ? null : String(row['locator_sha256'])
+  const endpointFileIdentity = parseEndpointIdentity(row['endpoint_identity_json'])
   if (typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > 4096 || endpoint.includes('\0')
     || typeof authToken !== 'string' || authToken.length === 0 || authToken.length > 16 * 1024 || authToken.includes('\0')
     || (state === 'preparing' && locatorSha256 !== null) || (state === 'active' && (locatorSha256 === null || !HASH.test(locatorSha256)))) {
     throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner fields violated state invariants')
   }
-  return { kind, ownerId, generation, state, identity, endpoint, authToken, locatorSha256 }
+  return { kind, ownerId, generation, state, identity, endpoint, authToken, locatorSha256, endpointFileIdentity }
 }
 
 function lastGeneration(db: DatabaseSync, kind: RuntimeOwnerKind): number {
@@ -143,7 +172,10 @@ function lastGeneration(db: DatabaseSync, kind: RuntimeOwnerKind): number {
 }
 
 function rowFromObservation(db: DatabaseSync, kind: RuntimeOwnerKind): { owner: RuntimeOwner; rowSha256: string } | null {
-  const raw = db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256 FROM runtime_owners WHERE kind = ?').get(kind) as Record<string, unknown> | undefined
+  const endpointIdentityColumn = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) >= 5
+    ? 'endpoint_identity_json'
+    : 'NULL AS endpoint_identity_json'
+  const raw = db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256, ' + endpointIdentityColumn + ' FROM runtime_owners WHERE kind = ?').get(kind) as Record<string, unknown> | undefined
   if (!raw) return null
   const owner = parseRow(raw)
   return { owner, rowSha256: rowHash(owner) }
@@ -198,6 +230,7 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         endpoint TEXT NOT NULL,
         auth_token TEXT NOT NULL,
         locator_sha256 TEXT,
+        endpoint_identity_json TEXT,
         claimed_at TEXT NOT NULL,
         activated_at TEXT
       );
@@ -232,7 +265,7 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         generation INTEGER NOT NULL,
         created_at TEXT NOT NULL
       );
-      PRAGMA user_version=4;
+      PRAGMA user_version=5;
     `)
   } else if (version === 1 && !readOnly) {
     db.exec(`
@@ -261,7 +294,8 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
       );
       INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
         SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      PRAGMA user_version=4;
+      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
+      PRAGMA user_version=5;
     `)
   } else if (version === 2 && !readOnly) {
     db.exec(`
@@ -284,7 +318,8 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
       );
       INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
         SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      PRAGMA user_version=4;
+      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
+      PRAGMA user_version=5;
     `)
   } else if (version === 3 && !readOnly) {
     db.exec(`
@@ -306,18 +341,26 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
       );
       INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
         SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      PRAGMA user_version=4;
+      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
+      PRAGMA user_version=5;
     `)
-  } else if (version !== 4 && !(readOnly && version === 3)) {
+  } else if (version === 4 && !readOnly) {
+    db.exec(`
+      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
+      PRAGMA user_version=5;
+    `)
+  } else if (version !== 5 && !(readOnly && (version === 3 || version === 4))) {
     throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
   }
 }
 
 function validateDatabase(db: DatabaseSync): void {
-  const ownerRows = db.prepare('SELECT kind, owner_id, generation, state, identity_json, endpoint, auth_token, locator_sha256 FROM runtime_owners').all() as Array<Record<string, unknown>>
+  const ownerRows = db.prepare('SELECT kind FROM runtime_owners').all() as Array<Record<string, unknown>>
   for (const row of ownerRows) {
-    const owner = parseRow(row)
-    if (lastGeneration(db, owner.kind) !== owner.generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
+    const kind = String(row['kind'])
+    if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime owner kind was invalid')
+    const current = rowFromObservation(db, kind)
+    if (!current || lastGeneration(db, kind) !== current.owner.generation) throw new RuntimeOwnershipError('OWNER_CORRUPT', 'runtime generation watermark did not match its owner row')
   }
   const generationRows = db.prepare('SELECT kind, last_generation FROM runtime_owner_generations').all() as Array<Record<string, unknown>>
   for (const row of generationRows) {
@@ -347,7 +390,7 @@ export class RuntimeOwnershipStore {
     }, db => {
       initializeSchema(db, true)
       validateDatabase(db)
-      if (Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) !== 4) {
+      if (Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) !== 5) {
         throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database migration did not commit')
       }
     })
@@ -439,7 +482,7 @@ export class RuntimeOwnershipStore {
     })
   }
 
-  prepareClaim(candidate: Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'>, observed: RuntimeOwnerObservation, verdict: ProcessIdentityVerdict | null): RuntimeOwner {
+  prepareClaim(candidate: Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256' | 'endpointFileIdentity'>, observed: RuntimeOwnerObservation, verdict: ProcessIdentityVerdict | null): RuntimeOwner {
     assertKind(candidate.kind)
     assertOwnerId(candidate.ownerId)
     if (!candidate.endpoint || !candidate.authToken) throw new RuntimeOwnershipError('INVALID_OWNER', 'runtime owner endpoint or token was empty')
@@ -470,13 +513,13 @@ export class RuntimeOwnershipStore {
         throw new RuntimeOwnershipError('ENDPOINT_REUSED', 'runtime owner endpoint was already bound to a prior generation')
       }
       db.prepare('INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at) VALUES(?,?,?,?,?)').run(candidate.endpoint, candidate.kind, candidate.ownerId, generation, claimedAt)
-      const owner: RuntimeOwner = { ...candidate, generation, state: 'preparing', locatorSha256: null }
+      const owner: RuntimeOwner = { ...candidate, generation, state: 'preparing', locatorSha256: null, endpointFileIdentity: null }
       db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?) ON CONFLICT(kind) DO UPDATE SET last_generation=excluded.last_generation').run(owner.kind, generation)
       if (current) {
-        db.prepare(`UPDATE runtime_owners SET owner_id=?, generation=?, state=?, identity_json=?, endpoint=?, auth_token=?, locator_sha256=NULL, claimed_at=?, activated_at=NULL WHERE kind=?`).run(
+        db.prepare(`UPDATE runtime_owners SET owner_id=?, generation=?, state=?, identity_json=?, endpoint=?, auth_token=?, locator_sha256=NULL, endpoint_identity_json=NULL, claimed_at=?, activated_at=NULL WHERE kind=?`).run(
           owner.ownerId, owner.generation, owner.state, identityJson(owner.identity), owner.endpoint, owner.authToken, claimedAt, owner.kind)
       } else {
-        db.prepare(`INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,?,NULL)`).run(
+        db.prepare(`INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,endpoint_identity_json,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,NULL,?,NULL)`).run(
           owner.kind, owner.ownerId, owner.generation, owner.state, identityJson(owner.identity), owner.endpoint, owner.authToken, claimedAt)
       }
       this.audit(db, owner.kind, 'prepare', observed.status === 'present' ? observed.rowSha256 : null, owner, { verdict: verdict?.status ?? null })
@@ -490,6 +533,21 @@ export class RuntimeOwnershipStore {
     })
   }
 
+  recordBoundEndpoint(owner: RuntimeOwner, endpointFileIdentity: RuntimeFileIdentity): RuntimeOwner {
+    const serializedIdentity = endpointIdentityJson(endpointFileIdentity)
+    return this.withDatabase(true, db => {
+      const current = rowFromObservation(db, owner.kind)
+      if (!current || current.owner.ownerId !== owner.ownerId || current.owner.generation !== owner.generation || current.owner.state !== 'preparing') {
+        throw new RuntimeOwnershipError('OWNER_CHANGED', 'runtime owner changed before endpoint identity publication')
+      }
+      db.prepare('UPDATE runtime_owners SET endpoint_identity_json=? WHERE kind=? AND owner_id=? AND generation=? AND state=?').run(
+        serializedIdentity, owner.kind, owner.ownerId, owner.generation, 'preparing')
+      const bound = { ...current.owner, endpointFileIdentity }
+      this.audit(db, owner.kind, 'bind-endpoint', current.rowSha256, bound, {})
+      return bound
+    }, (db, bound) => this.assertOwnerCommitted(db, bound))
+  }
+
   activate(owner: RuntimeOwner, locatorSha256: string): RuntimeOwner {
     assertHash(locatorSha256)
     if (owner.state !== 'preparing') throw new RuntimeOwnershipError('OWNER_STATE', 'only a preparing owner can activate')
@@ -497,7 +555,7 @@ export class RuntimeOwnershipStore {
       const current = rowFromObservation(db, owner.kind)
       if (!current || current.owner.ownerId !== owner.ownerId || current.owner.generation !== owner.generation || current.owner.state !== 'preparing') throw new RuntimeOwnershipError('OWNER_CHANGED', 'runtime owner changed before activation')
       db.prepare('UPDATE runtime_owners SET state=?, locator_sha256=?, activated_at=? WHERE kind=? AND owner_id=? AND generation=?').run('active', locatorSha256, now(), owner.kind, owner.ownerId, owner.generation)
-      const active = { ...owner, state: 'active' as const, locatorSha256 }
+      const active = { ...current.owner, state: 'active' as const, locatorSha256 }
       this.audit(db, owner.kind, 'activate', current.rowSha256, active, {})
       return active
     }, (db, active) => this.assertOwnerCommitted(db, active))
@@ -618,5 +676,24 @@ export class RuntimeOwnershipStore {
   private audit(db: DatabaseSync, kind: RuntimeOwnerKind, action: string, priorRowSha256: string | null, owner: RuntimeOwner, detail: Record<string, unknown>): void {
     db.prepare('INSERT INTO runtime_ownership_audit(kind,action,prior_row_sha256,owner_id,generation,detail_json,created_at) VALUES(?,?,?,?,?,?,?)').run(
       kind, action, priorRowSha256, owner.ownerId, owner.generation, JSON.stringify(detail), now())
+  }
+}
+
+/** Observe authority without creating, migrating, checkpointing, or otherwise mutating it. */
+export function observeRuntimeOwnerReadOnly(databasePath: string, kind: RuntimeOwnerKind): RuntimeOwnerObservation {
+  assertKind(kind)
+  const directory = canonicalPrivateDirectory(dirname(databasePath), { requireCanonical: true })
+  const canonicalPath = join(directory, basename(databasePath))
+  try {
+    privateRuntimeFileIdentityReader()(canonicalPath)
+  } catch (error) {
+    if (error instanceof RuntimeFileSecurityError && error.code === 'not-found') return { status: 'vacant', lastGeneration: 0 }
+    throw error
+  }
+  const store = new RuntimeOwnershipStore(canonicalPath, { readOnly: true })
+  try {
+    return store.observe(kind)
+  } finally {
+    store.close()
   }
 }

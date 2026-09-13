@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { isObject } from '../shared/command-catalog.js'
-import { RuntimeOwnershipError, RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
+import { observeRuntimeOwnerReadOnly, RuntimeOwnershipError, RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
 import { localRuntimePaths, readRuntimeRecord } from '../main/local-runtime.js'
 import { canonicalPrivateDirectory } from '../shared/runtime-file-security.js'
 export type RpcEnvelope = { id: string; ok: boolean; result?: unknown; error?: string; code?: string; _meta: { ts: number; method: string } }
@@ -23,21 +23,17 @@ function runtimeOwner(userData: string): { socketPath: string; authToken: string
   if (locator.status === 'missing') throw new CliFailure('RUNTIME_UNAVAILABLE', 'Runtime discovery is unavailable at ' + paths.runtimeFile + '; is donwells.ai running?')
   if (locator.status === 'invalid') throw new CliFailure('RUNTIME_INVALID', 'Invalid runtime discovery file: ' + locator.reason)
   if (locator.status === 'legacy') {
-    let store: RuntimeOwnershipStore
+    let authority
     try {
-      store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+      authority = observeRuntimeOwnerReadOnly(paths.ownershipDatabasePath, 'donwells-app')
     } catch (error) {
       if (error instanceof RuntimeOwnershipError) throw new CliFailure('RUNTIME_OWNER_' + error.code, error.message)
       throw new CliFailure('RUNTIME_OWNER_UNAVAILABLE', error instanceof Error ? error.message : String(error))
     }
-    try {
-      if (store.observe('donwells-app').status !== 'vacant') {
-        throw new CliFailure('OWNER_MISMATCH', 'Legacy runtime locator conflicts with the recorded authority owner')
-      }
-      return { socketPath: locator.record.socketPath, authToken: locator.record.authToken, legacy: true }
-    } finally {
-      store.close()
+    if (authority.status !== 'vacant') {
+      throw new CliFailure('OWNER_MISMATCH', 'Legacy runtime locator conflicts with the recorded authority owner')
     }
+    return { socketPath: locator.record.socketPath, authToken: locator.record.authToken, legacy: true }
   }
   let store: RuntimeOwnershipStore
   try {

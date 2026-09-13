@@ -18,7 +18,7 @@ const identity: ProcessIdentity = {
   capturedAt: '2026-09-13T00:00:00.000Z'
 }
 
-function candidate(ownerId: string, endpoint = '/tmp/donwells-owner.sock', generation = 1): Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256'> {
+function candidate(ownerId: string, endpoint = '/tmp/donwells-owner.sock', generation = 1): Omit<RuntimeOwner, 'generation' | 'state' | 'locatorSha256' | 'endpointFileIdentity'> {
   return {
     kind: 'donwells-app',
     ownerId,
@@ -77,8 +77,10 @@ describe('compare-bound runtime ownership', () => {
       const preparing = store.prepareClaim(candidate('11111111-1111-4111-8111-111111111111'), observed, null)
       expect(preparing).toMatchObject({ generation: 1, state: 'preparing' })
       expect(store.observe('donwells-app')).toMatchObject({ status: 'present', owner: preparing })
-      const active = store.activate(preparing, 'a'.repeat(64))
-      expect(active).toMatchObject({ generation: 1, state: 'active', locatorSha256: 'a'.repeat(64) })
+      const bound = store.recordBoundEndpoint(preparing, { platform: 'posix', device: '42', inode: '99' })
+      expect(store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { endpointFileIdentity: { platform: 'posix', device: '42', inode: '99' } } })
+      const active = store.activate(bound, 'a'.repeat(64))
+      expect(active).toMatchObject({ generation: 1, state: 'active', locatorSha256: 'a'.repeat(64), endpointFileIdentity: { platform: 'posix', device: '42', inode: '99' } })
       expect(store.resolveActive('donwells-app', {
         version: 2,
         ownerId: active.ownerId,

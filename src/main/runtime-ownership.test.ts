@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { createServer } from 'node:net'
-import { lstatSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, linkSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, removeRuntimeEndpointIfOwned, republishRuntimeOwner } from './runtime-ownership'
 
 const identity = {
   pid: process.pid,
@@ -108,12 +108,12 @@ describe('runtime publication state machine', () => {
     let second: ReturnType<typeof claimRuntimeOwner> | undefined
     try {
       await publishRuntimeOwner(first, () => undefined)
-      second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-replaced-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
       const originalIdentity = lstatSync(first.owner.endpoint)
       await new Promise<void>(resolve => originalServer.close(() => resolve()))
       await new Promise<void>((resolve, reject) => { replacementServer.once('error', reject); replacementServer.listen(first.owner.endpoint, resolve) })
       const replacementIdentity = lstatSync(first.owner.endpoint)
       expect({ device: String(replacementIdentity.dev), inode: String(replacementIdentity.ino) }).not.toEqual({ device: String(originalIdentity.dev), inode: String(originalIdentity.ino) })
+      second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-replaced-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
       await publishRuntimeOwner(second, () => undefined)
       expect(lstatSync(first.owner.endpoint).isSocket()).toBe(true)
     } finally {
@@ -124,7 +124,66 @@ describe('runtime publication state machine', () => {
     }
   })
 
-  it('cleans a stale preparing predecessor only after successor activation', async () => {
+  it.runIf(process.platform !== 'win32')('keeps an activated successor authoritative when predecessor cleanup fails', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-cleanup-failure-')))
+    const endpointDirectory = realpathSync.native(mkdtempSync(join(tmpdir(), 'dw-endpoint-')))
+    const firstEndpoint = freshRuntimeEndpoint(join(endpointDirectory, 'first.sock'), 'abababab-abab-4aba-8aba-abababababab')
+    const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-cleanup-failure-second.sock'), 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd')
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-failure-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const firstServer = createServer(() => {})
+    let firstServerClosed = false
+    await new Promise<void>((resolve, reject) => { firstServer.once('error', reject); firstServer.listen(first.owner.endpoint, resolve) })
+    try {
+      await publishRuntimeOwner(first, () => undefined)
+      await new Promise<void>(resolve => firstServer.close(() => resolve()))
+      firstServerClosed = true
+      writeFileSync(first.owner.endpoint, 'replacement')
+      const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
+      const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-failure-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
+      chmodSync(endpointDirectory, 0o500)
+      expect(() => renameSync(first.owner.endpoint, first.owner.endpoint + '.probe')).toThrow()
+      await expect(publishRuntimeOwner(second, () => undefined)).resolves.toMatchObject({ ownerId: second.owner.ownerId, generation: 2, state: 'active' })
+      expect(lstatSync(first.owner.endpoint).isFile()).toBe(true)
+      expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2, state: 'active' } })
+    } finally {
+      chmodSync(endpointDirectory, 0o700)
+      if (!firstServerClosed) await new Promise<void>(resolve => firstServer.close(() => resolve()))
+      first.store.close()
+      rmSync(directory, { recursive: true, force: true })
+      rmSync(endpointDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('never unlinks a replacement created during atomic predecessor cleanup', async () => {
+    const originalEndpoint = join(tmpdir(), 'donwells-cleanup-original-' + process.pid + '.sock')
+    const replacementEndpoint = join(tmpdir(), 'donwells-cleanup-replacement-' + process.pid + '.sock')
+    const originalServer = createServer(() => {})
+    const replacementServer = createServer(() => {})
+    await new Promise<void>((resolve, reject) => { originalServer.once('error', reject); originalServer.listen(originalEndpoint, resolve) })
+    await new Promise<void>((resolve, reject) => { replacementServer.once('error', reject); replacementServer.listen(replacementEndpoint, resolve) })
+    const originalIdentity = lstatSync(originalEndpoint)
+    const replacementIdentity = lstatSync(replacementEndpoint)
+    try {
+      expect(removeRuntimeEndpointIfOwned(originalEndpoint, { platform: 'posix', device: String(originalIdentity.dev), inode: String(originalIdentity.ino) }, {
+        rename: (source, destination) => {
+          renameSync(source, destination)
+          linkSync(replacementEndpoint, originalEndpoint)
+        },
+        stat: lstatSync,
+        link: linkSync,
+        remove: path => rmSync(path)
+      })).toBe('removed')
+      const surviving = lstatSync(originalEndpoint)
+      expect({ device: String(surviving.dev), inode: String(surviving.ino) }).toEqual({ device: String(replacementIdentity.dev), inode: String(replacementIdentity.ino) })
+    } finally {
+      await new Promise<void>(resolve => originalServer.close(() => resolve()))
+      await new Promise<void>(resolve => replacementServer.close(() => resolve()))
+      rmSync(originalEndpoint, { force: true })
+      rmSync(replacementEndpoint, { force: true })
+    }
+  })
+
+  it('cleans a recorded stale preparing predecessor only after successor activation', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-publication-cleanup-preparing-')))
     const firstEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-preparing-first.sock'), 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
     const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-preparing-second.sock'), 'ffffffff-ffff-4fff-8fff-ffffffffffff')
@@ -132,6 +191,8 @@ describe('runtime publication state machine', () => {
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-preparing-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority })
     const endpointServer = createServer(() => {})
     await new Promise<void>((resolve, reject) => { endpointServer.once('error', reject); endpointServer.listen(first.owner.endpoint, resolve) })
+    const endpointIdentity = lstatSync(first.owner.endpoint)
+    first.owner = first.store.recordBoundEndpoint(first.owner, { platform: 'posix', device: String(endpointIdentity.dev), inode: String(endpointIdentity.ino) })
     try {
       const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-preparing-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
       await publishRuntimeOwner(second, () => undefined)
