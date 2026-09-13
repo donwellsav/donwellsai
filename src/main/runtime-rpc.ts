@@ -159,12 +159,6 @@ export class RuntimeRpcServer {
     this.publication = publication
     this.socketPath = publication.owner.endpoint
     if (lifecycleGeneration !== this.lifecycleGeneration) {
-      const abandoned = abandonRuntimeOwner(publication)
-      if (abandoned === 'released') {
-        this.publication = null
-        publication.store.close()
-      }
-      if (abandoned !== 'released') throw new Error('Runtime RPC start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Runtime RPC start was cancelled before bind')
     }
     try {
@@ -205,7 +199,6 @@ export class RuntimeRpcServer {
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
       let failure = error
-      const failedPublication = this.publication
       for (const client of this.clients) client.destroy()
       this.clients.clear()
       if (server?.listening) {
@@ -223,17 +216,6 @@ export class RuntimeRpcServer {
         }
       }
       this.boundIno = null
-      if (failedPublication) {
-        const released = failedPublication.owner.state === 'active'
-          ? releaseRuntimeOwner(failedPublication)
-          : abandonRuntimeOwner(failedPublication)
-        if (released === 'released') {
-          this.publication = null
-          failedPublication.store.close()
-        } else if (released === 'cleanup-failed') {
-          failure = new Error('runtime RPC startup failed and locator cleanup could not be verified', { cause: error })
-        }
-      }
       throw failure
     }
   }

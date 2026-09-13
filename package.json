@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && pnpm run build:cli",
-    "build:cli": "tsc -p tsconfig.cli.json",
+    "build:cli": "node scripts/build-cli.mjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json",
     "test": "vitest run",

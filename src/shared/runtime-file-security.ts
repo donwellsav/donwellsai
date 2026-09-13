@@ -156,7 +156,8 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
 
 function loadNativeAddon(): NativeRuntimeFileAddon {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
-  return createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, electronProcess)) as NativeRuntimeFileAddon
+  const defaultApp = electronProcess.defaultApp ?? process.env['ELECTRON_RUN_AS_NODE'] === '1'
+  return createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, { resourcesPath: electronProcess.resourcesPath, defaultApp })) as NativeRuntimeFileAddon
 }
 
 let defaultReader: RuntimeFileReader | undefined

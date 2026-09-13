@@ -116,7 +116,8 @@ function nativeReaderFromAddon(addon: RuntimeIdentityAddon): NativeProcessReader
 
 function loadNativeAddon(): RuntimeIdentityAddon {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
-  const addon = createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, electronProcess)) as RuntimeIdentityAddon
+  const defaultApp = electronProcess.defaultApp ?? process.env['ELECTRON_RUN_AS_NODE'] === '1'
+  const addon = createRequire(__filename)(resolveNativeRuntimeAddonPath(__dirname, { resourcesPath: electronProcess.resourcesPath, defaultApp })) as RuntimeIdentityAddon
   if (addon.platform !== process.platform) throw new Error('runtime identity addon platform mismatch: ' + String(addon.platform))
   if (addon.identityContractVersion !== 1) throw new Error('runtime identity addon contract mismatch')
   return addon

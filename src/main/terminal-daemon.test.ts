@@ -1,11 +1,11 @@
 // @vitest-environment node
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RuntimeOwnershipStore, type RuntimeOwner } from '@shared/runtime-ownership'
 import { DaemonClient, terminateSpawnedChild } from './daemon-client'
@@ -270,20 +270,17 @@ describe('terminal runtime identity lifecycle', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it.runIf(process.platform !== 'win32')('retains its owner so failed cleanup can be retried', async () => {
+  it.runIf(process.platform !== 'win32')('leaves locator evidence after shutdown', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-cleanup-retry-')))
     const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-cleanup-token-123456789' })
     const paths = localRuntimePaths(directory, 'terminal')
     try {
       await daemon.start()
-      chmodSync(dirname(paths.runtimeFile), 0o500)
-      await expect(daemon.stopIfIdle()).rejects.toThrow(/could not verify ownership cleanup/)
-      chmodSync(dirname(paths.runtimeFile), 0o700)
       await expect(daemon.stopIfIdle()).resolves.toBe(true)
+      expect(readRuntimeRecord(paths.runtimeFile).status).toBe('current')
       const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
       try { expect(store.observe('terminal-daemon')).toMatchObject({ status: 'vacant' }) } finally { store.close() }
     } finally {
-      chmodSync(dirname(paths.runtimeFile), 0o700)
       await daemon.stopIfIdle().catch(() => false)
       rmSync(directory, { recursive: true, force: true })
     }

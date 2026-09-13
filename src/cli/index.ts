@@ -95,8 +95,6 @@ async function runRuntimeRecovery(argv: readonly string[]): Promise<number> {
   }
 }
 export async function runCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  if (argv[0] === 'runtime-inspect') return runRuntimeRecovery(['inspect', ...argv.slice(1)])
-  if (argv[0] === 'runtime-quarantine') return runRuntimeRecovery(['quarantine', ...argv.slice(1)])
   if (argv[0] === 'runtime-recovery') return runRuntimeRecovery(argv.slice(1))
   if (argv[0] === 'memory-mcp') return runMemoryMcp(argv.slice(1))
   let parsed: ReturnType<typeof parseCliArguments>
@@ -110,8 +108,6 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
       console.log('donwells.ai command-line interface\nUsage: donwells <command> [arguments] [options]\n')
       for (const command of RPC_COMMANDS) console.log(commandUsage(command).padEnd(66) + "  " + command.summary)
       console.log(PROJECT_MEMORY_MCP_USAGE + '  Serve project memory to coding harnesses over MCP')
-      console.log('donwells runtime-inspect --kind app|terminal --user-data <exact-directory>  Inspect legacy runtime recovery state')
-      console.log('donwells runtime-quarantine --kind app|terminal --user-data <exact-directory> --confirm <sha256>  Quarantine confirmed legacy state')
     }
     console.log('\nOptions: --user-data <directory>, --text | --json, --params <json>, --timeout-ms <100..120000>, --dry-run, --help\nUse -- before a literal argument beginning with --. Mutations are never retried automatically.')
     return 0

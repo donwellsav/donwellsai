@@ -201,12 +201,6 @@ export class TerminalDaemon {
     this.publication = publication
     this.paths.socketPath = publication.owner.endpoint
     if (lifecycleGeneration !== this.lifecycleGeneration) {
-      const abandoned = abandonRuntimeOwner(publication)
-      if (abandoned === 'released') {
-        this.publication = null
-        publication.store.close()
-      }
-      if (abandoned !== 'released') throw new Error('Terminal daemon start was cancelled and preparing ownership cleanup failed: ' + abandoned)
       throw new Error('Terminal daemon start was cancelled before bind')
     }
     let server: Server | null = null
@@ -234,7 +228,6 @@ export class TerminalDaemon {
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
     } catch (error) {
-      const failedPublication = this.publication
       let failure: unknown = error
       if (server?.listening && this.endpointPathState() === 'foreign') {
         failure = new Error('terminal daemon endpoint path changed during startup; refusing to close it', { cause: error })
@@ -247,17 +240,6 @@ export class TerminalDaemon {
       this.server = null
       this.removeOwnedEndpoint()
       this.boundIno = null
-      if (failedPublication) {
-        const released = failedPublication.owner.state === 'active'
-          ? releaseRuntimeOwner(failedPublication)
-          : abandonRuntimeOwner(failedPublication)
-        if (released === 'released') {
-          this.publication = null
-          failedPublication.store.close()
-        } else if (released === 'cleanup-failed') {
-          failure = new Error('terminal daemon startup failed and ownership cleanup could not be verified', { cause: error })
-        }
-      }
       throw failure
     }
   }

@@ -372,7 +372,7 @@ export class RuntimeOwnershipStore {
 
   private openDatabase(readOnly: boolean, databasePath = this.databasePath): DatabaseSync {
     const db = new DatabaseSync(databasePath, { readOnly })
-    db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000')
+    db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=1000')
     if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
     return db
   }
@@ -389,7 +389,10 @@ export class RuntimeOwnershipStore {
       try {
         if (write) db.exec('BEGIN IMMEDIATE')
         result = operation(db)
-        if (write) db.exec('COMMIT')
+        if (write) {
+          this.assertAuthorityIdentity()
+          db.exec('COMMIT')
+        }
       } finally {
         db.close()
       }

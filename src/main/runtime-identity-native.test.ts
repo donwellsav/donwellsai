@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
+import { RuntimeOwnershipError } from '@shared/runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
 
 type NativePrivateFileResult =
@@ -212,9 +213,14 @@ describe('native runtime identity adapter', () => {
     const authorityPath = join(directory, 'runtime-owners.sqlite')
     writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
     try {
-      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => {
-        throw new Error('callback failed')
-      })).toThrow('callback failed')
+      const callbackError = new RuntimeOwnershipError('CALLBACK_FAILURE', 'callback failed')
+      let thrown: unknown
+      try {
+        addon.withRuntimeAuthorityLock(authorityPath, () => { throw callbackError })
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toBe(callbackError)
       expect(readdirSync(directory).filter(entry => entry.includes('.donwells-alias-'))).toEqual([])
     } finally {
       rmSync(directory, { recursive: true, force: true })

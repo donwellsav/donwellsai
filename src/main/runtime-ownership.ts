@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
-import { rmSync } from 'node:fs'
 import type { ProcessIdentity, ProcessIdentityVerdict, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import {
   readVerifiedRecoveryEvidence,
@@ -367,27 +366,41 @@ export function republishRuntimeOwner(publication: RuntimePublication, expectedL
 
 export type RuntimeReleaseResult = 'released' | 'not-owned' | 'cleanup-failed'
 
-function locatorCleanup(publication: RuntimePublication): 'removed-or-missing' | 'not-owned' | 'cleanup-failed' {
+function preserveLocatorForRecovery(publication: RuntimePublication): 'preserved' | 'missing' | 'not-owned' | 'cleanup-failed' {
   const current = readRuntimeRecord(publication.paths.runtimeFile)
-  if (current.status === 'missing') return 'removed-or-missing'
+  if (current.status === 'missing') return 'missing'
+  if (current.status === 'invalid') return 'cleanup-failed'
+  if (current.status !== 'current') return 'not-owned'
   const expectedHash = publication.owner.locatorSha256 ?? locatorHash(publication.locator)
-  if (current.status !== 'current' || current.sha256 !== expectedHash || !locatorMatchesOwner(current.record, publication.owner)
+  if (current.sha256 !== expectedHash || !locatorMatchesOwner(current.record, publication.owner)
     || publication.locatorFileIdentity === null || JSON.stringify(current.fileIdentity) !== JSON.stringify(publication.locatorFileIdentity)) return 'not-owned'
-  try { rmSync(publication.paths.runtimeFile) } catch { return 'cleanup-failed' }
-  return readRuntimeRecord(publication.paths.runtimeFile).status === 'missing' ? 'removed-or-missing' : 'cleanup-failed'
+  try {
+    publication.store.recordLegacyRecovery({
+      kind: publication.owner.kind,
+      expectedFingerprint: current.sha256,
+      fileIdentity: current.fileIdentity,
+      evidencePath: publication.paths.runtimeFile,
+      evidenceFileIdentity: current.fileIdentity,
+      endpoint: current.record.socketPath,
+      recordType: 'orphan-v2'
+    })
+  } catch (error) {
+    if (error instanceof RuntimeOwnershipError) throw error
+    return 'cleanup-failed'
+  }
+  return 'preserved'
 }
 
 export function abandonRuntimeOwner(publication: RuntimePublication): RuntimeReleaseResult {
   if (publication.owner.state !== 'preparing') return 'not-owned'
-  const cleanup = locatorCleanup(publication)
-  if (cleanup === 'cleanup-failed') return cleanup
-  if (cleanup === 'not-owned' && publication.locatorFileIdentity !== null) return 'not-owned'
+  const preserved = preserveLocatorForRecovery(publication)
+  if (preserved === 'cleanup-failed' || preserved === 'not-owned') return preserved
   return publication.store.abandonPreparing(publication.owner) ? 'released' : 'not-owned'
 }
 
 export function releaseRuntimeOwner(publication: RuntimePublication): RuntimeReleaseResult {
   if (publication.owner.state !== 'active') return 'not-owned'
-  const cleanup = locatorCleanup(publication)
-  if (cleanup !== 'removed-or-missing') return cleanup
+  const preserved = preserveLocatorForRecovery(publication)
+  if (preserved === 'cleanup-failed' || preserved === 'not-owned') return preserved
   return publication.store.release(publication.owner) ? 'released' : 'not-owned'
 }

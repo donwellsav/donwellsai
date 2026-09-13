@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
-import type { RuntimeFileIdentityReader } from './runtime-file-security'
+import { runtimeAuthorityLock, type RuntimeFileIdentityReader } from './runtime-file-security'
 import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
@@ -182,7 +182,7 @@ describe('compare-bound runtime ownership', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-win-contract-')))
     let reads = 0
     const changingIdentity: RuntimeFileIdentityReader = () => ({
-      platform: 'win32', volumeSerial: 'volume', fileId: reads++ < 4 ? 'first' : 'second'
+      platform: 'win32', volumeSerial: 'volume', fileId: reads++ < 5 ? 'first' : 'second'
     })
     const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'), { identityReader: changingIdentity })
     try {
@@ -207,6 +207,74 @@ describe('compare-bound runtime ownership', () => {
       }, 'c'.repeat(64))).toThrowError(expect.objectContaining({ code: 'OWNER_MISMATCH' }))
     } finally {
       store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('rejects endpoint reuse after a prior owner generation is released', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-endpoint-history-')))
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    const endpoint = '/tmp/donwells-history.sock'
+    try {
+      const firstId = 'abababab-abab-4aba-8aba-abababababab'
+      const first = store.activate(store.prepareClaim(candidate(firstId, endpoint), store.observe('donwells-app'), null), 'f'.repeat(64))
+      expect(store.release(first)).toBe(true)
+      const observed = store.observe('donwells-app')
+      const secondId = 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd'
+      expect(() => store.prepareClaim(candidate(secondId, endpoint, 2), observed, null)).toThrowError(expect.objectContaining({ code: 'ENDPOINT_REUSED' }))
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('rejects a cross-process A-to-B-to-A swap before writer commit', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-cross-process-swap-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const displacedPath = join(directory, 'runtime-owners.sqlite.displaced')
+    const readyPath = join(directory, 'swap.ready')
+    const restorePath = join(directory, 'swap.restore')
+    const donePath = join(directory, 'swap.done')
+    const nativeLock = runtimeAuthorityLock()
+    let attack = false
+    const swapScript = [
+      "const { existsSync, renameSync, rmSync, writeFileSync } = require('node:fs')",
+      'const [database, displaced, ready, restore, done] = process.argv.slice(1)',
+      'renameSync(database, displaced)',
+      "writeFileSync(database, Buffer.from('replacement B'), { mode: 0o600 })",
+      "writeFileSync(ready, 'ready')",
+      'while (!existsSync(restore)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)',
+      'rmSync(database, { force: true })',
+      'renameSync(displaced, database)',
+      "writeFileSync(done, 'done')"
+    ].join(';')
+    const authorityLock = <T>(path: string, callback: (stablePath: string) => T): T => nativeLock(path, stablePath => {
+      if (!attack) return callback(stablePath)
+      attack = false
+      const child = spawn(process.execPath, ['-e', swapScript, path, displacedPath, readyPath, restorePath, donePath], { stdio: 'ignore', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      const wait = (predicate: () => boolean): void => {
+        const deadline = Date.now() + 2_000
+        while (!predicate()) {
+          if (Date.now() > deadline) throw new Error('timed out waiting for adversarial swap child')
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)
+        }
+      }
+      try {
+        wait(() => existsSync(readyPath))
+        return callback(stablePath)
+      } finally {
+        writeFileSync(restorePath, 'restore')
+        wait(() => existsSync(donePath))
+        child.kill()
+      }
+    })
+    const store = new RuntimeOwnershipStore(databasePath, { authorityLock })
+    try {
+      const observed = store.observe('donwells-app')
+      attack = true
+      expect(() => store.prepareClaim(candidate('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'), observed, null)).toThrowError(expect.objectContaining({ code: 'DATABASE_CHANGED' }))
+    } finally {
+      store.close()
+      const recovered = new RuntimeOwnershipStore(databasePath, { readOnly: true })
+      try { expect(recovered.observe('donwells-app')).toEqual({ status: 'vacant', lastGeneration: 0 }) } finally { recovered.close() }
       rmSync(directory, { recursive: true, force: true })
     }
   })

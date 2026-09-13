@@ -1,11 +1,39 @@
 // @vitest-environment node
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+import { createConnection, type Socket } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
 import { RuntimeRpcServer, type RpcDeps } from './runtime-rpc'
+
+function readFrame(socket: Socket): Promise<Record<string, unknown>> {
+  const completion = Promise.withResolvers<Record<string, unknown>>()
+  let buffer = ''
+  const finish = (error?: Error): void => {
+    socket.removeListener('data', onData)
+    socket.removeListener('error', onError)
+    if (error) completion.reject(error)
+  }
+  const onError = (error: Error): void => finish(error)
+  const onData = (chunk: string | Buffer): void => {
+    buffer += chunk.toString()
+    const newline = buffer.indexOf('\n')
+    if (newline < 0) return
+    try {
+      const frame = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>
+      socket.removeListener('data', onData)
+      socket.removeListener('error', onError)
+      completion.resolve(frame)
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
+  socket.on('data', onData)
+  socket.once('error', onError)
+  return completion.promise
+}
 
 describe('runtime RPC publication lifecycle', () => {
   it('reports ready only after authenticated publication and releases its exact owner on stop', async () => {
@@ -34,6 +62,33 @@ describe('runtime RPC publication lifecycle', () => {
         afterStop.close()
       }
     } finally {
+      server.stop()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('authenticates a real app runtime socket with the published identity', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-rpc-auth-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const token = 'rpc-auth-token-123456'
+    const server = new RuntimeRpcServer(paths.socketPath, paths.runtimeFile, token, {} as RpcDeps)
+    let socket: Socket | undefined
+    try {
+      await server.start()
+      const locator = readRuntimeRecord(paths.runtimeFile)
+      if (locator.status !== 'current') throw new Error('runtime RPC did not publish an app locator')
+      socket = createConnection(locator.record.socketPath)
+      socket.setEncoding('utf8')
+      const frame = readFrame(socket)
+      await new Promise<void>((resolve, reject) => {
+        socket!.once('connect', () => {
+          socket!.write(JSON.stringify({ id: 'auth', method: 'auth.hello', authToken: token }) + '\n')
+          resolve()
+        })
+        socket!.once('error', reject)
+      })
+      await expect(frame).resolves.toMatchObject({ id: 'auth', ok: true, runtimeIdentityContractVersion: 1, ownerId: locator.record.ownerId, generation: locator.record.ownerGeneration })
+    } finally {
+      socket?.destroy()
       server.stop()
       rmSync(directory, { recursive: true, force: true })
     }
@@ -80,20 +135,17 @@ describe('runtime RPC publication lifecycle', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
-  it.runIf(process.platform !== 'win32')('retains its owner so failed cleanup can be retried', async () => {
+  it('retains locator evidence after app shutdown', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-rpc-cleanup-retry-')))
     const paths = localRuntimePaths(directory, 'app')
     const server = new RuntimeRpcServer(paths.socketPath, paths.runtimeFile, 'rpc-cleanup-token-123456', {} as RpcDeps)
     try {
       await server.start()
-      chmodSync(dirname(paths.runtimeFile), 0o500)
-      expect(server.stop()).toBe('cleanup-failed')
-      chmodSync(dirname(paths.runtimeFile), 0o700)
       expect(server.stop()).toBe('released')
+      expect(readRuntimeRecord(paths.runtimeFile).status).toBe('current')
       const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
       try { expect(store.observe('donwells-app')).toMatchObject({ status: 'vacant' }) } finally { store.close() }
     } finally {
-      chmodSync(dirname(paths.runtimeFile), 0o700)
       server.stop()
       rmSync(directory, { recursive: true, force: true })
     }
