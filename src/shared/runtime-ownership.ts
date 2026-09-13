@@ -50,6 +50,26 @@ export type LegacyRecoveryRecord = LegacyRecoveryInput & {
   updatedAt: string
 }
 
+export type RuntimeEndpointCleanupPredecessor = {
+  ownerId: string
+  generation: number
+  endpoint: string
+  endpointFileIdentity: RuntimeFileIdentity
+}
+
+export type RuntimeEndpointCleanup = {
+  id: string
+  kind: RuntimeOwnerKind
+  successorOwnerId: string
+  successorGeneration: number
+  predecessorOwnerId: string
+  predecessorGeneration: number
+  endpoint: string
+  quarantinePath: string
+  expectedFileIdentity: RuntimeFileIdentity
+  createdAt: string
+}
+
 export class RuntimeOwnershipError extends Error {
   constructor(readonly code: string, message: string) {
     super(message)
@@ -203,6 +223,32 @@ function parseRecoveryDetail(value: unknown): Pick<LegacyRecoveryInput, 'fileIde
     recordType: detail['recordType']
   }
 }
+
+function parseEndpointCleanup(row: Record<string, unknown>): RuntimeEndpointCleanup {
+  const kind = row['kind']
+  if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('CLEANUP_CORRUPT', 'endpoint cleanup kind was invalid')
+  const id = String(row['id'])
+  const successorOwnerId = String(row['successor_owner_id'])
+  const predecessorOwnerId = String(row['predecessor_owner_id'])
+  const successorGeneration = Number(row['successor_generation'])
+  const predecessorGeneration = Number(row['predecessor_generation'])
+  const endpoint = row['endpoint']
+  const quarantinePath = row['quarantine_path']
+  const createdAt = row['created_at']
+  const expectedFileIdentity = parseEndpointIdentity(row['expected_identity_json'])
+  if (!OWNER_ID.test(id) || !OWNER_ID.test(successorOwnerId) || !OWNER_ID.test(predecessorOwnerId) || successorOwnerId === predecessorOwnerId
+    || !Number.isSafeInteger(successorGeneration) || !Number.isSafeInteger(predecessorGeneration) || predecessorGeneration < 1 || successorGeneration <= predecessorGeneration
+    || typeof endpoint !== 'string' || endpoint.length === 0 || endpoint.length > 4096 || endpoint.includes('\0')
+    || typeof quarantinePath !== 'string' || quarantinePath !== endpoint + '.cleanup-' + id || quarantinePath.length > 4096 || quarantinePath.includes('\0')
+    || expectedFileIdentity === null || typeof createdAt !== 'string' || createdAt.length === 0) {
+    throw new RuntimeOwnershipError('CLEANUP_CORRUPT', 'endpoint cleanup record violated its schema')
+  }
+  return { id, kind, successorOwnerId, successorGeneration, predecessorOwnerId, predecessorGeneration, endpoint, quarantinePath, expectedFileIdentity, createdAt }
+}
+
+function sameEndpointCleanup(left: RuntimeEndpointCleanup, right: RuntimeEndpointCleanup): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
 type StoreOptions = {
   readOnly?: boolean
   authorityLock?: RuntimeAuthorityLock
@@ -265,7 +311,19 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         generation INTEGER NOT NULL,
         created_at TEXT NOT NULL
       );
-      PRAGMA user_version=5;
+      CREATE TABLE runtime_endpoint_cleanups (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        successor_owner_id TEXT NOT NULL,
+        successor_generation INTEGER NOT NULL,
+        predecessor_owner_id TEXT NOT NULL,
+        predecessor_generation INTEGER NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        quarantine_path TEXT NOT NULL UNIQUE,
+        expected_identity_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      PRAGMA user_version=6;
     `)
   } else if (version === 1 && !readOnly) {
     db.exec(`
@@ -349,8 +407,25 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
       ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
       PRAGMA user_version=5;
     `)
-  } else if (version !== 5 && !(readOnly && (version === 3 || version === 4))) {
+  } else if (version !== 5 && version !== 6 && !(readOnly && (version === 3 || version === 4))) {
     throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database schema is unsupported')
+  }
+  if (!readOnly && version >= 1 && version <= 5) {
+    db.exec(`
+      CREATE TABLE runtime_endpoint_cleanups (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        successor_owner_id TEXT NOT NULL,
+        successor_generation INTEGER NOT NULL,
+        predecessor_owner_id TEXT NOT NULL,
+        predecessor_generation INTEGER NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        quarantine_path TEXT NOT NULL UNIQUE,
+        expected_identity_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      PRAGMA user_version=6;
+    `)
   }
 }
 
@@ -367,6 +442,11 @@ function validateDatabase(db: DatabaseSync): void {
     const kind = String(row['kind'])
     if (kind !== 'donwells-app' && kind !== 'terminal-daemon') throw new RuntimeOwnershipError('OWNER_CORRUPT', 'persisted runtime generation kind was invalid')
     lastGeneration(db, kind)
+  }
+  const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
+  if (version >= 6) {
+    const cleanupRows = db.prepare('SELECT id, kind, successor_owner_id, successor_generation, predecessor_owner_id, predecessor_generation, endpoint, quarantine_path, expected_identity_json, created_at FROM runtime_endpoint_cleanups').all() as Array<Record<string, unknown>>
+    for (const row of cleanupRows) parseEndpointCleanup(row)
   }
 }
 
@@ -390,7 +470,7 @@ export class RuntimeOwnershipStore {
     }, db => {
       initializeSchema(db, true)
       validateDatabase(db)
-      if (Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) !== 5) {
+      if (Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version']) !== 6) {
         throw new RuntimeOwnershipError('SCHEMA_UNSUPPORTED', 'runtime ownership database migration did not commit')
       }
     })
@@ -610,6 +690,59 @@ export class RuntimeOwnershipStore {
       if (deleted && db.prepare('SELECT 1 FROM runtime_owners WHERE kind=? AND owner_id=? AND generation=?').get(owner.kind, owner.ownerId, owner.generation)) {
         throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime owner abandonment was not durable at the canonical authority')
       }
+    })
+  }
+
+  beginEndpointCleanup(successor: RuntimeOwner, predecessor: RuntimeEndpointCleanupPredecessor): RuntimeEndpointCleanup {
+    assertKind(successor.kind)
+    assertOwnerId(successor.ownerId)
+    assertHash(successor.locatorSha256)
+    if (successor.state !== 'active') throw new RuntimeOwnershipError('INVALID_TRANSITION', 'endpoint cleanup successor was not active')
+    if (!OWNER_ID.test(predecessor.ownerId) || predecessor.ownerId === successor.ownerId
+      || !Number.isSafeInteger(predecessor.generation) || predecessor.generation < 1 || predecessor.generation >= successor.generation
+      || typeof predecessor.endpoint !== 'string' || predecessor.endpoint.length === 0 || predecessor.endpoint.length > 4096 || predecessor.endpoint.includes('\0')) {
+      throw new RuntimeOwnershipError('INVALID_CLEANUP', 'endpoint cleanup predecessor was invalid')
+    }
+    const expectedFileIdentity = parseEndpointIdentity(endpointIdentityJson(predecessor.endpointFileIdentity))
+    if (expectedFileIdentity === null) throw new RuntimeOwnershipError('INVALID_CLEANUP', 'endpoint cleanup predecessor identity was missing')
+    return this.withDatabase(true, db => {
+      const current = rowFromObservation(db, successor.kind)
+      if (!current || !sameOwner(current.owner, successor)) throw new RuntimeOwnershipError('OBSERVATION_CONFLICT', 'runtime owner changed before endpoint cleanup intent was recorded')
+      const existingRow = db.prepare('SELECT id, kind, successor_owner_id, successor_generation, predecessor_owner_id, predecessor_generation, endpoint, quarantine_path, expected_identity_json, created_at FROM runtime_endpoint_cleanups WHERE endpoint=?').get(predecessor.endpoint) as Record<string, unknown> | undefined
+      if (existingRow) {
+        const existing = parseEndpointCleanup(existingRow)
+        if (existing.kind === successor.kind && existing.successorOwnerId === successor.ownerId && existing.successorGeneration === successor.generation
+          && existing.predecessorOwnerId === predecessor.ownerId && existing.predecessorGeneration === predecessor.generation
+          && identityKey(existing.expectedFileIdentity) === identityKey(expectedFileIdentity)) return existing
+        throw new RuntimeOwnershipError('CLEANUP_PENDING', 'another endpoint cleanup is already pending')
+      }
+      const id = randomUUID().toLowerCase()
+      const quarantinePath = predecessor.endpoint + '.cleanup-' + id
+      if (quarantinePath.length > 4096) throw new RuntimeOwnershipError('INVALID_CLEANUP', 'endpoint cleanup quarantine path was too long')
+      const createdAt = now()
+      db.prepare('INSERT INTO runtime_endpoint_cleanups(id,kind,successor_owner_id,successor_generation,predecessor_owner_id,predecessor_generation,endpoint,quarantine_path,expected_identity_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(
+        id, successor.kind, successor.ownerId, successor.generation, predecessor.ownerId, predecessor.generation, predecessor.endpoint, quarantinePath, endpointIdentityJson(expectedFileIdentity), createdAt)
+      return { id, kind: successor.kind, successorOwnerId: successor.ownerId, successorGeneration: successor.generation, predecessorOwnerId: predecessor.ownerId, predecessorGeneration: predecessor.generation, endpoint: predecessor.endpoint, quarantinePath, expectedFileIdentity, createdAt }
+    }, (db, cleanup) => {
+      const row = db.prepare('SELECT id, kind, successor_owner_id, successor_generation, predecessor_owner_id, predecessor_generation, endpoint, quarantine_path, expected_identity_json, created_at FROM runtime_endpoint_cleanups WHERE id=?').get(cleanup.id) as Record<string, unknown> | undefined
+      if (!row || !sameEndpointCleanup(parseEndpointCleanup(row), cleanup)) throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'endpoint cleanup intent was not durable at the canonical authority')
+    })
+  }
+
+  listEndpointCleanups(kind: RuntimeOwnerKind): RuntimeEndpointCleanup[] {
+    assertKind(kind)
+    return this.withDatabase(false, db => (db.prepare('SELECT id, kind, successor_owner_id, successor_generation, predecessor_owner_id, predecessor_generation, endpoint, quarantine_path, expected_identity_json, created_at FROM runtime_endpoint_cleanups WHERE kind=? ORDER BY created_at,id').all(kind) as Array<Record<string, unknown>>).map(parseEndpointCleanup))
+  }
+
+  completeEndpointCleanup(cleanup: RuntimeEndpointCleanup): boolean {
+    const expected = parseEndpointCleanup({ id: cleanup.id, kind: cleanup.kind, successor_owner_id: cleanup.successorOwnerId, successor_generation: cleanup.successorGeneration, predecessor_owner_id: cleanup.predecessorOwnerId, predecessor_generation: cleanup.predecessorGeneration, endpoint: cleanup.endpoint, quarantine_path: cleanup.quarantinePath, expected_identity_json: endpointIdentityJson(cleanup.expectedFileIdentity), created_at: cleanup.createdAt })
+    return this.withDatabase(true, db => {
+      const row = db.prepare('SELECT id, kind, successor_owner_id, successor_generation, predecessor_owner_id, predecessor_generation, endpoint, quarantine_path, expected_identity_json, created_at FROM runtime_endpoint_cleanups WHERE id=?').get(expected.id) as Record<string, unknown> | undefined
+      if (!row) return false
+      if (!sameEndpointCleanup(parseEndpointCleanup(row), expected)) throw new RuntimeOwnershipError('CLEANUP_CONFLICT', 'endpoint cleanup record changed before completion')
+      return Number(db.prepare('DELETE FROM runtime_endpoint_cleanups WHERE id=?').run(expected.id).changes) === 1
+    }, db => {
+      if (db.prepare('SELECT id FROM runtime_endpoint_cleanups WHERE id=?').get(expected.id)) throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'endpoint cleanup completion was not durable at the canonical authority')
     })
   }
 

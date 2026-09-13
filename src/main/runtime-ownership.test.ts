@@ -1,13 +1,14 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
-import { chmodSync, linkSync, lstatSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
-import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, removeRuntimeEndpointIfOwned, republishRuntimeOwner } from './runtime-ownership'
+import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner, reconcileRuntimeOwner, recoverRuntimeEndpointCleanups, releaseRuntimeOwner, republishRuntimeOwner } from './runtime-ownership'
 
 const identity = {
   pid: process.pid,
@@ -131,55 +132,86 @@ describe('runtime publication state machine', () => {
     const secondEndpoint = freshRuntimeEndpoint(join('/tmp', 'donwells-cleanup-failure-second.sock'), 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd')
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: firstEndpoint, authToken: 'first-failure-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     const firstServer = createServer(() => {})
-    let firstServerClosed = false
     await new Promise<void>((resolve, reject) => { firstServer.once('error', reject); firstServer.listen(first.owner.endpoint, resolve) })
     try {
       await publishRuntimeOwner(first, () => undefined)
-      await new Promise<void>(resolve => firstServer.close(() => resolve()))
-      firstServerClosed = true
-      writeFileSync(first.owner.endpoint, 'replacement')
       const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
       const second = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: secondEndpoint, authToken: 'second-failure-token-123456', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority: staleAuthority, store: first.store })
       chmodSync(endpointDirectory, 0o500)
       expect(() => renameSync(first.owner.endpoint, first.owner.endpoint + '.probe')).toThrow()
       await expect(publishRuntimeOwner(second, () => undefined)).resolves.toMatchObject({ ownerId: second.owner.ownerId, generation: 2, state: 'active' })
-      expect(lstatSync(first.owner.endpoint).isFile()).toBe(true)
+      expect(lstatSync(first.owner.endpoint).isSocket()).toBe(true)
       expect(first.store.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: second.owner.ownerId, generation: 2, state: 'active' } })
+      expect(first.store.listEndpointCleanups('donwells-app')).toHaveLength(1)
     } finally {
       chmodSync(endpointDirectory, 0o700)
-      if (!firstServerClosed) await new Promise<void>(resolve => firstServer.close(() => resolve()))
+      await new Promise<void>(resolve => firstServer.close(() => resolve()))
       first.store.close()
       rmSync(directory, { recursive: true, force: true })
       rmSync(endpointDirectory, { recursive: true, force: true })
     }
   })
 
-  it('never unlinks a replacement created during atomic predecessor cleanup', async () => {
-    const originalEndpoint = join(tmpdir(), 'donwells-cleanup-original-' + process.pid + '.sock')
-    const replacementEndpoint = join(tmpdir(), 'donwells-cleanup-replacement-' + process.pid + '.sock')
-    const originalServer = createServer(() => {})
-    const replacementServer = createServer(() => {})
-    await new Promise<void>((resolve, reject) => { originalServer.once('error', reject); originalServer.listen(originalEndpoint, resolve) })
-    await new Promise<void>((resolve, reject) => { replacementServer.once('error', reject); replacementServer.listen(replacementEndpoint, resolve) })
-    const originalIdentity = lstatSync(originalEndpoint)
-    const replacementIdentity = lstatSync(replacementEndpoint)
+  it('recovers a durable cleanup after a child crashes immediately after endpoint displacement', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-cleanup-crash-')) )
+    const endpoint = freshRuntimeEndpoint(join(tmpdir(), 'dwc-' + process.pid + '.sock'), '12121212-1212-4121-8121-121212121212')
+    const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint, authToken: 'cleanup-crash-first-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
+    const server = createServer(() => {})
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(first.owner.endpoint, resolve) })
+    let restarted: RuntimeOwnershipStore | undefined
     try {
-      expect(removeRuntimeEndpointIfOwned(originalEndpoint, { platform: 'posix', device: String(originalIdentity.dev), inode: String(originalIdentity.ino) }, {
-        rename: (source, destination) => {
-          renameSync(source, destination)
-          linkSync(replacementEndpoint, originalEndpoint)
-        },
-        stat: lstatSync,
-        link: linkSync,
-        remove: path => rmSync(path)
-      })).toBe('removed')
-      const surviving = lstatSync(originalEndpoint)
-      expect({ device: String(surviving.dev), inode: String(surviving.ino) }).toEqual({ device: String(replacementIdentity.dev), inode: String(replacementIdentity.ino) })
+      await publishRuntimeOwner(first, () => undefined)
+      const successorId = '34343434-3434-4343-8343-343434343434'
+      const prepared = first.store.prepareClaim({ kind: 'donwells-app', ownerId: successorId, identity: { ...identity, generation: successorId + ':2' }, endpoint: freshRuntimeEndpoint(join(tmpdir(), 'dws-' + process.pid + '.sock')), authToken: 'cleanup-crash-second-token' }, first.store.observe('donwells-app'), { status: 'stale', reason: 'not-found' })
+      const successor = first.store.activate(prepared, '3'.repeat(64))
+      if (first.owner.endpointFileIdentity === null) throw new Error('predecessor endpoint identity was missing')
+      const cleanup = first.store.beginEndpointCleanup(successor, { ownerId: first.owner.ownerId, generation: first.owner.generation, endpoint: first.owner.endpoint, endpointFileIdentity: first.owner.endpointFileIdentity })
+      const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+      const child = spawnSync(process.execPath, ['-e', "const addon=require(process.argv[1]);const result=addon.renameRuntimePathNoReplace(process.argv[2],process.argv[3]);if(!result.ok)throw new Error(JSON.stringify(result));process.exit(73)", addonPath, cleanup.endpoint, cleanup.quarantinePath], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      expect(child.status).toBe(73)
+      expect(existsSync(cleanup.endpoint)).toBe(false)
+      expect(lstatSync(cleanup.quarantinePath).isSocket()).toBe(true)
+      first.store.close()
+      restarted = new RuntimeOwnershipStore(first.paths.ownershipDatabasePath)
+      recoverRuntimeEndpointCleanups(restarted, 'donwells-app')
+      expect(existsSync(cleanup.quarantinePath)).toBe(false)
+      expect(restarted.listEndpointCleanups('donwells-app')).toEqual([])
     } finally {
-      await new Promise<void>(resolve => originalServer.close(() => resolve()))
-      await new Promise<void>(resolve => replacementServer.close(() => resolve()))
-      rmSync(originalEndpoint, { force: true })
-      rmSync(replacementEndpoint, { force: true })
+      await new Promise<void>(resolveClose => server.close(() => resolveClose()))
+      restarted?.close()
+      try { first.store.close() } catch {}
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('preserves an exact quarantined symlink across concurrent endpoint reoccupation and later recovery', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-cleanup-reoccupied-')) )
+    const store = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
+    const endpoint = join(directory, 'predecessor.sock')
+    try {
+      const firstId = '56565656-5656-4656-8656-565656565656'
+      const firstPrepared = store.prepareClaim({ kind: 'donwells-app', ownerId: firstId, identity: { ...identity, generation: firstId + ':1' }, endpoint, authToken: 'cleanup-reoccupied-first-token' }, store.observe('donwells-app'), null)
+      const first = store.activate(store.recordBoundEndpoint(firstPrepared, { platform: 'posix', device: '12', inode: '34' }), '5'.repeat(64))
+      const secondId = '78787878-7878-4878-8878-787878787878'
+      const secondPrepared = store.prepareClaim({ kind: 'donwells-app', ownerId: secondId, identity: { ...identity, generation: secondId + ':2' }, endpoint: join(directory, 'successor.sock'), authToken: 'cleanup-reoccupied-second-token' }, store.observe('donwells-app'), { status: 'stale', reason: 'not-found' })
+      const second = store.activate(secondPrepared, '7'.repeat(64))
+      if (first.endpointFileIdentity === null) throw new Error('predecessor endpoint identity was missing')
+      const cleanup = store.beginEndpointCleanup(second, { ownerId: first.ownerId, generation: first.generation, endpoint: first.endpoint, endpointFileIdentity: first.endpointFileIdentity })
+      symlinkSync('untrusted-target', cleanup.quarantinePath)
+      writeFileSync(cleanup.endpoint, 'concurrent replacement')
+      recoverRuntimeEndpointCleanups(store, 'donwells-app')
+      expect(readlinkSync(cleanup.quarantinePath)).toBe('untrusted-target')
+      expect(lstatSync(cleanup.endpoint).isFile()).toBe(true)
+      expect(store.listEndpointCleanups('donwells-app')).toEqual([cleanup])
+      rmSync(cleanup.endpoint)
+      recoverRuntimeEndpointCleanups(store, 'donwells-app')
+      expect(lstatSync(cleanup.endpoint).isSymbolicLink()).toBe(true)
+      expect(readlinkSync(cleanup.endpoint)).toBe('untrusted-target')
+      expect(existsSync(cleanup.quarantinePath)).toBe(false)
+      expect(store.listEndpointCleanups('donwells-app')).toEqual([])
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 

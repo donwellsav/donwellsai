@@ -1,16 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
-import { lstatSync, linkSync, renameSync, rmSync, type Stats } from 'node:fs'
+import { lstatSync, rmSync, type Stats } from 'node:fs'
 import type { ProcessIdentity, ProcessIdentityVerdict, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import {
   readVerifiedRecoveryEvidence,
   RuntimeOwnershipError,
   RuntimeOwnershipStore,
+  type RuntimeEndpointCleanup,
   type RuntimeOwner,
   type RuntimeOwnerKind,
   type RuntimeOwnerObservation
 } from '@shared/runtime-ownership'
-import { canonicalPrivateDirectory, type RuntimeFileIdentity } from '@shared/runtime-file-security'
+import { canonicalPrivateDirectory, runtimePathNoReplaceRename, type RuntimeFileIdentity, type RuntimePathNoReplaceRename } from '@shared/runtime-file-security'
 import { logger } from '@shared/logger'
 import { localRuntimePaths, parseRuntimeRecordBytes, readRuntimeRecord, writeRuntimeRecord, type LegacyRuntimeRecord, type LocalRuntimeRecord, type LocalRuntimePaths, type RuntimeRecordRead } from './local-runtime'
 export type RuntimePublication = {
@@ -234,6 +235,7 @@ export async function reconcileRuntimeOwner(options: RuntimeReconcileOptions): P
   const store = options.store ?? new RuntimeOwnershipStore(paths.ownershipDatabasePath)
   const contact = options.contact ?? contactRuntimeOwner
   try {
+    recoverRuntimeEndpointCleanups(store, options.kind)
     const observed = store.observe(options.kind)
     const locator = readRuntimeRecord(paths.runtimeFile)
     if (observed.status === 'vacant') {
@@ -360,16 +362,14 @@ export function claimRuntimeOwner(options: RuntimeClaimOptions): RuntimePublicat
 }
 
 export type RuntimeEndpointCleanupOperations = {
-  rename: (source: string, destination: string) => void
+  renameNoReplace: RuntimePathNoReplaceRename
   stat: (path: string) => Stats
-  link: (existingPath: string, newPath: string) => void
   remove: (path: string) => void
 }
 
 const DEFAULT_ENDPOINT_CLEANUP_OPERATIONS: RuntimeEndpointCleanupOperations = {
-  rename: renameSync,
+  renameNoReplace: (sourcePath, destinationPath) => runtimePathNoReplaceRename()(sourcePath, destinationPath),
   stat: lstatSync,
-  link: linkSync,
   remove: path => rmSync(path)
 }
 
@@ -377,46 +377,55 @@ function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException).code
 }
 
+function endpointStat(path: string, operations: RuntimeEndpointCleanupOperations): Stats | null {
+  try { return operations.stat(path) } catch (error) {
+    if (errorCode(error) === 'ENOENT' || errorCode(error) === 'not-found') return null
+    throw error
+  }
+}
+
 function matchesEndpointIdentity(stat: Stats, expected: RuntimeFileIdentity): boolean {
   return expected.platform === 'posix' && stat.isSocket() && String(stat.dev) === expected.device && String(stat.ino) === expected.inode
 }
 
-function restoreQuarantinedEndpoint(endpoint: string, quarantine: string, operations: RuntimeEndpointCleanupOperations): 'restored' | 'replaced' {
-  try {
-    operations.link(quarantine, endpoint)
-  } catch (error) {
-    if (errorCode(error) === 'EEXIST') return 'replaced'
-    throw error
+function recoverEndpointCleanup(store: RuntimeOwnershipStore, cleanup: RuntimeEndpointCleanup, operations: RuntimeEndpointCleanupOperations): void {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const quarantined = endpointStat(cleanup.quarantinePath, operations)
+    if (quarantined !== null) {
+      if (matchesEndpointIdentity(quarantined, cleanup.expectedFileIdentity)) {
+        try { operations.remove(cleanup.quarantinePath) } catch (error) {
+          if (errorCode(error) === 'ENOENT' || errorCode(error) === 'not-found') continue
+          throw error
+        }
+        store.completeEndpointCleanup(cleanup)
+        return
+      }
+      const restored = operations.renameNoReplace(cleanup.quarantinePath, cleanup.endpoint)
+      if (restored === 'destination-exists') return
+      store.completeEndpointCleanup(cleanup)
+      return
+    }
+
+    const endpoint = endpointStat(cleanup.endpoint, operations)
+    if (endpoint === null || !matchesEndpointIdentity(endpoint, cleanup.expectedFileIdentity)) {
+      store.completeEndpointCleanup(cleanup)
+      return
+    }
+    if (operations.renameNoReplace(cleanup.endpoint, cleanup.quarantinePath) === 'destination-exists') continue
   }
-  operations.remove(quarantine)
-  return 'restored'
+  throw new RuntimeOwnershipError('CLEANUP_RACE', 'runtime endpoint cleanup did not reach a stable state')
 }
 
-export function removeRuntimeEndpointIfOwned(
-  endpoint: string,
-  expected: RuntimeFileIdentity,
+export function recoverRuntimeEndpointCleanups(
+  store: RuntimeOwnershipStore,
+  kind: RuntimeOwnerKind,
   operations: RuntimeEndpointCleanupOperations = DEFAULT_ENDPOINT_CLEANUP_OPERATIONS
-): 'removed' | 'missing' | 'preserved' | 'replacement-present' {
-  const quarantine = endpoint + '.cleanup-' + randomUUID()
-  try {
-    operations.rename(endpoint, quarantine)
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') return 'missing'
-    throw error
+): void {
+  for (const cleanup of store.listEndpointCleanups(kind)) {
+    try { recoverEndpointCleanup(store, cleanup, operations) } catch (error) {
+      logger.warn({ err: error, endpoint: cleanup.endpoint, quarantinePath: cleanup.quarantinePath, predecessorOwnerId: cleanup.predecessorOwnerId, predecessorGeneration: cleanup.predecessorGeneration }, 'runtime endpoint cleanup recovery remains pending')
+    }
   }
-
-  let stat: Stats
-  try {
-    stat = operations.stat(quarantine)
-  } catch (error) {
-    restoreQuarantinedEndpoint(endpoint, quarantine, operations)
-    throw error
-  }
-  if (matchesEndpointIdentity(stat, expected)) {
-    operations.remove(quarantine)
-    return 'removed'
-  }
-  return restoreQuarantinedEndpoint(endpoint, quarantine, operations) === 'restored' ? 'preserved' : 'replacement-present'
 }
 
 function publishedEndpointIdentity(endpoint: string): RuntimeFileIdentity | null {
@@ -433,17 +442,20 @@ function publishedEndpointIdentity(endpoint: string): RuntimeFileIdentity | null
 
 function removeDisplacedEndpoint(publication: RuntimePublication): void {
   const predecessor = publication.predecessor
-  if (predecessor === undefined || predecessor.endpoint === publication.owner.endpoint) return
+  publication.predecessor = undefined
+  if (predecessor === undefined || predecessor.endpoint === publication.owner.endpoint || predecessor.endpointFileIdentity === null) return
   try {
-    if (predecessor.endpointFileIdentity === null) return
-    const result = removeRuntimeEndpointIfOwned(predecessor.endpoint, predecessor.endpointFileIdentity)
-    if (result === 'replacement-present') {
-      logger.warn({ endpoint: predecessor.endpoint, ownerId: predecessor.ownerId, generation: predecessor.generation }, 'runtime predecessor cleanup quarantined the displaced endpoint because its pathname was replaced concurrently')
-    }
+    const endpoint = endpointStat(predecessor.endpoint, DEFAULT_ENDPOINT_CLEANUP_OPERATIONS)
+    if (endpoint === null || !matchesEndpointIdentity(endpoint, predecessor.endpointFileIdentity)) return
+    publication.store.beginEndpointCleanup(publication.owner, {
+      ownerId: predecessor.ownerId,
+      generation: predecessor.generation,
+      endpoint: predecessor.endpoint,
+      endpointFileIdentity: predecessor.endpointFileIdentity
+    })
+    recoverRuntimeEndpointCleanups(publication.store, publication.owner.kind)
   } catch (error) {
     logger.warn({ err: error, endpoint: predecessor.endpoint, ownerId: predecessor.ownerId, generation: predecessor.generation }, 'runtime predecessor endpoint cleanup failed after successor activation')
-  } finally {
-    publication.predecessor = undefined
   }
 }
 

@@ -219,6 +219,20 @@ static napi_value make_private_result(napi_env env, const private_file_observati
   return result;
 }
 
+static napi_value make_rename_result(napi_env env, int ok, const char *code, const char *message) {
+  napi_value result;
+  if (napi_create_object(env, &result) != napi_ok || !set_boolean_property(env, result, "ok", ok)) return NULL;
+  if (!ok && (!set_string_property(env, result, "code", code) || !set_string_property(env, result, "message", message))) return NULL;
+  return result;
+}
+
+static const char *rename_error_code(int error_number) {
+  if (error_number == EEXIST || error_number == ENOTEMPTY) return "destination-exists";
+  if (error_number == ENOENT || error_number == ENOTDIR) return "not-found";
+  if (error_number == EACCES || error_number == EPERM) return "access-denied";
+  return "native-error";
+}
+
 #if defined(__linux__) || defined(__APPLE__)
 static int valid_boot_uuid(const char *value, size_t length) {
   size_t index;
@@ -961,8 +975,9 @@ static authority_file_handle open_authority_file(const char *path, int read_only
   return handle;
 }
 
-static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity) {
+static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity, authority_file_handle *alias_handle) {
   int written;
+  (void)alias_handle;
   (void)canonical;
   written = snprintf(stable_path, capacity, "%s", path);
   return written > 0 && (size_t)written < capacity;
@@ -1101,10 +1116,15 @@ static authority_file_handle open_authority_file(const char *path, int read_only
   return descriptor;
 }
 
-static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity) {
+static int authority_parts(const char *path, char *directory, size_t directory_capacity, char *basename, size_t basename_capacity);
+static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle);
+
+static int read_only_authority_path(const char *path, authority_file_handle canonical, char *stable_path, size_t capacity, authority_file_handle *alias_handle) {
+  char directory[MAX_IDENTITY_STRING];
+  char basename[MAX_IDENTITY_STRING];
   int written;
-  (void)path;
-  /* Immutable URI reads the pinned descriptor without probing for WAL sidecars in /dev/fd. */
+  if (authority_parts(path, directory, sizeof(directory), basename, sizeof(basename)) &&
+      find_existing_alias(directory, basename, canonical, 1, stable_path, capacity, alias_handle)) return 1;
   written = snprintf(stable_path, capacity, "file:/dev/fd/%d?immutable=1", canonical);
   return written > 0 && (size_t)written < capacity;
 }
@@ -1134,12 +1154,12 @@ static int authority_alias_path(const char *directory, const char *basename, uin
   return written > 0 && (size_t)written < capacity;
 }
 
-static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int open_matching_alias(const char *directory, const char *basename, const char *name, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle) {
   char candidate[MAX_IDENTITY_STRING];
   authority_file_handle opened;
   if (strncmp(name, ".", 1) != 0 || strncmp(name + 1, basename, strlen(basename)) != 0 || strstr(name, ".donwells-alias-") == NULL) return 0;
   if (snprintf(candidate, sizeof(candidate), "%s/%s", directory, name) <= 0 || strlen(candidate) >= capacity) return 0;
-  opened = open(candidate, O_RDWR | O_CLOEXEC
+  opened = open(candidate, (read_only ? O_RDONLY : O_RDWR) | O_CLOEXEC
 #ifdef O_NOFOLLOW
     | O_NOFOLLOW
 #endif
@@ -1153,12 +1173,12 @@ static int open_matching_alias(const char *directory, const char *basename, cons
   return 1;
 }
 
-static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, char *alias, size_t capacity, authority_file_handle *alias_handle) {
+static int find_existing_alias(const char *directory, const char *basename, authority_file_handle canonical, int read_only, char *alias, size_t capacity, authority_file_handle *alias_handle) {
   DIR *entries = opendir(directory);
   struct dirent *entry;
   if (entries == NULL) return 0;
   while ((entry = readdir(entries)) != NULL) {
-    if (open_matching_alias(directory, basename, entry->d_name, canonical, alias, capacity, alias_handle)) {
+    if (open_matching_alias(directory, basename, entry->d_name, canonical, read_only, alias, capacity, alias_handle)) {
       (void)closedir(entries);
       return 1;
     }
@@ -1216,7 +1236,7 @@ static int create_authority_alias(const char *path, authority_file_handle canoni
   uint32_t nonce;
   if (!fill_secure_random(&nonce, sizeof(nonce))) return 0;
   if (!authority_parts(path, directory, sizeof(directory), basename, sizeof(basename))) return 0;
-  if (find_existing_alias(directory, basename, canonical, alias, capacity, alias_handle)) return 1;
+  if (find_existing_alias(directory, basename, canonical, 0, alias, capacity, alias_handle)) return 1;
   for (index = 0; index < 128; index++) {
     authority_file_handle opened;
     if (!authority_alias_path(directory, basename, nonce, index, alias, capacity)) return 0;
@@ -1296,7 +1316,7 @@ static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info i
     close_authority_lock(lock_handle);
     return throw_authority_error(env, "open runtime authority file failed");
   }
-  if (!(read_only ? read_only_authority_path(path, canonical_handle, alias, sizeof(alias))
+  if (!(read_only ? read_only_authority_path(path, canonical_handle, alias, sizeof(alias), &alias_handle)
         : create_authority_alias(path, canonical_handle, alias, sizeof(alias), &alias_handle))) {
     close_authority_file(canonical_handle);
     close_authority_lock(lock_handle);
@@ -1311,7 +1331,7 @@ static napi_value with_runtime_authority_lock(napi_env env, napi_callback_info i
     return NULL;
   }
   callback_ok = 1;
-  if (!read_only && !same_authority_file(canonical_handle, alias_handle)) {
+  if (alias_handle != INVALID_AUTHORITY_FILE && !same_authority_file(canonical_handle, alias_handle)) {
     callback_ok = 0;
     (void)napi_throw_error(env, NULL, "runtime authority stable alias identity changed");
   }
@@ -1496,6 +1516,58 @@ static napi_value validate_private_runtime_directory(napi_env env, napi_callback
   return make_private_result(env, &result);
 }
 
+static napi_value rename_runtime_path_no_replace(napi_env env, napi_callback_info info) {
+  napi_value arguments[2];
+  size_t argument_count = 2;
+  char source_path[MAX_IDENTITY_STRING];
+  char destination_path[MAX_IDENTITY_STRING];
+  int renamed = 0;
+  int error_number = 0;
+  if (napi_get_cb_info(env, info, &argument_count, arguments, NULL, NULL) != napi_ok || argument_count < 2 ||
+      !get_utf8_argument(env, arguments[0], source_path, sizeof(source_path)) ||
+      !get_utf8_argument(env, arguments[1], destination_path, sizeof(destination_path))) {
+    return make_rename_result(env, 0, "native-error", "runtime rename arguments were malformed");
+  }
+#if defined(_WIN32)
+  {
+    WCHAR wide_source[32768];
+    WCHAR wide_destination[32768];
+    if (!get_windows_path(source_path, wide_source, sizeof(wide_source) / sizeof(wide_source[0])) ||
+        !get_windows_path(destination_path, wide_destination, sizeof(wide_destination) / sizeof(wide_destination[0]))) {
+      return make_rename_result(env, 0, "native-error", "runtime rename paths were malformed");
+    }
+    renamed = MoveFileW(wide_source, wide_destination) != 0;
+    if (!renamed) {
+      DWORD windows_error = GetLastError();
+      if (windows_error == ERROR_ALREADY_EXISTS || windows_error == ERROR_FILE_EXISTS) return make_rename_result(env, 0, "destination-exists", "runtime rename destination exists");
+      if (windows_error == ERROR_FILE_NOT_FOUND || windows_error == ERROR_PATH_NOT_FOUND) return make_rename_result(env, 0, "not-found", "runtime rename source was not found");
+      if (windows_error == ERROR_ACCESS_DENIED || windows_error == ERROR_SHARING_VIOLATION) return make_rename_result(env, 0, "access-denied", "runtime rename access was denied");
+      return make_rename_result(env, 0, "native-error", "runtime rename failed");
+    }
+  }
+#elif defined(__APPLE__)
+  renamed = renamex_np(source_path, destination_path, RENAME_EXCL) == 0;
+  if (!renamed) error_number = errno;
+#elif defined(__linux__) && defined(SYS_renameat2)
+#ifndef RENAME_NOREPLACE
+#define RENAME_NOREPLACE (1 << 0)
+#endif
+  renamed = syscall(SYS_renameat2, AT_FDCWD, source_path, AT_FDCWD, destination_path, RENAME_NOREPLACE) == 0;
+  if (!renamed) error_number = errno;
+#else
+  return make_rename_result(env, 0, "native-error", "atomic no-replace rename is unsupported");
+#endif
+#if !defined(_WIN32)
+  if (!renamed) {
+    char message[MAX_NATIVE_MESSAGE];
+    int written = snprintf(message, sizeof(message), "runtime rename failed: %s", strerror(error_number));
+    if (written < 0 || (size_t)written >= sizeof(message)) set_message(message, sizeof(message), "runtime rename failed");
+    return make_rename_result(env, 0, rename_error_code(error_number), message);
+  }
+#endif
+  return make_rename_result(env, 1, NULL, NULL);
+}
+
 NAPI_MODULE_INIT() {
   napi_value platform;
   napi_value validate_directory;
@@ -1505,6 +1577,7 @@ NAPI_MODULE_INIT() {
   napi_value read_file;
   napi_value read_file_identity;
   napi_value with_authority_lock;
+  napi_value rename_no_replace;
 #if defined(_WIN32)
   const char *platform_name = "win32";
 #elif defined(__APPLE__)
@@ -1522,6 +1595,7 @@ NAPI_MODULE_INIT() {
       napi_create_function(env, "readPrivateRuntimeFile", NAPI_AUTO_LENGTH, read_private_runtime_file, NULL, &read_file) != napi_ok ||
       napi_create_function(env, "readPrivateRuntimeFileIdentity", NAPI_AUTO_LENGTH, read_private_runtime_file_identity, NULL, &read_file_identity) != napi_ok ||
       napi_create_function(env, "withRuntimeAuthorityLock", NAPI_AUTO_LENGTH, with_runtime_authority_lock, NULL, &with_authority_lock) != napi_ok ||
+      napi_create_function(env, "renameRuntimePathNoReplace", NAPI_AUTO_LENGTH, rename_runtime_path_no_replace, NULL, &rename_no_replace) != napi_ok ||
       napi_set_named_property(env, exports, "platform", platform) != napi_ok ||
       napi_set_named_property(env, exports, "identityContractVersion", identity_contract) != napi_ok ||
       napi_set_named_property(env, exports, "validatePrivateRuntimeDirectory", validate_directory) != napi_ok ||
@@ -1529,6 +1603,7 @@ NAPI_MODULE_INIT() {
       napi_set_named_property(env, exports, "readProcessIdentity", read_identity) != napi_ok ||
       napi_set_named_property(env, exports, "readPrivateRuntimeFile", read_file) != napi_ok ||
       napi_set_named_property(env, exports, "readPrivateRuntimeFileIdentity", read_file_identity) != napi_ok ||
-      napi_set_named_property(env, exports, "withRuntimeAuthorityLock", with_authority_lock) != napi_ok) return NULL;
+      napi_set_named_property(env, exports, "withRuntimeAuthorityLock", with_authority_lock) != napi_ok ||
+      napi_set_named_property(env, exports, "renameRuntimePathNoReplace", rename_no_replace) != napi_ok) return NULL;
   return exports;
 }

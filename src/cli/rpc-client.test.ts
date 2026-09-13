@@ -1,10 +1,11 @@
 // @vitest-environment node
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createServer, type Server } from 'node:net'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
@@ -97,6 +98,56 @@ describe('CLI runtime resolution', () => {
       expect(readdirSync(directory).filter(name => name.startsWith('runtime-owners.sqlite'))).toEqual([])
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('blocks legacy contact when a committed preparing owner remains only in the sanctioned alias WAL', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'rpc-client-alias-wal-')))
+    const paths = localRuntimePaths(directory, 'app')
+    const endpoint = paths.socketPath
+    const token = 'legacy-cli-alias-wal-token-123456'
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    store.close()
+    const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+    const childScript = [
+      "const { DatabaseSync }=require('node:sqlite')",
+      "const addon=require(process.argv[1])",
+      "addon.withRuntimeAuthorityLock(process.argv[2],alias=>{",
+      "const db=new DatabaseSync(alias)",
+      "db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; BEGIN IMMEDIATE')",
+      "db.prepare('INSERT INTO runtime_owner_generations(kind,last_generation) VALUES(?,?)').run('donwells-app',1)",
+      "db.prepare('INSERT INTO runtime_owners(kind,owner_id,generation,state,identity_json,endpoint,auth_token,locator_sha256,endpoint_identity_json,claimed_at,activated_at) VALUES(?,?,?,?,?,?,?,NULL,NULL,?,NULL)').run('donwells-app','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'preparing',process.argv[3],process.argv[4],'authority-token-123456','2026-09-13T00:00:00.000Z')",
+      "db.exec('COMMIT')",
+      "process.exit(0)",
+      "})"
+    ].join(';')
+    execFileSync(process.execPath, ['-e', childScript, addonPath, paths.ownershipDatabasePath, JSON.stringify({ ...identity, generation: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1' }), join(directory, 'authoritative.sock')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    expect(readdirSync(directory).some(name => name.includes('.donwells-alias-') && name.endsWith('-wal'))).toBe(true)
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: endpoint, authToken: token }), { mode: 0o600 })
+    let connections = 0
+    const server = createServer(socket => {
+      connections += 1
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as { id: string; method: string; authToken?: string }
+          buffer = buffer.slice(newline + 1)
+          socket.write(JSON.stringify(message.method === 'auth.hello'
+            ? { id: message.id, ok: message.authToken === token }
+            : { id: message.id, ok: true, result: { legacy: true } }) + '\n')
+        }
+      })
+    })
+    try {
+      await listen(server, endpoint)
+      await expect(Promise.resolve().then(() => callRuntime('worktree.list', {}, directory, 1000))).rejects.toMatchObject({ code: 'OWNER_MISMATCH' })
+      expect(connections).toBe(0)
+    } finally {
+      await new Promise<void>(resolveClose => server.close(() => resolveClose()))
       rmSync(directory, { recursive: true, force: true })
     }
   })

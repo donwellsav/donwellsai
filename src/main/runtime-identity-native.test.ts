@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -27,6 +27,7 @@ type NativeAddon = {
   validatePrivateRuntimeDirectory(path: string): NativePrivateFileResult
   readProcessIdentity(pid: number): NativeProcessResult
   withRuntimeAuthorityLock(path: string, callback: (stablePath: string) => unknown, readOnly?: boolean): unknown
+  renameRuntimePathNoReplace(sourcePath: string, destinationPath: string): { ok: true } | { ok: false; code: 'destination-exists' | 'not-found' | 'access-denied' | 'native-error'; message: string }
 }
 type SpawnResult = { child: ReturnType<typeof spawn> }
 
@@ -96,6 +97,36 @@ describe('native runtime identity adapter', () => {
     expect(addon.identityContractVersion).toBe(1)
     expect(addon.runtimeFileSecurityContractVersion).toBe(1)
     expect(typeof addon.validatePrivateRuntimeDirectory).toBe('function')
+  })
+  it('atomically refuses to overwrite an occupied rename destination', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-no-replace-'))
+    const sourcePath = join(directory, 'source')
+    const destinationPath = join(directory, 'destination')
+    try {
+      writeFileSync(sourcePath, 'source')
+      writeFileSync(destinationPath, 'destination')
+      expect(addon.renameRuntimePathNoReplace(sourcePath, destinationPath)).toMatchObject({ ok: false, code: 'destination-exists' })
+      expect(readFileSync(sourcePath, 'utf8')).toBe('source')
+      expect(readFileSync(destinationPath, 'utf8')).toBe('destination')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('moves the exact symlink object without dereferencing it', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-no-replace-link-'))
+    const sourcePath = join(directory, 'source')
+    const destinationPath = join(directory, 'destination')
+    try {
+      symlinkSync('untrusted-target', sourcePath)
+      expect(addon.renameRuntimePathNoReplace(sourcePath, destinationPath)).toEqual({ ok: true })
+      expect(() => lstatSync(sourcePath)).toThrow()
+      expect(lstatSync(destinationPath).isSymbolicLink()).toBe(true)
+      expect(readlinkSync(destinationPath)).toBe('untrusted-target')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
   it.runIf(process.platform === 'linux')('links against no glibc ABI newer than Ubuntu 22.04', () => {
     const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')

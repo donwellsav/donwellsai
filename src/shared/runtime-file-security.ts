@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { resolveNativeRuntimeAddonPath } from './native-addon-path'
 
 export type RuntimeFileIdentity =
@@ -15,6 +15,9 @@ export type NativeRuntimeFileIdentityObservation =
   | { ok: true; fileIdentity: Record<string, string> }
   | { ok: false; code: 'not-found' | 'access-denied' | 'native-error'; message: string }
 export type NativeRuntimeDirectoryObservation = NativeRuntimeFileIdentityObservation
+export type NativeRuntimePathRenameObservation =
+  | { ok: true }
+  | { ok: false; code: 'destination-exists' | 'not-found' | 'access-denied' | 'native-error'; message: string }
 
 export type NativeRuntimeFileAddon = {
   platform: unknown
@@ -23,6 +26,7 @@ export type NativeRuntimeFileAddon = {
   readPrivateRuntimeFileIdentity?: unknown
   validatePrivateRuntimeDirectory?: unknown
   withRuntimeAuthorityLock?: unknown
+  renameRuntimePathNoReplace?: unknown
 }
 
 export type RuntimeFileRead = {
@@ -35,6 +39,7 @@ export type RuntimeFileReader = (path: string, maxBytes: number) => RuntimeFileR
 export type RuntimeAuthorityLock = <T>(path: string, callback: (stablePath: string) => T, options?: { readOnly?: boolean }) => T
 export type RuntimeDirectoryValidator = (path: string) => void
 export type RuntimeFileIdentityReader = (path: string) => RuntimeFileIdentity
+export type RuntimePathNoReplaceRename = (sourcePath: string, destinationPath: string) => 'renamed' | 'destination-exists'
 
 export class RuntimeFileSecurityError extends Error {
   readonly code: 'not-found' | 'access-denied' | 'native-error'
@@ -172,6 +177,29 @@ export function createRuntimeAuthorityLock(addon: NativeRuntimeFileAddon, expect
   }
 }
 
+export function createRuntimePathNoReplaceRename(addon: NativeRuntimeFileAddon, expectedPlatform: NodeJS.Platform = process.platform): RuntimePathNoReplaceRename {
+  if (addon.platform !== expectedPlatform) throw new Error('runtime rename addon platform mismatch')
+  if (addon.runtimeFileSecurityContractVersion !== 1) throw new Error('runtime rename addon contract mismatch')
+  if (typeof addon.renameRuntimePathNoReplace !== 'function') throw new Error('runtime rename addon is missing renameRuntimePathNoReplace')
+  const renameNoReplace = addon.renameRuntimePathNoReplace as (sourcePath: string, destinationPath: string) => NativeRuntimePathRenameObservation
+  return (sourcePath, destinationPath) => {
+    if (!isAbsolute(sourcePath) || !isAbsolute(destinationPath) || sourcePath === destinationPath || dirname(sourcePath) !== dirname(destinationPath)
+      || sourcePath.length >= 16 * 1024 || destinationPath.length >= 16 * 1024 || sourcePath.includes('\0') || destinationPath.includes('\0')) {
+      throw new RuntimeFileSecurityError('native-error', 'runtime rename paths were malformed')
+    }
+    let observation: NativeRuntimePathRenameObservation
+    try { observation = renameNoReplace(sourcePath, destinationPath) } catch (error) {
+      throw new RuntimeFileSecurityError('native-error', (error instanceof Error ? error.message : String(error)).slice(0, 4096))
+    }
+    if (typeof observation !== 'object' || observation === null || Array.isArray(observation)) throw new RuntimeFileSecurityError('native-error', 'native runtime rename observation was malformed')
+    if (observation.ok === true) return 'renamed'
+    if (observation.ok !== false) throw new RuntimeFileSecurityError('native-error', 'native runtime rename observation was malformed')
+    if (observation.code === 'destination-exists') return 'destination-exists'
+    if (observation.code !== 'not-found' && observation.code !== 'access-denied' && observation.code !== 'native-error') throw new RuntimeFileSecurityError('native-error', 'native runtime rename observation had an unknown error code')
+    throw new RuntimeFileSecurityError(observation.code, typeof observation.message === 'string' && observation.message.length > 0 ? observation.message.slice(0, 4096) : 'native runtime rename failed')
+  }
+}
+
 function loadNativeAddon(): NativeRuntimeFileAddon {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
   const defaultApp = electronProcess.defaultApp ?? process.env['ELECTRON_RUN_AS_NODE'] === '1'
@@ -201,6 +229,12 @@ let defaultDirectoryValidator: RuntimeDirectoryValidator | undefined
 export function privateRuntimeDirectoryValidator(): RuntimeDirectoryValidator {
   if (!defaultDirectoryValidator) defaultDirectoryValidator = createPrivateRuntimeDirectoryValidator(loadNativeAddon())
   return defaultDirectoryValidator
+}
+let defaultNoReplaceRename: RuntimePathNoReplaceRename | undefined
+
+export function runtimePathNoReplaceRename(): RuntimePathNoReplaceRename {
+  if (!defaultNoReplaceRename) defaultNoReplaceRename = createRuntimePathNoReplaceRename(loadNativeAddon())
+  return defaultNoReplaceRename
 }
 
 export function canonicalPrivateDirectory(path: string, options: { create?: boolean; requireCanonical?: boolean; directoryValidator?: RuntimeDirectoryValidator } = {}): string {

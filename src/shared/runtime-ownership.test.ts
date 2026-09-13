@@ -95,6 +95,32 @@ describe('compare-bound runtime ownership', () => {
     }
   })
 
+  it('persists endpoint cleanup intent before filesystem displacement and completes it idempotently', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-cleanup-journal-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    let store = new RuntimeOwnershipStore(databasePath)
+    try {
+      const firstPrepared = store.prepareClaim(candidate('12121212-1212-4121-8121-121212121212', '/tmp/cleanup-predecessor.sock'), store.observe('donwells-app'), null)
+      const firstBound = store.recordBoundEndpoint(firstPrepared, { platform: 'posix', device: '12', inode: '34' })
+      const first = store.activate(firstBound, '1'.repeat(64))
+      const secondPrepared = store.prepareClaim(candidate('34343434-3434-4343-8343-343434343434', '/tmp/cleanup-successor.sock', 2), store.observe('donwells-app'), stale())
+      const second = store.activate(secondPrepared, '2'.repeat(64))
+      if (first.endpointFileIdentity === null) throw new Error('bound predecessor identity missing')
+      const cleanup = store.beginEndpointCleanup(second, { ownerId: first.ownerId, generation: first.generation, endpoint: first.endpoint, endpointFileIdentity: first.endpointFileIdentity })
+      expect(cleanup).toMatchObject({ kind: 'donwells-app', successorOwnerId: second.ownerId, successorGeneration: 2, predecessorOwnerId: first.ownerId, predecessorGeneration: 1, endpoint: first.endpoint, expectedFileIdentity: first.endpointFileIdentity })
+      expect(cleanup.quarantinePath).toBe(first.endpoint + '.cleanup-' + cleanup.id)
+      store.close()
+      store = new RuntimeOwnershipStore(databasePath)
+      expect(store.listEndpointCleanups('donwells-app')).toEqual([cleanup])
+      expect(store.completeEndpointCleanup(cleanup)).toBe(true)
+      expect(store.completeEndpointCleanup(cleanup)).toBe(false)
+      expect(store.listEndpointCleanups('donwells-app')).toEqual([])
+    } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a stale observation after another store claims, without applying X to Y', () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-race-')))
     const first = new RuntimeOwnershipStore(join(directory, 'runtime-owners.sqlite'))
