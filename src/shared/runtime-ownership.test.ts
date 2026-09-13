@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { spawn, spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
-import { runtimeAuthorityLock, type RuntimeFileIdentityReader } from './runtime-file-security'
+import { runtimeAuthorityLock, type RuntimeAuthorityLock, type RuntimeFileIdentityReader } from './runtime-file-security'
 import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
@@ -45,6 +45,26 @@ describe('compare-bound runtime ownership', () => {
       expect(existsSync(databasePath)).toBe(false)
       expect(readdirSync(directory)).toEqual([])
     } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform !== 'win32')('reads a valid authority from a 0500 directory without mutating it', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-read-only-private-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const writer = new RuntimeOwnershipStore(databasePath)
+    const preparing = writer.prepareClaim(candidate('12121212-1212-4212-8212-121212121212'), writer.observe('donwells-app'), null)
+    writer.close()
+    const snapshot = (): Array<[string, Buffer]> => readdirSync(directory).sort().map(name => [name, readFileSync(join(directory, name))])
+    const before = snapshot()
+    const beforeMtime = statSync(directory, { bigint: true }).mtimeNs
+    chmodSync(directory, 0o500)
+    try {
+      const reader = new RuntimeOwnershipStore(databasePath, { readOnly: true })
+      try { expect(reader.observe('donwells-app')).toMatchObject({ status: 'present', owner: preparing }) } finally { reader.close() }
+      expect(snapshot()).toEqual(before)
+      expect(statSync(directory, { bigint: true }).mtimeNs).toBe(beforeMtime)
+    } finally {
+      chmodSync(directory, 0o700)
       rmSync(directory, { recursive: true, force: true })
     }
   })
@@ -233,6 +253,29 @@ describe('compare-bound runtime ownership', () => {
       const secondId = 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd'
       expect(() => store.prepareClaim(candidate(secondId, endpoint, 2), observed, null)).toThrowError(expect.objectContaining({ code: 'ENDPOINT_REUSED' }))
     } finally {
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('fails closed when a concurrent reader prevents the committed WAL checkpoint', () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-ownership-checkpoint-busy-')))
+    const databasePath = join(directory, 'runtime-owners.sqlite')
+    const directLock: RuntimeAuthorityLock = (_path, callback) => callback(databasePath)
+    const store = new RuntimeOwnershipStore(databasePath, { authorityLock: directLock })
+    const reader = new DatabaseSync(databasePath, { readOnly: true })
+    try {
+      const observed = store.observe('donwells-app')
+      reader.exec('BEGIN')
+      reader.prepare('SELECT COUNT(*) AS count FROM runtime_owners').get()
+      expect(() => store.prepareClaim(candidate('34343434-3434-4434-8434-343434343434'), observed, null)).toThrowError(expect.objectContaining({ code: 'DATABASE_UNSAFE' }))
+      reader.exec('ROLLBACK')
+      reader.close()
+      const checkpoint = new DatabaseSync(databasePath)
+      try { expect(checkpoint.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()).toEqual({ busy: 0, log: 0, checkpointed: 0 }) } finally { checkpoint.close() }
+      const recovered = new RuntimeOwnershipStore(databasePath, { readOnly: true })
+      try { expect(recovered.observe('donwells-app')).toMatchObject({ status: 'present', owner: { ownerId: '34343434-3434-4434-8434-343434343434', state: 'preparing' } }) } finally { recovered.close() }
+    } finally {
+      try { reader.close() } catch {}
       store.close()
       rmSync(directory, { recursive: true, force: true })
     }

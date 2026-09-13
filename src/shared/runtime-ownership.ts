@@ -376,6 +376,17 @@ export class RuntimeOwnershipStore {
     if (!readOnly) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL')
     return db
   }
+  private checkpointWal(db: DatabaseSync): void {
+    let checkpoint: Record<string, unknown>
+    try {
+      checkpoint = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as Record<string, unknown>
+    } catch (error) {
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership WAL checkpoint failed: ' + (error instanceof Error ? error.message : String(error)))
+    }
+    if (Number(checkpoint['busy']) !== 0 || Number(checkpoint['log']) !== 0 || Number(checkpoint['checkpointed']) !== 0) {
+      throw new RuntimeOwnershipError('DATABASE_UNSAFE', 'runtime ownership WAL checkpoint did not reach a durable empty state')
+    }
+  }
 
   private withDatabase<T>(write: boolean, operation: (db: DatabaseSync) => T, verify?: (db: DatabaseSync, result: T) => void): T {
     if (this.closed) throw new RuntimeOwnershipError('DATABASE_CLOSED', 'runtime ownership database is closed')
@@ -393,6 +404,7 @@ export class RuntimeOwnershipStore {
         if (write) {
           this.assertAuthorityIdentity()
           db.exec('COMMIT')
+          this.checkpointWal(db)
         }
       } finally {
         db.close()

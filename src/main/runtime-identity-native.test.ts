@@ -179,6 +179,75 @@ describe('native runtime identity adapter', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+  it('leaves no read-only authority artifacts when a callback throws', () => {
+    const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+    const addon = createRequire(import.meta.url)(addonPath) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-read-only-throw-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const snapshot = (): Array<[string, Buffer]> => readdirSync(directory).sort().map(name => [name, readFileSync(join(directory, name))])
+    try {
+      writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
+      addon.withRuntimeAuthorityLock(authorityPath, () => undefined)
+      const before = snapshot()
+      const callbackError = new Error('read-only callback failed')
+      expect(() => addon.withRuntimeAuthorityLock(authorityPath, () => { throw callbackError }, true)).toThrow(callbackError)
+      expect(snapshot()).toEqual(before)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it('leaves no read-only authority artifacts when a lock holder is killed', async () => {
+    const addonPath = resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')
+    const addon = createRequire(import.meta.url)(addonPath) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-read-only-kill-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const snapshot = (): Array<[string, Buffer]> => readdirSync(directory).sort().map(name => [name, readFileSync(join(directory, name))])
+    let child: ReturnType<typeof spawn> | undefined
+    try {
+      writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
+      addon.withRuntimeAuthorityLock(authorityPath, () => undefined)
+      const before = snapshot()
+      const childScript = [
+        "const addon=require(process.argv[1])",
+        "const fs=require('node:fs')",
+        "addon.withRuntimeAuthorityLock(process.argv[2],()=>{fs.writeSync(1,'ready\\n');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0)},true)"
+      ].join(';')
+      child = spawn(process.execPath, ['-e', childScript, addonPath, authorityPath], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+      child.stderr?.resume()
+      const ready = Promise.withResolvers<void>()
+      let announced = false
+      child.stdout?.once('data', () => { announced = true; ready.resolve() })
+      child.once('error', error => ready.reject(error))
+      child.once('exit', code => { if (!announced) ready.reject(new Error('read-only lock child exited before callback: ' + code)) })
+      await ready.promise
+      expect(snapshot()).toEqual(before)
+      child.kill('SIGKILL')
+      await waitForExit(child)
+      expect(snapshot()).toEqual(before)
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      if (child) await waitForExit(child)
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+  it.runIf(process.platform === 'win32')('holds the canonical read-only handle without delete sharing', () => {
+    const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
+    const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-read-only-windows-'))
+    const authorityPath = join(directory, 'runtime-owners.sqlite')
+    const displacedPath = join(directory, 'displaced.sqlite')
+    try {
+      writeFileSync(authorityPath, Buffer.from('authority bytes'), { mode: 0o600 })
+      addon.withRuntimeAuthorityLock(authorityPath, () => undefined)
+      const result = addon.withRuntimeAuthorityLock(authorityPath, () => {
+        expect(() => renameSync(authorityPath, displacedPath)).toThrow()
+        return addon.readPrivateRuntimeFileIdentity(authorityPath)
+      }, true)
+      expect(result).toMatchObject({ ok: true })
+      expect(readdirSync(directory).some(name => name.includes('.donwells-alias-'))).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
   it('serializes authority callbacks through a private canonical lock on every platform', () => {
     const addon = createRequire(import.meta.url)(resolve(import.meta.dirname, '../../resources/native/runtime-identity.node')) as NativeAddon
     const directory = mkdtempSync(join(tmpdir(), 'runtime-authority-lock-'))

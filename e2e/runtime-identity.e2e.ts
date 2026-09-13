@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createConnection, createServer, type Server, type Socket } from 'node:net'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -179,6 +179,7 @@ test('built ordinary CLI entry authenticates and returns an endpoint response', 
     const preparing = store.prepareClaim({ kind: 'donwells-app', ownerId, identity, endpoint: paths.socketPath, authToken }, store.observe('donwells-app'), null)
     writeRuntimeRecord(paths.runtimeFile, locator)
     store.activate(preparing, createHash('sha256').update(JSON.stringify(locator)).digest('hex'))
+    if (process.platform !== 'win32') chmodSync(userData, 0o500)
     child = spawn(process.execPath, [CLI_ENTRY, 'browser-list', '--user-data', userData], {
       cwd: ROOT,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -200,6 +201,7 @@ test('built ordinary CLI entry authenticates and returns an endpoint response', 
     if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
     await closeServer(server)
     store.close()
+    if (process.platform !== 'win32') chmodSync(userData, 0o700)
     rmSync(userData, { recursive: true, force: true })
   }
 })
