@@ -17,7 +17,9 @@ const relativeFiles = (directory) => {
     .sort();
 };
 const assertMatchingDirectory = (source, shipped) => {
-  if (JSON.stringify(relativeFiles(source)) !== JSON.stringify(relativeFiles(shipped))) throw new Error(`Packaged resource file list differs: ${shipped}`);
+  const files = relativeFiles(source);
+  if (JSON.stringify(files) !== JSON.stringify(relativeFiles(shipped))) throw new Error(`Packaged resource file list differs: ${shipped}`);
+  return files;
 };
 
 const { values } = parseArgs({ options: { resources: { type: 'string' }, platform: { type: 'string' }, arch: { type: 'string' } } });

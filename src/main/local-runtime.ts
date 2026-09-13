@@ -230,4 +230,3 @@ export function localRuntimePaths(userDataDir: string, kind: 'app' | 'terminal',
     ownershipDatabasePath: path.join(profile, 'runtime-owners.sqlite')
   }
 }
-

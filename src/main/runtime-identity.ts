@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
-import { resolveNativeRuntimeAddonPath } from '@shared/native-addon-path'
+import { resolveNativeRuntimeAddonPath } from '../shared/native-addon-path'
 import type {
   ProcessIdentity,
   ProcessIdentityVerdict,
