@@ -198,7 +198,12 @@ export class SqliteProviderCatalog implements ProviderCatalog {
       if (this.driverId(text(instance, 'driver_id')) !== this.driverId(text(account, 'driver_id'))) throw new ProviderCatalogError('ACCOUNT_MISMATCH', 'credential account driver does not match instance')
       if (typeof input.credentialRef !== 'string' || !input.credentialRef || input.credentialRef.length > 512 || input.credentialRef.includes('\0')) throw new ProviderCatalogError('CREDENTIAL_REQUIRED', 'credential reference is invalid')
       if (this.activeBindingForInstance(db, input.providerInstanceId)) throw new ProviderCatalogError('INSTANCE_HAS_CREDENTIAL', 'instance already has an active credential binding')
-      const generation = input.expectedBindingGeneration + 1; const now = nowIso(this.clock)
+      // Retired rows keep their generation inside the primary key, so the next
+      // generation is allocated above every generation this account has ever
+      // used. A caller that just revoked has no live binding to read a
+      // generation from, so its seed cannot be trusted to be the highest one.
+      const highest = db.prepare('SELECT MAX(generation) AS generation FROM provider_credential_bindings WHERE provider_instance_id=? AND account_id=?').get(input.providerInstanceId, input.accountId) as Row
+      const generation = Math.max(input.expectedBindingGeneration + 1, (highest['generation'] === null ? 0 : integer(highest, 'generation')) + 1); const now = nowIso(this.clock)
       db.prepare('INSERT INTO provider_credential_bindings(provider_instance_id,account_id,account_revision,credential_ref,generation,created_at,retired_at) VALUES (?,?,?,?,?,?,NULL)').run(input.providerInstanceId, input.accountId, input.expectedAccountRevision, input.credentialRef, generation, now)
       db.prepare('UPDATE provider_instances SET revision=revision+1,updated_at=? WHERE id=?').run(now, input.providerInstanceId); this.bumpCatalog(db)
       return input.providerInstanceId
@@ -319,7 +324,11 @@ export class SqliteProviderCatalog implements ProviderCatalog {
       this.assertNoIncompleteCredentialOperation(db, input.providerInstanceId, input.accountId)
       const prior = db.prepare('SELECT * FROM provider_credential_bindings WHERE provider_instance_id=? AND account_id=? AND retired_at IS NULL').get(input.providerInstanceId, input.accountId) as Row | undefined
       const now = nowIso(this.clock)
-      const target = prior ? integer(prior, 'generation') + 1 : 1
+      // Retired rows keep their generation in the primary key, so the target is
+      // allocated above every generation this account has ever used; reusing a
+      // retired generation would be refused by the primary key on publication.
+      const highest = db.prepare('SELECT MAX(generation) AS generation FROM provider_credential_bindings WHERE provider_instance_id=? AND account_id=?').get(input.providerInstanceId, input.accountId) as Row
+      const target = (highest['generation'] === null ? 0 : integer(highest, 'generation')) + 1
       this.guardForeignKeys(() => {
         db.prepare("INSERT INTO provider_credential_operations(id,operation_kind,provider_instance_id,instance_revision,account_id,account_revision,prior_credential_ref,prior_binding_generation,staged_credential_ref,target_binding_generation,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,?)").run(input.operationId, 'create-replace', input.providerInstanceId, input.expectedInstanceRevision, input.accountId, input.expectedAccountRevision, prior ? text(prior, 'credential_ref') : null, prior ? integer(prior, 'generation') : null, input.stagedCredentialRef, target, now, now)
       }, 'a credential operation is already live for this provider account')

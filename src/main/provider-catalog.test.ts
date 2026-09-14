@@ -279,6 +279,29 @@ describe('ProviderCatalog', () => {
     expect(rowCount(databasePathOf(catalogInstance), 'provider_credential_bindings')).toBe(0)
   })
 
+  /**
+   * A retired binding row keeps its generation inside the primary key, so the
+   * next binding for the tuple must be allocated above it. Deriving the
+   * generation from the live row alone reuses a retired generation, which the
+   * primary key refuses: revoke-then-bind is a normal user path, so this would
+   * brick the account permanently after its first revocation.
+   */
+  it('allocates a fresh generation across a retired binding instead of reusing one', () => {
+    const catalogInstance = catalog()
+    const account = catalogInstance.createAccount({ driverId: 'codex', displayLabel: 'Account' })
+    const instance = catalogInstance.create({ ...external(), accountId: account.id })
+    const retired = retireOnlyBinding(catalogInstance, instance, account, 'first-ref')
+
+    // The post-revoke caller has no live binding to read a generation from, so it
+    // arrives with the zero seed. Honouring that seed reuses generation 1, which
+    // the retired row already owns.
+    const rebound = catalogInstance.bindCredential({ providerInstanceId: retired.id, accountId: account.id, expectedInstanceRevision: retired.revision, expectedAccountRevision: account.revision, credentialRef: 'second-ref', expectedBindingGeneration: 0 })
+    const binding = catalogInstance.credentialBinding(rebound.id, account.id)
+    expect(binding).toMatchObject({ credentialRef: 'second-ref', bindingGeneration: 2 })
+    // Both generations stay durable: the retired one is history, not a free slot.
+    expect(rowCount(databasePathOf(catalogInstance), 'provider_credential_bindings')).toBe(2)
+  })
+
   it('refuses to remove an account that an instance still references', () => {
     const catalogInstance = catalog()
     const account = catalogInstance.createAccount({ driverId: 'codex', displayLabel: 'Account' })

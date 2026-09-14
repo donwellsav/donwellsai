@@ -441,3 +441,93 @@ passed**, `pnpm typecheck` clean.
 The round-2 commit message's non-vacuity claim was accurate as to *which* cases
 failed but was made with the vacuous assertions in place; the corrected claim
 above supersedes it.
+
+## Fix round 4
+
+### Origin: an advisory that was falsified, and the real defect it masked
+
+An external advisory (severity=blocker) claimed reconciliation permanently blocks
+on `CREDENTIAL_ABSENT`/`CREDENTIAL_REVOKED`: that `revokeProviderCredential`
+throws those codes for an absent or already-revoked record, pinning the saga in
+`blocked` forever with the binding naming a revoked credential.
+
+That premise is false. `revokeProviderCredential` is an idempotent no-op that
+*returns* a status — `absent` for a missing record, `revoked` for one already
+tombstoned — and never throws those codes. They are thrown only by
+`materializeProviderLaunch` (`provider-secret-authority.ts:501-502`), a different
+method on a different path. A throwaway probe confirmed it, then was deleted:
+
+```
+absent record          -> status.state === 'absent'   (no throw)
+first revoke           -> status.state === 'revoked'
+second revoke          -> status.state === 'revoked'  (no throw)
+```
+
+The advisory's exact stuck chain — revocation landed, process died before the
+Catalog retirement — also reconciles cleanly (`resolved: 1`, `blocked: []`). No
+permanent wedge exists on that path.
+
+### The real defect the probe exposed
+
+`provider_credential_bindings` is keyed
+`PRIMARY KEY(provider_instance_id, account_id, generation)`, and retired rows are
+never deleted: they keep their generation inside the key. Every generation
+allocation derived the next generation from the **live** row only —
+`prior ? prior.generation + 1 : 1` in `stageCredentialReplace`, and
+`expectedBindingGeneration + 1` in `bindCredential`. So after a successful revoke
+there is no live row, allocation restarted at generation 1, and the insert was
+refused by the primary key with
+`UNIQUE constraint failed: provider_credential_bindings.provider_instance_id, ...`.
+
+Revoking a credential and then adding one again is a normal user path, and it
+failed permanently: the account was wedged after its first revocation. The
+collision surfaces as an untyped SQLite error (errcode 1555), not as the
+`FOREIGN_KEY_CONFLICT` that `guardForeignKeys` converts, so it escaped as a raw
+crash rather than a typed refusal.
+
+### Fix
+
+Both allocation sites now allocate above every generation the tuple has ever used:
+
+- `stageCredentialReplace` — `MAX(generation)` over all rows for the tuple
+  (retired included), `+ 1`.
+- `bindCredential` — `Math.max(seed + 1, MAX(generation) + 1)`, so a caller seed
+  remains a floor and can only raise the allocation, never lower it below an
+  already-used generation.
+
+Independent review approved the fix with no findings, and confirmed by tracing
+every writer that the `targetBindingGeneration` published by
+`bindStagedCredential` cannot collide with a row created after staging (the
+partial unique index on active bindings plus the single-live-operation index make
+the compare-and-set the final belt), that no consumer assumes generation
+contiguity, and that `bindCredential` has no production caller (production
+reaches the Catalog only through the saga), so the floor cannot mask a caller bug.
+
+### Tests
+
+- `provider-catalog.test.ts` — "allocates a fresh generation across a retired
+  binding instead of reusing one": retires generation 1, rebinds with the zero
+  seed a post-revoke caller actually holds, and asserts generation 2 with both
+  rows durable.
+- `provider-secret-authority.test.ts` — "rebinds after an interrupted revoke
+  instead of reusing the retired generation": revokes, crashes before retirement,
+  reconciles, then re-writes and asserts the new binding is generation 2.
+
+Non-vacuity, re-verified with the pre-fix source in place:
+
+```
+× allocates a fresh generation across a retired binding instead of reusing one
+× rebinds after an interrupted revoke instead of reusing the retired generation
+Tests  2 failed | 51 passed (53)
+```
+
+Both fail on the primary-key collision the invariant names, not on assertion
+shape; with the fix restored, **53 passed**. Full gates at this head: `pnpm
+typecheck` clean, full suite **417 passed / 6 skipped**, `pnpm build` and
+`pnpm run package:check` pass.
+
+A test-name and comment inaccuracy flagged during review was corrected: the
+authority test had attributed the pre-fix failure to reconciliation blocking,
+where the discriminating assertion is the post-reconcile re-write. The name and
+comment now state the generation-reuse invariant, and the binding generation is
+asserted directly.

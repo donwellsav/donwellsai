@@ -515,6 +515,40 @@ describe('ProviderCredentialAuthority', () => {
   })
 
   /**
+   * A completed revoke leaves the tuple with no live binding but with retired
+   * history that still owns its generation. Reconciling the interrupted
+   * retirement must close cleanly, and the user's next write must then succeed:
+   * a generation allocated from the live row alone would reuse the retired
+   * generation and be refused by the primary key, wedging the account after its
+   * first revocation.
+   */
+  it('rebinds after an interrupted revoke instead of reusing the retired generation', async () => {
+    const { directory, catalog } = catalogue('provider-saga-revoked-crash-')
+    const secrets = authority(directory, new FakeEncryption())
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+    const binding = catalog.credentialBinding(instance.id, account.id)!
+    const intent = catalog.stageCredentialRevoke({ operationId: 'revoked-then-crashed', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })
+    // The Secret Authority revocation landed; the Catalog retirement never ran.
+    await secrets.revokeProviderCredential({
+      principal: { driverId: 'codex', providerInstanceId: instance.id, instanceRevision: catalog.snapshot().instances[0]!.revision, accountId: account.id, accountRevision: account.revision, credentialRef: asCredentialRef(intent.priorCredentialRef!), bindingGeneration: intent.priorBindingGeneration! }
+    })
+    expect(storeRecords(directory)[binding.credentialRef]).toMatchObject({ ciphertext: null })
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe(binding.credentialRef)
+
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
+    // The tuple is not wedged: the next saga must allocate a generation above the
+    // retired one rather than colliding with it.
+    const rewritten = await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'replacement-marker' })
+    expect(rewritten.status.state).toBe('present')
+    expect(catalog.credentialBinding(instance.id, account.id)?.bindingGeneration).toBe(2)
+  })
+
+  /**
    * Reconciliation is the recovery authority for interrupted sagas, so a
    * revocation it cannot complete must leave the intent visible rather than
    * closing it to a terminal lie while decryptable material survives.
