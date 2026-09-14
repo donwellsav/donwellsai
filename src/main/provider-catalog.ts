@@ -349,7 +349,10 @@ export class SqliteProviderCatalog implements ProviderCatalog {
       // Compare-and-set against the binding the intent recorded; a concurrent
       // replacement or revocation therefore makes this bind lose, never retarget.
       if (currentRef !== operation.priorCredentialRef || currentGeneration !== operation.priorBindingGeneration) {
-        db.prepare("UPDATE provider_credential_operations SET state='aborted',updated_at=? WHERE id=?").run(nowIso(this.clock), input.operationId)
+        // The staged ref may already hold sealed material, so this row is left
+        // `pending` rather than written `aborted`: only the orchestrator owns
+        // the staged ref and may revoke it first, and a terminal row would hide
+        // the intent from reconciliation forever. The caller reads `false`.
         return false
       }
       const now = nowIso(this.clock)

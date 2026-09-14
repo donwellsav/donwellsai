@@ -595,15 +595,10 @@ export class ProviderCredentialAuthority {
       await this.secrets.putProviderCredential({ operationId, principal: target, secret: request.secret })
       const bound = await this.catalog.bindStagedCredential({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, targetCredentialRef: stagedRef, targetBindingGeneration: targetGeneration, expectedBindingGeneration: intent.priorBindingGeneration ?? 0 })
       if (!bound) {
-        // A lost compare-and-set aborts only once the staged ref is provably
-        // revoked. If that revoke fails, the intent stays open so reconciliation
-        // can retry it rather than leaving a decryptable staged secret behind.
-        try {
-          await this.secrets.revokeProviderCredential({ principal: target })
-        } catch {
-          throw new SecretAuthorityError('CREDENTIAL_ABSENT', 'The staged credential could not be revoked; reconciliation will retry it')
-        }
-        await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
+        // The Catalog left this row `pending`, so the abort path owns the staged
+        // ref: it revokes it and closes `aborted`, or leaves the row incomplete
+        // when that revocation fails. The caller learns only that its bind lost.
+        await this.abandon(operationId)
         throw new SecretAuthorityError('BINDING_CHANGED', 'Provider credential changed while this request was in flight')
       }
       // A winning bind revokes the superseded ref only after the Catalog
@@ -613,9 +608,10 @@ export class ProviderCredentialAuthority {
       }
       await this.catalog.closeCredentialOperation({ operationId, state: 'complete' })
     } catch (error) {
-      // The lost-bind branch already closed its own intent; every other failure
-      // abandons only a pre-bind intent, so a bound saga survives for reconciliation.
-      if (!(error instanceof SecretAuthorityError && error.code === 'BINDING_CHANGED')) await this.abandon(operationId)
+      // Every failure reaches the proof-based abort, which closes the intent only
+      // once any staged material is provably revoked. It is idempotent, so the
+      // lost-bind branch having already run it is harmless.
+      await this.abandon(operationId)
       throw error
     }
     return this.result(request.providerInstanceId, request.accountId)
@@ -659,18 +655,33 @@ export class ProviderCredentialAuthority {
   }
 
   /**
-   * A failed saga never silently leaves its intent incomplete — but it also
-   * never rewrites a `catalog-bound` intent to a terminal state it did not
-   * reach. A bound saga has already published the target generation, so its
-   * remaining work (revoke the superseded ref, then complete) belongs to
-   * reconciliation, not to an abort.
+   * One proof-based abort path, reachable from any failed write.
+   *
+   * A terminal `aborted` row must never coexist with a live sealed staged
+   * record, because `incompleteCredentialOperations()` skips terminal rows and
+   * reconciliation would therefore never revoke it. So a create-replace intent
+   * is closed only after its exact staged ref is provably revoked; if that
+   * revocation fails the row stays `pending` and the caller keeps its own
+   * failure. A destructive intent stages no material, so closing it is safe.
+   *
+   * A `catalog-bound` saga is never touched: its remaining work (revoke the
+   * superseded ref, then complete) belongs to reconciliation, not to an abort.
    */
   private async abandon(operationId: string): Promise<void> {
     try {
       const operation = await this.catalog.credentialOperation(operationId)
-      if (operation?.state === 'pending') await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
+      if (operation?.state !== 'pending') return
+      if (operation.kind === 'create-replace') {
+        if (operation.stagedCredentialRef === null || operation.targetBindingGeneration === null) return
+        const binding = operation.providerInstanceId === null || operation.accountId === null ? null : await this.catalog.credentialBinding(operation.providerInstanceId, operation.accountId)
+        const resolved = await this.principal(operation, binding)
+        // Revocation is by exact ref, which is the credential's identity; the
+        // recorded generation is carried so the call states the full principal.
+        await this.secrets.revokeProviderCredential({ principal: { ...resolved, credentialRef: asCredentialRef(operation.stagedCredentialRef), bindingGeneration: operation.targetBindingGeneration } })
+      }
+      await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
     } catch {
-      // Startup reconciliation owns whatever is left incomplete.
+      // The row stays incomplete and reconciliation owns the retry.
     }
   }
 
@@ -717,8 +728,11 @@ export class ProviderCredentialAuthority {
           resolved++
           continue
         }
-        if ((binding?.credentialRef ?? null) === operation.priorCredentialRef && (binding?.bindingGeneration ?? null) === operation.priorBindingGeneration) {
-          // The bind never landed: revoke the staged ref and abort.
+        const unchangedPrior = (binding?.credentialRef ?? null) === operation.priorCredentialRef && (binding?.bindingGeneration ?? null) === operation.priorBindingGeneration
+        // The brief's second case: an unchanged prior binding, or no binding at
+        // all, means the bind never landed, so the staged ref is revoked and the
+        // saga aborts. An *absent* binding is distinct from a changed one.
+        if (unchangedPrior || binding === null) {
           try {
             await this.secrets.revokeProviderCredential({ principal: staged })
           } catch {
@@ -729,7 +743,7 @@ export class ProviderCredentialAuthority {
           resolved++
           continue
         }
-        // A third binding exists: fail closed for explicit recovery.
+        // Any third binding: fail closed for explicit recovery.
         blocked.push(operation.id)
         continue
       }

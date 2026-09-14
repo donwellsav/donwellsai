@@ -13,7 +13,7 @@ import {
   type ProviderLaunchSecrets,
   type ResolvedProviderCredentialPrincipal
 } from '@shared/provider-secret-broker'
-import type { ProviderCredentialOperation, ProviderInstanceInput } from '@shared/provider-authority'
+import { ProviderCatalogError, type ProviderCredentialCatalog, type ProviderCredentialOperation, type ProviderInstanceInput } from '@shared/provider-authority'
 import { AgentRegistry } from './agents/registry'
 import { SqliteProviderCatalog } from './provider-catalog'
 import { ProviderCredentialAuthority, ProviderSecretAuthority, localProviderCredentialCatalog, type ProviderSecretEncryption } from './provider-secret-authority'
@@ -554,6 +554,151 @@ describe('ProviderCredentialAuthority', () => {
     expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
     expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
     expect(catalog.incompleteCredentialOperations()).toEqual([])
+  })
+
+  /**
+   * An `aborted` row must never coexist with a live sealed staged record:
+   * `incompleteCredentialOperations()` skips terminal rows, so a staged secret
+   * whose saga was written off is never revoked by anyone. These cases drive the
+   * two ways a write can fail after the staged ciphertext is already durable,
+   * and they inject the failure at the Catalog seam rather than stubbing it.
+   */
+  /**
+   * Replaces the live binding out-of-band, as a different process's completed
+   * saga would, so the saga under test genuinely loses its compare-and-set.
+   * Going through the saga API would be refused by design (one live intent per
+   * tuple), which is why this writes the Catalog facts directly.
+   */
+  function loseRaceWithNewBinding(catalog: SqliteProviderCatalog, providerInstanceId: string, accountId: string, credentialRef: string): void {
+    const connection = new DatabaseSync(catalog.databasePath)
+    try {
+      connection.exec('BEGIN IMMEDIATE')
+      connection.prepare('UPDATE provider_credential_bindings SET retired_at=? WHERE provider_instance_id=? AND account_id=? AND retired_at IS NULL').run(new Date().toISOString(), providerInstanceId, accountId)
+      connection.prepare('INSERT INTO provider_credential_bindings(provider_instance_id,account_id,account_revision,credential_ref,generation,created_at,retired_at) VALUES (?,?,?,?,?,?,NULL)').run(providerInstanceId, accountId, 1, credentialRef, 2, new Date().toISOString())
+      connection.exec('COMMIT')
+    } finally {
+      connection.close()
+    }
+  }
+
+  it('keeps a lost compare-and-set recoverable when the staged revoke fails', async () => {
+    const { directory, catalog } = catalogue('provider-saga-lost-cas-')
+    const secrets = authority(directory, new FakeEncryption())
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+
+    // The binding changes underneath the saga, and the store is made unreadable at
+    // the same seam, so the staged revoke cannot succeed either.
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    let lostRevision = 0
+    const racing: ProviderCredentialCatalog = {
+      ...localProviderCredentialCatalog(catalog),
+      bindStagedCredential: async input => {
+        lostRevision = input.expectedInstanceRevision
+        loseRaceWithNewBinding(catalog, instance.id, account.id, 'third-ref')
+        writeFileSync(storePath, '{corrupt', { mode: 0o600 })
+        return false
+      }
+    }
+    const racingCredentials = new ProviderCredentialAuthority({ catalog: racing, authority: secrets })
+    await expect(racingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
+
+    // The unrevocable saga stays visible: reconciliation reports it rather than
+    // losing it, and the concurrent binding is untouched.
+    const blocked = await credentials.reconcile()
+    expect(blocked.blocked).toHaveLength(1)
+    expect(blocked.resolved).toBe(0)
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
+    void lostRevision
+
+    // While a third binding stands, the saga stays blocked for explicit recovery
+    // even once the store is readable: the brief forbids guessing.
+    rmSync(storePath)
+    const stillBlocked = await credentials.reconcile()
+    expect(stillBlocked.resolved).toBe(0)
+    expect(stillBlocked.blocked).toHaveLength(1)
+
+    // Once the competing binding is gone the prior/absent case applies, so
+    // reconciliation revokes the staged ref and closes the saga.
+    const connection = new DatabaseSync(catalog.databasePath)
+    connection.prepare('UPDATE provider_credential_bindings SET retired_at=? WHERE provider_instance_id=? AND account_id=? AND retired_at IS NULL').run(new Date().toISOString(), instance.id, account.id)
+    connection.close()
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
+    expect(profileBytes(directory)).not.toContain('staged-marker')
+  })
+
+  it('aborts a lost compare-and-set once the staged ref is provably revoked', async () => {
+    const { directory, catalog } = catalogue('provider-saga-lost-cas-ok-')
+    const secrets = authority(directory, new FakeEncryption())
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+
+    const racing: ProviderCredentialCatalog = {
+      ...localProviderCredentialCatalog(catalog),
+      bindStagedCredential: async () => {
+        loseRaceWithNewBinding(catalog, instance.id, account.id, 'third-ref')
+        return false
+      }
+    }
+    const racingCredentials = new ProviderCredentialAuthority({ catalog: racing, authority: secrets })
+    await expect(racingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
+
+    // The provable abort still terminates the saga, with no regression.
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
+    expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
+    expect(profileBytes(directory)).not.toContain('staged-marker')
+  })
+
+  it('leaves no decryptable staged material when a throwing bind can still revoke', async () => {
+    const { directory, catalog } = catalogue('provider-saga-bind-throw-')
+    const secrets = authority(directory, new FakeEncryption())
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+
+    // The bind throws after the staged ciphertext is durable. Reachable from the
+    // real method through revision validation and foreign-key guarding.
+    const throwing: ProviderCredentialCatalog = {
+      ...localProviderCredentialCatalog(catalog),
+      bindStagedCredential: async () => { throw new ProviderCatalogError('FOREIGN_KEY_CONFLICT', 'the target credential binding could not be published') }
+    }
+    const throwingCredentials = new ProviderCredentialAuthority({ catalog: throwing, authority: secrets })
+    await expect(throwingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toThrowError(/could not be published/)
+
+    // Where the abort can revoke, it does: no incomplete saga is left, and no
+    // decryptable staged material survives in the store.
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
+    expect(profileBytes(directory)).not.toContain('staged-marker')
+
+    // The same failure with an unreadable store leaves the saga blocked, then recovers.
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    const unreadable: ProviderCredentialCatalog = {
+      ...localProviderCredentialCatalog(catalog),
+      bindStagedCredential: async () => {
+        writeFileSync(storePath, '{corrupt', { mode: 0o600 })
+        throw new ProviderCatalogError('FOREIGN_KEY_CONFLICT', 'the target credential binding could not be published')
+      }
+    }
+    const blockedCredentials = new ProviderCredentialAuthority({ catalog: unreadable, authority: secrets })
+    await expect(blockedCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'third-staged-marker' })).rejects.toThrowError(/could not be published/)
+    expect(catalog.incompleteCredentialOperations()).toHaveLength(1)
+    const blocked = await credentials.reconcile()
+    expect(blocked.resolved).toBe(0)
+    expect(blocked.blocked).toHaveLength(1)
+    rmSync(storePath)
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(profileBytes(directory)).not.toContain('third-staged-marker')
   })
 
   it('leaves a third-binding conflict blocked for explicit recovery', async () => {
