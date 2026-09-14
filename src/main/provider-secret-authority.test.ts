@@ -261,6 +261,10 @@ describe('ProviderSecretAuthority', () => {
     await expect(secrets.materializeProviderLaunch(authorization())).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' })
     const status = await secrets.inspectProviderCredential({ principal: principal() })
     expect(status.state).toBe('unavailable')
+    // The refused ref was never sealed, so it has no record; the byte scan is kept
+    // only as a plaintext-leak guard.
+    expect(storeRecords(directory)['ref-2']).toBeUndefined()
+    expect(liveRefs(directory)).toEqual(['ref-1'])
     expect(profileBytes(directory)).not.toContain('second-marker')
   })
 
@@ -401,8 +405,12 @@ describe('ProviderCredentialAuthority', () => {
     const replaced = await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: current.revision, expectedAccountRevision: account.revision, secret: 'replacement-marker' })
     expect(replaced.status.state).toBe('present')
     expect(replaced.status.revision).toBeGreaterThan(written.status.revision)
-    // The superseded ref is revoked, so its record is an inert tombstone.
+    // The superseded ref is revoked into an inert tombstone and the replacement is
+    // the only live record; the byte scan is kept only as a plaintext-leak guard.
     expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(liveRefs(directory)).toHaveLength(1)
+    expect(liveRefs(directory)[0]).toBe(catalog.credentialBinding(instance.id, account.id)!.credentialRef)
+    expect(Object.values(storeRecords(directory)).filter(record => record.ciphertext === null)).toHaveLength(1)
     expect(profileBytes(directory)).not.toContain('replacement-marker')
 
     const revoked = await credentials.revoke({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })
