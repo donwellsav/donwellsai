@@ -13,6 +13,15 @@ import {
 } from '@shared/profile-maintenance'
 import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
 import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderInstanceInput } from '@shared/provider-authority'
+import {
+  PROVIDER_SECRET_BROKER_CAPABILITY,
+  PROVIDER_SECRET_BROKER_PROTOCOL,
+  SecretAuthorityError,
+  parseSecretBrokerMaterializeRequest,
+  type SecretAuthority,
+  type SecretBrokerMaterializeRequest
+} from '@shared/provider-secret-broker'
+import { SECRET_BROKER_REGISTER_OP, SECRET_BROKER_REQUEST_EVENT, SECRET_BROKER_RESPOND_OP, SecretBrokerError } from './provider-secret-broker'
 import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
@@ -98,6 +107,16 @@ export type DaemonStatus = {
   idle: boolean
   sessionCount: number
   liveSessionCount: number
+}
+
+/** One app-side credential-broker registration. */
+type BrokerRegistration = {
+  socket: Socket
+  /** Assigned by the daemon; every response must echo it. */
+  epoch: string | null
+  authority: SecretAuthority
+  registrationId: string
+  settle: { resolve(value: void): void; reject(error: Error): void }
 }
 
 type Pending = {
@@ -592,6 +611,8 @@ export class DaemonClient {
   /** The lease this client acquired, retained so later calls act on the exact revision. */
   private heldLease: ProfileMaintenanceLease | null = null
   private connectedEndpoint: string | null = null
+  /** The live credential-broker registration, if this client is the broker. */
+  private broker: BrokerRegistration | null = null
   private readonly requestTimeoutMs: number
   private readonly handshakeTimeoutMs: number
   constructor(
@@ -831,9 +852,11 @@ export class DaemonClient {
         continue
       }
       if (message['event']) {
+        if (this.drainBrokerFrame(message)) continue
         this.dispatchEvent(message)
         continue
       }
+      if (this.drainBrokerFrame(message)) continue
       const id = String(message['id'] ?? '')
       const pending = this.pending.get(id)
       if (!pending) continue
@@ -854,6 +877,7 @@ export class DaemonClient {
     this.buffer = ''
     this.connectedEndpoint = null
     this.capabilities.clear()
+    this.failBrokerRegistration(error)
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer)
       pending.reject(error)
@@ -954,6 +978,122 @@ export class DaemonClient {
       await delay(100)
     }
     throw new Error('terminal daemon shutdown did not release its runtime owner within 5s')
+  }
+
+  /**
+   * Registers this application process as the daemon's one credential broker
+   * and answers materialization requests from the given Secret Authority.
+   *
+   * Registration is the only path that enables secret-bearing traffic, and it
+   * travels on a dedicated socket whose frames never touch `pending` or
+   * `dispatchEvent`. Nothing about a materialized environment is retained here:
+   * it goes straight from the Secret Authority into one response frame.
+   */
+  async registerSecretBroker(authority: SecretAuthority): Promise<void> {
+    await this.requireCapability(PROVIDER_SECRET_BROKER_CAPABILITY, 'registering the credential broker')
+    const socket = this.socket
+    if (!socket || socket.destroyed) throw new SecretBrokerError('BROKER_DISCONNECTED', 'terminal daemon not connected')
+    const registrationId = randomUUID()
+    const completion = Promise.withResolvers<void>()
+    // The daemon verifies the app owner against its own published ownership row,
+    // so this process presents the identity that row already records rather than
+    // asserting a fresh one. No published app identity means no registration.
+    const identity = this.appIdentity()
+    if (!identity) throw new SecretBrokerError('BROKER_OWNER_UNVERIFIED', 'This process has no published application identity to present')
+    this.broker = { socket, epoch: null, authority, registrationId, settle: completion }
+    this.rawSend(socket, { id: registrationId, op: SECRET_BROKER_REGISTER_OP, protocol: PROVIDER_SECRET_BROKER_PROTOCOL, identity })
+    return completion.promise
+  }
+
+  /**
+   * The current app owner's recorded identity, read from the Stage 1 ownership
+   * row that the daemon verifies against. Absent or inactive ownership means
+   * this process cannot act as the credential broker.
+   */
+  private appIdentity(): ProcessIdentity | null {
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'app')
+    let store: RuntimeOwnershipStore | null = null
+    try {
+      store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      const observed = store.observe('donwells-app')
+      if (observed.status !== 'present' || observed.owner.state !== 'active') return null
+      return observed.owner.identity
+    } catch {
+      return null
+    } finally {
+      store?.close()
+    }
+  }
+
+  /** Stops answering for the current connection; pending daemon requests fail. */
+  releaseSecretBroker(): void {
+    this.broker = null
+  }
+
+  /** True only while this client is the daemon's authenticated broker. */
+  get isSecretBroker(): boolean {
+    return this.broker !== null
+  }
+
+  private drainBrokerFrame(message: Record<string, unknown>): boolean {
+    const broker = this.broker
+    if (!broker) return false
+    if (String(message['id'] ?? '') === broker.registrationId && ('epoch' in message || message['ok'] !== undefined)) {
+      const settle = broker.settle
+      this.broker = null
+      if (message['ok'] !== true) {
+        settle.reject(new SecretBrokerError('BROKER_OWNER_UNVERIFIED', String(message['error'] ?? 'Credential broker registration was refused')))
+        return true
+      }
+      const epoch = message['epoch']
+      if (typeof epoch !== 'string' || epoch.length === 0) {
+        settle.reject(new SecretBrokerError('BROKER_RESPONSE_INVALID', 'Credential broker registration returned no connection epoch'))
+        return true
+      }
+      this.broker = { ...broker, epoch }
+      settle.resolve()
+      return true
+    }
+    if (message['event'] !== SECRET_BROKER_REQUEST_EVENT) return false
+    void this.answerBrokerRequest(broker, message)
+    return true
+  }
+
+  private async answerBrokerRequest(broker: BrokerRegistration, message: Record<string, unknown>): Promise<void> {
+    let request: SecretBrokerMaterializeRequest
+    try {
+      request = parseSecretBrokerMaterializeRequest({
+        protocol: message['protocol'],
+        requestId: message['requestId'],
+        connectionEpoch: message['connectionEpoch'],
+        deadline: message['deadline'],
+        authorization: message['authorization']
+      })
+    } catch {
+      // An unanswerable frame is never answered: the daemon's deadline closes it.
+      return
+    }
+    if (broker.epoch === null || request.connectionEpoch !== broker.epoch) return
+    let response: Record<string, unknown>
+    try {
+      const secrets = await broker.authority.materializeProviderLaunch(request.authorization)
+      response = { id: request.requestId, op: SECRET_BROKER_RESPOND_OP, requestId: request.requestId, connectionEpoch: request.connectionEpoch, ok: true, secrets: { environment: secrets.environment, credentialRevision: secrets.credentialRevision } }
+    } catch (error) {
+      response = { id: request.requestId, op: SECRET_BROKER_RESPOND_OP, requestId: request.requestId, connectionEpoch: request.connectionEpoch, ok: false, error: error instanceof SecretAuthorityError ? error.code : 'AUTHORIZATION_INVALID' }
+    }
+    try {
+      this.rawSend(broker.socket, response)
+    } catch {
+      // The daemon's disconnect handling invalidates the pending request.
+    }
+  }
+
+  /** Fails the in-flight registration when the transport resets. */
+  private failBrokerRegistration(error: Error): void {
+    const broker = this.broker
+    if (!broker) return
+    this.broker = null
+    broker.settle.reject(new SecretBrokerError('BROKER_DISCONNECTED', error.message))
   }
 
   private async request<T = Record<string, unknown>>(

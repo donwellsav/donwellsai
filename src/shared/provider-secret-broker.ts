@@ -349,7 +349,9 @@ export function parseSecretBrokerMaterializeRequest(value: unknown): SecretBroke
 
 export function parseSecretBrokerMaterializeResponse(value: unknown): SecretBrokerMaterializeResponse {
   const record = wireRecord(value, 'materialize response')
-  wireExact(record, ['requestId', 'connectionEpoch', 'ok', 'error', 'secrets'], 'materialize response')
+  // `id` and `op` are the transport envelope this frame travels in; every other
+  // field is exact, so an extended or foreign body is still refused.
+  wireExact(record, ['id', 'op', 'requestId', 'connectionEpoch', 'ok', 'error', 'secrets'], 'materialize response')
   const requestId = wireString(record['requestId'], 'materialize response.requestId', 128)
   const connectionEpoch = wireString(record['connectionEpoch'], 'materialize response.connectionEpoch', 128)
   if (record['ok'] === true) {

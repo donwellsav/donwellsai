@@ -65,6 +65,8 @@ import {
   type RunningAgent
 } from '@shared/agent-runtime'
 import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAPABILITY } from '@shared/provider-authority'
+import { PROVIDER_SECRET_BROKER_CAPABILITY, type ProviderLaunchAuthorization, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
+import { ProviderSecretBrokerHost, SECRET_BROKER_REGISTER_OP, SECRET_BROKER_RESPOND_OP, SecretBrokerError } from './provider-secret-broker'
 import {
   ATTENTION_INBOX_CAPABILITY,
   parseAttentionAcknowledgeRequest
@@ -81,7 +83,7 @@ import {
 } from './agents/provider-hooks'
 import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
-import { RuntimeOwnershipError } from '@shared/runtime-ownership'
+import { RuntimeOwnershipError, RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { AcpSessions } from './agents/acp-sessions'
 export const TASK_AUTHORITY_CAPABILITY = 'task-authority-v1'
 export const PROVIDER_CATALOG_CAPABILITY = AGENT_PROVIDER_CATALOG_CAPABILITY
@@ -104,7 +106,8 @@ export const DAEMON_CAPABILITIES = [
   'runtime-identity-v1',
   ATTENTION_INBOX_CAPABILITY,
   TASK_AUTHORITY_CAPABILITY,
-  PROVIDER_CATALOG_CAPABILITY
+  PROVIDER_CATALOG_CAPABILITY,
+  PROVIDER_SECRET_BROKER_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
 const MAX_CLIENT_QUEUED_BYTES = 8 * 1024 * 1024
@@ -290,6 +293,13 @@ export class TerminalDaemon {
   private taskSchedulerPump!: TaskSchedulerPump
   private readonly taskWorkerCredentials = new Map<string, { token: string; ownerId: string; connectionKey: string; projectIds: readonly string[] }>()
   private readonly taskConnections = new Map<Socket, string>()
+  /**
+   * The one authenticated credential broker. It is registered only after
+   * Runtime Identity verifies the current app owner, and it is deliberately
+   * reachable from no ordinary op: secret-bearing frames travel only over the
+   * dedicated broker channel.
+   */
+  private readonly secretBroker: ProviderSecretBrokerHost
   private taskPumpTimer: NodeJS.Timeout | null = null
   constructor(opts: {
     userDataDir: string
@@ -311,6 +321,9 @@ export class TerminalDaemon {
     this.identity = opts.identity ?? runtimeIdentityAuthority()
     this.paths = localRuntimePaths(userDataDir, 'terminal')
     this.baseEndpointPath = this.paths.socketPath
+    this.secretBroker = new ProviderSecretBrokerHost({
+      verifyOwner: identity => this.verifiesAppOwner(identity)
+    })
     this.acp = new AcpSessions(userDataDir, { changed: snapshot => this.broadcast({ event: 'acp', snapshot }), identity: this.identity })
     this.emitterCommand = opts.emitterCommand ?? [
       process.execPath,
@@ -734,12 +747,16 @@ export class TerminalDaemon {
           return
         }
         if (hookBinding) this.handleHookOp(socket, hookBinding, message)
+        else if (message['op'] === SECRET_BROKER_REGISTER_OP || message['op'] === SECRET_BROKER_RESPOND_OP) this.handleBrokerOp(socket, message)
         else void this.handleOp(socket, message)
       }
     })
     socket.on('close', () => {
       this.connections.delete(socket)
       this.clients.delete(socket)
+      // A disconnect invalidates every pending materialization request for this
+      // connection, and late responses are dropped as no-longer-pending.
+      this.secretBroker.invalidate(socket)
       const connectionKey = this.taskConnections.get(socket)
       this.taskConnections.delete(socket)
       if (connectionKey !== undefined) {
@@ -1351,6 +1368,63 @@ export class TerminalDaemon {
 
   private daemonWorkerOwnerId(): string {
     return this.publication?.owner.ownerId ?? '00000000-0000-4000-8000-000000000000'
+  }
+
+  /**
+   * Verifies that the registering process is the current application owner: the
+   * Stage 1 ownership row for `donwells-app` must be active, its recorded
+   * identity must be exactly the presented one, and Runtime Identity must still
+   * observe that live process. A second process therefore cannot claim the
+   * broker by presenting a plausible-looking identity.
+   */
+  private verifiesAppOwner(identity: ProcessIdentity): boolean {
+    const paths = localRuntimePaths(dirname(this.paths.runtimeDir), 'app')
+    let store: RuntimeOwnershipStore | null = null
+    try {
+      store = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+      const observed = store.observe('donwells-app')
+      if (observed.status !== 'present' || observed.owner.state !== 'active') return false
+      if (observed.owner.identity.family !== 'donwells-app') return false
+      if (JSON.stringify(observed.owner.identity) !== JSON.stringify(identity)) return false
+      return this.identity.verify(identity).status === 'valid'
+    } catch {
+      return false
+    } finally {
+      store?.close()
+    }
+  }
+
+  /**
+   * The dedicated broker op surface. Secret-bearing responses are reachable
+   * only here, never through `handleOp`'s ordinary command dispatch, so
+   * `DaemonClient.call`, renderer/runtime RPC, CLI, plugins, event replay, and
+   * debug serializers cannot obtain one.
+   */
+  private handleBrokerOp(socket: Socket, message: Record<string, unknown>): void {
+    const op = message['op']
+    try {
+      if (op === SECRET_BROKER_REGISTER_OP) {
+        const registration = this.secretBroker.register(socket, ProviderSecretBrokerHost.parseIdentity(message['identity']))
+        this.reply(socket, message['id'], true, { epoch: registration.epoch, deadlineMs: registration.deadlineMs })
+        return
+      }
+      if (op === SECRET_BROKER_RESPOND_OP) {
+        this.secretBroker.respond(socket, message)
+        this.reply(socket, message['id'], true, {})
+        return
+      }
+      this.reply(socket, message['id'], false, { error: 'unknown broker op: ' + String(op) })
+    } catch (error) {
+      this.reply(socket, message['id'], false, {
+        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof SecretBrokerError ? { code: error.code } : {})
+      })
+    }
+  }
+
+  /** One materialization round trip; the caller is the trusted launch path. */
+  materializeProviderLaunch(authorization: ProviderLaunchAuthorization): Promise<ProviderLaunchSecrets> {
+    return this.secretBroker.materialize(authorization)
   }
 
   private daemonWorkerConnection(projectId: string): AuthenticatedAuthorityConnection {
