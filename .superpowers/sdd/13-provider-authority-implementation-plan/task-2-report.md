@@ -11,6 +11,8 @@ Complete. Commits on `roadmap/stage-3-provider-authority`:
 | `8d14167` | feat: delete raw renderer secret authority |
 | `e181efa` | feat: deliver the Graphiti password over bounded child stdin |
 | `dd05737` | docs: record the Task 2 secret authority report |
+| `6d77d9c` | docs: correct the Task 2 commit list |
+| `078837d` | fix: close provider secret authority review findings |
 
 Base: `722752b` (Task 1 catalog complete).
 
@@ -194,3 +196,83 @@ The Graphiti authority is intact at `src/main/index.ts:117/926/1054/1058/1060`.
    `profile maintenance disconnect bookkeeping failed` warnings during daemon
    teardown. They were present on the exercised daemon path before Task 2 and do
    not fail any test.
+
+## Fix round 1
+
+Three findings from `Stage3Task2Reviewer` (`approved=false`), all confirmed at
+source and all fixed at the source rather than at the symptom. Non-vacuity was
+proven, not assumed: with the source fixes stashed back to `6d77d9c`, the five
+new tests fail **5 failed / 22 passed**; with the fixes restored they are
+**27 passed**.
+
+### P1 — materialize consumed the plaintext it was about to hand the launch
+
+`materializeProviderLaunch` sealed `opened.credential` in its rotation branch,
+and `seal()` wipes `record.secret = ''` on that same object. The environment loop
+then read `opened.credential.secret`, so **every driver-declared variable
+materialized as an empty string, silently**. The rotation `persist` also ran
+before the driver-environment check, so a call that then failed with
+`AUTHORIZATION_INVALID` had already mutated the store.
+
+Fix: the no-environment refusal is now evaluated **before** any write, the
+plaintext is captured into a local, rotation seals an explicit copy
+(`{ ...opened.credential, secret }`), and the environment is built from that
+local.
+
+Tests: rotation yields `{ OPENAI_API_KEY: MARKER }` — asserted non-empty — with a
+higher store revision and a clean second materialization; a no-environment driver
+is refused with the store revision unchanged.
+
+### P2 — reconciliation swallowed revocation failures and closed anyway
+
+`reconcile()` used `.catch(() => undefined)` on three `revokeProviderCredential`
+calls and then unconditionally closed the operation to `complete` or `aborted`.
+`revokeProviderCredential` can genuinely throw (`load()` →
+`CORRUPT_SECRET_STORE`; `persist` → I/O), so **a superseded or revoked credential
+could survive as decryptable material forever with no blocked report**.
+
+Fix: every revocation in the loop now sits in a real catch that pushes
+`operation.id` onto `blocked` and `continue`s **without closing the operation**,
+mirroring the retirement handling already present in the same loop. No
+`.catch(() => undefined)` remains in the file.
+
+Tests: a corrupt store during reconcile yields
+`{ resolved: 0, blocked: ['failing-revoke'] }` with the operation still
+incomplete and the binding not retired; once the store is readable again,
+reconciliation completes it idempotently.
+
+### P3 — `abandon()` rewrote intents that had already published a binding
+
+`abandon()` closed any operation in `pending` **or** `catalog-bound` as
+`aborted`. So a saga whose superseded-ref revoke failed after the Catalog had
+already published the target generation was recorded as a terminal falsehood that
+reconciliation would never revisit. The same applied to `revoke()`: if
+`retireCredentialBindingForOperation` threw after a successful revocation,
+`abandon` closed the `pending` row and **the active Catalog binding kept naming a
+revoked ref with no incomplete row left to finish it**.
+
+Fix: `abandon()` now closes only a pre-bind `pending` intent, so a bound saga
+stays incomplete for reconciliation to finish (revoke prior, then complete);
+`revoke()` no longer calls `abandon` at all and rethrows with its `pending` intent
+intact; and the lost-compare-and-set branch aborts only once the staged ref is
+provably revoked, rethrowing without aborting if that revoke fails.
+
+Tests: a `catalog-bound` operation whose superseded revoke fails stays
+`catalog-bound` and blocked, then reaches `complete` once the store is readable;
+a failed `revoke()` leaves exactly one incomplete operation with the binding
+still live, and reconciliation completes the exact revoke-then-retire path.
+
+### Gates (fix round)
+
+| Gate | Result |
+|---|---|
+| `vitest run src/main/provider-secret-authority.test.ts` | 27 passed |
+| `vitest run provider-catalog + task-authority + provider-secret-broker + project-temporal-knowledge` | 76 passed |
+| `pnpm typecheck` | passed |
+
+Full `pnpm test`, `pnpm build`, and `pnpm package:check` are deferred to the
+round owner as instructed.
+
+Constraints held: no raw renderer secret surface was restored, no plaintext is
+persisted or rendered, and launch selection and renderer launch controls are
+untouched.
