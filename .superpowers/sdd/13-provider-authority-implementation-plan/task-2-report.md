@@ -17,6 +17,8 @@ Complete. Commits on `roadmap/stage-3-provider-authority`:
 | `aa6fdd3` | fix: never abort a saga whose staged secret still decrypts |
 | `3224388` | docs: append the Task 2 fix-round-2 section |
 | `26d1709` | test: observe staged credential state instead of scanning bytes |
+| `b95f6d4` | docs: append the Task 2 fix-round-3 section |
+| `0eaf238` | test: extend record-state assertions to the remaining byte scans |
 
 Base: `722752b` (Task 1 catalog complete).
 
@@ -389,6 +391,14 @@ Refs are never asserted *absent*: `revokeProviderCredential` intentionally leave
 a tombstone, and asserting absence would have re-encoded the same mistake. Every
 structural assertion (`incompleteCredentialOperations`, `reconcile`, binding refs)
 was kept.
+
+Two further byte scans in older cases (the unavailable-backend refusal and the
+replacement lifecycle) had the same inability to fail and were given
+discriminating neighbours as well: the refused ref now has no record at all and
+only the original ref stays live, and a replacement leaves exactly one live
+record with exactly one tombstone. Each surviving `profileBytes(...)` call is
+retained solely as a plaintext-leak guard, which is the one thing a byte scan can
+actually prove.
 
 ### Defect B — the unreadable-store scenario destroyed its own evidence
 
