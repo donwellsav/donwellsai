@@ -2784,10 +2784,14 @@ export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEnti
       const projectId = projectFor(attempt.projectId, 'attempts.projectId')
       const taskId = legacyEntityId(scopeKind, scopeId, 'task', attempt.taskExternalTaskId)
       const attemptId = legacyEntityId(scopeKind, scopeId, 'attempt', attempt.attemptKey)
-      entities[`attempt:${attempt.attemptKey}`] = attemptId
-      if (db.prepare('SELECT id FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId)) continue
       const specificationId = legacyEntityId(scopeKind, scopeId, 'specification', attempt.attemptKey)
+      // Every entity ID is derived from the stable key alone, so the map is
+      // filled *before* the replay guard: a resumed import must still report the
+      // prior specification, and its mapping row must stay reachable rather
+      // than being skipped because the attempt already existed.
+      entities[`attempt:${attempt.attemptKey}`] = attemptId
       entities[`specification:${attempt.attemptKey}`] = specificationId
+      if (db.prepare('SELECT id FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId)) continue
       const specificationJson = JSON.stringify(attempt.specification)
       // An imported attempt is never native: its specification carries the
       // import provenance whatever the source claimed about the definition, so
@@ -2849,17 +2853,19 @@ export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEnti
         throw new TaskAuthorityValidationError('scheduleExecutions.scheduleKey', `schedule ${execution.scheduleKey} was not part of this snapshot`)
       }
       const ownerProject = text(scheduleRow['project_id'])
-      if (db.prepare('SELECT id FROM schedule_executions WHERE project_id = ? AND id = ?').get(ownerProject, executionId)) continue
       // A historical execution does not prove which mutable definition ran, so
       // its materialized task carries a provenance-marked legacy-unknown
-      // specification rather than the current definition.
+      // specification rather than the current definition. Both IDs are stable,
+      // so they are mapped before the replay guard for the same reason as the
+      // attempt/specification pair above.
       const taskId = legacyEntityId(scopeKind, scopeId, 'execution-task', execution.executionKey)
+      const specificationId = legacyEntityId(scopeKind, scopeId, 'execution-specification', execution.executionKey)
       entities[`task:${execution.executionKey}:legacy`] = taskId
+      entities[`specification:${execution.executionKey}`] = specificationId
+      if (db.prepare('SELECT id FROM schedule_executions WHERE project_id = ? AND id = ?').get(ownerProject, executionId)) continue
       const spec = readScheduleSpec(text(scheduleRow['definition_json']))
       db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at, provenance_kind) VALUES (?,?,?,?,?,'','todo',0,NULL,'none',1,?,?,'imported-legacy')")
         .run(taskId, ownerProject, `${execution.executionKey}:legacy`, canonicalExternalTaskId(`${execution.executionKey}:legacy`), spec.taskTitle, execution.createdAt, execution.createdAt)
-      const specificationId = legacyEntityId(scopeKind, scopeId, 'execution-specification', execution.executionKey)
-      entities[`specification:${execution.executionKey}`] = specificationId
       db.prepare("INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,'legacy-unknown',?)")
         .run(specificationId, ownerProject, taskId, JSON.stringify(spec.command), JSON.stringify(spec.target), JSON.stringify(spec.verification), 'legacy-unknown', execution.createdAt)
       const attemptId = execution.attemptKey === null ? null : legacyEntityId(scopeKind, scopeId, 'attempt', execution.attemptKey)

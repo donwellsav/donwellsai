@@ -320,6 +320,78 @@ describe('task authority migration normalization', () => {
     expect(rawScalar(harness, "SELECT COUNT(*) FROM migration_sources WHERE phase = 'superseded'")).toBe(2)
   })
 
+  it('keeps specification and materialized-task mappings reachable across replay and a successor rebuild', async () => {
+    // A parallel run plus a historical schedule execution: both produce
+    // imported attempt/specification pairs and a materialized execution task.
+    const harness = createHarness({
+      operational: {
+        'orchestrations.json': {
+          schemaVersion: 1,
+          parallelRuns: [{
+            id: 'run-map', name: 'mapped run', command: 'node build.js', concurrency: 1, status: 'succeeded', createdAt: '2026-01-01T00:00:00.000Z',
+            tasks: [{ id: 'task-map', target: { kind: 'local', root: '/workspace/repo', label: 'repo' }, command: 'node build.js', status: 'succeeded', startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:01:00.000Z', exitCode: 0 }]
+          }]
+        },
+        'automations.json': {
+          schemaVersion: 1,
+          scheduledRuns: [{
+            id: 'sched-map', name: 'mapped nightly', target: { kind: 'local', root: '/workspace/repo', label: 'repo' },
+            command: 'node nightly.js', schedule: { kind: 'interval', minutes: 30 }, enabled: true,
+            createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z'
+          }]
+        },
+        'automation-runs.json': {
+          schemaVersion: 1,
+          executions: [{ id: 'exec-map', scheduledRunId: 'sched-map', trigger: 'schedule', startedAt: '2026-01-01T00:00:00.000Z', status: 'succeeded' }]
+        }
+      }
+    })
+
+    const first = await harness.migration.prepare()
+    // Both specification flavours are mapped, and their IDs are the live rows.
+    expect(Object.keys(first.entities).some(key => key.startsWith('specification:'))).toBe(true)
+    for (const [key, authorityEntityId] of Object.entries(first.entities)) {
+      if (!key.startsWith('specification:')) continue
+      expect(rawScalar(harness, 'SELECT provenance_kind FROM execution_specifications WHERE id = ?', authorityEntityId)).toBeDefined()
+    }
+    const activeByKind = (): Record<string, number> => {
+      const db = openTaskAuthorityRawConnection(harness.databasePath)
+      try {
+        const rows = db.prepare("SELECT entity_kind, COUNT(*) AS count FROM migration_entity_mappings WHERE state = 'active' GROUP BY entity_kind ORDER BY entity_kind").all() as Array<Record<string, unknown>>
+        return Object.fromEntries(rows.map(row => [String(row['entity_kind']), Number(row['count'])]))
+      } finally {
+        db.close()
+      }
+    }
+    const firstActive = activeByKind()
+    expect(firstActive['specification']).toBeGreaterThan(0)
+
+    // Replay: identical entity map (including specification keys) and identical
+    // active mapping counts — nothing was left unreachable.
+    const replay = await harness.migration.prepare()
+    expect(replay.entities).toEqual(first.entities)
+    expect(activeByKind()).toEqual(firstActive)
+
+    // Successor rebuild: the changed source re-registers the same mappings, so
+    // every live specification still resolves from an active mapping row.
+    harness.backlogTasks[PROJECT_ALPHA] = { 'DW-1': { title: 'Alpha one renamed', status: 'todo' } }
+    const successor = await harness.migration.prepare()
+    const firstKeys = Object.keys(first.entities).sort()
+    const successorKeys = Object.keys(successor.entities).sort()
+    // The successor drops exactly the entities the vanished source carried
+    // (`DW-2`), and every other key — each `specification:` key included — is
+    // unchanged.
+    expect(firstKeys.filter(key => !successorKeys.includes(key))).toEqual(['task:DW-2'])
+    expect(successorKeys).toEqual(firstKeys.filter(key => key !== 'task:DW-2'))
+    const successorActive = activeByKind()
+    expect(successorActive['specification']).toBe(firstActive['specification'])
+    for (const [key, authorityEntityId] of Object.entries(successor.entities)) {
+      if (!key.startsWith('specification:')) continue
+      expect({ key, rows: Number(rawScalar(harness, "SELECT COUNT(*) FROM migration_entity_mappings WHERE authority_entity_id = ? AND state = 'active'", authorityEntityId)) })
+        .toEqual({ key, rows: 1 })
+    }
+  })
+
   it('keeps every imported entity mapping in the same transaction as its entity', async () => {
     const harness = createHarness()
     const { entities } = await harness.migration.prepare()
@@ -665,6 +737,19 @@ describe('task authority migration cutover and activation', () => {
     expect(harness.authority.readSchedule(PROJECT_BETA, unrelated.scheduleId)).toMatchObject({ taskTitle: 'unrelated' })
     // The native row is untouched and still addressable.
     expect(harness.authority.query({ connection: ADMIN }).tasks.map(task => task.taskId)).toEqual([native.taskId])
+  })
+
+  it('refuses to abort an active authority even if a caller invokes it directly', async () => {
+    const harness = createHarness()
+    await activated(harness)
+    expect(harness.migration.status().state).toBe('active')
+    const before = rowCounts(harness)
+    // An operator abort reaches the gate, not this path, but a future
+    // post-activation caller must not be able to full-table sweep the live
+    // authority: the migration state forbids it.
+    expect(() => harness.migration.abort('migration-late')).toThrowError(expect.objectContaining({ code: 'MIGRATION_STATE_INVALID' }))
+    expect(harness.migration.status().state).toBe('active')
+    expect(rowCounts(harness)).toEqual(before)
   })
 
   it('scopes the generated export to the requested project only', async () => {

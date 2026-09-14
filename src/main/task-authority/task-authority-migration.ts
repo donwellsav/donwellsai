@@ -60,7 +60,7 @@ export type OperationalSourceKind = (typeof OPERATIONAL_SOURCE_KINDS)[number]
  */
 export const IMPORT_PROFILE_EVENT_TYPES = ['legacy-schedule-imported'] as const
 
-const OPERATIONAL_FILE_NAMES: Record<OperationalSourceKind, string> = {
+export const OPERATIONAL_FILE_NAMES: Record<OperationalSourceKind, string> = {
   orchestrations: 'orchestrations.json',
   automations: 'automations.json',
   'automation-runs': 'automation-runs.json'
@@ -917,6 +917,10 @@ export class TaskAuthorityMigration {
    * touched: every statement below is scoped to `imported-legacy` provenance.
    */
   abort(migrationId?: string): void {
+    // An active authority has no candidate rows to discard, and a full-table
+    // sweep against it would be exactly the "post-cutover rebuild" the brief
+    // forbids. Only a pre-cutover migration may abort.
+    this.requireState('legacy', 'preparing', 'shadow', 'draining', 'cutting-over')
     this.database.withImmediate(db => {
       // Deletion order follows the foreign keys with `foreign_keys=ON`: every
       // child row that references an imported task, attempt, schedule, group,
