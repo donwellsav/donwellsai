@@ -280,6 +280,44 @@ describe('ProviderSecretAuthority', () => {
     await secrets.putProviderCredential({ operationId: 'op-1', principal: principal(), secret: MARKER })
     await expect(secrets.materializeProviderLaunch(authorization())).rejects.toMatchObject({ code: 'AUTHORIZATION_INVALID' })
   })
+
+  /**
+   * Rotation on the materialize path must not consume the very plaintext it is
+   * about to hand the launch, and a driver that declares no environment must
+   * never cause a store mutation.
+   */
+  it('materializes non-empty environment values when the backend requests rotation', async () => {
+    const directory = profile('provider-secrets-rotate-materialize-')
+    const encryption = new FakeEncryption()
+    const secrets = authority(directory, encryption)
+    await secrets.putProviderCredential({ operationId: 'op-1', principal: principal(), secret: MARKER })
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    const before = JSON.parse(readFileSync(storePath, 'utf8')) as { revision: number }
+
+    encryption.rotateNext = true
+    const launched = await secrets.materializeProviderLaunch(authorization())
+    expect(launched.environment).toEqual({ OPENAI_API_KEY: MARKER })
+    expect(launched.environment['OPENAI_API_KEY']).not.toBe('')
+    expect(launched.credentialRevision).toBe(1)
+    // The rotation actually happened, and the rotated record still decrypts.
+    const after = JSON.parse(readFileSync(storePath, 'utf8')) as { revision: number }
+    expect(after.revision).toBeGreaterThan(before.revision)
+    expect((await secrets.materializeProviderLaunch(authorization())).environment['OPENAI_API_KEY']).toBe(MARKER)
+  })
+
+  it('does not mutate the store when rotation is requested but no environment is declared', async () => {
+    const directory = profile('provider-secrets-rotate-noenv-')
+    const encryption = new FakeEncryption()
+    const secrets = authority(directory, encryption, {})
+    await secrets.putProviderCredential({ operationId: 'op-1', principal: principal(), secret: MARKER })
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    const before = JSON.parse(readFileSync(storePath, 'utf8')) as { revision: number }
+
+    encryption.rotateNext = true
+    await expect(secrets.materializeProviderLaunch(authorization())).rejects.toMatchObject({ code: 'AUTHORIZATION_INVALID' })
+    // The refusal must precede the rotation write, so the store is untouched.
+    expect((JSON.parse(readFileSync(storePath, 'utf8')) as { revision: number }).revision).toBe(before.revision)
+  })
 })
 
 describe('ProviderCredentialAuthority', () => {
@@ -428,6 +466,94 @@ describe('ProviderCredentialAuthority', () => {
     expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
     await expect(secrets.materializeProviderLaunch(authorization({ credentialRef: asCredentialRef(binding.credentialRef) }))).rejects.toMatchObject({ code: 'CREDENTIAL_REVOKED' })
     expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
+  })
+
+  /**
+   * Reconciliation is the recovery authority for interrupted sagas, so a
+   * revocation it cannot complete must leave the intent visible rather than
+   * closing it to a terminal lie while decryptable material survives.
+   */
+  it('leaves a reconcilable operation incomplete when its revocation fails', async () => {
+    const { directory, catalog } = catalogue('provider-saga-revoke-failure-')
+    const encryption = new FakeEncryption()
+    const secrets = authority(directory, encryption)
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+    const binding = catalog.credentialBinding(instance.id, account.id)!
+    catalog.stageCredentialRevoke({ operationId: 'failing-revoke', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })
+
+    // The store becomes unreadable, so the reconciliation revoke cannot succeed.
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    writeFileSync(storePath, '{corrupt', { mode: 0o600 })
+    const reconciled = await credentials.reconcile()
+    expect(reconciled.resolved).toBe(0)
+    expect(reconciled.blocked).toEqual(['failing-revoke'])
+    expect(catalog.incompleteCredentialOperations().map(operation => operation.id)).toEqual(['failing-revoke'])
+    // The binding was not retired: revocation precedes retirement.
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe(binding.credentialRef)
+
+    // Once the store is readable again, reconciliation completes it idempotently.
+    rmSync(storePath)
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
+  })
+
+  it('leaves a catalog-bound operation incomplete when its superseded revoke fails', async () => {
+    const { directory, catalog } = catalogue('provider-saga-bound-failure-')
+    const encryption = new FakeEncryption()
+    const secrets = authority(directory, encryption)
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+
+    // Drive the real saga to its catalog-bound checkpoint, then corrupt the store
+    // so the superseded-ref revocation cannot complete.
+    const staged = await secrets.reserveProviderCredentialRef()
+    const revision = catalog.snapshot().instances[0]!.revision
+    const operation = catalog.stageCredentialReplace({ operationId: 'bound-op', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: revision, expectedAccountRevision: account.revision, stagedCredentialRef: staged })
+    const target: ResolvedProviderCredentialPrincipal = { driverId: 'codex', providerInstanceId: instance.id, instanceRevision: revision + 1, accountId: account.id, accountRevision: account.revision, credentialRef: staged, bindingGeneration: operation.targetBindingGeneration! }
+    await secrets.putProviderCredential({ operationId: 'bound-op', principal: target, secret: 'staged-marker' })
+    expect(catalog.bindStagedCredential({ operationId: 'bound-op', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: revision, expectedAccountRevision: account.revision, targetCredentialRef: staged, targetBindingGeneration: operation.targetBindingGeneration!, expectedBindingGeneration: operation.priorBindingGeneration ?? 0 })).toBe(true)
+    expect(catalog.credentialOperation('bound-op')?.state).toBe('catalog-bound')
+
+    const storePath = join(directory, 'provider-secrets.enc.json')
+    writeFileSync(storePath, '{corrupt', { mode: 0o600 })
+    const reconciled = await credentials.reconcile()
+    expect(reconciled.resolved).toBe(0)
+    expect(reconciled.blocked).toEqual(['bound-op'])
+    // A bound saga is never rewritten to a terminal state it did not reach.
+    expect(catalog.credentialOperation('bound-op')?.state).toBe('catalog-bound')
+
+    rmSync(storePath)
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.credentialOperation('bound-op')?.state).toBe('complete')
+  })
+
+  it('keeps a failed revoke() recoverable instead of orphaning a revoked binding', async () => {
+    const { directory, catalog } = catalogue('provider-saga-revoke-orphan-')
+    const encryption = new FakeEncryption()
+    const secrets = authority(directory, encryption)
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
+    const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
+    const instance = catalog.create({ ...managed, accountId: account.id })
+    await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+    const binding = catalog.credentialBinding(instance.id, account.id)!
+
+    // The Catalog retirement fails after the secret is already revoked. The
+    // pending intent must survive so reconciliation can finish the retirement.
+    const failing = localProviderCredentialCatalog(catalog)
+    const failingCredentials = new ProviderCredentialAuthority({ catalog: { ...failing, retireCredentialBindingForOperation: async () => { throw new Error('retirement unavailable') } }, authority: secrets })
+    await expect(failingCredentials.revoke({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })).rejects.toThrowError(/retirement unavailable/)
+    expect(catalog.incompleteCredentialOperations()).toHaveLength(1)
+    expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe(binding.credentialRef)
+
+    // Reconciliation completes the exact revoke-then-retire path.
+    expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
+    expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
+    expect(catalog.incompleteCredentialOperations()).toEqual([])
   })
 
   it('leaves a third-binding conflict blocked for explicit recovery', async () => {

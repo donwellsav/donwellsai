@@ -505,15 +505,21 @@ export class ProviderSecretAuthority implements SecretAuthority {
       if (record.instanceRevision !== input.instanceRevision || record.accountRevision !== input.accountRevision || record.bindingGeneration !== input.bindingGeneration) fail('BINDING_CHANGED', 'Provider credential binding changed before materialization')
       const opened = await this.open(record.ciphertext)
       if (!sameTuple(record, opened.credential) || !sameTuple(opened.credential, input)) fail('BINDING_CHANGED', 'Credential payload does not authenticate to the admitted launch principal')
+      // A driver that declares no managed environment is refused before any
+      // rotation write, so a refused call never mutates the store.
+      const names = this.environments[input.driverId]
+      if (!names || names.length === 0) fail('AUTHORIZATION_INVALID', `Driver ${input.driverId} declares no managed credential environment`)
+      // Capture the plaintext locally: sealing wipes the record it is handed, so
+      // building the environment from the record after rotating would emit empty
+      // values for every variable.
+      const secret = opened.credential.secret
       if (opened.shouldReEncrypt) {
-        const ciphertext = await this.ciphertextFor(opened.credential)
+        const ciphertext = await this.ciphertextFor({ ...opened.credential, secret })
         const rotated: StoredCredential = { ...record, ciphertext, backend: this.encryption.backend(), updatedAt: this.clock().toISOString() }
         this.persist({ version: STORE_VERSION, revision: store.revision + 1, records: { ...store.records, [input.credentialRef]: rotated } })
       }
-      const names = this.environments[input.driverId]
-      if (!names || names.length === 0) fail('AUTHORIZATION_INVALID', `Driver ${input.driverId} declares no managed credential environment`)
       const environment: Record<string, string> = {}
-      for (const name of names) environment[name] = opened.credential.secret
+      for (const name of names) environment[name] = secret
       const credentialRevision = record.credentialRevision
       opened.credential.secret = ''
       return { environment, credentialRevision }
@@ -589,9 +595,14 @@ export class ProviderCredentialAuthority {
       await this.secrets.putProviderCredential({ operationId, principal: target, secret: request.secret })
       const bound = await this.catalog.bindStagedCredential({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, targetCredentialRef: stagedRef, targetBindingGeneration: targetGeneration, expectedBindingGeneration: intent.priorBindingGeneration ?? 0 })
       if (!bound) {
-        // A lost compare-and-set revokes the staged ref and aborts; the caller
-        // learns only that the credential changed underneath it.
-        await this.secrets.revokeProviderCredential({ principal: target })
+        // A lost compare-and-set aborts only once the staged ref is provably
+        // revoked. If that revoke fails, the intent stays open so reconciliation
+        // can retry it rather than leaving a decryptable staged secret behind.
+        try {
+          await this.secrets.revokeProviderCredential({ principal: target })
+        } catch {
+          throw new SecretAuthorityError('CREDENTIAL_ABSENT', 'The staged credential could not be revoked; reconciliation will retry it')
+        }
         await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
         throw new SecretAuthorityError('BINDING_CHANGED', 'Provider credential changed while this request was in flight')
       }
@@ -602,6 +613,8 @@ export class ProviderCredentialAuthority {
       }
       await this.catalog.closeCredentialOperation({ operationId, state: 'complete' })
     } catch (error) {
+      // The lost-bind branch already closed its own intent; every other failure
+      // abandons only a pre-bind intent, so a bound saga survives for reconciliation.
       if (!(error instanceof SecretAuthorityError && error.code === 'BINDING_CHANGED')) await this.abandon(operationId)
       throw error
     }
@@ -617,13 +630,11 @@ export class ProviderCredentialAuthority {
     if (intent.priorCredentialRef === null || intent.priorBindingGeneration === null) throw new SecretAuthorityError('CREDENTIAL_ABSENT', 'No credential is bound to this provider account')
     const principal: ResolvedProviderCredentialPrincipal = { driverId: scope.driverId, providerInstanceId: request.providerInstanceId, instanceRevision: scope.instanceRevision, accountId: request.accountId, accountRevision: scope.accountRevision, credentialRef: asCredentialRef(intent.priorCredentialRef), bindingGeneration: intent.priorBindingGeneration }
     let revoked: CredentialStatus
-    try {
-      revoked = await this.secrets.revokeProviderCredential({ principal })
-      await this.catalog.retireCredentialBindingForOperation({ providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, expectedBindingGeneration: intent.priorBindingGeneration, credentialOperationId: operationId })
-    } catch (error) {
-      await this.abandon(operationId)
-      throw error
-    }
+    // A failed revoke or retirement is rethrown with the `pending` intent left
+    // in place: closing it would leave the active Catalog binding naming a
+    // revoked ref with nothing for reconciliation to finish.
+    revoked = await this.secrets.revokeProviderCredential({ principal })
+    await this.catalog.retireCredentialBindingForOperation({ providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, expectedBindingGeneration: intent.priorBindingGeneration, credentialOperationId: operationId })
     // The status is read before retirement because after it the account simply
     // has no binding; the user still needs to see that this exact credential
     // was revoked rather than never existing.
@@ -647,11 +658,17 @@ export class ProviderCredentialAuthority {
     return this.status({ providerInstanceId, accountId })
   }
 
-  /** A failed saga never silently leaves its intent incomplete. */
+  /**
+   * A failed saga never silently leaves its intent incomplete — but it also
+   * never rewrites a `catalog-bound` intent to a terminal state it did not
+   * reach. A bound saga has already published the target generation, so its
+   * remaining work (revoke the superseded ref, then complete) belongs to
+   * reconciliation, not to an abort.
+   */
   private async abandon(operationId: string): Promise<void> {
     try {
       const operation = await this.catalog.credentialOperation(operationId)
-      if (operation && (operation.state === 'pending' || operation.state === 'catalog-bound')) await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
+      if (operation?.state === 'pending') await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
     } catch {
       // Startup reconciliation owns whatever is left incomplete.
     }
@@ -660,9 +677,11 @@ export class ProviderCredentialAuthority {
   /**
    * Startup reconciliation, run before any credential handler registers.
    *
-   * Every incomplete intent is driven to a terminal state idempotently. A state
-   * that cannot be resolved without operator input is left intact and reported:
-   * the saga never guesses which of two live bindings the user meant.
+   * Every incomplete intent is driven to a terminal state idempotently, and an
+   * intent whose revocation or retirement fails stays incomplete and is
+   * reported instead of being closed to a terminal state it never reached. That
+   * is what keeps a decryptable credential from surviving a false "complete",
+   * and it mirrors the retirement handling in the destructive branch.
    */
   async reconcile(): Promise<{ resolved: number; blocked: string[] }> {
     const blocked: string[] = []
@@ -684,7 +703,15 @@ export class ProviderCredentialAuthority {
         if (binding !== null && binding.credentialRef === operation.stagedCredentialRef) {
           // The Catalog published the target: revoke the superseded ref, then complete.
           if (operation.priorCredentialRef !== null && operation.priorBindingGeneration !== null) {
-            await this.secrets.revokeProviderCredential({ principal: { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration } }).catch(() => undefined)
+            const superseded: ResolvedProviderCredentialPrincipal = { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration }
+            try {
+              await this.secrets.revokeProviderCredential({ principal: superseded })
+            } catch {
+              // A surviving superseded ref is exactly the state this operation
+              // exists to close; fail closed and report it.
+              blocked.push(operation.id)
+              continue
+            }
           }
           await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
           resolved++
@@ -692,7 +719,12 @@ export class ProviderCredentialAuthority {
         }
         if ((binding?.credentialRef ?? null) === operation.priorCredentialRef && (binding?.bindingGeneration ?? null) === operation.priorBindingGeneration) {
           // The bind never landed: revoke the staged ref and abort.
-          await this.secrets.revokeProviderCredential({ principal: staged }).catch(() => undefined)
+          try {
+            await this.secrets.revokeProviderCredential({ principal: staged })
+          } catch {
+            blocked.push(operation.id)
+            continue
+          }
           await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'aborted' })
           resolved++
           continue
@@ -705,7 +737,7 @@ export class ProviderCredentialAuthority {
         blocked.push(operation.id)
         continue
       }
-      const prior = { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration }
+      const prior: ResolvedProviderCredentialPrincipal = { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration }
       if (binding === null) {
         // Retirement already landed before the crash.
         await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
@@ -715,12 +747,24 @@ export class ProviderCredentialAuthority {
       if (binding.credentialRef !== operation.priorCredentialRef || binding.bindingGeneration !== operation.priorBindingGeneration) {
         // A concurrent replacement already superseded this operation: the old
         // ref stays revoked, the new one stays active, and nothing is orphaned.
-        await this.secrets.revokeProviderCredential({ principal: prior }).catch(() => undefined)
+        try {
+          await this.secrets.revokeProviderCredential({ principal: prior })
+        } catch {
+          blocked.push(operation.id)
+          continue
+        }
         await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
         resolved++
         continue
       }
-      await this.secrets.revokeProviderCredential({ principal: prior }).catch(() => undefined)
+      try {
+        await this.secrets.revokeProviderCredential({ principal: prior })
+      } catch {
+        // Revocation precedes retirement, so the binding must stay live and the
+        // intent must stay open until the exact ref is provably revoked.
+        blocked.push(operation.id)
+        continue
+      }
       try {
         await this.catalog.retireCredentialBindingForOperation({ providerInstanceId, accountId, expectedInstanceRevision: binding.instanceRevision, expectedAccountRevision: binding.accountRevision, expectedBindingGeneration: operation.priorBindingGeneration, credentialOperationId: operation.id })
       } catch {
