@@ -13,6 +13,8 @@ Complete. Commits on `roadmap/stage-3-provider-authority`:
 | `dd05737` | docs: record the Task 2 secret authority report |
 | `6d77d9c` | docs: correct the Task 2 commit list |
 | `078837d` | fix: close provider secret authority review findings |
+| `605f0ce` | docs: append the Task 2 fix-round-1 section |
+| `aa6fdd3` | fix: never abort a saga whose staged secret still decrypts |
 
 Base: `722752b` (Task 1 catalog complete).
 
@@ -276,3 +278,70 @@ round owner as instructed.
 Constraints held: no raw renderer secret surface was restored, no plaintext is
 persisted or rendered, and launch selection and renderer launch controls are
 untouched.
+
+## Fix round 2
+
+One same-class hole remained from round 1, reported by Main and confirmed at
+source: an **`aborted` row must never coexist with a live sealed staged record**,
+because `incompleteCredentialOperations()` skips terminal rows and reconciliation
+therefore never revokes it.
+
+Non-vacuity proven by stashing both source files back to `605f0ce`: the new
+tests fail **2 failed / 28 passed**; restored, **30 passed**. Focused suites
+(provider-secret-authority + provider-catalog + task-authority) are **89 passed**,
+and `pnpm typecheck` is clean. Full suite/build/package are left to the round
+owner as instructed.
+
+### Instance 1 — the Catalog aborted its own lost compare-and-set
+
+`bindStagedCredential` wrote `state='aborted'` **inside** its lost-CAS branch and
+returned `false`, inverting the brief's order (`task-2-brief.md` line 122: revoke
+the staged ref, **then** mark `aborted`). When the orchestrator's follow-up
+`revokeProviderCredential` then threw, the row was already terminal, so
+reconciliation never revisited it and the sealed staged secret survived
+indefinitely with no blocked report.
+
+Fix: the lost-CAS branch now only returns `false`; the row stays `pending` and the
+orchestrator — which alone owns the staged ref — performs the revocation first.
+The return value and the rest of the method are unchanged.
+
+### Instance 2 (general fix) — `abandon()` is now proof-based
+
+If `putProviderCredential` succeeded and `bindStagedCredential` then **threw**
+rather than returning false — reachable from `requireRevision`
+(`INSTANCE_CHANGED`/`ACCOUNT_CHANGED`), `CREDENTIAL_OPERATION_NOT_FOUND`, or
+`guardForeignKeys('the target credential binding could not be published')` — the
+catch called `abandon`, which closed the pending row `aborted` and stranded the
+durable staged ciphertext.
+
+Rather than patching each site, `abandon(operationId)` is now proof-based: it
+reads the operation and, for a `create-replace` intent with a staged ref, revokes
+that exact staged ref **before** closing `aborted`; if the revocation throws it
+leaves the row incomplete and lets the original error propagate, so the caller
+still sees its own failure. A destructive intent (`revoke` kind) stages no
+material, so closing it stays safe, and a `catalog-bound` saga is still never
+touched. Every write failure now funnels through this one path, so no future
+call site can reintroduce the hole.
+
+Reconciliation's `create-replace` branch now states the brief's three cases
+explicitly: the published target completes; an **unchanged prior or absent**
+binding revokes the staged ref and aborts (an absent binding is distinct from a
+changed one); any **third** binding stays blocked for explicit recovery instead
+of being guessed at.
+
+### Tests (round 2)
+
+| Test | Asserts |
+|---|---|
+| `keeps a lost compare-and-set recoverable when the staged revoke fails` | Unreadable store at the bind seam ⇒ the saga stays in `incompleteCredentialOperations()`, `reconcile()` reports it `blocked` with the third binding untouched; once the store is readable it stays blocked while the third binding stands, then reconciles (revoke staged, close) once that binding is gone, with no staged marker left in any profile file. |
+| `aborts a lost compare-and-set once the staged ref is provably revoked` | No regression: a provable abort still terminates the saga, `incompleteCredentialOperations()` is empty, `reconcile()` is a no-op. |
+| `leaves no decryptable staged material when a throwing bind can still revoke` | A throwing bind with a readable store leaves no incomplete saga and no decryptable staged material; the unreadable-store variant leaves exactly one incomplete saga, blocks, then recovers with no staged marker remaining. |
+
+The existing `refuses a write whose expected revisions no longer match`
+expectation stays green, as does the rest of the suite.
+
+A note on the race harness: the two lost-CAS cases replace the binding
+**out-of-band with direct SQL**, not through the saga API, because a concurrent
+saga on the same tuple is refused by design (one live intent per
+tuple). Driving it through the API would have tested that guard instead of the
+recovery path.
