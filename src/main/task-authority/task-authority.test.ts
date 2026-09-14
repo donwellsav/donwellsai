@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { ProcessIdentity, ProcessIdentityVerdict } from '@shared/child-process/process-spec'
 import {
-  TaskAuthorityError,
   TaskAuthorityValidationError,
   type AuthenticatedAuthorityConnection,
   type EnqueueDueScheduleInput,
@@ -929,5 +928,150 @@ describe('task authority run groups and mailbox', () => {
     const ordered = authority.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks.map(task => task.externalTaskId)
     expect(seen).toEqual(ordered)
     expect(() => authority.query({ connection: ADMIN, projectId: PROJECT_ALPHA, limit: 501 })).toThrowError(TaskAuthorityValidationError)
+  })
+})
+
+describe('task authority review regressions', () => {
+  it('closes an attempt-less todo task cancellation directly to terminal cancelled', () => {
+    const { authority, path } = openAuthority()
+    const task = createTask(authority, PROJECT_ALPHA, 'NC-1')
+    const cancelled = authority.requestCancellation({ connection: admin(), projectId: PROJECT_ALPHA, taskId: task.taskId, expectedEntityVersion: 1 })
+    expect(cancelled).toMatchObject({ status: 'cancelled', cancelState: 'none', currentAttempt: null })
+    expect(() => claim(authority, PROJECT_ALPHA, 'NC-1', OWNER_BOB)).toThrowError(expect.objectContaining({ code: 'TASK_CANCELLED' }))
+    expect(() =>
+      authority.updateTask({ connection: admin(), projectId: PROJECT_ALPHA, taskId: task.taskId, expectedEntityVersion: cancelled.entityVersion, title: 'nope' })
+    ).toThrowError(expect.objectContaining({ code: 'STALE_AUTHORITY' }))
+    const reopened = reopen(path)
+    expect(reopened.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks[0].status).toBe('cancelled')
+  })
+
+  it('closes a queued schedule execution cancellation directly to terminal cancelled', () => {
+    const { authority } = openAuthority()
+    const schedule = authority.createSchedule({
+      connection: admin(),
+      projectId: PROJECT_ALPHA,
+      spec: SCHEDULE_SPEC(),
+      nextRunAt: '2026-09-13T10:00:00.000Z'
+    })
+    const due: EnqueueDueScheduleInput = {
+      connection: scheduler([PROJECT_ALPHA], [PROFILE_MAIN]),
+      projectId: PROJECT_ALPHA,
+      scheduleId: schedule.scheduleId,
+      expectedEntityVersion: 1,
+      expectedNextRunAt: '2026-09-13T10:00:00.000Z'
+    }
+    const execution = authority.enqueueDueSchedule(due)
+    const cancelled = authority.cancelScheduleExecution({
+      connection: admin(),
+      projectId: PROJECT_ALPHA,
+      scheduleId: schedule.scheduleId,
+      executionId: execution.executionId,
+      expectedEntityVersion: 1
+    })
+    expect(cancelled.state).toBe('cancelled')
+    const task = authority.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks[0]
+    expect(task).toMatchObject({ status: 'cancelled', currentAttempt: null })
+    expect(() =>
+      authority.cancelScheduleExecution({
+        connection: admin(),
+        projectId: PROJECT_ALPHA,
+        scheduleId: schedule.scheduleId,
+        executionId: execution.executionId,
+        expectedEntityVersion: 2
+      })
+    ).toThrowError(expect.objectContaining({ code: 'STALE_AUTHORITY' }))
+  })
+
+  it('closes a queued run-group cancellation directly to terminal and permits group deletion', () => {
+    const { authority, path } = openAuthority()
+    const one = createTask(authority, PROJECT_ALPHA, 'NG-1')
+    const two = createTask(authority, PROJECT_ALPHA, 'NG-2')
+    const group = authority.createRunGroup({
+      connection: admin(),
+      profileId: PROFILE_MAIN,
+      name: 'queued group',
+      concurrency: 2,
+      members: [
+        { projectId: PROJECT_ALPHA, taskId: one.taskId },
+        { projectId: PROJECT_ALPHA, taskId: two.taskId }
+      ]
+    })
+    const cancelled = authority.cancelRunGroup({ connection: admin(), profileId: PROFILE_MAIN, runGroupId: group.runGroupId, expectedEntityVersion: 1 })
+    expect(cancelled.state).toBe('cancelled')
+    expect(cancelled.members.map(member => member.state)).toEqual(['cancelled', 'cancelled'])
+    const tasks = authority.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks
+    expect(tasks.map(task => task.status)).toEqual(['cancelled', 'cancelled'])
+    const deleted = authority.deleteRunGroup({ connection: admin(), profileId: PROFILE_MAIN, runGroupId: group.runGroupId, expectedEntityVersion: 2 })
+    expect(deleted.runGroupId).toBe(group.runGroupId)
+    const reopened = reopen(path)
+    expect(reopened.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks).toHaveLength(2)
+  })
+
+  it('moves a run group to terminal cancelled when its last cancelling member exit is acknowledged', () => {
+    const { authority } = openAuthority()
+    const one = createTask(authority, PROJECT_ALPHA, 'AG-1')
+    const group = authority.createRunGroup({
+      connection: admin(),
+      profileId: PROFILE_MAIN,
+      name: 'awaiting ack',
+      concurrency: 1,
+      members: [{ projectId: PROJECT_ALPHA, taskId: one.taskId }]
+    })
+    const claimed = claim(authority, PROJECT_ALPHA, 'AG-1')
+    authority.cancelRunGroup({ connection: admin(), profileId: PROFILE_MAIN, runGroupId: group.runGroupId, expectedEntityVersion: 1 })
+    authority.acknowledgeExit({
+      projectId: PROJECT_ALPHA,
+      taskId: one.taskId,
+      attemptId: claimed.attempt.attemptId,
+      leaseId: claimed.token.leaseId,
+      generation: 1
+    })
+    const db = openTaskAuthorityRawConnection((authority as SqliteTaskAuthority).databasePath)
+    const row = db.prepare('SELECT state FROM run_groups WHERE id = ?').get(group.runGroupId) as { state: string }
+    db.close()
+    expect(row.state).toBe('cancelled')
+  })
+
+  it('rejects unknown keys on mutation inputs', () => {
+    const { authority } = openAuthority()
+    createTask(authority, PROJECT_ALPHA, 'UK-1')
+    expect(() =>
+      authority.createTask({ connection: ADMIN, projectId: PROJECT_ALPHA, externalTaskId: 'UK-2', title: 't', priorityy: 1 } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    expect(() =>
+      authority.claim({ connection: worker(OWNER_ALICE), projectId: PROJECT_ALPHA, externalTaskId: 'UK-1', specification: SPEC(), leaseTtlMs: 60_000, extra: true } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    expect(() =>
+      authority.write({ kind: 'progress', connection: worker(OWNER_ALICE), token: claim(authority, PROJECT_ALPHA, 'UK-1').token, detail: 'd', note: 'x' } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    expect(() =>
+      authority.offerHandoff({
+        connection: worker(OWNER_ALICE),
+        projectId: PROJECT_ALPHA,
+        taskId: '00000000-0000-4000-8000-000000000000',
+        attemptId: '00000000-0000-4000-8000-000000000000',
+        leaseId: '00000000-0000-4000-8000-000000000000',
+        generation: 1,
+        targetOwnerId: OWNER_BOB,
+        ttl: 60_000
+      } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    const schedule = authority.createSchedule({ connection: admin(), projectId: PROJECT_ALPHA, spec: SCHEDULE_SPEC(), nextRunAt: '2026-09-13T10:00:00.000Z' })
+    expect(() =>
+      authority.enqueueDueSchedule({
+        connection: scheduler([PROJECT_ALPHA], [PROFILE_MAIN]),
+        projectId: PROJECT_ALPHA,
+        scheduleId: schedule.scheduleId,
+        expectedEntityVersion: 1,
+        expectedNextRunAt: '2026-09-13T10:00:00.000Z',
+        dueKey: 'sneaky'
+      } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    expect(() =>
+      authority.requestCancellation({ connection: admin(), projectId: PROJECT_ALPHA, taskId: '00000000-0000-4000-8000-000000000000', expectedEntityVersion: 1, force: true } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
+    expect(() =>
+      authority.retryFailedTask({ connection: admin(), projectId: PROJECT_ALPHA, taskId: '00000000-0000-4000-8000-000000000000', expectedEntityVersion: 1, ownerId: OWNER_BOB, spec: SPEC() } as never)
+    ).toThrowError(expect.objectContaining({ name: 'TaskAuthorityValidationError' }))
   })
 })

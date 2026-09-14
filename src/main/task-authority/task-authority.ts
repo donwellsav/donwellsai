@@ -81,6 +81,7 @@ import { DeferredAuthorityError, openTaskAuthorityDatabase, type TaskAuthorityDa
 type Row = Record<string, unknown>
 
 const ACTIVE_STATES: Record<string, true> = { claimed: true, launching: true, running: true }
+const CAPACITY_STATES: Record<string, true> = { claimed: true, launching: true, running: true, cancelling: true, quarantined: true }
 const TERMINAL_ATTEMPT_STATES: Record<string, true> = { cancelled: true, exited: true, completed: true, failed: true }
 const TERMINAL_MEMBER_STATES: Record<string, true> = { cancelled: true, completed: true, failed: true }
 const TERMINAL_TASK_STATUSES: Record<string, true> = { cancelled: true, done: true, failed: true }
@@ -135,6 +136,16 @@ function boundedText(value: unknown, field: string, maximum: number, allowEmpty 
     throw new TaskAuthorityValidationError(field, `must be a string of at most ${maximum} characters`)
   }
   return value
+}
+
+/** Rejects unknown keys on mutation inputs before any parsing or database work. */
+function assertKnownFields(value: unknown, field: string, allowed: readonly string[]): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError(field, 'must be an object')
+  }
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) throw new TaskAuthorityValidationError(field, `unknown key "${key}"`)
+  }
 }
 
 function entityVersion(value: unknown, field: string): number {
@@ -567,6 +578,38 @@ function quarantineAttempt(db: DatabaseSync, projectId: string, taskId: string, 
   appendTaskEvent(db, projectId, taskId, attemptId, 'attempt-quarantined', int(loadTaskRow(db, projectId, taskId)['entity_version']), { reason })
 }
 
+/** True when the task holds a live attempt whose exit must be acknowledged before terminal close. */
+function taskAwaitingExitAck(db: DatabaseSync, projectId: string, taskId: string, attemptId: string | null): boolean {
+  if (attemptId === null) return false
+  const attempt = db.prepare('SELECT state FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId) as Row | undefined
+  return attempt !== undefined && CAPACITY_STATES[text(attempt['state']) as AttemptState] === true
+}
+
+/**
+ * Terminal close for cancellations whose task has no live attempt (todo,
+ * queued, or otherwise attempt-less): there is no process exit to
+ * acknowledge, so the same transaction moves every linked record to
+ * terminal cancelled. Attempt-holding tasks still require trusted
+ * acknowledgeExit and keep capacity/reservations while cancelling.
+ */
+function closeCancellationTerminal(db: DatabaseSync, projectId: string, taskId: string, attemptId: string | null): number {
+  if (attemptId !== null) {
+    db.prepare("UPDATE attempts SET state = 'cancelled', finished_at = ? WHERE project_id = ? AND id = ? AND state NOT IN ('cancelled','exited','completed','failed')").run(nowIso(), projectId, attemptId)
+    stopLaunchIntent(db, projectId, attemptId, 'stopped', 'exited')
+    releaseReservation(db, projectId, attemptId)
+  }
+  db.prepare("UPDATE run_members SET state = 'cancelled' WHERE project_id = ? AND task_id = ? AND state <> 'completed'").run(projectId, taskId)
+  syncExecutionForTask(db, projectId, taskId, () => ({ state: 'cancelled' }))
+  return bumpTask(db, projectId, taskId, "status = 'cancelled', cancel_state = 'none'", [])
+}
+
+/** Flip a run group to terminal cancelled once every linked member is terminal. */
+function closeGroupIfFullyTerminal(db: DatabaseSync, runGroupId: string): void {
+  const open = db.prepare("SELECT 1 FROM run_members WHERE run_group_id = ? AND state IN ('queued','claimed','launching','running','cancelling','quarantined') LIMIT 1").get(runGroupId) as Row | undefined
+  if (open) return
+  db.prepare("UPDATE run_groups SET state = 'cancelled', entity_version = entity_version + 1, updated_at = ? WHERE id = ? AND state = 'cancelling'").run(nowIso(), runGroupId)
+}
+
 function assertCompletionRequirements(db: DatabaseSync, token: LeaseToken): void {
   const attempt = loadAttemptRow(db, token.projectId, token.attemptId)
   const specification = db.prepare('SELECT verification_json FROM execution_specifications WHERE project_id = ? AND id = ?').get(token.projectId, text(attempt['specification_id'])) as Row | undefined
@@ -781,6 +824,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- admin task intents ---------------------------------------------------
 
   createTask(input: AdminCreateTaskInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'repositoryId', 'workspaceRoot', 'externalTaskId', 'title', 'body', 'priority', 'status'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const externalTaskId = boundedField(input?.['externalTaskId'], 'externalTaskId', 128)
@@ -812,6 +856,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   updateTask(input: AdminUpdateTaskInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'title', 'body', 'priority', 'status'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -842,6 +887,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   setDependencies(input: AdminSetDependenciesInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'dependsOnTaskIds'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -876,6 +922,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- schedules ------------------------------------------------------------
 
   createSchedule(input: AdminCreateScheduleInput): ScheduleSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'repositoryId', 'workspaceRoot', 'spec', 'enabled', 'nextRunAt'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const spec = parseScheduleSpec(input?.['spec'])
@@ -895,6 +942,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   updateSchedule(input: AdminUpdateScheduleInput): ScheduleSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'expectedEntityVersion', 'spec', 'enabled', 'nextRunAt'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
@@ -921,6 +969,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   duplicateSchedule(input: AdminDuplicateScheduleInput): ScheduleSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
@@ -942,6 +991,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   deleteSchedule(input: AdminDeleteScheduleInput): ScheduleSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
@@ -960,6 +1010,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   enqueueDueSchedule(input: EnqueueDueScheduleInput): ScheduleExecutionSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'expectedEntityVersion', 'expectedNextRunAt'])
     const connection = parseAuthorityConnection(input?.['connection'])
     if (connection.role !== 'daemon-scheduler') {
       throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not enqueue due schedule executions`)
@@ -1003,6 +1054,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   enqueueManualScheduleExecution(input: EnqueueManualScheduleExecutionInput): ScheduleExecutionSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'expectedEntityVersion', 'requestId'])
     const connection = parseAuthorityConnection(input?.['connection'])
     if (connection.role !== 'administrator') {
       throw new TaskAuthorityError('AUTHORIZATION_DENIED', `role "${connection.role}" may not enqueue manual schedule executions`)
@@ -1052,6 +1104,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   listScheduleExecutions(input: ScheduleExecutionQuery): ScheduleExecutionPage {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'state', 'cursor', 'limit'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = input?.['projectId'] === undefined ? undefined : boundedField(input['projectId'], 'projectId', 128)
     const scheduleId = input?.['scheduleId'] === undefined ? undefined : assertAuthorityUuid(input['scheduleId'], 'scheduleId')
@@ -1086,6 +1139,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   cancelScheduleExecution(input: AdminCancelScheduleExecutionInput): ScheduleExecutionSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'scheduleId', 'executionId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const scheduleId = assertAuthorityUuid(input?.['scheduleId'], 'scheduleId')
@@ -1102,17 +1156,19 @@ export class SqliteTaskAuthority implements TaskAuthority {
         throw new TaskAuthorityError('STALE_AUTHORITY', `schedule execution ${executionId} is already terminal`)
       }
       const taskId = text(execution['task_id'])
-      db.prepare("UPDATE schedule_executions SET state = 'cancelling', entity_version = entity_version + 1 WHERE project_id = ? AND id = ?").run(projectId, executionId)
-      db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
       const attemptId = textOrNull(loadTaskRow(db, projectId, taskId)['current_attempt_id'])
-      if (attemptId !== null) {
-        const attempt = loadAttemptRow(db, projectId, attemptId)
-        if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
-          db.prepare("UPDATE attempts SET state = 'cancelling', finished_at = NULL WHERE project_id = ? AND id = ?").run(projectId, attemptId)
-        }
+      if (taskAwaitingExitAck(db, projectId, taskId, attemptId)) {
+        db.prepare("UPDATE schedule_executions SET state = 'cancelling', entity_version = entity_version + 1 WHERE project_id = ? AND id = ?").run(projectId, executionId)
+        db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
+        db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(projectId, attemptId as string)
+        syncMemberState(db, projectId, taskId, 'cancelling')
+        appendTaskEvent(db, projectId, taskId, attemptId, 'schedule-execution-cancelling', int(execution['entity_version']) + 1, { executionId })
+      } else {
+        // Queued executions have no live attempt; close every linked record to terminal cancelled atomically.
+        db.prepare("UPDATE schedule_executions SET state = 'cancelled', entity_version = entity_version + 1 WHERE project_id = ? AND id = ?").run(projectId, executionId)
+        const version = closeCancellationTerminal(db, projectId, taskId, attemptId)
+        appendTaskEvent(db, projectId, taskId, attemptId, 'schedule-execution-cancelled', version, { executionId })
       }
-      syncMemberState(db, projectId, taskId, 'cancelling')
-      appendTaskEvent(db, projectId, taskId, attemptId, 'schedule-execution-cancelling', int(execution['entity_version']) + 1, { executionId })
       return executionSnapshot(db.prepare('SELECT * FROM schedule_executions WHERE project_id = ? AND id = ?').get(projectId, executionId) as Row)
     })
   }
@@ -1120,6 +1176,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- run groups -----------------------------------------------------------
 
   createRunGroup(input: AdminCreateRunGroupInput): RunGroupSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'profileId', 'name', 'concurrency', 'members'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const profileId = boundedField(input?.['profileId'], 'profileId', 128)
     const name = boundedText(input?.['name'], 'name', TASK_AUTHORITY_MAX_TITLE, false)
@@ -1148,6 +1205,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   retryRunGroup(input: AdminRetryRunGroupInput): RunGroupSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'runGroupId', 'expectedEntityVersion', 'requestId', 'ownerId', 'memberTaskIds'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
     const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
@@ -1208,6 +1266,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   cancelRunGroup(input: AdminCancelRunGroupInput): RunGroupSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'profileId', 'runGroupId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const profileId = boundedField(input?.['profileId'], 'profileId', 128)
     const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
@@ -1224,34 +1283,39 @@ export class SqliteTaskAuthority implements TaskAuthority {
       if (text(group['state']) !== 'active') {
         return runGroupSnapshot(db, group)
       }
-      db.prepare("UPDATE run_groups SET state = 'cancelling', entity_version = entity_version + 1, updated_at = ? WHERE id = ?").run(nowIso(), runGroupId)
       const members = db.prepare('SELECT * FROM run_members WHERE run_group_id = ?').all(runGroupId) as Row[]
+      let anyAwaitingExit = false
       for (const member of members) {
         const memberProject = text(member['project_id'])
         const memberTask = text(member['task_id'])
         if (TERMINAL_MEMBER_STATES[text(member['state']) as RunMemberState]) continue
-        db.prepare("UPDATE run_members SET state = 'cancelling' WHERE run_group_id = ? AND project_id = ? AND task_id = ?").run(runGroupId, memberProject, memberTask)
-        db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ? AND status NOT IN ('done','cancelled','failed')")
-          .run(nowIso(), memberProject, memberTask)
         const attemptId = textOrNull(loadTaskRow(db, memberProject, memberTask)['current_attempt_id'])
-        if (attemptId !== null) {
-          const attempt = loadAttemptRow(db, memberProject, attemptId)
-          if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
-            db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(memberProject, attemptId)
-          }
+        if (taskAwaitingExitAck(db, memberProject, memberTask, attemptId)) {
+          anyAwaitingExit = true
+          db.prepare("UPDATE run_members SET state = 'cancelling' WHERE run_group_id = ? AND project_id = ? AND task_id = ?").run(runGroupId, memberProject, memberTask)
+          db.prepare("UPDATE tasks SET status = 'cancelling', cancel_state = 'requested', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ? AND status NOT IN ('done','cancelled','failed')")
+            .run(nowIso(), memberProject, memberTask)
+          db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(memberProject, attemptId as string)
+          syncExecutionForTask(db, memberProject, memberTask, execution => {
+            if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
+            return { state: 'cancelling' }
+          })
+          appendTaskEvent(db, memberProject, memberTask, attemptId, 'run-group-cancelling', int(group['entity_version']) + 1, { runGroupId })
+        } else {
+          // Queued members have no live attempt; close them to terminal cancelled in the same transaction.
+          const version = closeCancellationTerminal(db, memberProject, memberTask, attemptId)
+          appendTaskEvent(db, memberProject, memberTask, attemptId, 'run-group-member-cancelled', version, { runGroupId })
         }
-        syncExecutionForTask(db, memberProject, memberTask, execution => {
-          if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
-          return { state: 'cancelling' }
-        })
-        appendTaskEvent(db, memberProject, memberTask, attemptId, 'run-group-cancelling', int(group['entity_version']) + 1, { runGroupId })
       }
-      appendProfileEvent(db, profileId, runGroupId, 'run-group-cancelling', int(group['entity_version']) + 1, { runGroupId })
+      const groupState = anyAwaitingExit ? 'cancelling' : 'cancelled'
+      db.prepare('UPDATE run_groups SET state = ?, entity_version = entity_version + 1, updated_at = ? WHERE id = ?').run(groupState, nowIso(), runGroupId)
+      appendProfileEvent(db, profileId, runGroupId, anyAwaitingExit ? 'run-group-cancelling' : 'run-group-cancelled', int(group['entity_version']) + 1, { runGroupId })
       return runGroupSnapshot(db, loadRunGroup(db, runGroupId))
     })
   }
 
   deleteRunGroup(input: AdminDeleteRunGroupInput): RunGroupSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'profileId', 'runGroupId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const profileId = boundedField(input?.['profileId'], 'profileId', 128)
     const runGroupId = assertAuthorityUuid(input?.['runGroupId'], 'runGroupId')
@@ -1284,6 +1348,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- claims ---------------------------------------------------------------
 
   claim(input: AuthenticatedClaimInput): ClaimResult {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'externalTaskId', 'specification', 'leaseTtlMs'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const specification = parseTaskExecutionSpecification(input?.['specification'])
@@ -1344,6 +1409,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
     const connection = parseAuthorityConnection(record['connection'])
     switch (kind) {
       case 'heartbeat': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'ttlMs'])
         const token = parseLeaseToken(record['token'])
         const ttl = ttlMs(record['ttlMs'], 'ttlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
         return this.database.withImmediate(db => {
@@ -1357,6 +1423,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'progress': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'detail'])
         const token = parseLeaseToken(record['token'])
         const detail = boundedText(record['detail'], 'detail', TASK_AUTHORITY_MAX_USER_TEXT, false)
         return this.database.withImmediate(db => {
@@ -1367,6 +1434,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'record-launch-intent': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'specificationId'])
         const token = parseLeaseToken(record['token'])
         const specificationId = assertAuthorityUuid(record['specificationId'], 'specificationId')
         return this.database.withImmediate(db => {
@@ -1389,6 +1457,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'bind-runtime': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'sessionId', 'processIdentity'])
         const token = parseLeaseToken(record['token'])
         const sessionId = boundedField(record['sessionId'], 'sessionId', 128)
         const processIdentity = record['processIdentity']
@@ -1412,6 +1481,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'bind-worktree': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'resourceKey', 'worktreePath', 'repositoryId'])
         const token = parseLeaseToken(record['token'])
         const resourceKey = boundedField(record['resourceKey'], 'resourceKey', 128)
         const worktreePath = boundedText(record['worktreePath'], 'worktreePath', 128, false)
@@ -1434,6 +1504,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'attach-artifact': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'artifact'])
         const token = parseLeaseToken(record['token'])
         const artifact = parseVerificationArtifact(record['artifact'])
         return this.database.withImmediate(db => {
@@ -1446,6 +1517,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'complete': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'result'])
         const token = parseLeaseToken(record['token'])
         const result = record['result']
         if (typeof result !== 'object' || result === null) throw new TaskAuthorityValidationError('result', 'must be a completion object')
@@ -1465,6 +1537,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         })
       }
       case 'fail': {
+        assertKnownFields(record, 'operation', ['kind', 'connection', 'token', 'error'])
         const token = parseLeaseToken(record['token'])
         const error = boundedText(record['error'], 'error', TASK_AUTHORITY_MAX_ERROR_TEXT, false)
         return this.database.withImmediate(db => {
@@ -1486,6 +1559,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   beginSpawn(input: TrustedBeginSpawnInput): SpawnAdmission {
+    assertKnownFields(input, 'input', ['token', 'launchIntentId', 'expectedSpecificationId'])
     const token = parseLeaseToken(input?.['token'])
     const launchIntentId = assertAuthorityUuid(input?.['launchIntentId'], 'launchIntentId')
     const expectedSpecificationId = assertAuthorityUuid(input?.['expectedSpecificationId'], 'expectedSpecificationId')
@@ -1553,6 +1627,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- handoff, takeover, reconciliation ---------------------------------------
 
   offerHandoff(input: AuthenticatedHandoffOfferInput): HandoffOffer {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'targetOwnerId', 'ttlMs'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1581,6 +1656,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   cancelHandoff(input: AuthenticatedHandoffCancelInput): HandoffOffer {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'offerId'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1604,6 +1680,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   acceptHandoff(input: AuthenticatedHandoffAcceptInput): ClaimResult {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'attemptId', 'offerId'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1658,6 +1735,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   takeOverExpired(input: AuthenticatedTakeoverInput): ClaimResult {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'leaseTtlMs'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1731,6 +1809,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   reconcileExpiredOwner(input: TrustedExpiredOwnerReconciliationInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'launchIntentSha256', 'processIdentity', 'verdict'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
     const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
@@ -1793,6 +1872,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- cancellation, recovery, adoption, mailbox, projection -------------------
 
   requestCancellation(input: AdminCancellationInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1806,29 +1886,31 @@ export class SqliteTaskAuthority implements TaskAuthority {
       if (TERMINAL_TASK_STATUSES[text(task['status']) as TaskStatus]) {
         return taskSnapshot(db, task)
       }
-      if (text(task['status']) !== 'cancelling') {
-        db.prepare("UPDATE tasks SET status = 'cancelling', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
-      }
-      db.prepare("UPDATE tasks SET cancel_state = 'requested' WHERE project_id = ? AND id = ?").run(projectId, taskId)
       const attemptId = textOrNull(task['current_attempt_id'])
-      if (attemptId !== null) {
-        const attempt = loadAttemptRow(db, projectId, attemptId)
-        if (ACTIVE_STATES[text(attempt['state']) as AttemptState] || text(attempt['state']) === 'quarantined') {
-          db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(projectId, attemptId)
+      if (taskAwaitingExitAck(db, projectId, taskId, attemptId)) {
+        if (text(task['status']) !== 'cancelling') {
+          db.prepare("UPDATE tasks SET status = 'cancelling', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, taskId)
         }
+        db.prepare("UPDATE tasks SET cancel_state = 'requested' WHERE project_id = ? AND id = ?").run(projectId, taskId)
+        db.prepare("UPDATE attempts SET state = 'cancelling' WHERE project_id = ? AND id = ?").run(projectId, attemptId as string)
+        syncMemberState(db, projectId, taskId, 'cancelling')
+        syncExecutionForTask(db, projectId, taskId, execution => {
+          if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
+          return { state: 'cancelling' }
+        })
+        const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row
+        appendTaskEvent(db, projectId, taskId, attemptId, 'cancellation-requested', int(versionRow['entity_version']), {})
+      } else {
+        // Attempt-less cancellation has no process exit to acknowledge; close to terminal in the same transaction.
+        const version = closeCancellationTerminal(db, projectId, taskId, attemptId)
+        appendTaskEvent(db, projectId, taskId, attemptId, 'cancellation-closed', version, { reason: 'no live attempt to acknowledge' })
       }
-      syncMemberState(db, projectId, taskId, 'cancelling')
-      syncExecutionForTask(db, projectId, taskId, execution => {
-        if (TERMINAL_EXECUTION_STATES[text(execution['state']) as ScheduleExecutionState]) return { state: text(execution['state']) as ScheduleExecutionState }
-        return { state: 'cancelling' }
-      })
-      const versionRow = db.prepare('SELECT entity_version FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row
-      appendTaskEvent(db, projectId, taskId, attemptId, 'cancellation-requested', int(versionRow['entity_version']), {})
       return taskSnapshot(db, loadTaskRow(db, projectId, taskId))
     })
   }
 
   acknowledgeExit(input: TrustedExitAcknowledgement): TaskSnapshot {
+    assertKnownFields(input, 'input', ['projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'reason'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
     const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
@@ -1852,6 +1934,8 @@ export class SqliteTaskAuthority implements TaskAuthority {
       stopLaunchIntent(db, projectId, attemptId, 'stopped', 'exited')
       releaseReservation(db, projectId, attemptId)
       db.prepare("UPDATE run_members SET state = 'cancelled' WHERE project_id = ? AND task_id = ? AND state <> 'completed'").run(projectId, taskId)
+      const memberGroups = db.prepare('SELECT run_group_id FROM run_members WHERE project_id = ? AND task_id = ?').all(projectId, taskId) as Row[]
+      for (const memberGroup of memberGroups) closeGroupIfFullyTerminal(db, text(memberGroup['run_group_id']))
       syncExecutionForTask(db, projectId, taskId, () => ({ state: 'cancelled' }))
       const version = bumpTask(db, projectId, taskId, "status = 'cancelled'", [])
       appendTaskEvent(db, projectId, taskId, attemptId, 'exit-acknowledged', version, { reason })
@@ -1860,6 +1944,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   retryFailedTask(input: AdminRetryFailedTaskInput): ClaimResult {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'ownerId', 'specification', 'leaseTtlMs'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1900,6 +1985,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   adoptArtifact(input: ReviewedArtifactAdoptionInput): TaskSnapshot {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'artifactId', 'reviewReceiptSha256'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1930,6 +2016,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   appendMailbox(input: AuthenticatedMailboxInput): TaskMailboxEntry {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'kind', 'payload'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1958,6 +2045,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   acknowledgeAttention(input: AuthenticatedAttentionAcknowledgement): TaskMailboxEntry {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'mailboxEntryId'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
@@ -1979,6 +2067,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   query(input: TaskQuery): TaskProjection {
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'status', 'runnableOnly', 'cursor', 'limit'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = input?.['projectId'] === undefined ? undefined : boundedField(input['projectId'], 'projectId', 128)
     const status = input?.['status']
@@ -2032,8 +2121,6 @@ export class SqliteTaskAuthority implements TaskAuthority {
       return { tasks: page.map(row => taskSnapshot(db, row)), nextCursor }
     })
   }
-
-  // __APPEND_7__
 }
 
 // ---------------------------------------------------------------------------
@@ -2146,6 +2233,7 @@ function migrationPhase(value: unknown, field: string): 'imported' | 'superseded
  * the same source ID, and native authority rows are never touched here.
  */
 export function recordMigrationSource(database: TaskAuthorityDatabase, input: TaskAuthorityMigrationSourceInput): TaskAuthorityMigrationSourceReceipt {
+  assertKnownFields(input, 'input', ['scopeKind', 'scopeId', 'projectId', 'sourceKind', 'canonicalSourcePath', 'sourceSha256', 'normalizedJson', 'phase', 'supersedesSourceId', 'entityMappings'])
   const scopeKind = input?.['scopeKind']
   if (scopeKind !== 'project' && scopeKind !== 'profile') {
     throw new TaskAuthorityValidationError('scopeKind', 'must be "project" or "profile"')
