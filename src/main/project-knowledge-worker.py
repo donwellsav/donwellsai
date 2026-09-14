@@ -1,15 +1,34 @@
 """Bounded Graphiti 0.30.1 operations; input is owned by the desktop knowledge owner."""
 import asyncio
 import json
-import os
 import re
 import sys
 from datetime import datetime
 from importlib.metadata import version
 
+# One bounded startup read of the Neo4j password from the anonymous stdin pipe,
+# which the desktop owner closes immediately. The bytes are never forwarded to a
+# descendant, never logged, and never placed in the request document; they live
+# only in this process's memory for the duration of the run.
+MAX_PASSWORD_BYTES = 4096
+
+
+def read_password():
+    raw = sys.stdin.buffer.read(MAX_PASSWORD_BYTES + 1)
+    if not raw:
+        raise ValueError('Graphiti worker requires the Neo4j password on stdin')
+    if len(raw) > MAX_PASSWORD_BYTES:
+        raise ValueError('Graphiti worker received an oversized Neo4j password')
+    password = raw.decode('utf-8')
+    if not password or any(ord(char) < 32 or ord(char) == 127 for char in password):
+        raise ValueError('Graphiti worker received an invalid Neo4j password')
+    return password
+
+
 async def main():
     if version('graphiti-core') != '0.30.1':
         raise ValueError('Graphiti worker requires graphiti-core 0.30.1')
+    password = read_password()
     with open(sys.argv[1], encoding='utf-8') as source:
         request = json.load(source)
     group = request['group']
@@ -25,7 +44,8 @@ async def main():
     from graphiti_core.search.search_filters import SearchFilters, DateFilter, ComparisonOperator as Op
     from graphiti_core.utils.maintenance.graph_data_operations import clear_data
     config = request['configuration']
-    driver = Neo4jDriver(config['neo4jUri'], config['neo4jUser'], os.environ.get('DONWELLS_NEO4J_PASSWORD', ''))
+    driver = Neo4jDriver(config['neo4jUri'], config['neo4jUser'], password)
+    password = None
     llm_config = LLMConfig(api_key='local', base_url=config['modelUrl'], model=config['model'], small_model=config['model'], max_tokens=4096)
     graph = Graphiti(graph_driver=driver, llm_client=OpenAIGenericClient(llm_config, max_tokens=4096), embedder=OpenAIEmbedder(OpenAIEmbedderConfig(api_key='local', base_url=config['embeddingUrl'], embedding_model=config['embeddingModel'], embedding_dim=config['embeddingDimensions'])), cross_encoder=OpenAIRerankerClient(llm_config), max_coroutines=1)
     try:

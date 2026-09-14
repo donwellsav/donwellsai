@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { runProcess } from '@shared/child-process/run-process'
+import type { ProcessResult, ProcessSpec } from '@shared/child-process/process-spec'
 import { isObject } from '@shared/command-catalog'
 import type { KnowledgeSelection } from '@shared/project-knowledge'
 import { parseGraphitiConfiguration, type GraphitiConfiguration, type TemporalKnowledgeAnswer, type TemporalKnowledgeStatus, type TemporalSnapshot } from '@shared/project-temporal-knowledge'
@@ -14,8 +15,12 @@ import { temporalSources } from './project-temporal-sources'
 import workerSource from './project-knowledge-worker.py?raw'
 
 const validDate = (value: unknown) => value === null || value === undefined || (typeof value === 'string' && Number.isFinite(Date.parse(value)))
+/** Bound for one Neo4j password delivered over the worker's stdin pipe. */
+const GRAPHITI_MAX_PASSWORD_BYTES = 4096
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 type Generation = { group_id: string; configuration: string; digest: string; state: string; selection: string; receipts: string }
+/** The finite-process runner used for one worker run; injected by tests. */
+export type GraphitiProcessRunner = (spec: ProcessSpec) => Promise<ProcessResult>
 type WorkerRequest = { operation: 'retain' | 'query' | 'delete'; group: string; configuration: GraphitiConfiguration; sources?: TemporalSnapshot['sources']; query?: string; asOf?: string }
 export type GraphitiWorker = (input: WorkerRequest, signal: AbortSignal) => Promise<Record<string, unknown>>
 
@@ -25,7 +30,7 @@ export class ProjectTemporalKnowledge {
   private closed = false
   private error: string | null = null
   private operation: { abort: AbortController; done: ReturnType<typeof Promise.withResolvers<void>> } | null = null
-  constructor(private profile: string, configuration: GraphitiConfiguration, private resolveScope: (path: string) => Promise<ProjectToolScope>, private password: () => string | null = () => null, private worker: GraphitiWorker = (input, signal) => this.execute(input, signal)) { this.config = parseGraphitiConfiguration(configuration) }
+  constructor(private profile: string, configuration: GraphitiConfiguration, private resolveScope: (path: string) => Promise<ProjectToolScope>, private password: () => string | null = () => null, private worker: GraphitiWorker = (input, signal) => this.execute(input, signal), private spawnWorker: GraphitiProcessRunner = runProcess) { this.config = parseGraphitiConfiguration(configuration) }
   private ledger<T>(action: (db: DatabaseSync) => T): T {
     const directory = join(this.profile, 'project-knowledge'); mkdirSync(directory, { recursive: true, mode: 0o700 })
     const path = join(directory, 'temporal-projections.sqlite')
@@ -45,12 +50,21 @@ export class ProjectTemporalKnowledge {
     } finally { db.close() }
   }
   private generations(project: string): Generation[] { return this.ledger(db => db.prepare('SELECT * FROM generations WHERE project=? ORDER BY rowid DESC').all(project) as Generation[]) }
+  /**
+   * One finite worker run. The Neo4j password never touches argv, the request
+   * file, or the environment: it is written to the child's anonymous stdin pipe,
+   * which is then closed, and the local plaintext reference is released before
+   * the promise settles. A missing password is a refusal, not an empty string.
+   */
   private async execute(input: WorkerRequest, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const password = this.password()
+    if (password === null || password.length === 0) throw new Error('Graphiti requires a stored Neo4j password; save one before reconciling')
+    if (password.length > GRAPHITI_MAX_PASSWORD_BYTES || /[\u0000-\u001f\u007f]/.test(password)) throw new Error('Stored Graphiti password is not a valid one-line secret')
     const directory = await mkdtemp(join(tmpdir(), 'donwells-temporal-'))
     try {
       const path = join(directory, 'request.json'), file = await open(path, 'wx', 0o600)
       try { await file.writeFile(JSON.stringify(input)); await file.sync() } finally { await file.close() }
-      const output = await runProcess({ program: input.configuration.python, args: ['-I', '-c', workerSource, path], cwd: directory, env: { HOME: process.env.HOME, PATH: process.env.PATH, PYTHON_DOTENV_DISABLED: '1', GRAPHITI_TELEMETRY_ENABLED: 'false', DONWELLS_NEO4J_PASSWORD: this.password() ?? '' }, timeoutMs: 120000, maxOutputBytes: 1024 * 1024, signal }).catch(() => { signal.throwIfAborted(); throw new Error('Graphiti worker failed; check the configured service, pinned Python dependencies and model endpoints') })
+      const output = await this.spawnWorker({ program: input.configuration.python, args: ['-I', '-c', workerSource, path], cwd: directory, env: { HOME: process.env.HOME, PATH: process.env.PATH, PYTHON_DOTENV_DISABLED: '1', GRAPHITI_TELEMETRY_ENABLED: 'false' }, input: password, timeoutMs: 120000, maxOutputBytes: 1024 * 1024, signal }).catch(() => { signal.throwIfAborted(); throw new Error('Graphiti worker failed; check the configured service, pinned Python dependencies and model endpoints') })
       const result = JSON.parse(output.stdout)
       if (!isObject(result) || result.group !== input.group) throw new Error('Invalid or foreign Graphiti response')
       return result
