@@ -113,3 +113,61 @@ jobs:
         run: |
           arch=$(node -p "process.arch")
           node scripts/check-package.mjs --resources "${{ steps.packaged-resources.outputs.path }}" --platform "${{ matrix.platform }}" --arch "$arch"
+
+  task-authority:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+          - os: ubuntu-22.04
+            platform: linux
+          - os: windows-latest
+            platform: win32
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Task Authority race, migration, and recovery proofs
+        run: >-
+          pnpm exec vitest run
+          src/main/task-authority/task-authority.test.ts
+          src/main/task-authority/task-authority-races.test.ts
+          src/main/task-authority/task-authority-migration.test.ts
+          src/main/task-authority/task-execution-coordinator.test.ts
+          src/main/task-authority/task-projections.test.ts
+          src/main/task-authority/task-evidence-port.test.ts
+          src/main/profile-maintenance-gate.test.ts
+          src/main/runtime-identity.test.ts
+          src/main/runtime-ownership.test.ts
+
+      - name: Build directory package
+        run: pnpm run package:dir
+
+      - name: Locate directory package executable
+        shell: bash
+        run: |
+          executable=$(find dist -type f \( -name donwells -o -name donwells.exe \) -print -quit)
+          if test -z "$executable"; then
+            printf 'Directory package executable was not found\n' >&2
+            exit 1
+          fi
+          printf 'DONWELLS_ELECTRON_EXECUTABLE=%s/%s\n' "$PWD" "$executable" >> "$GITHUB_ENV"
+
+      - name: Run packaged Electron live smoke proof
+        run: pnpm exec playwright test e2e/smoke.e2e.ts
