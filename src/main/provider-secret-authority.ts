@@ -3,7 +3,7 @@ import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, ren
 import { dirname, join } from 'node:path'
 import { safeStorage } from 'electron'
 import type { ProviderCredentialEnvironment } from '@shared/provider-secret-broker'
-import type { ProviderCatalog, ProviderCredentialBinding, ProviderCredentialOperation } from '@shared/provider-authority'
+import type { ProviderCatalog, ProviderCredentialBinding, ProviderCredentialCatalog, ProviderCredentialOperation } from '@shared/provider-authority'
 import {
   PROVIDER_CREDENTIAL_ENVIRONMENTS,
   SecretAuthorityError,
@@ -523,9 +523,30 @@ export class ProviderSecretAuthority implements SecretAuthority {
 
 
 export type ProviderCredentialAuthorityOptions = Readonly<{
-  catalog: ProviderCatalog
+  catalog: ProviderCredentialCatalog
   authority: ProviderSecretAuthority
 }>
+
+/**
+ * Adapts the daemon's in-process Catalog to the async credential seam. The
+ * daemon itself needs this for startup reconciliation and for any future
+ * daemon-side credential work, and it is what keeps one orchestrator usable
+ * against both the local authority and the daemon wire client.
+ */
+export function localProviderCredentialCatalog(catalog: ProviderCatalog): ProviderCredentialCatalog {
+  return {
+    snapshot: async () => catalog.snapshot(),
+    credentialScope: async (providerInstanceId, accountId) => catalog.credentialScope(providerInstanceId, accountId),
+    credentialBinding: async (providerInstanceId, accountId) => catalog.credentialBinding(providerInstanceId, accountId),
+    incompleteCredentialOperations: async () => catalog.incompleteCredentialOperations(),
+    credentialOperation: async operationId => catalog.credentialOperation(operationId),
+    stageCredentialReplace: async input => catalog.stageCredentialReplace(input),
+    bindStagedCredential: async input => catalog.bindStagedCredential(input),
+    stageCredentialRevoke: async input => catalog.stageCredentialRevoke(input),
+    closeCredentialOperation: async input => catalog.closeCredentialOperation(input),
+    retireCredentialBindingForOperation: async input => { catalog.retireCredentialBindingForOperation(input) }
+  }
+}
 
 /**
  * Main-process orchestration of the provider credential saga.
@@ -540,7 +561,7 @@ export type ProviderCredentialAuthorityOptions = Readonly<{
  * retract bytes already consumed by an admitted OS child spawn.
  */
 export class ProviderCredentialAuthority {
-  private readonly catalog: ProviderCatalog
+  private readonly catalog: ProviderCredentialCatalog
   private readonly secrets: ProviderSecretAuthority
 
   constructor(options: ProviderCredentialAuthorityOptions) {
@@ -550,13 +571,13 @@ export class ProviderCredentialAuthority {
 
   /** Create or replace one instance/account credential; returns no internal identity. */
   async write(request: ProviderCredentialWriteRequest): Promise<ProviderCredentialResult> {
-    const scope = this.catalog.credentialScope(request.providerInstanceId, request.accountId)
+    const scope = await this.catalog.credentialScope(request.providerInstanceId, request.accountId)
     if (scope.instanceRevision !== request.expectedInstanceRevision || scope.accountRevision !== request.expectedAccountRevision) throw new SecretAuthorityError('BINDING_CHANGED', 'Provider revisions changed since this request was prepared')
     const operationId = randomUUID()
     const stagedRef = this.secrets.reserveProviderCredentialRef()
     // Persist the intent and its ref before sealing any material, so an
     // interrupted write is reconcilable from durable state alone.
-    const intent = this.catalog.stageCredentialReplace({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, stagedCredentialRef: stagedRef })
+    const intent = await this.catalog.stageCredentialReplace({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, stagedCredentialRef: stagedRef })
     const targetGeneration = intent.targetBindingGeneration
     if (targetGeneration === null) throw new SecretAuthorityError('AUTHORIZATION_INVALID', 'Credential intent has no target binding generation')
     // The record authenticates the revision the winning bind publishes, not the
@@ -566,12 +587,12 @@ export class ProviderCredentialAuthority {
     try {
       // Seal under the staged ref. The authority never picks a second ref.
       await this.secrets.putProviderCredential({ operationId, principal: target, secret: request.secret })
-      const bound = this.catalog.bindStagedCredential({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, targetCredentialRef: stagedRef, targetBindingGeneration: targetGeneration, expectedBindingGeneration: intent.priorBindingGeneration ?? 0 })
+      const bound = await this.catalog.bindStagedCredential({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, targetCredentialRef: stagedRef, targetBindingGeneration: targetGeneration, expectedBindingGeneration: intent.priorBindingGeneration ?? 0 })
       if (!bound) {
         // A lost compare-and-set revokes the staged ref and aborts; the caller
         // learns only that the credential changed underneath it.
         await this.secrets.revokeProviderCredential({ principal: target })
-        this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
+        await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
         throw new SecretAuthorityError('BINDING_CHANGED', 'Provider credential changed while this request was in flight')
       }
       // A winning bind revokes the superseded ref only after the Catalog
@@ -579,9 +600,9 @@ export class ProviderCredentialAuthority {
       if (intent.priorCredentialRef !== null && intent.priorBindingGeneration !== null) {
         await this.secrets.revokeProviderCredential({ principal: { ...target, credentialRef: asCredentialRef(intent.priorCredentialRef), bindingGeneration: intent.priorBindingGeneration } })
       }
-      this.catalog.closeCredentialOperation({ operationId, state: 'complete' })
+      await this.catalog.closeCredentialOperation({ operationId, state: 'complete' })
     } catch (error) {
-      if (!(error instanceof SecretAuthorityError && error.code === 'BINDING_CHANGED')) this.abandon(operationId)
+      if (!(error instanceof SecretAuthorityError && error.code === 'BINDING_CHANGED')) await this.abandon(operationId)
       throw error
     }
     return this.result(request.providerInstanceId, request.accountId)
@@ -589,24 +610,24 @@ export class ProviderCredentialAuthority {
 
   /** Revoke the exact live credential first, then compare-and-set retire it. */
   async revoke(request: ProviderCredentialRevokeRequest): Promise<ProviderCredentialResult> {
-    const scope = this.catalog.credentialScope(request.providerInstanceId, request.accountId)
+    const scope = await this.catalog.credentialScope(request.providerInstanceId, request.accountId)
     if (scope.instanceRevision !== request.expectedInstanceRevision || scope.accountRevision !== request.expectedAccountRevision) throw new SecretAuthorityError('BINDING_CHANGED', 'Provider revisions changed since this request was prepared')
     const operationId = randomUUID()
-    const intent = this.catalog.stageCredentialRevoke({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision })
+    const intent = await this.catalog.stageCredentialRevoke({ operationId, providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision })
     if (intent.priorCredentialRef === null || intent.priorBindingGeneration === null) throw new SecretAuthorityError('CREDENTIAL_ABSENT', 'No credential is bound to this provider account')
     const principal: ResolvedProviderCredentialPrincipal = { driverId: scope.driverId, providerInstanceId: request.providerInstanceId, instanceRevision: scope.instanceRevision, accountId: request.accountId, accountRevision: scope.accountRevision, credentialRef: asCredentialRef(intent.priorCredentialRef), bindingGeneration: intent.priorBindingGeneration }
     let revoked: CredentialStatus
     try {
       revoked = await this.secrets.revokeProviderCredential({ principal })
-      this.catalog.retireCredentialBindingForOperation({ providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, expectedBindingGeneration: intent.priorBindingGeneration, credentialOperationId: operationId })
+      await this.catalog.retireCredentialBindingForOperation({ providerInstanceId: request.providerInstanceId, accountId: request.accountId, expectedInstanceRevision: scope.instanceRevision, expectedAccountRevision: scope.accountRevision, expectedBindingGeneration: intent.priorBindingGeneration, credentialOperationId: operationId })
     } catch (error) {
-      this.abandon(operationId)
+      await this.abandon(operationId)
       throw error
     }
     // The status is read before retirement because after it the account simply
     // has no binding; the user still needs to see that this exact credential
     // was revoked rather than never existing.
-    return { snapshot: this.catalog.snapshot(), status: revoked }
+    return { snapshot: await this.catalog.snapshot(), status: revoked }
   }
 
   /**
@@ -614,12 +635,12 @@ export class ProviderCredentialAuthority {
    * than throwing: a missing credential is a normal state the UI must render.
    */
   async status(request: ProviderCredentialStatusRequest): Promise<ProviderCredentialResult> {
-    const scope = this.catalog.credentialScope(request.providerInstanceId, request.accountId)
-    const binding = this.catalog.credentialBinding(request.providerInstanceId, request.accountId)
+    const scope = await this.catalog.credentialScope(request.providerInstanceId, request.accountId)
+    const binding = await this.catalog.credentialBinding(request.providerInstanceId, request.accountId)
     const principal: ResolvedProviderCredentialPrincipal = binding === null
       ? { driverId: scope.driverId, providerInstanceId: request.providerInstanceId, instanceRevision: scope.instanceRevision, accountId: request.accountId, accountRevision: scope.accountRevision, credentialRef: this.secrets.reserveProviderCredentialRef(), bindingGeneration: 1 }
       : { driverId: binding.driverId, providerInstanceId: binding.providerInstanceId, instanceRevision: binding.instanceRevision, accountId: binding.accountId, accountRevision: binding.accountRevision, credentialRef: asCredentialRef(binding.credentialRef), bindingGeneration: binding.bindingGeneration }
-    return { snapshot: this.catalog.snapshot(), status: await this.secrets.inspectProviderCredential({ principal }) }
+    return { snapshot: await this.catalog.snapshot(), status: await this.secrets.inspectProviderCredential({ principal }) }
   }
 
   private async result(providerInstanceId: string, accountId: string): Promise<ProviderCredentialResult> {
@@ -627,10 +648,10 @@ export class ProviderCredentialAuthority {
   }
 
   /** A failed saga never silently leaves its intent incomplete. */
-  private abandon(operationId: string): void {
+  private async abandon(operationId: string): Promise<void> {
     try {
-      const operation = this.catalog.credentialOperation(operationId)
-      if (operation && (operation.state === 'pending' || operation.state === 'catalog-bound')) this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
+      const operation = await this.catalog.credentialOperation(operationId)
+      if (operation && (operation.state === 'pending' || operation.state === 'catalog-bound')) await this.catalog.closeCredentialOperation({ operationId, state: 'aborted' })
     } catch {
       // Startup reconciliation owns whatever is left incomplete.
     }
@@ -646,33 +667,33 @@ export class ProviderCredentialAuthority {
   async reconcile(): Promise<{ resolved: number; blocked: string[] }> {
     const blocked: string[] = []
     let resolved = 0
-    for (const operation of this.catalog.incompleteCredentialOperations()) {
+    for (const operation of await this.catalog.incompleteCredentialOperations()) {
       if (operation.providerInstanceId === null || operation.accountId === null) {
         blocked.push(operation.id)
         continue
       }
       const providerInstanceId = operation.providerInstanceId
       const accountId = operation.accountId
-      const binding = this.catalog.credentialBinding(providerInstanceId, accountId)
+      const binding = await this.catalog.credentialBinding(providerInstanceId, accountId)
       if (operation.kind === 'create-replace') {
         if (operation.stagedCredentialRef === null || operation.targetBindingGeneration === null || operation.priorCredentialRef === operation.stagedCredentialRef) {
           blocked.push(operation.id)
           continue
         }
-        const staged: ResolvedProviderCredentialPrincipal = { ...this.principal(operation, binding), credentialRef: asCredentialRef(operation.stagedCredentialRef), bindingGeneration: operation.targetBindingGeneration }
+        const staged: ResolvedProviderCredentialPrincipal = { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.stagedCredentialRef), bindingGeneration: operation.targetBindingGeneration }
         if (binding !== null && binding.credentialRef === operation.stagedCredentialRef) {
           // The Catalog published the target: revoke the superseded ref, then complete.
           if (operation.priorCredentialRef !== null && operation.priorBindingGeneration !== null) {
-            await this.secrets.revokeProviderCredential({ principal: { ...this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration } }).catch(() => undefined)
+            await this.secrets.revokeProviderCredential({ principal: { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration } }).catch(() => undefined)
           }
-          this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
+          await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
           resolved++
           continue
         }
         if ((binding?.credentialRef ?? null) === operation.priorCredentialRef && (binding?.bindingGeneration ?? null) === operation.priorBindingGeneration) {
           // The bind never landed: revoke the staged ref and abort.
           await this.secrets.revokeProviderCredential({ principal: staged }).catch(() => undefined)
-          this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'aborted' })
+          await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'aborted' })
           resolved++
           continue
         }
@@ -684,10 +705,10 @@ export class ProviderCredentialAuthority {
         blocked.push(operation.id)
         continue
       }
-      const prior = { ...this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration }
+      const prior = { ...await this.principal(operation, binding), credentialRef: asCredentialRef(operation.priorCredentialRef), bindingGeneration: operation.priorBindingGeneration }
       if (binding === null) {
         // Retirement already landed before the crash.
-        this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
+        await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
         resolved++
         continue
       }
@@ -695,13 +716,13 @@ export class ProviderCredentialAuthority {
         // A concurrent replacement already superseded this operation: the old
         // ref stays revoked, the new one stays active, and nothing is orphaned.
         await this.secrets.revokeProviderCredential({ principal: prior }).catch(() => undefined)
-        this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
+        await this.catalog.closeCredentialOperation({ operationId: operation.id, state: 'complete' })
         resolved++
         continue
       }
       await this.secrets.revokeProviderCredential({ principal: prior }).catch(() => undefined)
       try {
-        this.catalog.retireCredentialBindingForOperation({ providerInstanceId, accountId, expectedInstanceRevision: binding.instanceRevision, expectedAccountRevision: binding.accountRevision, expectedBindingGeneration: operation.priorBindingGeneration, credentialOperationId: operation.id })
+        await this.catalog.retireCredentialBindingForOperation({ providerInstanceId, accountId, expectedInstanceRevision: binding.instanceRevision, expectedAccountRevision: binding.accountRevision, expectedBindingGeneration: operation.priorBindingGeneration, credentialOperationId: operation.id })
       } catch {
         blocked.push(operation.id)
         continue
@@ -711,10 +732,10 @@ export class ProviderCredentialAuthority {
     return { resolved, blocked }
   }
 
-  private principal(operation: ProviderCredentialOperation, binding: ProviderCredentialBinding | null): ResolvedProviderCredentialPrincipal {
+  private async principal(operation: ProviderCredentialOperation, binding: ProviderCredentialBinding | null): Promise<ResolvedProviderCredentialPrincipal> {
     if (operation.providerInstanceId === null || operation.accountId === null) throw new SecretAuthorityError('AUTHORIZATION_INVALID', 'Credential operation is not bound to a provider account')
     if (binding !== null) return { driverId: binding.driverId, providerInstanceId: binding.providerInstanceId, instanceRevision: binding.instanceRevision, accountId: binding.accountId, accountRevision: binding.accountRevision, credentialRef: asCredentialRef(binding.credentialRef), bindingGeneration: binding.bindingGeneration }
-    const scope = this.catalog.credentialScope(operation.providerInstanceId, operation.accountId)
+    const scope = await this.catalog.credentialScope(operation.providerInstanceId, operation.accountId)
     return { driverId: scope.driverId, providerInstanceId: operation.providerInstanceId, instanceRevision: operation.instanceRevision ?? scope.instanceRevision, accountId: operation.accountId, accountRevision: operation.accountRevision ?? scope.accountRevision, credentialRef: asCredentialRef(operation.priorCredentialRef ?? operation.stagedCredentialRef ?? randomUUID()), bindingGeneration: operation.priorBindingGeneration ?? operation.targetBindingGeneration ?? 1 }
   }
 }

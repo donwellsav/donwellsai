@@ -16,7 +16,7 @@ import {
 import type { ProviderCredentialOperation, ProviderInstanceInput } from '@shared/provider-authority'
 import { AgentRegistry } from './agents/registry'
 import { SqliteProviderCatalog } from './provider-catalog'
-import { ProviderCredentialAuthority, ProviderSecretAuthority, type ProviderSecretEncryption } from './provider-secret-authority'
+import { ProviderCredentialAuthority, ProviderSecretAuthority, localProviderCredentialCatalog, type ProviderSecretEncryption } from './provider-secret-authority'
 import { openTaskAuthorityDatabase, type TaskAuthorityDatabase } from './task-authority/schema'
 
 const MARKER = 'disposable-provider-marker-0123456789'
@@ -322,7 +322,7 @@ describe('ProviderCredentialAuthority', () => {
   it('writes, reports, replaces, and revokes through the saga without leaking internals', async () => {
     const { directory, catalog } = catalogue('provider-saga-')
     const secrets = authority(directory, new FakeEncryption())
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: secrets })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
 
@@ -349,7 +349,7 @@ describe('ProviderCredentialAuthority', () => {
 
   it('refuses a write whose expected revisions no longer match', async () => {
     const { directory, catalog } = catalogue('provider-saga-stale-')
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: authority(directory, new FakeEncryption()) })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: authority(directory, new FakeEncryption()) })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await expect(credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision + 5, expectedAccountRevision: account.revision, secret: MARKER })).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
@@ -358,7 +358,7 @@ describe('ProviderCredentialAuthority', () => {
 
   it('refuses a managed credential for an external-mode instance', async () => {
     const { directory, catalog } = catalogue('provider-saga-external-')
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: authority(directory, new FakeEncryption()) })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: authority(directory, new FakeEncryption()) })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const external = catalog.create({ ...managed, credentialMode: 'external', accountId: account.id })
     await expect(credentials.write({ providerInstanceId: external.id, accountId: account.id, expectedInstanceRevision: external.revision, expectedAccountRevision: account.revision, secret: MARKER })).rejects.toThrowError(/external providers/)
@@ -381,7 +381,7 @@ describe('ProviderCredentialAuthority', () => {
     const { directory, catalog } = catalogue('provider-saga-crash-')
     const encryption = new FakeEncryption()
     const secrets = authority(directory, encryption)
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: secrets })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
@@ -414,7 +414,7 @@ describe('ProviderCredentialAuthority', () => {
   it('reconciles an interrupted revoke by revoking the exact ref and retiring it', async () => {
     const { directory, catalog } = catalogue('provider-saga-revoke-')
     const secrets = authority(directory, new FakeEncryption())
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: secrets })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
@@ -433,7 +433,7 @@ describe('ProviderCredentialAuthority', () => {
   it('leaves a third-binding conflict blocked for explicit recovery', async () => {
     const { directory, catalog } = catalogue('provider-saga-blocked-')
     const secrets = authority(directory, new FakeEncryption())
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: secrets })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     const staged = await secrets.reserveProviderCredentialRef()
@@ -450,7 +450,7 @@ describe('ProviderCredentialAuthority', () => {
   it('refuses identity mutations while a credential operation is live', async () => {
     const { directory, catalog } = catalogue('provider-saga-guard-')
     const secrets = authority(directory, new FakeEncryption())
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: secrets })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: secrets })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
@@ -463,7 +463,7 @@ describe('ProviderCredentialAuthority', () => {
 
   it('never reports a bound credential status as launch authority', async () => {
     const { directory, catalog } = catalogue('provider-saga-status-')
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: authority(directory, new FakeEncryption()) })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: authority(directory, new FakeEncryption()) })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     const result = await credentials.status({ providerInstanceId: instance.id, accountId: account.id })
@@ -474,7 +474,7 @@ describe('ProviderCredentialAuthority', () => {
 
   it('reports no plaintext in the durable store after a full lifecycle', async () => {
     const { directory, catalog } = catalogue('provider-saga-bytes-')
-    const credentials = new ProviderCredentialAuthority({ catalog, authority: authority(directory, new FakeEncryption()) })
+    const credentials = new ProviderCredentialAuthority({ catalog: localProviderCredentialCatalog(catalog), authority: authority(directory, new FakeEncryption()) })
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })

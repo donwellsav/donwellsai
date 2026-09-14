@@ -515,11 +515,17 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   pickDirectory(): Promise<string | null>
   pickProjectKitPath(kind: 'export' | 'archive' | 'destination'): Promise<string | null>
 
-  /** Sentinel secrets (safeStorage-backed). */
-  secretSet(key: string, value: string): Promise<void>
-  secretGet(key: string): Promise<string | null>
-  secretDelete(key: string): Promise<void>
-  secretAvailable(): Promise<boolean>
+  /**
+   * Managed provider credentials. These are the only credential calls the
+   * renderer may make: each accepts a bounded write/status/revoke request and
+   * returns a sanitized Catalog projection plus a CredentialStatus. Credential
+   * references, binding generations, launch environments, and broker frames
+   * never cross this boundary.
+   */
+  providerCredentialWrite(request: import('./provider-secret-broker').ProviderCredentialWriteRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
+  providerCredentialStatus(request: import('./provider-secret-broker').ProviderCredentialStatusRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
+  providerCredentialRevoke(request: import('./provider-secret-broker').ProviderCredentialRevokeRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
+
   // Auto-updater IPC surface
   autoUpdaterCheck(): Promise<boolean>
   autoUpdaterDownload(): Promise<void>

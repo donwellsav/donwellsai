@@ -1137,6 +1137,97 @@ export class TerminalDaemon {
           reply(true, { snapshot: this.providerCatalog.snapshot() })
           break
         }
+        // -- credential-operation saga surface -------------------------------
+        // Trusted main orchestrates the saga because it owns credential
+        // material, but the Catalog facts live here. These ops expose only the
+        // saga's own steps over the authenticated daemon connection; they are
+        // never reachable from renderer/runtime RPC, the CLI, or plugins, and a
+        // sanitized projection never contains a ref or a generation.
+        case 'provider.credential.scope': {
+          const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
+          const accountId = taskWireRequiredString(message['accountId'], 'accountId')
+          reply(true, { scope: this.providerCatalog.credentialScope(providerInstanceId, accountId) })
+          break
+        }
+        case 'provider.credential.binding': {
+          const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
+          const accountId = taskWireRequiredString(message['accountId'], 'accountId')
+          reply(true, { binding: this.providerCatalog.credentialBinding(providerInstanceId, accountId) })
+          break
+        }
+        case 'provider.credential.incomplete':
+          reply(true, { operations: this.providerCatalog.incompleteCredentialOperations() })
+          break
+        case 'provider.credential.operation': {
+          const operationId = taskWireRequiredString(message['operationId'], 'operationId')
+          reply(true, { operation: this.providerCatalog.credentialOperation(operationId) })
+          break
+        }
+        case 'provider.credential.stage-replace': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be a credential intent')
+          const record = input as Record<string, unknown>
+          reply(true, { operation: this.providerCatalog.stageCredentialReplace({
+            operationId: taskWireRequiredString(record['operationId'], 'input.operationId'),
+            providerInstanceId: taskWireRequiredString(record['providerInstanceId'], 'input.providerInstanceId'),
+            accountId: taskWireRequiredString(record['accountId'], 'input.accountId'),
+            expectedInstanceRevision: taskWireEntityVersion(record['expectedInstanceRevision'], 'input.expectedInstanceRevision'),
+            expectedAccountRevision: taskWireEntityVersion(record['expectedAccountRevision'], 'input.expectedAccountRevision'),
+            stagedCredentialRef: taskWireRequiredString(record['stagedCredentialRef'], 'input.stagedCredentialRef', 512)
+          }) })
+          break
+        }
+        case 'provider.credential.bind': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be a credential bind')
+          const record = input as Record<string, unknown>
+          const bound = this.providerCatalog.bindStagedCredential({
+            operationId: taskWireRequiredString(record['operationId'], 'input.operationId'),
+            providerInstanceId: taskWireRequiredString(record['providerInstanceId'], 'input.providerInstanceId'),
+            accountId: taskWireRequiredString(record['accountId'], 'input.accountId'),
+            expectedInstanceRevision: taskWireEntityVersion(record['expectedInstanceRevision'], 'input.expectedInstanceRevision'),
+            expectedAccountRevision: taskWireEntityVersion(record['expectedAccountRevision'], 'input.expectedAccountRevision'),
+            targetCredentialRef: taskWireRequiredString(record['targetCredentialRef'], 'input.targetCredentialRef', 512),
+            targetBindingGeneration: taskWireInteger(record['targetBindingGeneration'], 'input.targetBindingGeneration', 1, Number.MAX_SAFE_INTEGER) ?? 1,
+            expectedBindingGeneration: taskWireInteger(record['expectedBindingGeneration'], 'input.expectedBindingGeneration', 0, Number.MAX_SAFE_INTEGER) ?? 0
+          })
+          reply(true, { bound })
+          break
+        }
+        case 'provider.credential.stage-revoke': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be a credential revoke intent')
+          const record = input as Record<string, unknown>
+          reply(true, { operation: this.providerCatalog.stageCredentialRevoke({
+            operationId: taskWireRequiredString(record['operationId'], 'input.operationId'),
+            providerInstanceId: taskWireRequiredString(record['providerInstanceId'], 'input.providerInstanceId'),
+            accountId: taskWireRequiredString(record['accountId'], 'input.accountId'),
+            expectedInstanceRevision: taskWireEntityVersion(record['expectedInstanceRevision'], 'input.expectedInstanceRevision'),
+            expectedAccountRevision: taskWireEntityVersion(record['expectedAccountRevision'], 'input.expectedAccountRevision')
+          }) })
+          break
+        }
+        case 'provider.credential.close': {
+          const state = message['state']
+          if (state !== 'pending' && state !== 'catalog-bound' && state !== 'complete' && state !== 'aborted') throw new TaskAuthorityValidationError('state', 'must be a known credential operation state')
+          reply(true, { operation: this.providerCatalog.closeCredentialOperation({ operationId: taskWireRequiredString(message['operationId'], 'operationId'), state }) })
+          break
+        }
+        case 'provider.credential.retire': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be a credential retirement')
+          const record = input as Record<string, unknown>
+          this.providerCatalog.retireCredentialBindingForOperation({
+            providerInstanceId: taskWireRequiredString(record['providerInstanceId'], 'input.providerInstanceId'),
+            accountId: taskWireRequiredString(record['accountId'], 'input.accountId'),
+            expectedInstanceRevision: taskWireEntityVersion(record['expectedInstanceRevision'], 'input.expectedInstanceRevision'),
+            expectedAccountRevision: taskWireEntityVersion(record['expectedAccountRevision'], 'input.expectedAccountRevision'),
+            expectedBindingGeneration: taskWireInteger(record['expectedBindingGeneration'], 'input.expectedBindingGeneration', 1, Number.MAX_SAFE_INTEGER) ?? 1,
+            credentialOperationId: taskWireRequiredString(record['credentialOperationId'], 'input.credentialOperationId')
+          })
+          reply(true, {})
+          break
+        }
         case 'agent.authenticate': {
           const binding = this.authenticateHook(message)
           if (binding && this.pty.liveness(binding.record.run.sessionId) === 'live') reply(true, { run: cloneRun(binding.record.run) })

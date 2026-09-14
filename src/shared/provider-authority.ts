@@ -89,24 +89,82 @@ export type ProviderCredentialReplaceIntent = {
 }
 export type PrepareProviderLaunchInput = { selection: ProviderSelection; attemptId: string; sessionId: string; purpose: 'agent-launch' }
 export type ProviderLaunchPreparation = { id: string; selection: ProviderSelection; command: ProviderCommandSpec; credentialMode: ProviderCredentialMode; credentialRequest: null | { credentialRef: string; bindingGeneration: number; driverId: AgentDriverId; providerInstanceId: string; accountId: string; accountRevision: number }; attemptId: string; sessionId: string; purpose: 'agent-launch'; expiresAt: string }
-export interface ProviderCatalog { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation
-
-  // -- credential-operation saga (main-only; refs and generations never render) --
-  /** The exact live binding for one instance/account, or null when none is bound. */
+/** The synchronous in-process credential-saga slice of the Catalog. */
+export interface ProviderCredentialOperations {
+  credentialScope(providerInstanceId: string, accountId: string): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number }
   credentialBinding(providerInstanceId: string, accountId: string): ProviderCredentialBinding | null
-  /** Every incomplete saga, newest first: the startup reconciliation work list. */
   incompleteCredentialOperations(): ProviderCredentialOperation[]
   credentialOperation(operationId: string): ProviderCredentialOperation | null
-  /** Reads the current instance/account revisions plus driver, for principal resolution. */
-  credentialScope(providerInstanceId: string, accountId: string): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number }
-  /** Records the create-replace intent; the caller already chose the staged ref. */
   stageCredentialReplace(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; stagedCredentialRef: string }): ProviderCredentialOperation
-  /** Compare-and-set the binding to the staged target generation. */
   bindStagedCredential(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; targetCredentialRef: string; targetBindingGeneration: number; expectedBindingGeneration: number }): boolean
-  /** Records the revoke intent, resolving the exact live ref/generation in the Catalog. */
   stageCredentialRevoke(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number }): ProviderCredentialOperation
-  /** Idempotent terminal transition: `complete`, `catalog-bound`, or `aborted`. */
   closeCredentialOperation(input: { operationId: string; state: ProviderCredentialOperationState }): ProviderCredentialOperation
+  retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): ProviderInstanceProjection
+}
+
+/**
+ * The asynchronous credential-saga seam trusted main orchestration runs
+ * against. The Catalog is daemon-owned, so main reaches it over the daemon
+ * wire; the in-process SQLite authority is adapted to this shape instead.
+ */
+export interface ProviderCredentialCatalog extends Omit<ProviderCredentialOperations, 'credentialScope' | 'credentialBinding' | 'incompleteCredentialOperations' | 'credentialOperation' | 'stageCredentialReplace' | 'bindStagedCredential' | 'stageCredentialRevoke' | 'closeCredentialOperation' | 'retireCredentialBindingForOperation'> {
+  snapshot(): Promise<ProviderCatalogSnapshot>
+  credentialScope(providerInstanceId: string, accountId: string): Promise<{ driverId: AgentDriverId; instanceRevision: number; accountRevision: number }>
+  credentialBinding(providerInstanceId: string, accountId: string): Promise<ProviderCredentialBinding | null>
+  incompleteCredentialOperations(): Promise<readonly ProviderCredentialOperation[]>
+  credentialOperation(operationId: string): Promise<ProviderCredentialOperation | null>
+  stageCredentialReplace(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; stagedCredentialRef: string }): Promise<ProviderCredentialOperation>
+  bindStagedCredential(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; targetCredentialRef: string; targetBindingGeneration: number; expectedBindingGeneration: number }): Promise<boolean>
+  stageCredentialRevoke(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number }): Promise<ProviderCredentialOperation>
+  closeCredentialOperation(input: { operationId: string; state: ProviderCredentialOperationState }): Promise<ProviderCredentialOperation>
+  retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): Promise<void>
+}
+
+export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
+
+/** The credential-saga wire decoders: opaque ids and revisions, never material. */
+export function parseCredentialScope(value: unknown, label = 'credential scope'): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number } {
+  const record = wireRecord(value, label)
+  wireOptionalKeys(record, ['driverId', 'instanceRevision', 'accountRevision'], ['driverId', 'instanceRevision', 'accountRevision'], label)
+  return {
+    driverId: parseAgentDriverId(record['driverId'], label + '.driverId'),
+    instanceRevision: wireInteger(record['instanceRevision'], label + '.instanceRevision', 1),
+    accountRevision: wireInteger(record['accountRevision'], label + '.accountRevision', 1)
+  }
+}
+
+export function parseCredentialBinding(value: unknown, label = 'credential binding'): ProviderCredentialBinding {
+  const record = wireRecord(value, label)
+  wireOptionalKeys(record, ['driverId', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision', 'credentialRef', 'bindingGeneration'], ['driverId', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision', 'credentialRef', 'bindingGeneration'], label)
+  return {
+    driverId: parseAgentDriverId(record['driverId'], label + '.driverId'),
+    providerInstanceId: wireString(record['providerInstanceId'], label + '.providerInstanceId', 128) as string,
+    instanceRevision: wireInteger(record['instanceRevision'], label + '.instanceRevision', 1),
+    accountId: wireString(record['accountId'], label + '.accountId', 128) as string,
+    accountRevision: wireInteger(record['accountRevision'], label + '.accountRevision', 1),
+    credentialRef: wireString(record['credentialRef'], label + '.credentialRef', 512) as string,
+    bindingGeneration: wireInteger(record['bindingGeneration'], label + '.bindingGeneration', 1)
+  }
+}
+
+export function parseCredentialOperation(value: unknown, label = 'credential operation'): ProviderCredentialOperation {
+  const record = wireRecord(value, label)
+  wireOptionalKeys(record, ['id', 'kind', 'state', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision', 'priorCredentialRef', 'priorBindingGeneration', 'stagedCredentialRef', 'targetBindingGeneration'], ['id', 'kind', 'state', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision', 'priorCredentialRef', 'priorBindingGeneration', 'stagedCredentialRef', 'targetBindingGeneration'], label)
+  const nullableString = (key: string, maximum: number): string | null => record[key] === null ? null : wireString(record[key], `${label}.${key}`, maximum) as string
+  const nullableInteger = (key: string, minimum: number): number | null => record[key] === null ? null : wireInteger(record[key], `${label}.${key}`, minimum)
+  return {
+    id: wireString(record['id'], label + '.id', 128) as string,
+    kind: wireEnum(record['kind'], label + '.kind', PROVIDER_CREDENTIAL_OPERATION_KINDS),
+    state: wireEnum(record['state'], label + '.state', PROVIDER_CREDENTIAL_OPERATION_STATES),
+    providerInstanceId: nullableString('providerInstanceId', 128),
+    instanceRevision: nullableInteger('instanceRevision', 1),
+    accountId: nullableString('accountId', 128),
+    accountRevision: nullableInteger('accountRevision', 1),
+    priorCredentialRef: nullableString('priorCredentialRef', 512),
+    priorBindingGeneration: nullableInteger('priorBindingGeneration', 1),
+    stagedCredentialRef: nullableString('stagedCredentialRef', 512),
+    targetBindingGeneration: nullableInteger('targetBindingGeneration', 1)
+  }
 }
 
 /**

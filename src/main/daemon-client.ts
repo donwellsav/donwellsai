@@ -12,7 +12,7 @@ import {
   type ProfileMaintenanceTransitionReceipt
 } from '@shared/profile-maintenance'
 import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
-import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderInstanceInput } from '@shared/provider-authority'
+import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseCredentialBinding, parseCredentialOperation, parseCredentialScope, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderCredentialCatalog, type ProviderInstanceInput } from '@shared/provider-authority'
 import {
   PROVIDER_SECRET_BROKER_CAPABILITY,
   PROVIDER_SECRET_BROKER_PROTOCOL,
@@ -1275,6 +1275,64 @@ export class DaemonClient {
     const response = await this.request<{ snapshot: unknown }>('agent.providers.account.remove', { input })
     return parseProviderCatalogSnapshot(response.snapshot)
   }
+
+  /**
+   * The credential-saga facade trusted main orchestration runs against the
+   * daemon-owned Catalog. It carries refs and generations, so it is main-only by
+   * construction: nothing here is exposed to the renderer, the CLI, or plugins.
+   */
+  providerCredentialCatalog(): ProviderCredentialCatalog {
+    return {
+      snapshot: () => this.providerCatalogSnapshot(),
+      credentialScope: async (providerInstanceId, accountId) => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'reading credential scope')
+        const response = await this.request<{ scope: unknown }>('provider.credential.scope', { providerInstanceId, accountId })
+        return parseCredentialScope(response.scope)
+      },
+      credentialBinding: async (providerInstanceId, accountId) => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'reading credential binding')
+        const response = await this.request<{ binding: unknown }>('provider.credential.binding', { providerInstanceId, accountId })
+        return response.binding === null ? null : parseCredentialBinding(response.binding)
+      },
+      incompleteCredentialOperations: async () => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'reading credential operations')
+        const response = await this.request<{ operations: unknown }>('provider.credential.incomplete')
+        if (!Array.isArray(response.operations)) throw new Error('terminal daemon returned an invalid credential operation list')
+        return response.operations.map(operation => parseCredentialOperation(operation))
+      },
+      credentialOperation: async operationId => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'reading a credential operation')
+        const response = await this.request<{ operation: unknown }>('provider.credential.operation', { operationId })
+        return response.operation === null ? null : parseCredentialOperation(response.operation)
+      },
+      stageCredentialReplace: async input => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'staging a credential replacement')
+        const response = await this.request<{ operation: unknown }>('provider.credential.stage-replace', { input })
+        return parseCredentialOperation(response.operation)
+      },
+      bindStagedCredential: async input => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'binding a staged credential')
+        const response = await this.request<{ bound: unknown }>('provider.credential.bind', { input })
+        if (typeof response.bound !== 'boolean') throw new Error('terminal daemon returned an invalid credential bind result')
+        return response.bound
+      },
+      stageCredentialRevoke: async input => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'staging a credential revocation')
+        const response = await this.request<{ operation: unknown }>('provider.credential.stage-revoke', { input })
+        return parseCredentialOperation(response.operation)
+      },
+      closeCredentialOperation: async input => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'closing a credential operation')
+        const response = await this.request<{ operation: unknown }>('provider.credential.close', { operationId: input.operationId, state: input.state })
+        return parseCredentialOperation(response.operation)
+      },
+      retireCredentialBindingForOperation: async input => {
+        await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'retiring a credential binding')
+        await this.request('provider.credential.retire', { input })
+      }
+    }
+  }
+
   /** Optional capability: an older detached daemon remains authoritative and untouched. */
   async attentionInboxList(): Promise<AttentionInboxListResult> {
     await this.connect()

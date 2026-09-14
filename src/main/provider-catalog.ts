@@ -46,6 +46,12 @@ function isForeignKeyFailure(error: unknown): boolean {
   return candidate.errcode === SQLITE_CONSTRAINT_FOREIGNKEY || (typeof candidate.message === 'string' && candidate.message.includes('FOREIGN KEY constraint failed'))
 }
 
+/**
+ * The daemon-owned SQLite catalog. Its credential-saga methods are synchronous
+ * here because this class is the authority itself; the async
+ * `ProviderCredentialCatalog` seam is what trusted main orchestration sees, and
+ * `DaemonClient` adapts the two.
+ */
 export class SqliteProviderCatalog implements ProviderCatalog {
   readonly databasePath: string
   private readonly database: TaskAuthorityDatabase

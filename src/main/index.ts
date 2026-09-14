@@ -33,6 +33,8 @@ import { runSmokeProbe } from './smoke-probe'
 import { TrayService } from './tray-service'
 import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
+import { ProviderCredentialAuthority, ProviderSecretAuthority } from './provider-secret-authority'
+import { parseProviderCredentialRevokeRequest, parseProviderCredentialStatusRequest, parseProviderCredentialWriteRequest, SecretAuthorityError } from '@shared/provider-secret-broker'
 import { hashVerificationArtifact } from './diff-review'
 import { OperationalRunService, openVerificationArtifact } from './operational-run-service'
 import { registerTaskAuthorityCapability } from './plugins/app-capabilities'
@@ -108,7 +110,13 @@ let git: GitWorktrees
 let terminalBus: DaemonClient
 let rpcServer: RuntimeRpcServer | null = null
 let trayService: TrayService | null = null
-let secrets: SecretStore | null = null
+/**
+ * The separate Graphiti Neo4j secret authority: unrelated to provider
+ * credentials, with its own store, migration risk, and durable key namespace.
+ */
+let graphitiSecrets: SecretStore | null = null
+/** Main-process orchestration of the provider credential saga. */
+let providerCredentials: ProviderCredentialAuthority | null = null
 let operationalRuns: OperationalRunService
 let agentRuntime: AgentRuntime
 const guiDrafts = new Map<string, string>()
@@ -151,6 +159,16 @@ const workspacePreview = new WorkspacePreview(resolveRegisteredWorkspace)
 
 function send<K extends keyof MainEvents>(channel: K, payload: MainEvents[K]): void {
   mainWindow?.webContents.send(channel, payload)
+}
+
+/**
+ * Renders one credential failure for the renderer. Only the typed authority
+ * code and a bounded explanation cross the boundary: no ref, generation, path,
+ * or ciphertext may appear in an error string the UI displays.
+ */
+function credentialFailure(error: unknown): Error {
+  if (error instanceof SecretAuthorityError) return new Error(`${error.code}: ${error.message}`)
+  return new Error(error instanceof Error ? error.message : 'Provider credential operation failed')
 }
 
 function publishSettings(settings: AppSettings): AppSettings {
@@ -902,18 +920,41 @@ void app.whenReady().then(async () => {
       }
     })
   }
-  secrets = new SecretStore(app.getPath('userData'))
-  ipcMain.handle('secretSet', (_e, key: string, value: string) => {
-    secrets?.set(key, value)
-    return true
+  // The renderer has no raw secret surface. Credential material is reachable
+  // only through the action-specific provider methods below, which return a
+  // sanitized Catalog projection plus a CredentialStatus.
+  graphitiSecrets = new SecretStore(app.getPath('userData'))
+  const credentialCatalog = terminalBus.providerCredentialCatalog()
+  providerCredentials = new ProviderCredentialAuthority({
+    catalog: credentialCatalog,
+    authority: new ProviderSecretAuthority({ userDataDir: app.getPath('userData') })
   })
-  ipcMain.handle('secretGet', (_e, key: string) => secrets?.get(key) ?? null)
-  ipcMain.handle('secretDelete', (_e, key: string) => {
-    secrets?.delete(key)
-    return true
+  // Startup reconciliation runs before any credential handler registers, so an
+  // interrupted saga is settled before the UI can observe or extend it.
+  const reconciliation = await providerCredentials.reconcile()
+  if (reconciliation.blocked.length) logger.warn({ operations: reconciliation.blocked }, 'credential operations require explicit recovery')
+  // Credential handlers authorize the exact main window and frame, exactly like
+  // draft recovery and native terminals: a guest view cannot reach them.
+  const credentialOwner = (event: Electron.IpcMainInvokeEvent) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Provider credential request has no authorized owner')
+  }
+  ipcMain.handle('providerCredentialWrite', async (event, request: unknown) => {
+    credentialOwner(event)
+    if (!providerCredentials) throw new Error('Provider credential authority is unavailable')
+    return providerCredentials.write(parseProviderCredentialWriteRequest(request))
+      .catch(error => { throw credentialFailure(error) })
   })
-  ipcMain.handle('secretAvailable', () => secrets?.available ?? false)
-  // Renderer-driven, preference-gated native attention effects.
+  ipcMain.handle('providerCredentialStatus', async (event, request: unknown) => {
+    credentialOwner(event)
+    if (!providerCredentials) throw new Error('Provider credential authority is unavailable')
+    return providerCredentials.status(parseProviderCredentialStatusRequest(request))
+  })
+  ipcMain.handle('providerCredentialRevoke', async (event, request: unknown) => {
+    credentialOwner(event)
+    if (!providerCredentials) throw new Error('Provider credential authority is unavailable')
+    return providerCredentials.revoke(parseProviderCredentialRevokeRequest(request))
+      .catch(error => { throw credentialFailure(error) })
+  })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
   void operationalRuns.resume().catch((error) => logger.error({ err: error }, 'Run recovery failed'))
@@ -1010,13 +1051,13 @@ void app.whenReady().then(async () => {
     ...(config.browserPackage && config.browserExecutable ? [createBrowserToolDefinition({ packagePath: config.browserPackage, browser: config.browserExecutable, cache: join(app.getPath('userData'), 'project-tools', 'browser'), program: process.execPath, target: path => { if (!browserViews) throw new Error('Browser previews unavailable'); return browserViews.target(path) } })] : []),
     ...(config.codeGraphBinary ? [createCodeGraphDefinition(config.codeGraphBinary, join(app.getPath('userData'), 'project-tools', 'code-graph'), path => git.handoffSource(path))] : []),
     ...(config.qmdPackage && config.lancePackage ? [createDocumentDefinition({ program: process.execPath, worker: join(__dirname, 'project-document-worker.js'), cache: join(app.getPath('userData'), 'project-tools', 'documents'), qmdPackage: config.qmdPackage, lancePackage: config.lancePackage, retrievalMode: config.documentRetrievalMode, embeddingModel: config.embeddingModel, rerankingModel: config.rerankingModel, references: JSON.stringify({ [projectPath]: config.referenceRoots }) })] : [])
-  ], join(app.getPath('userData'), 'project-tools', 'history'), { profile: app.getPath('userData'), graphitiPassword: key => secrets?.get(`graphiti:${key}:neo4j`) ?? null, handoff: (path, id) => handoffs.projectHandoffGet(path, id) })
+  ], join(app.getPath('userData'), 'project-tools', 'history'), { profile: app.getPath('userData'), graphitiPassword: key => graphitiSecrets?.get(`graphiti:${key}:neo4j`) ?? null, handoff: (path, id) => handoffs.projectHandoffGet(path, id) })
   ipcMain.handle('projectTemporalKnowledgePasswordSet', async (_e, path: string, password: string) => {
     if (typeof password !== 'string' || !password.length || password.length > 4096 || /[\x00-\x1f\x7f]/.test(password)) throw new Error('Enter a valid database password')
     const scope = await resolveProjectToolScope(path, resolveToolWorkspace)
-    if (!secrets) throw new Error('Credential storage is unavailable')
+    if (!graphitiSecrets) throw new Error('Credential storage is unavailable')
     await projectTools!.temporalKnowledgeStop(path)
-    secrets.set(`graphiti:${scope.projectKey}:neo4j`, password)
+    graphitiSecrets.set(`graphiti:${scope.projectKey}:neo4j`, password)
   })
   ipcMain.handle('projectTemporalKnowledgeStatus', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeStatus']>) => projectTools!.temporalKnowledgeStatus(...args))
   ipcMain.handle('projectTemporalKnowledgeReconcile', (_e, ...args: Parameters<IpcApi['projectTemporalKnowledgeReconcile']>) => projectTools!.temporalKnowledgeReconcile(...args))
