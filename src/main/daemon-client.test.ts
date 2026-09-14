@@ -1,11 +1,11 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { localRuntimePaths, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
+import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
 import { DaemonClient, DaemonUpgradeRequiredError, type DaemonEvents } from './daemon-client'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
@@ -134,6 +134,102 @@ describe('daemon legacy reconnect', () => {
       await listen(server, endpoint)
       await expect(client.connect()).rejects.toThrow(/recovery/i)
       expect(operations).toBe(0)
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('daemon task client task methods', () => {
+  const wireAttempt = (overrides: Record<string, unknown> = {}) => ({
+    projectId: 'project-wire',
+    taskId: '11111111-1111-4111-8111-111111111111',
+    attemptId: '22222222-2222-4222-8222-222222222222',
+    sequence: 1,
+    retryOfAttemptId: null,
+    provenance: 'native',
+    state: 'claimed',
+    specificationId: '33333333-3333-4333-8333-333333333333',
+    currentLease: null,
+    runtime: null,
+    reservation: null,
+    lastProgress: null,
+    startedAt: '2026-09-13T00:00:00.000Z',
+    finishedAt: null,
+    ...overrides
+  })
+  const wireTask = (overrides: Record<string, unknown> = {}) => ({
+    projectId: 'project-wire',
+    taskId: '11111111-1111-4111-8111-111111111111',
+    externalTaskId: 'DW-W1',
+    title: 'wire task',
+    body: '',
+    status: 'in-progress',
+    priority: 0,
+    dependencies: [],
+    dependencyBlocked: false,
+    runnable: false,
+    cancelState: 'none',
+    currentAttempt: null,
+    entityVersion: 2,
+    createdAt: '2026-09-13T00:00:00.000Z',
+    updatedAt: '2026-09-13T00:00:01.000Z',
+    ...overrides
+  })
+  const wireToken = {
+    projectId: 'project-wire',
+    taskId: '11111111-1111-4111-8111-111111111111',
+    attemptId: '22222222-2222-4222-8222-222222222222',
+    ownerId: '66666666-6666-4666-8666-666666666666',
+    leaseId: '77777777-7777-4777-8777-777777777777',
+    generation: 1,
+    expiresAt: '2026-09-13T00:01:00.000Z'
+  }
+
+  it.runIf(process.platform !== 'win32')('unwraps the claim field from the task.retry response', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-task-retry-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    const ownerId = '88888888-8888-4888-8888-888888888888'
+    const token = 'task-retry-daemon-token-123456'
+    const identity: ProcessIdentity = { pid: 2468, bootId: 'boot-wire', startedAt: 'birth-wire', executablePath: process.execPath, family: 'terminal-daemon', capturedAt: '2026-09-13T00:00:00.000Z', generation: ownerId + ':1' }
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    const candidate = { kind: 'terminal-daemon' as const, ownerId, identity, endpoint: paths.socketPath, authToken: token }
+    const locator: LocalRuntimeRecord = { version: 2, ownerId, ownerGeneration: 1, socketPath: paths.socketPath, authToken: token, processIdentity: identity }
+    store.activate(store.prepareClaim(candidate, store.observe('terminal-daemon'), null), createHash('sha256').update(JSON.stringify(locator)).digest('hex'))
+    writeRuntimeRecord(paths.runtimeFile, locator)
+    store.close()
+    const server = createServer(socket => {
+      socket.setEncoding('utf8')
+      let buffer = ''
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as { id: string; op: string }
+          buffer = buffer.slice(newline + 1)
+          if (message.op === 'hello') {
+            socket.write(JSON.stringify({ id: message.id, ok: true, protocolVersion: 3, runtimeIdentityContractVersion: 1, capabilities: ['task-authority-v1'], ownerId, generation: 1, processIdentity: identity }) + '\n')
+            continue
+          }
+          if (message.op === 'task.retry') {
+            socket.write(JSON.stringify({ id: message.id, ok: true, claim: { task: wireTask(), attempt: wireAttempt(), token: wireToken } }) + '\n')
+            continue
+          }
+          socket.write(JSON.stringify({ id: message.id, ok: false, error: 'unknown op: ' + message.op }) + '\n')
+        }
+      })
+    })
+    const client = new DaemonClient(directory, events, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
+    try {
+      await listen(server, paths.socketPath)
+      await client.connect()
+      const claim = await client.taskRetry({ projectId: 'project-wire', taskId: '11111111-1111-4111-8111-111111111111', expectedEntityVersion: 1, ownerId: '66666666-6666-4666-8666-666666666666' })
+      expect(claim.token.leaseId).toBe('77777777-7777-4777-8777-777777777777')
+      expect(claim.attempt.state).toBe('claimed')
+      expect(claim.task.externalTaskId).toBe('DW-W1')
     } finally {
       client.disconnect()
       await new Promise<void>(resolve => server.close(() => resolve()))
@@ -278,6 +374,68 @@ describe('daemon task authority upgrade negotiation', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+
+  const PACKAGED_DAEMON_ENTRY = join(__dirname, '..', '..', 'out', 'main', 'terminal-daemon-entry.js')
+
+  it.runIf(process.platform !== 'win32' && existsSync(PACKAGED_DAEMON_ENTRY))('spawns the packaged daemon when the idle old daemon preserves its v2 locator and releases only its owner row', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-upgrade-preserve-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    const oldIdentity: ProcessIdentity = {
+      pid: 1111,
+      bootId: 'boot-old-preserve',
+      startedAt: 'birth-old-preserve',
+      executablePath: process.execPath,
+      family: 'terminal-daemon',
+      capturedAt: '2026-09-13T00:00:00.000Z',
+      generation: '44444444-4444-4444-8444-444444444444:1'
+    }
+    const OLD_OWNER_ID = '44444444-4444-4444-8444-444444444444'
+    const oldToken = 'old-preserve-daemon-token-123456'
+    const locatorA: LocalRuntimeRecord = { version: 2, ownerId: OLD_OWNER_ID, ownerGeneration: 1, socketPath: paths.socketPath, authToken: oldToken, processIdentity: oldIdentity }
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    const candidateA = { kind: 'terminal-daemon' as const, ownerId: OLD_OWNER_ID, identity: oldIdentity, endpoint: paths.socketPath, authToken: oldToken }
+    const activeA = store.activate(store.prepareClaim(candidateA, store.observe('terminal-daemon'), null), createHash('sha256').update(JSON.stringify(locatorA)).digest('hex'))
+    writeRuntimeRecord(paths.runtimeFile, locatorA)
+    store.close()
+
+    // Real v2 shutdown: preserve the locator for recovery (orphan-v2 evidence)
+    // and release only the owner row.
+    const releaseOnlyOwnerRow = (): void => {
+      const current = readRuntimeRecord(paths.runtimeFile)
+      if (current.status !== 'current') throw new Error('preserved locator was not current')
+      const transitionStore = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+      try {
+        transitionStore.recordLegacyRecovery({
+          kind: 'terminal-daemon',
+          expectedFingerprint: current.sha256,
+          fileIdentity: current.fileIdentity,
+          evidencePath: paths.runtimeFile,
+          evidenceFileIdentity: current.fileIdentity,
+          endpoint: paths.socketPath,
+          recordType: 'orphan-v2'
+        })
+        transitionStore.release(activeA)
+      } finally {
+        transitionStore.close()
+      }
+      rmSync(paths.socketPath, { force: true })
+    }
+    const oldDaemon = oldDaemonServer(paths.socketPath, oldToken, { idle: true, sessionCount: 0, liveSessionCount: 0 }, { onShutdown: releaseOnlyOwnerRow, handshake: { ownerId: OLD_OWNER_ID, generation: 1, processIdentity: oldIdentity } })
+    const client = new DaemonClient(directory, events, PACKAGED_DAEMON_ENTRY, { handshakeTimeoutMs: 2_000, requestTimeoutMs: 5_000 })
+    try {
+      await listen(oldDaemon.server, paths.socketPath)
+      await client.connect()
+      const projection = await client.taskQuery({})
+      expect(projection.tasks).toEqual([])
+      expect(oldDaemon.requests).toContain('daemon.status')
+      expect(oldDaemon.requests).toContain('daemon.shutdown')
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => oldDaemon.server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }, 20_000)
 
   it.runIf(process.platform !== 'win32')('blocks activation with sanitized status while an old daemon owns live sessions', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-upgrade-live-')))

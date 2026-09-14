@@ -107,6 +107,7 @@ export class TaskExecutionCoordinator {
   private readonly verifyIdentity: ((identity: ProcessIdentity) => ProcessIdentityVerdict) | null
   private readonly outputLimitBytes: number
   private readonly pumpPollMs: number
+  private readonly cancelCheckMs: number
   private readonly deliveredStops = new Set<string>()
   private readonly childKinds = new Map<string, 'finite-job' | 'acp-agent'>()
 
@@ -118,6 +119,7 @@ export class TaskExecutionCoordinator {
     verifyIdentity?: (identity: ProcessIdentity) => ProcessIdentityVerdict
     outputLimitBytes?: number
     pumpPollMs?: number
+    cancelCheckMs?: number
   }>) {
     this.authority = options.authority
     this.ports = options.ports
@@ -126,6 +128,7 @@ export class TaskExecutionCoordinator {
     this.verifyIdentity = options.verifyIdentity ?? null
     this.outputLimitBytes = options.outputLimitBytes ?? 64 * 1024
     this.pumpPollMs = options.pumpPollMs ?? 10
+    this.cancelCheckMs = options.cancelCheckMs ?? 250
   }
 
   /** Stages 1-2: canonical reservation plus the durable `planned` launch intent. */
@@ -178,6 +181,7 @@ export class TaskExecutionCoordinator {
     const pump = new SequencedTaskOutputPump(this.outputLimitBytes)
     let offset = 0
     let exitCode: number | null = null
+    let lastCancelCheck = 0
     for (;;) {
       const chunk = owner.output(child.sessionId, offset)
       if (chunk.output.length > 0) {
@@ -188,18 +192,31 @@ export class TaskExecutionCoordinator {
         exitCode = chunk.exitCode ?? null
         break
       }
+      // A cancellation committed mid-run must stop the child now, not at
+      // natural completion; delivery is idempotent per lease/generation.
+      if (Date.now() - lastCancelCheck >= this.cancelCheckMs) {
+        lastCancelCheck = Date.now()
+        this.deliverStopIfCancelling(token, connection)
+      }
       this.renewLeaseIfDue(token, connection)
       await this.delay(this.pumpPollMs)
     }
 
     this.evidence.assertReservedWorkspace(prepared.preObservation, prepared.canonicalResourceKey)
     const capture = this.evidence.capturePost(prepared.preObservation, pump.output, pump.truncated)
-    // Cancellation may have been committed while the child was still running;
-    // the pump observing its exit is the confirmation the cancelling state needs.
+    // Cancellation may have been committed while the child was still running.
+    // When the pump observes its exit: a still-cancelling attempt needs the
+    // exit acknowledgement now; an already-cancelled attempt was closed by our
+    // own mid-run stop delivery.
     const preExitTask = this.freshTask(connection, token.projectId, token.taskId)
-    if (preExitTask.currentAttempt?.state === 'cancelling' && preExitTask.currentAttempt.currentLease?.leaseId === token.leaseId && preExitTask.currentAttempt.currentLease.generation === token.generation) {
-      const updated = this.authority.acknowledgeExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, reason: 'coordinator observed the cancelled child exit' })
-      return { task: updated, attempt: updated.currentAttempt ?? preExitTask.currentAttempt, sessionId: child.sessionId, exitCode, disposition: 'cancelled', output: pump.output }
+    const preExitAttempt = preExitTask.currentAttempt
+    const sameLease = preExitAttempt?.currentLease?.leaseId === token.leaseId && preExitAttempt.currentLease.generation === token.generation
+    if (preExitAttempt !== null && sameLease && (preExitAttempt.state === 'cancelling' || preExitAttempt.state === 'cancelled')) {
+      if (preExitAttempt.state === 'cancelling') {
+        const updated = this.authority.acknowledgeExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, reason: 'coordinator observed the cancelled child exit' })
+        return { task: updated, attempt: updated.currentAttempt ?? preExitAttempt, sessionId: child.sessionId, exitCode, disposition: 'cancelled', output: pump.output }
+      }
+      return { task: preExitTask, attempt: preExitAttempt, sessionId: child.sessionId, exitCode, disposition: 'cancelled', output: pump.output }
     }
     try {
       for (const artifact of capture.artifacts) {
@@ -252,16 +269,31 @@ export class TaskExecutionCoordinator {
     for (let tries = 0; tries < 2 && !delivered; tries += 1) {
       try {
         if (sessionId !== null) await owner.stop(sessionId)
-        else if (identity !== null && this.ports.jobs.stopProcess) await this.ports.jobs.stopProcess(identity)
-        else if (identity !== null && this.ports.agents?.stopProcess) await this.ports.agents.stopProcess(identity)
+        else if (identity !== null) await this.stopProcessByIdentity(identity)
         else throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} holds no child session or process identity to stop`)
         delivered = true
       } catch (error) {
         lastError = error
+        // The restarted daemon may no longer own the session in its PtyManager;
+        // a committed cancellation stop falls back to the recorded identity.
+        if (identity !== null && !delivered) {
+          try {
+            await this.stopProcessByIdentity(identity)
+            delivered = true
+          } catch (fallbackError) {
+            lastError = fallbackError
+          }
+        }
       }
     }
     if (!delivered) throw lastError instanceof Error ? lastError : new Error(String(lastError))
     return this.authority.acknowledgeExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, reason: 'cancellation stop delivered and exit confirmed' })
+  }
+
+  private stopProcessByIdentity(identity: ProcessIdentity): Promise<void> {
+    if (this.ports.jobs.stopProcess) return this.ports.jobs.stopProcess(identity)
+    if (this.ports.agents?.stopProcess) return this.ports.agents.stopProcess(identity)
+    return Promise.reject(new TaskAuthorityError('AUTHORIZATION_DENIED', 'no daemon port can stop a process by identity'))
   }
 
   /**
@@ -296,8 +328,14 @@ export class TaskExecutionCoordinator {
           this.authority.acknowledgeExit({ ...base, leaseId: attempt.currentLease!.leaseId, generation: attempt.currentLease!.generation, reason: 'startup reconciliation confirmed the cancelling child exited' })
           events.push({ ...base, action: 'exit-acknowledged', detail: 'cancelling child confirmed exited' })
         } else if (verdict.status === 'valid') {
-          await this.deliverStop({ projectId: attempt.projectId, taskId: attempt.taskId, attemptId: attempt.attemptId, ownerId: attempt.currentLease!.ownerId, leaseId: attempt.currentLease!.leaseId, generation: attempt.currentLease!.generation, expiresAt: attempt.currentLease!.expiresAt }, attempt)
-          events.push({ ...base, action: 'stop-retried', detail: 'committed cancellation stop re-delivered' })
+          try {
+            await this.deliverStop({ projectId: attempt.projectId, taskId: attempt.taskId, attemptId: attempt.attemptId, ownerId: attempt.currentLease!.ownerId, leaseId: attempt.currentLease!.leaseId, generation: attempt.currentLease!.generation, expiresAt: attempt.currentLease!.expiresAt }, attempt)
+            events.push({ ...base, action: 'stop-retried', detail: 'committed cancellation stop re-delivered' })
+          } catch (error) {
+            // Committed stop delivery must never abort startup reconciliation;
+            // the reservation stays held and delivery is retried on the next boot.
+            events.push({ ...base, action: 'stop-retried', detail: 'committed cancellation stop redelivery failed: ' + authorityMessage(error).slice(0, 256) })
+          }
         } else {
           this.authority.reconcileStartupAttempt({ ...base, verdict: 'indeterminate', reason: 'cancelling child liveness is indeterminate' })
           events.push({ ...base, action: 'quarantined-indeterminate', detail: 'cancelling child liveness indeterminate' })
@@ -320,6 +358,20 @@ export class TaskExecutionCoordinator {
       events.push({ projectId: '*', taskId: '*', attemptId: null, action: 'offers-expired', detail: `${expired} handoff offer(s) expired by authority time` })
     }
     return events
+  }
+
+  private deliverStopIfCancelling(token: LeaseToken, connection: AuthenticatedAuthorityConnection): void {
+    let attempt: AttemptSnapshot | null
+    try {
+      attempt = this.freshTask(connection, token.projectId, token.taskId).currentAttempt
+    } catch {
+      return
+    }
+    if (attempt === null || attempt.state !== 'cancelling') return
+    if (attempt.currentLease?.leaseId !== token.leaseId || attempt.currentLease.generation !== token.generation) return
+    void this.deliverStop(token, attempt).catch(() => {
+      // Stop delivery is retried by the next check and by restart reconciliation.
+    })
   }
 
   private async handleBindLoss(prepared: PreparedTaskLaunch, child: OpenedTaskChild, owner: TaskChildOwnerPort, error: unknown, connection: AuthenticatedAuthorityConnection): Promise<TaskLaunchOutcome> {
@@ -436,10 +488,12 @@ export class TaskSchedulerPump {
     const queued = this.authority.listScheduleExecutions({ connection: { connectionId: this.connectionId, role: 'administrator' }, state: 'queued', limit: 500 })
     for (const execution of queued.executions) {
       if (claimed.some(entry => entry.claim.task.taskId === execution.taskId)) continue
-      const scheduleSpec = due.find(schedule => schedule.scheduleId === execution.scheduleId)
-      if (!scheduleSpec) continue
-      const specification: TaskExecutionSpecificationInput = { command: scheduleSpec.command, target: scheduleSpec.target, verification: scheduleSpec.verification }
       try {
+        // Queued executions are claimed from their own committed schedule state,
+        // independent of the due list: manual executions never advance next_run_at,
+        // and a due execution whose claim failed in the enqueuing tick retries here.
+        const schedule = this.authority.readSchedule(execution.projectId, execution.scheduleId)
+        const specification: TaskExecutionSpecificationInput = { command: schedule.command, target: schedule.target, verification: schedule.verification }
         claimed.push({
           claim: this.authority.claim({
             connection: { connectionId: `${this.connectionId}-worker`, role: 'worker', ownerId: this.workerOwnerId, authorizedProjectIds: [execution.projectId] },

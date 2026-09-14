@@ -18,19 +18,22 @@ import { runtimeIdentityAuthority } from '../main/runtime-identity.js'
 async function callTaskAuthority(method: string, params: Record<string, unknown>, userData: string, timeoutMs: number): Promise<RpcEnvelope> {
   const credential = resolveWorkerCredential(params)
   const { credential: _omitted, credentialFile: _omittedFile, ...rest } = params
+  // Only worker commands may auto-issue a per-session credential; administrator
+  // commands stay on the explicit administrator path and never carry one.
+  const workerAutoIssue = credential === undefined && (method === 'task.claim' || method === 'task.progress')
   if (method === 'task.progress') {
     const { token, detail } = rest
     if (typeof token !== 'object' || token === null || typeof detail !== 'string') {
       throw new CliFailure('INVALID_ARGUMENTS', 'task.progress requires --token <json> and --detail <text>')
     }
     const projectId = typeof (token as Record<string, unknown>)['projectId'] === 'string' ? (token as Record<string, unknown>)['projectId'] as string : undefined
-    return callTerminalDaemon('task.write', { kind: 'progress', token, detail }, userData, timeoutMs, credential, credential === undefined ? projectId : undefined)
+    return callTerminalDaemon('task.write', { kind: 'progress', token, detail }, userData, timeoutMs, credential, workerAutoIssue ? projectId : undefined)
   }
   if (method === 'task.credential.issue') {
     return callTerminalDaemon('task.credential.issue', rest, userData, timeoutMs)
   }
   const projectId = typeof rest['projectId'] === 'string' ? rest['projectId'] as string : undefined
-  return callTerminalDaemon(method, rest, userData, timeoutMs, credential, credential === undefined ? projectId : undefined)
+  return callTerminalDaemon(method, rest, userData, timeoutMs, credential, workerAutoIssue ? projectId : undefined)
 }
 
 function resolveWorkerCredential(params: Record<string, unknown>): { credentialId: string; token: string } | undefined {

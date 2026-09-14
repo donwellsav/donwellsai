@@ -55,11 +55,13 @@ type FakeTaskDaemon = {
   credentials: Map<string, { token: string; connectionKey: string; projectIds: string[] }>
   restart: () => void
   lastClaimCredentials: Array<unknown>
+  ops: string[]
 }
 
 function startFakeTaskDaemon(endpoint: string, token: string): FakeTaskDaemon {
   const credentials = new Map<string, { token: string; connectionKey: string; projectIds: string[] }>()
   const lastClaimCredentials: Array<unknown> = []
+  const ops: string[] = []
   const server = createServer((socket: Socket) => {
     const connectionKey = randomUUID()
     socket.setEncoding('utf8')
@@ -81,6 +83,7 @@ function startFakeTaskDaemon(endpoint: string, token: string): FakeTaskDaemon {
           continue
         }
         const reply = (payload: Record<string, unknown>): void => socket.write(JSON.stringify({ id, ...payload }) + '\n')
+        ops.push(String(message['op']))
         const bindWorker = (): { credentialId: string } | { error: string; code: string } => {
           const rawCredential = message['credential']
           if (typeof rawCredential !== 'object' || rawCredential === null) return { error: 'a daemon-issued task worker credential is required', code: 'AUTHORIZATION_DENIED' }
@@ -124,12 +127,17 @@ function startFakeTaskDaemon(endpoint: string, token: string): FakeTaskDaemon {
           reply({ ok: true, task: { projectId: String(message['projectId']), taskId: randomUUID(), externalTaskId: String(message['externalTaskId']), title: String(message['title']), body: '', status: 'todo', priority: 0, dependencies: [], dependencyBlocked: false, runnable: true, cancelState: 'none', currentAttempt: null, entityVersion: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } })
           continue
         }
+        if (message['op'] === 'task.query') {
+          if (message['credential'] !== undefined) { reply({ ok: false, error: 'administrator task commands do not accept a worker credential', code: 'AUTHORIZATION_DENIED' }); continue }
+          reply({ ok: true, tasks: [], nextCursor: null })
+          continue
+        }
         reply({ ok: false, error: `unknown op: ${String(message['op'])}`, code: 'COMMAND_FAILED' })
       }
     })
   })
   servers.push(server)
-  return { server, credentials, restart: () => credentials.clear(), lastClaimCredentials }
+  return { server, credentials, restart: () => credentials.clear(), lastClaimCredentials, ops }
 }
 
 async function prepareTerminalRuntime(directory: string): Promise<{ endpoint: string; token: string }> {
@@ -219,6 +227,21 @@ describe('CLI task authority credentials', () => {
     expect(code).toBe(1)
     expect(json['code']).toBe('AUTHORIZATION_DENIED')
     expect(String(json['error'])).toMatch(/missing, stale, or invalid/)
+  })
+
+  it('keeps administrator task commands on the explicit administrator path without auto-issuing a credential', async () => {
+    const directory = tempDirectory()
+    const { endpoint, token } = await prepareTerminalRuntime(directory)
+    const fake = startFakeTaskDaemon(endpoint, token)
+    await listen(fake.server, endpoint)
+    const created = await runCliCaptured(['task.create', '--project', 'project-cli', '--external-id', 'DW-ADMIN', '--title', 'admin task', '--user-data', directory])
+    expect(created.code).toBe(0)
+    const queried = await runCliCaptured(['task.query', '--project', 'project-cli', '--user-data', directory])
+    expect(queried.code).toBe(0)
+    expect(fake.ops).toContain('task.create')
+    expect(fake.ops).toContain('task.query')
+    expect(fake.ops).not.toContain('task.credential.issue')
+    expect(fake.credentials.size).toBe(0)
   })
 
   it('rejects a worker credential presented on an administrator command', async () => {

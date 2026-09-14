@@ -121,9 +121,10 @@ function fakePorts(authority: SqliteTaskAuthority, options: FakePortOptions = {}
   }
 
   const owner = (kind: 'job' | 'agent'): TaskChildOwnerPort => ({
-    stop: async () => {
+    stop: async (sessionId: string) => {
       if (kind === 'job') {
         calls.stopAttempts += 1
+        if (!scripts.has(sessionId)) throw new Error('unknown session: ' + sessionId)
         if (stopFailuresLeft > 0) {
           stopFailuresLeft -= 1
           throw new Error('transient stop failure')
@@ -132,6 +133,10 @@ function fakePorts(authority: SqliteTaskAuthority, options: FakePortOptions = {}
     },
     stopProcess: async () => {
       calls.processStops += 1
+      if (stopFailuresLeft > 0) {
+        stopFailuresLeft -= 1
+        throw new Error('transient process stop failure')
+      }
     },
     output: (sessionId: string, afterOffset: number) => {
       const script = scripts.get(sessionId)
@@ -374,37 +379,45 @@ describe('task execution coordinator', () => {
     expect(task.currentAttempt?.currentLease?.generation).toBe(2)
   })
 
-  integration('sends stop once during execution and retries after a transient failure', async () => {
+  integration('delivers the cancellation stop mid-run, retries after a transient failure, and confirms exit', async () => {
     const { authority, directory } = openAuthority()
     const workspace = join(directory, 'work')
     mkdirSync(workspace)
     createTask(authority, 'DW-8')
     const claimed = claim(authority, 'DW-8', OWNER_ALICE, SPEC(workspace))
-    let coordinator!: TaskExecutionCoordinator
-    let stopDelivery!: Promise<unknown>
     const { ports, calls, setPending } = fakePorts(authority, {
-      stopFailures: 1,
+      stopFailures: 2,
       script: [
         {
           output: 'working',
           exited: false,
           run: () => {
             authority.requestCancellation({ connection: ADMIN, projectId: PROJECT, taskId: claimed.task.taskId, expectedEntityVersion: taskOf(authority, claimed.task.taskId).entityVersion })
-            stopDelivery = coordinator.deliverStop(claimed.token, taskOf(authority, claimed.task.taskId).currentAttempt!)
           }
         },
+        { output: 'still running', exited: false },
         { output: '', exited: true, exitCode: 0 }
       ]
     })
-    coordinator = makeCoordinator(authority, ports)
+    const coordinator = new TaskExecutionCoordinator({
+      authority,
+      ports,
+      evidence: new DaemonTaskEvidencePort(),
+      pumpPollMs: 1,
+      cancelCheckMs: 1
+    })
     setPending(claimed)
-    await coordinator.launch(claimed, SPEC(workspace), worker(OWNER_ALICE))
-    await stopDelivery
+    const outcome = await coordinator.launch(claimed, SPEC(workspace), worker(OWNER_ALICE))
+    await new Promise(resolve => setImmediate(resolve))
+    expect(outcome.disposition).toBe('cancelled')
+    expect(outcome.task.status).toBe('cancelled')
+    expect(outcome.attempt.state).toBe('cancelled')
+    // Transient failures retried exactly once across the session stop and its identity fallback.
     expect(calls.stopAttempts).toBe(2)
+    expect(calls.processStops).toBe(1)
     const attempt = taskOf(authority, claimed.task.taskId).currentAttempt!
     await coordinator.deliverStop(claimed.token, attempt)
     expect(calls.stopAttempts).toBe(2)
-    expect(taskOf(authority, claimed.task.taskId).status).toBe('cancelled')
   })
 
   integration('cannot complete a successful exit until daemon-owned evidence satisfies the specification', async () => {
@@ -511,7 +524,7 @@ describe('task execution coordinator', () => {
     expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('cancelled')
   })
 
-  integration('re-delivers committed cancellation stops at startup for still-live runtimes', async () => {
+  integration('re-delivers committed cancellation stops at startup, falling back to the recorded identity stop', async () => {
     const { authority, directory } = openAuthority()
     const workspace = join(directory, 'work')
     mkdirSync(workspace)
@@ -524,8 +537,9 @@ describe('task execution coordinator', () => {
     const coordinator = makeCoordinator(authority, ports, () => VERDICTS.valid)
     const events = await coordinator.reconcileStartup(() => VERDICTS.valid)
     expect(events.map(event => event.action)).toContain('stop-retried')
+    // The restarted daemon does not own the old session; the stop falls back to the recorded identity.
     expect(calls.stopAttempts).toBe(1)
-    // Stop delivery resolves only after confirmed exit, so the acknowledgement closes the task.
+    expect(calls.processStops).toBe(1)
     expect(taskOf(authority, claimed.task.taskId).status).toBe('cancelled')
     expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('cancelled')
   })
@@ -601,5 +615,96 @@ describe('task scheduler pump', () => {
     expect(claimA.task.taskId).toBe(memberA.taskId)
     expect(() => authority.claim({ connection: worker(OWNER_BOB), projectId: PROJECT, taskId: memberB.taskId, specification: SPEC(workspace) }))
       .toThrowError(expect.objectContaining({ code: 'TASK_NOT_RUNNABLE' }))
+  })
+
+  it('claims queued manual schedule executions even though they never appear in the due list', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const schedule = authority.createSchedule({
+      connection: ADMIN,
+      projectId: PROJECT,
+      spec: {
+        profileId: 'profile-main',
+        taskTitle: 'manual-only schedule',
+        cadence: { kind: 'interval', minutes: 60 },
+        command: { program: 'node', args: ['manual.js'] },
+        target: { kind: 'local', root: workspace, label: 'repo' },
+        verification: { requiredArtifacts: [] }
+      },
+      enabled: true
+    })
+    const manual = authority.enqueueManualScheduleExecution({
+      connection: ADMIN,
+      projectId: PROJECT,
+      scheduleId: schedule.scheduleId,
+      expectedEntityVersion: schedule.entityVersion,
+      requestId: 'manual-request-1'
+    })
+    expect(manual.state).toBe('queued')
+    // Manual executions never advance next_run_at, so the schedule is never due;
+    // the pump must still claim the queued execution from its committed schedule state.
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() + 10 * 365 * 24 * 60 * 60 * 1000 })
+    const ticked = pump.tick()
+    expect(ticked.enqueued).toHaveLength(0)
+    expect(ticked.claimed).toHaveLength(1)
+    expect(ticked.claimed[0]!.claim.task.taskId).toBe(manual.taskId)
+    expect(ticked.claimed[0]!.specification.command.program).toBe('node')
+    expect(ticked.failures).toEqual([])
+  })
+
+  it('retries a queued execution whose claim failed on a later tick once capacity frees', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const past = new Date(Date.now() - 60_000).toISOString()
+    const schedule = authority.createSchedule({
+      connection: ADMIN,
+      projectId: PROJECT,
+      spec: {
+        profileId: 'profile-main',
+        taskTitle: 'retry tick',
+        cadence: { kind: 'interval', minutes: 5 },
+        command: { program: 'node', args: ['tick.js'] },
+        target: { kind: 'local', root: workspace, label: 'repo' },
+        verification: { requiredArtifacts: [] }
+      },
+      enabled: true,
+      nextRunAt: past
+    })
+    const enqueued = authority.enqueueDueSchedule({
+      connection: { connectionId: 'conn-scheduler', role: 'daemon-scheduler', authorizedProjectIds: [PROJECT], authorizedProfileIds: ['profile-main'] },
+      projectId: PROJECT,
+      scheduleId: schedule.scheduleId,
+      expectedEntityVersion: schedule.entityVersion,
+      expectedNextRunAt: past
+    })
+    const scheduledTaskId = enqueued.taskId
+
+    // A run group with full capacity blocks the pump claim; the execution stays queued.
+    const blocker = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-blocker', title: 'blocker' })
+    authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'capacity-block',
+      concurrency: 1,
+      members: [
+        { projectId: PROJECT, taskId: scheduledTaskId },
+        { projectId: PROJECT, taskId: blocker.taskId }
+      ]
+    })
+    const blockerClaim = authority.claim({ connection: worker(OWNER_BOB), projectId: PROJECT, taskId: blocker.taskId, specification: SPEC(workspace) })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const blocked = pump.tick()
+    expect(blocked.claimed).toHaveLength(0)
+    expect(blocked.failures.some(failure => failure.scope === `execution:${enqueued.executionId}`)).toBe(true)
+    expect(authority.listScheduleExecutions({ connection: ADMIN, projectId: PROJECT }).executions.find(execution => execution.executionId === enqueued.executionId)!.state).toBe('queued')
+
+    // Capacity frees; the next tick claims the stranded execution from its schedule state.
+    const failedBlocker = authority.write({ kind: 'fail', connection: worker(OWNER_BOB), token: blockerClaim.token, error: 'blocker done' })
+    expect(failedBlocker.status).toBe('failed')
+    const retried = pump.tick()
+    expect(retried.claimed).toHaveLength(1)
+    expect(retried.claimed[0]!.claim.task.taskId).toBe(scheduledTaskId)
   })
 })

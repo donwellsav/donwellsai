@@ -211,6 +211,11 @@ function parseWireString(value: unknown, label: string): string {
   return value
 }
 
+function parseWireText(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value
+}
+
 function parseWireStringOrNull(value: unknown, label: string): string | null {
   if (value === null || value === undefined) return null
   return parseWireString(value, label)
@@ -340,7 +345,7 @@ function parseTaskSnapshotWire(value: unknown): TaskSnapshot {
     taskId: parseWireString(record['taskId'], 'task.taskId'),
     externalTaskId: parseWireString(record['externalTaskId'], 'task.externalTaskId'),
     title: parseWireString(record['title'], 'task.title'),
-    body: parseWireString(record['body'], 'task.body'),
+    body: parseWireText(record['body'], 'task.body'),
     status,
     priority: parseWireInteger(record['priority'], 'task.priority'),
     dependencies: parseWireStringArray(record['dependencies'], 'task.dependencies'),
@@ -843,14 +848,23 @@ export class DaemonClient {
     const deadline = Date.now() + 5_000
     while (Date.now() <= deadline) {
       const record = readRuntimeRecord(paths.runtimeFile)
-      // Shutdown unpublishes the locator; a replacement daemon publishes a new
-      // one. Either is cleanup progress; an unchanged record means the old
-      // daemon is still tearing down.
+      // A v2 shutdown preserves the locator file; the authoritative cleanup
+      // signal is the Stage 1 ownership row becoming vacant. A removed record
+      // or a replacement locator at a different endpoint is also progress.
       if (record.status === 'missing') return
+      let ownership: RuntimeOwnershipStore | null = null
+      try {
+        ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath, { readOnly: true })
+        if (ownership.observe('terminal-daemon').status === 'vacant') return
+      } catch {
+        // Ownership observation unavailable; rely on the record checks below.
+      } finally {
+        ownership?.close()
+      }
       if (previousEndpoint !== null && record.status === 'current' && record.record.socketPath !== previousEndpoint) return
       await delay(100)
     }
-    throw new Error('terminal daemon shutdown did not clear its runtime record')
+    throw new Error('terminal daemon shutdown did not release its runtime owner within 5s')
   }
 
   private async request<T = Record<string, unknown>>(
@@ -1260,8 +1274,8 @@ export class DaemonClient {
 
   async taskRetry(input: Readonly<{ projectId: string; taskId: string; expectedEntityVersion: number; ownerId: string; specification?: TaskExecutionSpecificationInput; leaseTtlMs?: number }>): Promise<ClaimResult> {
     await this.requireCapability(TASK_AUTHORITY, 'retrying a failed task')
-    const response = await this.request<Record<string, unknown>>('task.retry', { ...input })
-    return parseClaimResultWire(response)
+    const response = await this.request<{ claim: unknown }>('task.retry', { ...input })
+    return parseClaimResultWire(response.claim)
   }
 
   async taskAdoptArtifact(input: Readonly<{ projectId: string; taskId: string; artifactId: string; reviewReceiptSha256: string }>): Promise<TaskSnapshot> {
