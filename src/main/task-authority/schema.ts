@@ -21,7 +21,7 @@ import {
  * synchronous=FULL) used by every mutation.
  */
 
-export const TASK_AUTHORITY_SCHEMA_VERSION = 3
+export const TASK_AUTHORITY_SCHEMA_VERSION = 4
 export const TASK_AUTHORITY_FILE_NAME = 'task-authority.sqlite'
 
 export class TaskAuthorityDatabaseError extends Error {
@@ -89,20 +89,63 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
     if (objects.length > 0) throw new TaskAuthorityError('MIGRATION_REQUIRED', 'task authority database is unrecognized and not empty; refusing to initialize over foreign data')
     db.exec(SCHEMA_V1)
     db.exec(SCHEMA_V3_ADDITIONS)
+    upgradeProviderCredentialOperations(db)
     applySchemaColumns(db)
     db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
     return
   }
   if (version === TASK_AUTHORITY_SCHEMA_VERSION) {
     db.exec(SCHEMA_V3_ADDITIONS)
+    upgradeProviderCredentialOperations(db)
     applySchemaColumns(db)
     return
   }
   if (!allowMigration || version > TASK_AUTHORITY_SCHEMA_VERSION) throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
   if (version === 1) addColumnIfMissing(db, 'run_members', 'specification_json', 'TEXT')
   db.exec(SCHEMA_V3_ADDITIONS)
+  upgradeProviderCredentialOperations(db)
   applySchemaColumns(db)
   db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
+}
+
+/**
+ * v4 widens the credential-operation state machine with the `catalog-bound`
+ * checkpoint between the Catalog compare-and-set and the superseded-ref
+ * revocation. SQLite cannot alter a CHECK constraint, so the table is rebuilt
+ * and its rows copied; no table references it, so the rebuild is self-contained
+ * and replaying it after an interrupted migration is a no-op.
+ */
+function upgradeProviderCredentialOperations(db: DatabaseSync): void {
+  const existing = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'provider_credential_operations'").get() as Record<string, unknown> | undefined
+  if (!existing) return
+  if (String(existing['sql']).includes("'catalog-bound'")) {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound')")
+    return
+  }
+  db.exec(`
+DROP INDEX IF EXISTS provider_credential_operations_live;
+ALTER TABLE provider_credential_operations RENAME TO provider_credential_operations_v3;
+CREATE TABLE provider_credential_operations (
+  id TEXT PRIMARY KEY,
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN ('create-replace','revoke','account-update','account-remove','instance-update','instance-remove')),
+  provider_instance_id TEXT,
+  instance_revision INTEGER,
+  account_id TEXT,
+  account_revision INTEGER,
+  prior_credential_ref TEXT,
+  prior_binding_generation INTEGER,
+  staged_credential_ref TEXT,
+  target_binding_generation INTEGER,
+  state TEXT NOT NULL CHECK (state IN ('pending','catalog-bound','complete','aborted')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((operation_kind = 'create-replace' AND staged_credential_ref IS NOT NULL AND target_binding_generation IS NOT NULL) OR (operation_kind <> 'create-replace' AND staged_credential_ref IS NULL AND target_binding_generation IS NULL)),
+  CHECK ((operation_kind = 'create-replace') OR (prior_credential_ref IS NOT NULL AND prior_binding_generation IS NOT NULL))
+);
+INSERT INTO provider_credential_operations SELECT * FROM provider_credential_operations_v3;
+DROP TABLE provider_credential_operations_v3;
+CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound');
+`)
 }
 
 function applySchemaColumns(db: DatabaseSync): void {
@@ -799,13 +842,13 @@ CREATE TABLE IF NOT EXISTS provider_credential_operations (
   prior_binding_generation INTEGER,
   staged_credential_ref TEXT,
   target_binding_generation INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('pending','complete','aborted')),
+  state TEXT NOT NULL CHECK (state IN ('pending','catalog-bound','complete','aborted')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   CHECK ((operation_kind = 'create-replace' AND staged_credential_ref IS NOT NULL AND target_binding_generation IS NOT NULL) OR (operation_kind <> 'create-replace' AND staged_credential_ref IS NULL AND target_binding_generation IS NULL)),
   CHECK ((operation_kind = 'create-replace') OR (prior_credential_ref IS NOT NULL AND prior_binding_generation IS NOT NULL))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound');
 CREATE TABLE IF NOT EXISTS task_launch_admissions (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL,

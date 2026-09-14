@@ -37,9 +37,77 @@ export type ProviderInstanceProjection = { id: string; driver: ProviderDriverPro
 export type ProviderCatalogSnapshot = { revision: number; defaultInstanceId: string | null; drivers: readonly ProviderDriverProjection[]; accounts: readonly ProviderAccount[]; instances: readonly ProviderInstanceProjection[] }
 export type BindCredentialInput = { providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; credentialRef: string; expectedBindingGeneration: number }
 export type UnbindCredentialInput = { providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; expectedBindingGeneration: number }
+
+// ---------------------------------------------------------------------------
+// Credential-operation ledger (internal; never renderer-visible)
+//
+// Every provider credential create/replace/revoke is a durable saga across two
+// authorities that no single transaction can span: this Catalog ledger owns the
+// intent and the binding facts, Secret Authority owns the material. These
+// contracts carry opaque refs and generations and are therefore main-only:
+// they never enter `IpcApi`, preload, or a sanitized projection.
+// ---------------------------------------------------------------------------
+
+export const PROVIDER_CREDENTIAL_OPERATION_KINDS = ['create-replace', 'revoke', 'account-update', 'account-remove', 'instance-update', 'instance-remove'] as const
+export type ProviderCredentialOperationKind = (typeof PROVIDER_CREDENTIAL_OPERATION_KINDS)[number]
+export const PROVIDER_CREDENTIAL_OPERATION_STATES = ['pending', 'catalog-bound', 'complete', 'aborted'] as const
+export type ProviderCredentialOperationState = (typeof PROVIDER_CREDENTIAL_OPERATION_STATES)[number]
+
+/** One durable saga row. `pending`/`catalog-bound` are the incomplete states. */
+export type ProviderCredentialOperation = {
+  id: string
+  kind: ProviderCredentialOperationKind
+  state: ProviderCredentialOperationState
+  providerInstanceId: string | null
+  instanceRevision: number | null
+  accountId: string | null
+  accountRevision: number | null
+  priorCredentialRef: string | null
+  priorBindingGeneration: number | null
+  stagedCredentialRef: string | null
+  targetBindingGeneration: number | null
+}
+
+/** The exact live binding plus the revisions a principal resolution must carry. */
+export type ProviderCredentialBinding = {
+  driverId: AgentDriverId
+  providerInstanceId: string
+  instanceRevision: number
+  accountId: string
+  accountRevision: number
+  credentialRef: string
+  bindingGeneration: number
+}
+
+/** A staged intent: the caller supplies the ref, the Catalog supplies the rest. */
+export type ProviderCredentialReplaceIntent = {
+  operationId: string
+  providerInstanceId: string
+  targetBindingGeneration: number
+  priorCredentialRef: string | null
+  priorBindingGeneration: number | null
+}
 export type PrepareProviderLaunchInput = { selection: ProviderSelection; attemptId: string; sessionId: string; purpose: 'agent-launch' }
 export type ProviderLaunchPreparation = { id: string; selection: ProviderSelection; command: ProviderCommandSpec; credentialMode: ProviderCredentialMode; credentialRequest: null | { credentialRef: string; bindingGeneration: number; driverId: AgentDriverId; providerInstanceId: string; accountId: string; accountRevision: number }; attemptId: string; sessionId: string; purpose: 'agent-launch'; expiresAt: string }
-export interface ProviderCatalog { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
+export interface ProviderCatalog { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation
+
+  // -- credential-operation saga (main-only; refs and generations never render) --
+  /** The exact live binding for one instance/account, or null when none is bound. */
+  credentialBinding(providerInstanceId: string, accountId: string): ProviderCredentialBinding | null
+  /** Every incomplete saga, newest first: the startup reconciliation work list. */
+  incompleteCredentialOperations(): ProviderCredentialOperation[]
+  credentialOperation(operationId: string): ProviderCredentialOperation | null
+  /** Reads the current instance/account revisions plus driver, for principal resolution. */
+  credentialScope(providerInstanceId: string, accountId: string): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number }
+  /** Records the create-replace intent; the caller already chose the staged ref. */
+  stageCredentialReplace(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; stagedCredentialRef: string }): ProviderCredentialOperation
+  /** Compare-and-set the binding to the staged target generation. */
+  bindStagedCredential(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; targetCredentialRef: string; targetBindingGeneration: number; expectedBindingGeneration: number }): boolean
+  /** Records the revoke intent, resolving the exact live ref/generation in the Catalog. */
+  stageCredentialRevoke(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number }): ProviderCredentialOperation
+  /** Idempotent terminal transition: `complete`, `catalog-bound`, or `aborted`. */
+  closeCredentialOperation(input: { operationId: string; state: ProviderCredentialOperationState }): ProviderCredentialOperation
+}
 
 /**
  * Catalog failures are a typed contract: the daemon maps `code` onto the wire,
@@ -67,6 +135,8 @@ export const PROVIDER_CATALOG_ERROR_CODES = [
   'PREPARATION_EXPIRED',
   'PREPARATION_CONSUMED',
   'PREPARATION_ACTIVE',
+  'CREDENTIAL_OPERATION_ACTIVE',
+  'CREDENTIAL_OPERATION_NOT_FOUND',
   'CORRUPT_CATALOG',
   'FOREIGN_KEY_CONFLICT',
   'INVALID_INPUT'

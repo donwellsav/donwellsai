@@ -12,7 +12,7 @@ import {
   type TaskExecutionSpecificationInput,
   type TaskScheduleSpec
 } from '@shared/task-authority'
-import { openTaskAuthorityRawConnection } from './schema'
+import { openTaskAuthorityRawConnection, TASK_AUTHORITY_SCHEMA_VERSION } from './schema'
 import { launchIntentFingerprint, SqliteTaskAuthority } from './task-authority'
 
 const PROJECT_ALPHA = 'project-alpha'
@@ -178,7 +178,7 @@ describe('task authority schema security', () => {
     const migrated = reopen(path)
     const db = openTaskAuthorityRawConnection(path)
     try {
-      expect(taskAuthoritySchemaVersion(db)).toBe(3)
+      expect(taskAuthoritySchemaVersion(db)).toBe(TASK_AUTHORITY_SCHEMA_VERSION)
       const columns = db.prepare('PRAGMA table_info(run_members)').all()
       if (!Array.isArray(columns)) throw new Error('table_info returned no rows')
       expect(columns.some(column => typeof column === 'object' && column !== null && 'name' in column && column.name === 'specification_json')).toBe(true)
@@ -217,7 +217,7 @@ describe('task authority schema security', () => {
     expect(group.members).toHaveLength(1)
     const db = openTaskAuthorityRawConnection(path)
     try {
-      expect(taskAuthoritySchemaVersion(db)).toBe(3)
+      expect(taskAuthoritySchemaVersion(db)).toBe(TASK_AUTHORITY_SCHEMA_VERSION)
     } finally {
       db.close()
     }
