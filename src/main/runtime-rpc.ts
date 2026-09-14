@@ -31,7 +31,8 @@ import {
 import {
   parseParallelRunInput,
   parseScheduledRunInput,
-  type OperationalRunsApi
+  type OperationalRunsApi,
+  type VerificationRunOptions
 } from '@shared/operational-runs'
 import type { SkillPackageProviderId, SkillPackageSource } from '@shared/skill-packages'
 import type { Store } from './store'
@@ -684,6 +685,14 @@ export class RuntimeRpcServer {
         })
       case 'skill.remove':
         return this.deps.skills.remove({ planId: str('planId'), confirmationToken: str('confirmationToken') })
+      case 'task.query': return this.deps.terminals.taskQuery(params as Parameters<DaemonClient['taskQuery']>[0])
+      case 'task.create': return this.deps.terminals.taskCreate(params as Parameters<DaemonClient['taskCreate']>[0])
+      case 'task.update': return this.deps.terminals.taskUpdate(params as Parameters<DaemonClient['taskUpdate']>[0])
+      case 'task.dependencies.set': return this.deps.terminals.taskSetDependencies(params as Parameters<DaemonClient['taskSetDependencies']>[0])
+      case 'task.cancel': return this.deps.terminals.taskCancel(params as Parameters<DaemonClient['taskCancel']>[0])
+      case 'task.adopt-artifact': return this.deps.terminals.taskAdoptArtifact(params as Parameters<DaemonClient['taskAdoptArtifact']>[0])
+      case 'task.schedules': return this.deps.terminals.taskSchedules(typeof params['projectId'] === 'string' ? params['projectId'] : undefined)
+      case 'task.run-groups': return this.deps.terminals.taskRunGroups(typeof params['profileId'] === 'string' ? params['profileId'] : undefined)
       case 'scheduled.list':
         return { scheduledRuns: await this.deps.runs.scheduledRunsList() }
       case 'scheduled.save': {
@@ -704,14 +713,14 @@ export class RuntimeRpcServer {
       case 'scheduled.history':
         return { executions: await this.deps.runs.scheduledRunHistory(str('id')) }
       case 'verification.scripts': return this.deps.runs.verificationScripts(str('workspacePath'))
-      case 'verification.run': return this.deps.runs.verificationRun(str('workspacePath'),str('script'),params['options'] as import('@shared/operational-runs').VerificationRunOptions | undefined)
+      case 'verification.run': return this.deps.runs.verificationRun(str('workspacePath'),str('script'),params['options'] as VerificationRunOptions | undefined)
       case 'verification.list': return this.deps.runs.verificationList(str('workspacePath'),params['verifyArtifacts']===true)
       case 'verification.attach': return this.deps.runs.verificationAttach(str('workspacePath'),str('runId'),str('taskId'),str('path'))
       case 'parallel.list':
         return { parallelRuns: await this.deps.runs.parallelRunsList() }
       case 'parallel.start': {
         const input = parseRpcInput(parseParallelRunInput, params['input'])
-        return this.deps.runs.parallelRunStart(input, params['options'] as import('@shared/operational-runs').VerificationRunOptions | undefined)
+        return this.deps.runs.parallelRunStart(input, params['options'] as VerificationRunOptions | undefined)
       }
       case 'parallel.retry':
         return this.deps.runs.parallelRunRetry(str('id'), params['taskIds'] as string[])

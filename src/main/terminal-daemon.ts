@@ -1024,6 +1024,11 @@ export class TerminalDaemon {
           break
         }
         case 'agent.open': {
+          const rawTask = message['task']
+          if (rawTask !== undefined) {
+            const task = parseAgentTaskIntent(rawTask)
+            if (task.externalId !== undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task-linked agent.open must use the task coordinator claim and launch-intent path')
+          }
           const rawProviderId = message['providerId']
           const provider = typeof rawProviderId === 'string'
             ? AGENT_PROVIDER_DEFINITIONS.find((candidate) => candidate.id === rawProviderId)
@@ -1037,7 +1042,7 @@ export class TerminalDaemon {
             Number(message['cols'] ?? 100),
             Number(message['rows'] ?? 30),
             message['launch'] === undefined ? undefined : parseAgentExecutable(message['launch']),
-            message['task'] === undefined ? undefined : parseAgentTaskIntent(message['task'])
+            undefined
           )
           reply(true, result)
           break
@@ -1223,6 +1228,8 @@ export class TerminalDaemon {
         case 'task.schedule.execution.enqueue-due':
         case 'task.schedule.execution.enqueue':
         case 'task.schedule.executions.list':
+        case 'task.schedule.list':
+        case 'task.run-group.list':
         case 'task.schedule.execution.cancel':
         case 'task.run-group.create':
         case 'task.run-group.cancel':
@@ -1711,6 +1718,10 @@ export class TerminalDaemon {
             requestId: taskWireRequiredString(message['requestId'], 'requestId')
           })
         }
+      case 'task.schedule.list': {
+        const projectId = taskWireString(message['projectId'], 'projectId')
+        return { schedules: this.taskAuthority.listSchedules(projectId) }
+      }
       case 'task.schedule.executions.list': {
         const state = taskWireString(message['state'], 'state', 16)
         if (state !== undefined && !['queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed'].includes(state)) {
@@ -1728,6 +1739,10 @@ export class TerminalDaemon {
           ...(cursor === undefined ? {} : { cursor }),
           ...(limit === undefined ? {} : { limit })
         }) as unknown as Record<string, unknown>
+      }
+      case 'task.run-group.list': {
+        const profileId = taskWireString(message['profileId'], 'profileId')
+        return { runGroups: this.taskAuthority.listRunGroups(profileId) }
       }
       case 'task.schedule.execution.cancel':
         return {

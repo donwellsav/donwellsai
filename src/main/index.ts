@@ -35,6 +35,7 @@ import { SkillPackagesManager } from './skills'
 import { SecretStore } from './secret-store'
 import { hashVerificationArtifact } from './diff-review'
 import { OperationalRunService, openVerificationArtifact } from './operational-run-service'
+import { registerTaskAuthorityCapability } from './plugins/app-capabilities'
 import { AgentRuntime, type AgentWorkspaceRegistration } from './agent-runtime'
 import { deliverAgentAttachment } from './agent-delivery'
 import { DiffReviewService } from './diff-review'
@@ -864,19 +865,26 @@ void app.whenReady().then(async () => {
     return result
   })
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
-  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}}, async operationId => {
-    // Affected legacy work registers a durable admission through the
-    // daemon-owned gate before launching; a frozen, draining, or cut-over gate
-    // refuses it, and a failed gate refuses every affected launch.
-    const state = await terminalBus.maintenanceState()
-    if (state.phase === 'open') return ''
-    const admission = await terminalBus.maintenanceAdmitAffected(operationId)
-    return admission.operationId
-  }, async (operationId, outcome) => {
-    // Closing the admission is best-effort here: a launch that already
-    // happened must not fail because its bookkeeping could not be written.
-    await terminalBus.maintenanceCompleteAffected(operationId, outcome).catch(() => undefined)
-  })
+  operationalRuns = new OperationalRunService(
+    app.getPath('userData'),
+    terminalBus,
+    resolveRegisteredWorkspace,
+    {
+      source: path => git.handoffSource(path),
+      openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),
+      artifactRoots: async path => {
+        const scope = await resolveProjectToolScope(path, async candidate => resolveRegisteredProjectWorkspace(store, candidate))
+        return [scope.checkoutPath, join(app.getPath('userData'), 'project-tools', 'browser', scope.indexKey)]
+      }
+    },
+    async operationId => {
+      const state = await terminalBus.maintenanceState()
+      if (state.phase === 'open') return ''
+      return (await terminalBus.maintenanceAdmitAffected(operationId)).operationId
+    },
+    async (operationId, outcome) => { await terminalBus.maintenanceCompleteAffected(operationId, outcome).catch(() => undefined) },
+    async path => (await resolveRegisteredProjectWorkspace(store, path)).projectId
+  )
 
   try {
     await terminalBus.connect()
@@ -885,6 +893,7 @@ void app.whenReady().then(async () => {
     app.exit(1)
     return
   }
+  registerTaskAuthorityCapability(terminalBus)
   registerIpc()
   buildMenu()
   createWindow()

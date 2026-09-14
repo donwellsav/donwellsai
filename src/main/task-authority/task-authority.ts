@@ -2054,6 +2054,26 @@ export class SqliteTaskAuthority implements TaskAuthority {
     })
   }
 
+  /** Read-only schedule projection for authenticated app adapters. */
+  listSchedules(projectId?: string): ScheduleSnapshot[] {
+    return this.database.withReadOnly(db => {
+      const rows = projectId === undefined
+        ? db.prepare('SELECT * FROM schedules ORDER BY project_id, created_at, id').all() as Row[]
+        : db.prepare('SELECT * FROM schedules WHERE project_id = ? ORDER BY created_at, id').all(boundedField(projectId, 'projectId', 128)) as Row[]
+      return rows.map(row => scheduleSnapshot(db, row))
+    })
+  }
+
+  /** Read-only run-group projection for authenticated app adapters. */
+  listRunGroups(profileId?: string): RunGroupSnapshot[] {
+    return this.database.withReadOnly(db => {
+      const rows = profileId === undefined
+        ? db.prepare('SELECT * FROM run_groups ORDER BY created_at, id').all() as Row[]
+        : db.prepare('SELECT * FROM run_groups WHERE profile_id = ? ORDER BY created_at, id').all(boundedField(profileId, 'profileId', 128)) as Row[]
+      return rows.map(row => runGroupSnapshot(db, row))
+    })
+  }
+
   /** Enabled schedules whose next occurrence is due at or before the given authority time. */
   listSchedulesDue(nowMs: number): ScheduleSnapshot[] {
     if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw new TaskAuthorityValidationError('nowMs', 'must be a non-negative integer')

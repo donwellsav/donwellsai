@@ -9,7 +9,7 @@
 import { Notification } from 'electron'
 import { registerAppCapability } from './plugin-registry'
 import type { DomainEvent, EventStore } from '../events/event-store'
-
+import type { DaemonClient } from '../daemon-client'
 export type CapabilityEventStore = Pick<EventStore, 'append' | 'query'>
 
 export interface NotificationOptions {
@@ -31,5 +31,18 @@ export function registerPluginCapabilities(eventStore: CapabilityEventStore): vo
     append: (event: DomainEvent) => eventStore.append(event),
     query: (filter?: { sessionId?: string; type?: string; since?: number }) =>
       eventStore.query(filter ?? {})
+  })
+}
+/**
+ * Register only projection/intent methods. Worker credentials and lease tokens
+ * never cross the plugin boundary; the daemon authenticates this app session
+ * as an administrator and enforces the capability at plugin activation.
+ */
+export function registerTaskAuthorityCapability(daemon: Pick<DaemonClient, 'taskQuery' | 'taskCreate' | 'taskUpdate' | 'taskCancel'>): void {
+  registerAppCapability('task-authority', {
+    query: (input?: Parameters<DaemonClient['taskQuery']>[0]) => daemon.taskQuery(input ?? {}),
+    create: (input: Parameters<DaemonClient['taskCreate']>[0]) => daemon.taskCreate(input),
+    update: (input: Parameters<DaemonClient['taskUpdate']>[0]) => daemon.taskUpdate(input),
+    cancel: (input: Parameters<DaemonClient['taskCancel']>[0]) => daemon.taskCancel(input)
   })
 }

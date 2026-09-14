@@ -1433,6 +1433,13 @@ export class DaemonClient {
     return parseTaskSnapshotWire(response.task)
   }
 
+  async taskSchedules(projectId?: string): Promise<readonly ScheduleSnapshot[]> {
+    await this.requireCapability(TASK_AUTHORITY, 'listing task schedules')
+    const response = await this.request<{ schedules: unknown }>('task.schedule.list', projectId === undefined ? {} : { projectId })
+    if (!Array.isArray(response.schedules)) throw new Error('terminal daemon returned an invalid schedule list')
+    return response.schedules.map(parseScheduleSnapshotWire)
+  }
+
   async taskScheduleCreate(input: Readonly<{ projectId: string; spec: TaskScheduleSpec; enabled?: boolean; nextRunAt?: string; repositoryId?: string; workspaceRoot?: string }>): Promise<ScheduleSnapshot> {
     await this.requireCapability(TASK_AUTHORITY, 'creating a task schedule')
     const response = await this.request<{ schedule: unknown }>('task.schedule.create', { ...input })
@@ -1480,6 +1487,13 @@ export class DaemonClient {
     await this.requireCapability(TASK_AUTHORITY, 'cancelling a schedule execution')
     const response = await this.request<{ execution: unknown }>('task.schedule.execution.cancel', { ...input })
     return parseScheduleExecutionWire(response.execution)
+  }
+
+  async taskRunGroups(profileId?: string): Promise<readonly RunGroupSnapshot[]> {
+    await this.requireCapability(TASK_AUTHORITY, 'listing task run groups')
+    const response = await this.request<{ runGroups: unknown }>('task.run-group.list', profileId === undefined ? {} : { profileId })
+    if (!Array.isArray(response.runGroups)) throw new Error('terminal daemon returned an invalid run-group list')
+    return response.runGroups.map(parseRunGroupWire)
   }
 
   async taskRunGroupCreate(input: Readonly<{ profileId: string; name: string; concurrency: number; members: readonly Readonly<{ projectId: string; taskId: string; specification?: TaskExecutionSpecificationInput }>[] }>): Promise<RunGroupSnapshot> {
