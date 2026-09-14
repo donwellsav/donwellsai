@@ -2787,11 +2787,16 @@ export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEnti
       entities[`attempt:${attempt.attemptKey}`] = attemptId
       if (db.prepare('SELECT id FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId)) continue
       const specificationId = legacyEntityId(scopeKind, scopeId, 'specification', attempt.attemptKey)
+      entities[`specification:${attempt.attemptKey}`] = specificationId
       const specificationJson = JSON.stringify(attempt.specification)
+      // An imported attempt is never native: its specification carries the
+      // import provenance whatever the source claimed about the definition, so
+      // no imported row can ever pass a native-only check or be orphaned by an
+      // abort that filters on `imported-legacy`.
       db.prepare('INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
         .run(specificationId, projectId, taskId, JSON.stringify(attempt.specification.command), JSON.stringify(attempt.specification.target), JSON.stringify(attempt.specification.verification),
           attempt.specificationLegacyUnknown ? 'legacy-unknown' : sha256(specificationJson),
-          attempt.specificationLegacyUnknown ? 'legacy-unknown' : 'native', attempt.startedAt)
+          attempt.specificationLegacyUnknown ? 'legacy-unknown' : 'imported-legacy', attempt.startedAt)
       const sequence = int((db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS seq FROM attempts WHERE project_id = ? AND task_id = ?').get(projectId, taskId) as Row)['seq'])
       db.prepare("INSERT INTO attempts(id, project_id, task_id, sequence, retry_of_attempt_id, provenance_kind, state, specification_id, current_lease_id, started_at, finished_at) VALUES (?,?,?,?,?,'imported-legacy',?,?,NULL,?,?)")
         .run(attemptId, projectId, taskId, sequence,
@@ -2849,10 +2854,12 @@ export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEnti
       // its materialized task carries a provenance-marked legacy-unknown
       // specification rather than the current definition.
       const taskId = legacyEntityId(scopeKind, scopeId, 'execution-task', execution.executionKey)
+      entities[`task:${execution.executionKey}:legacy`] = taskId
       const spec = readScheduleSpec(text(scheduleRow['definition_json']))
       db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at, provenance_kind) VALUES (?,?,?,?,?,'','todo',0,NULL,'none',1,?,?,'imported-legacy')")
         .run(taskId, ownerProject, `${execution.executionKey}:legacy`, canonicalExternalTaskId(`${execution.executionKey}:legacy`), spec.taskTitle, execution.createdAt, execution.createdAt)
       const specificationId = legacyEntityId(scopeKind, scopeId, 'execution-specification', execution.executionKey)
+      entities[`specification:${execution.executionKey}`] = specificationId
       db.prepare("INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,'legacy-unknown',?)")
         .run(specificationId, ownerProject, taskId, JSON.stringify(spec.command), JSON.stringify(spec.target), JSON.stringify(spec.verification), 'legacy-unknown', execution.createdAt)
       const attemptId = execution.attemptKey === null ? null : legacyEntityId(scopeKind, scopeId, 'attempt', execution.attemptKey)

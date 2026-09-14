@@ -53,7 +53,14 @@ export const MIGRATION_EXPORT_LIMIT = 500
 export const OPERATIONAL_SOURCE_KINDS = ['orchestrations', 'automations', 'automation-runs'] as const
 export type OperationalSourceKind = (typeof OPERATIONAL_SOURCE_KINDS)[number]
 
-export const OPERATIONAL_FILE_NAMES: Record<OperationalSourceKind, string> = {
+/**
+ * Profile-event types the import itself writes. Abort clears exactly these,
+ * scoped to the entities the migration recorded, so no import residue survives
+ * while unrelated profile events are untouched.
+ */
+export const IMPORT_PROFILE_EVENT_TYPES = ['legacy-schedule-imported'] as const
+
+const OPERATIONAL_FILE_NAMES: Record<OperationalSourceKind, string> = {
   orchestrations: 'orchestrations.json',
   automations: 'automations.json',
   'automation-runs': 'automation-runs.json'
@@ -909,7 +916,7 @@ export class TaskAuthorityMigration {
    * rows through provenance-guarded deletes. Native post-cutover rows are never
    * touched: every statement below is scoped to `imported-legacy` provenance.
    */
-  abort(): void {
+  abort(migrationId?: string): void {
     this.database.withImmediate(db => {
       // Deletion order follows the foreign keys with `foreign_keys=ON`: every
       // child row that references an imported task, attempt, schedule, group,
@@ -950,10 +957,22 @@ export class TaskAuthorityMigration {
       db.prepare(`DELETE FROM execution_specifications WHERE id IN (${importedSpecifications})`).run()
       db.prepare(`DELETE FROM tasks WHERE id IN (${importedTasks})`).run()
 
-      // 4. Provenance rows last.
+      // 4. Import-written profile events are residue too: the import is their
+      // only writer, and they name entities that no longer exist. They are
+      // deleted by exact mapped-entity reference, never by a broad time or
+      // text match, so an unrelated profile event is never touched.
+      for (const eventType of IMPORT_PROFILE_EVENT_TYPES) {
+        db.prepare(`DELETE FROM authority_profile_events WHERE event_type = ? AND EXISTS (
+          SELECT 1 FROM migration_entity_mappings m
+          WHERE m.entity_kind IN ('schedule','run-group')
+            AND instr(authority_profile_events.payload_json, m.authority_entity_id) > 0
+        )`).run(eventType)
+      }
+
+      // 5. Provenance rows last.
       db.prepare('DELETE FROM migration_entity_mappings').run()
       db.prepare('DELETE FROM migration_sources').run()
-      this.setState(db, 'legacy', null, 'ABORTED')
+      this.setState(db, 'legacy', null, migrationId === undefined ? 'ABORTED' : `ABORTED:${migrationId}`.slice(0, 1024))
     })
   }
 

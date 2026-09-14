@@ -327,10 +327,6 @@ export class TerminalDaemon {
       })
     })
     this.taskAuthority = SqliteTaskAuthority.open({ userDataDirectory: this.paths.runtimeDir })
-    this.maintenanceGate = new SqliteProfileMaintenanceGate({
-      database: this.taskAuthority.database,
-      profileId: opts.userDataDir
-    })
     this.migration = new TaskAuthorityMigration({
       authority: this.taskAuthority,
       database: this.taskAuthority.database,
@@ -347,6 +343,15 @@ export class TerminalDaemon {
         run: async () => { throw new TaskAuthorityError('MIGRATION_REQUIRED', 'the migration-only Backlog reader is not configured in this daemon') },
         readWorkspaceFile: async () => { throw new TaskAuthorityError('MIGRATION_REQUIRED', 'the migration-only Backlog reader is not configured in this daemon') }
       }
+    })
+    // An operator abort through the gate must do the whole job: clear the lease
+    // *and* discard the candidate rows and return the migration to legacy. The
+    // gate owns the lease, the migration owns the rows, and this seam joins
+    // them so a wire `maintenance.abort` leaves neither behind.
+    this.maintenanceGate = new SqliteProfileMaintenanceGate({
+      database: this.taskAuthority.database,
+      profileId: opts.userDataDir,
+      onDiscardCandidateState: migrationId => this.discardAbortedMigration(migrationId)
     })
     this.taskCoordinator = new TaskExecutionCoordinator({
       authority: this.taskAuthority,
@@ -1423,6 +1428,23 @@ export class TerminalDaemon {
     return {
       connectionId: this.taskConnectionKey(socket),
       ownerStage: parseProfileMaintenanceOwnerStage(message['ownerStage'], 'ownerStage')
+    }
+  }
+
+  /**
+   * Completes an accepted abort: discards every candidate-only imported row and
+   * returns the migration to the legacy state.
+   *
+   * This runs after the gate's abort transaction commits, so a failure here is
+   * reported rather than silently swallowed — the lease is already released and
+   * the operator must know the residue removal did not finish.
+   */
+  private discardAbortedMigration(migrationId: string): void {
+    try {
+      this.migration.abort(migrationId)
+    } catch (error) {
+      logger.error({ err: error, migrationId }, 'profile maintenance abort could not discard candidate rows')
+      throw error
     }
   }
 

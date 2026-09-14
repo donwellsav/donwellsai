@@ -7,7 +7,7 @@ import type { RuntimeAuthorityLock } from '@shared/runtime-file-security'
 import { canonicalExternalTaskId } from '@shared/task-authority'
 import { parseProfileMaintenanceParticipantSet, type ProfileMaintenanceLease } from '@shared/profile-maintenance'
 import { openTaskAuthorityDatabase, openTaskAuthorityRawConnection } from './schema'
-import { SqliteTaskAuthority } from './task-authority'
+import { importLegacyEntities, SqliteTaskAuthority } from './task-authority'
 import { SqliteProfileMaintenanceGate } from '../profile-maintenance-gate'
 import { migrationSourceSetSha256, normalizeOperationalSnapshot, readLegacyOperationalFile, TaskAuthorityMigration, TaskAuthorityMigrationError, type LegacyShadowReaders, type MigrationSourceRecord } from './task-authority-migration'
 import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './backlog-migration-reader'
@@ -383,6 +383,42 @@ describe('task authority migration normalization', () => {
     expect(rawScalar(harness, "SELECT COUNT(*) FROM attempts WHERE provenance_kind = 'native'")).toBe(0)
   })
 
+  it('never writes a native-provenance specification for an imported attempt', async () => {
+    // A source that *does* carry the execution-time definition still imports as
+    // imported-legacy provenance: an imported attempt can never own a native
+    // specification, which would otherwise let it pass a native-only check and
+    // be orphaned by an abort that filters on imported provenance.
+    const harness = createHarness()
+    const receipt = importLegacyEntities(harness.authority.database, {
+      scopeKind: 'project',
+      scopeId: PROJECT_ALPHA,
+      tasks: [{ externalTaskId: 'DW-SPEC', title: 'spec task', body: '', status: 'done', priority: 0, dependencies: [] }],
+      attempts: [{
+        attemptKey: 'spec-attempt',
+        taskExternalTaskId: 'DW-SPEC',
+        state: 'completed',
+        // Explicitly not legacy-unknown: the source carries the definition.
+        specificationLegacyUnknown: false,
+        specification: { command: { program: 'node', args: ['build.js'] }, target: { kind: 'local', root: '/workspace/repo', label: 'repo' }, verification: { requiredArtifacts: [] } },
+        startedAt: '2026-01-01T00:00:00.000Z',
+        finishedAt: '2026-01-01T00:01:00.000Z'
+      }]
+    })
+    const specificationId = receipt['specification:spec-attempt']
+    expect(specificationId).toBeDefined()
+    expect(rawScalar(harness, 'SELECT provenance_kind FROM execution_specifications WHERE id = ?', specificationId))
+      .toBe('imported-legacy')
+    expect(rawScalar(harness, 'SELECT provenance_kind FROM attempts WHERE id = ?', receipt['attempt:spec-attempt']))
+      .toBe('imported-legacy')
+    // No imported row anywhere claims native provenance.
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM execution_specifications WHERE provenance_kind = 'native'"))).toBe(0)
+
+    // Abort still clears every imported row, including this specification.
+    harness.migration.abort()
+    expect(Number(rawScalar(harness, 'SELECT COUNT(*) FROM execution_specifications'))).toBe(0)
+    expect(Number(rawScalar(harness, 'SELECT COUNT(*) FROM attempts'))).toBe(0)
+  })
+
   it('never infers task linkage for generic Attention Inbox or EventStore rows', async () => {
     const harness = createHarness()
     await harness.migration.prepare()
@@ -577,6 +613,14 @@ describe('task authority migration cutover and activation', () => {
     const native = harness.authority.createTask({ connection: ADMIN, projectId: PROJECT_BETA, externalTaskId: 'NATIVE-ABORT', title: 'native task' })
     expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM execution_specifications WHERE provenance_kind = 'legacy-unknown'"))).toBeGreaterThan(0)
     expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM schedule_executions"))).toBeGreaterThan(0)
+    // The import writes profile events; they are residue abort must clear.
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM authority_profile_events WHERE event_type = 'legacy-schedule-imported'"))).toBeGreaterThan(0)
+    // An unrelated profile event must survive: abort never clears by type alone.
+    const unrelated = harness.authority.createSchedule({
+      connection: ADMIN, projectId: PROJECT_BETA,
+      spec: { profileId: PROFILE, taskTitle: 'unrelated', cadence: { kind: 'interval', minutes: 5 }, command: { program: 'node', args: [] }, target: { kind: 'local', root: '/workspace/unrelated', label: 'u' }, verification: { requiredArtifacts: [] } }
+    })
+    expect(unrelated.scheduleId).toBeDefined()
 
     harness.migration.abort()
 
@@ -592,15 +636,33 @@ describe('task authority migration cutover and activation', () => {
       ['run_members', "task_id NOT IN (SELECT id FROM tasks)"],
       ['schedule_executions', "task_id NOT IN (SELECT id FROM tasks)"],
       ['run_groups', "id NOT IN (SELECT DISTINCT run_group_id FROM run_members)"],
-      ['schedules', "id NOT IN (SELECT DISTINCT schedule_id FROM schedule_executions)"],
+      // The imported schedule is gone; the one unrelated native schedule is the
+      // only row that may remain, and it is asserted separately below.
+      ['schedules', "id <> (SELECT authority_entity_id FROM migration_entity_mappings WHERE entity_kind = 'schedule') OR id IS NULL"],
       ['task_dependencies', '1 = 1'],
       ['verification_artifacts', "provenance_kind = 'imported-legacy'"],
       ['artifact_adoptions', '1 = 1'],
       ['migration_sources', '1 = 1'],
-      ['migration_entity_mappings', '1 = 1']
+      ['migration_entity_mappings', '1 = 1'],
+      ['authority_profile_events', "event_type = 'legacy-schedule-imported'"],
+      // The imported schedule task's own event is residue too.
+      ['task_events', "event_type = 'legacy-execution-imported'"]
     ] as const) {
       expect({ table, count: Number(rawScalar(harness, `SELECT COUNT(*) FROM ${table} WHERE ${clause}`)) }).toEqual({ table, count: 0 })
     }
+    // The unrelated profile event survives: residue clearing is entity-scoped.
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM authority_profile_events WHERE event_type = 'schedule-created'"))).toBe(1)
+    // A same-type event that names no imported entity also survives, so the
+    // residue delete cannot clear by event type alone.
+    harness.authority.database.withImmediate(db => {
+      db.prepare("INSERT INTO authority_profile_events(event_id, profile_id, run_group_id, event_type, entity_version, payload_json, created_at) VALUES (?,?,NULL,'legacy-schedule-imported',1,'{\"scheduleId\":\"not-an-imported-schedule\"}',?)")
+        .run('unrelated-legacy-type-event', PROFILE, new Date().toISOString())
+    })
+    harness.migration.abort()
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM authority_profile_events WHERE event_id = 'unrelated-legacy-type-event'"))).toBe(1)
+    // Exactly the unrelated native schedule remains, and it is intact.
+    expect(Number(rawScalar(harness, 'SELECT COUNT(*) FROM schedules'))).toBe(1)
+    expect(harness.authority.readSchedule(PROJECT_BETA, unrelated.scheduleId)).toMatchObject({ taskTitle: 'unrelated' })
     // The native row is untouched and still addressable.
     expect(harness.authority.query({ connection: ADMIN }).tasks.map(task => task.taskId)).toEqual([native.taskId])
   })

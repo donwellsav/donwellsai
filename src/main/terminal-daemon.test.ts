@@ -13,6 +13,7 @@ import { DaemonClient, terminateSpawnedChild } from './daemon-client'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
 import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner } from './runtime-ownership'
 import { TerminalDaemon } from './terminal-daemon'
+import { openTaskAuthorityRawConnection } from './task-authority/schema'
 
 /**
  * Sends one raw wire frame on a freshly authenticated connection and reads the
@@ -563,6 +564,97 @@ describe('terminal daemon maintenance and migration wire surface', () => {
     } finally {
       await started.daemon.stopIfIdle().catch(() => undefined)
       rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts on the operator path after discarding the candidate rows and returning to legacy', async () => {
+    // A profile with real importable sources, so the abort has candidate rows
+    // to discard rather than an empty migration.
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-abort-')))
+    const users = join(directory, 'user-data')
+    const token = 'terminal-abort-token-123456789'
+    // A registered project with one Backlog task, so the import produces real
+    // candidate rows that the operator abort must discard.
+    const backlogTask = { id: 'DW-OP', title: 'operator task', body: '', status: 'todo', priority: 1, dependencies: [], }
+    const daemon = new TerminalDaemon({
+      userDataDir: directory,
+      authToken: token,
+      projectRegistry: async () => [{ projectId: 'project-operator', repositoryId: 'repo-operator', workspaceRoot: join(directory, 'workspace') }],
+      backlogPort: () => ({
+        run: async (_identity, args) => {
+          if (args[0] === 'task' && args[1] === 'list') return { schemaVersion: 1, kind: 'task-list', tasks: [{ id: backlogTask.id, title: backlogTask.title, status: backlogTask.status }] }
+          return { schemaVersion: 1, kind: 'task-view', task: { ...backlogTask, path: `.backlog/tasks/${backlogTask.id}.md` } }
+        },
+        readWorkspaceFile: async () => ({ bytes: Buffer.from('operator task source\n', 'utf8'), truncated: false, binary: false })
+      })
+    })
+    try {
+      writeFileSync(join(directory, 'orchestrations.json'), JSON.stringify({ schemaVersion: 1, parallelRuns: [] }), { mode: 0o600 })
+      void users
+      await daemon.start()
+      const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+      if (locator.status !== 'current') throw new Error('terminal locator was not published')
+      const socketPath = locator.record.socketPath
+
+      // Import real candidate rows, then abort through the authenticated wire.
+      await expect(callWireOp(socketPath, token, 'task.migration.import', {})).resolves.toMatchObject({ ok: true })
+      const migrate = await callWireOp(socketPath, token, 'task.migration.status', {})
+      expect(migrate['status']).toMatchObject({ state: 'preparing' })
+      expect(Number((migrate['status'] as Record<string, unknown>)['entityMappings'])).toBeGreaterThan(0)
+
+      const state = await callWireOp(socketPath, token, 'maintenance.state', {})
+      const revision = (state['state'] as Record<string, unknown>)['revision'] as number
+      const acquired = await callWireOp(socketPath, token, 'maintenance.acquire', {
+        migrationId: 'migration-operator-abort', ownerStage: 'stage-2', participants: ['task-authority'], expectedRevision: revision
+      })
+      const lease = acquired['lease'] as Record<string, unknown>
+
+      const aborted = await callWireOp(socketPath, token, 'maintenance.abort', {
+        ownerStage: 'stage-2',
+        input: { migrationId: 'migration-operator-abort', expectedRevision: lease['revision'], observedSourceSetSha256: 'a'.repeat(64) }
+      })
+      expect(aborted).toMatchObject({ ok: true, aborted: true })
+
+      // The gate released the lease *and* the migration returned to legacy with
+      // its candidate rows discarded — the operator abort is the whole job.
+      await expect(callWireOp(socketPath, token, 'maintenance.state', {})).resolves.toMatchObject({ state: { phase: 'open', lease: null } })
+      const after = await callWireOp(socketPath, token, 'task.migration.status', {})
+      expect(after['status']).toMatchObject({ state: 'legacy', entityMappings: 0, sources: [] })
+
+      // No orphan FK rows remain: every table the import wrote is empty, and
+      // the profile-event residue is gone with it.
+      const db = openTaskAuthorityRawConnection(join(directory, 'terminal-daemon', 'task-authority.sqlite'))
+      try {
+        for (const [table, clause] of [
+          ['tasks', '1 = 1'],
+          ['attempts', '1 = 1'],
+          ['execution_specifications', '1 = 1'],
+          ['task_dependencies', '1 = 1'],
+          ['task_events', '1 = 1'],
+          ['verification_artifacts', '1 = 1'],
+          ['run_members', '1 = 1'],
+          ['run_groups', '1 = 1'],
+          ['schedule_executions', '1 = 1'],
+          ['migration_sources', '1 = 1'],
+          ['migration_entity_mappings', '1 = 1'],
+          ['authority_profile_events', "event_type = 'legacy-schedule-imported'"]
+        ] as const) {
+          const row = db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${clause}`).get() as Record<string, number>
+          expect({ table, count: Number(row.count) }).toEqual({ table, count: 0 })
+        }
+        // The migration state row records the operator abort, not a silent open.
+        const stateRow = db.prepare("SELECT state FROM task_authority_migration_state WHERE profile_id = ?").get(directory) as Record<string, string>
+        expect(stateRow.state).toBe('legacy')
+      } finally {
+        db.close()
+      }
+
+      // New affected work is admitted again, proving legacy writers reopened.
+      const admitted = await callWireOp(socketPath, token, 'maintenance.admit.affected', { operationId: 'post-abort-launch' })
+      expect(admitted).toMatchObject({ ok: true })
+    } finally {
+      await daemon.stopIfIdle().catch(() => undefined)
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 
