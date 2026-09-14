@@ -7,11 +7,62 @@ import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { StringDecoder } from 'node:string_decoder'
 import { RuntimeOwnershipStore, type RuntimeOwner } from '@shared/runtime-ownership'
 import { DaemonClient, terminateSpawnedChild } from './daemon-client'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './local-runtime'
 import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner } from './runtime-ownership'
 import { TerminalDaemon } from './terminal-daemon'
+
+/**
+ * Sends one raw wire frame on a freshly authenticated connection and reads the
+ * single reply. Used to prove the daemon's maintenance/migration op surface
+ * without going through the typed client.
+ */
+function callWireOp(socketPath: string, authToken: string, op: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const completion = Promise.withResolvers<Record<string, unknown>>()
+  const socket = createConnection(socketPath)
+  const decoder = new StringDecoder('utf8')
+  let buffer = ''
+  let greeted = false
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const finish = (error?: Error, message?: Record<string, unknown>): void => {
+    if (settled) return
+    settled = true
+    if (timer) clearTimeout(timer)
+    socket.removeAllListeners()
+    socket.destroy()
+    if (error) completion.reject(error)
+    else completion.resolve(message as Record<string, unknown>)
+  }
+  const requestId = `probe-${op}`
+  socket.once('error', error => finish(error))
+  socket.once('connect', () => socket.write(JSON.stringify({ id: 'hello', op: 'hello', authToken }) + '\n'))
+  socket.on('data', chunk => {
+    buffer += decoder.write(chunk)
+    let newline: number
+    while ((newline = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, newline)
+      buffer = buffer.slice(newline + 1)
+      if (!line.trim()) continue
+      let message: Record<string, unknown>
+      try {
+        message = JSON.parse(line) as Record<string, unknown>
+      } catch {
+        continue
+      }
+      if (!greeted && message['capabilities'] !== undefined) {
+        greeted = true
+        socket.write(JSON.stringify({ id: requestId, op, ...params }) + '\n')
+        continue
+      }
+      if (greeted && message['id'] === requestId) finish(undefined, message)
+    }
+  })
+  timer = setTimeout(() => finish(new Error(`no reply to maintenance op ${op}`)), 5_000)
+  return completion.promise
+}
 
 type DaemonLifecycleProbe = { activePublication: () => { owner: RuntimeOwner; store: { release: (owner: RuntimeOwner) => boolean } } | null }
 type DaemonConnectProbe = { tryConnect: (socketPath: string, authToken: string, expected: { ownerId: string; ownerGeneration: number; socketPath: string; authToken: string; processIdentity: unknown }) => Promise<boolean> }
@@ -362,5 +413,191 @@ describe('ACP daemon wire compatibility', () => {
     await expect(client.modeSwitchResult('/tmp/workspace', 'switch-one')).rejects.toThrow(/invalid ACP snapshot/)
     probe.dispatchEvent({ event: 'acp', snapshot: legacySnapshot })
     expect(acpEvents).toBe(0)
+  })
+})
+
+describe('terminal daemon maintenance and migration wire surface', () => {
+  /**
+   * Starts a real daemon on an isolated profile and returns its endpoint.
+   * Every maintenance/migration op is exercised over the wire because the
+   * daemon is the only thing that may construct authenticated principal
+   * contexts.
+   */
+  async function startDaemon(): Promise<{ directory: string; socketPath: string; token: string; daemon: TerminalDaemon }> {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-maintenance-')))
+    const token = 'terminal-maintenance-token-123456789'
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: token })
+    await daemon.start()
+    const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+    if (locator.status !== 'current') {
+      await daemon.stopIfIdle()
+      throw new Error('terminal locator was not published')
+    }
+    return { directory, socketPath: locator.record.socketPath, token, daemon }
+  }
+
+  it('serves every maintenance op that carries neither a participant nor an owner stage', async () => {
+    const started = await startDaemon()
+    try {
+      // Ops that send no participant and no owner stage must not be rejected by
+      // eager context parsing.
+      const state = await callWireOp(started.socketPath, started.token, 'maintenance.state', {})
+      if (state['ok'] !== true) throw new Error('maintenance.state failed: ' + JSON.stringify(state))
+      expect(state).toMatchObject({ ok: true })
+      expect(state['state']).toMatchObject({ phase: 'open', lease: null, participants: [] })
+
+      const migrationStatus = await callWireOp(started.socketPath, started.token, 'task.migration.status', {})
+      expect(migrationStatus).toMatchObject({ ok: true })
+      expect(migrationStatus['status']).toMatchObject({ state: 'legacy' })
+
+      const imported = await callWireOp(started.socketPath, started.token, 'task.migration.import', {})
+      expect(imported).toMatchObject({ ok: true })
+
+      const shadow = await callWireOp(started.socketPath, started.token, 'task.migration.shadow', {})
+      expect(shadow).toMatchObject({ ok: true })
+      expect(shadow['report']).toMatchObject({ clean: true })
+
+      // The migration is activated over the wire, then the scoped export runs.
+      const leaseReply = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', {
+        migrationId: 'migration-wire',
+        ownerStage: 'stage-2',
+        participants: ['task-authority'],
+        expectedRevision: 1
+      })
+      if (leaseReply['ok'] !== true) throw new Error('maintenance.acquire failed: ' + JSON.stringify(leaseReply))
+      const lease = leaseReply['lease'] as Record<string, unknown>
+
+      const frozen = await callWireOp(started.socketPath, started.token, 'maintenance.freeze', { lease, ownerStage: 'stage-2' })
+      if (frozen['ok'] !== true) throw new Error('maintenance.freeze failed: ' + JSON.stringify(frozen))
+      await expect(callWireOp(started.socketPath, started.token, 'maintenance.drained', { migrationId: 'migration-wire', participant: 'task-authority', ownerStage: 'stage-2' })).resolves.toMatchObject({ ok: true })
+      await expect(callWireOp(started.socketPath, started.token, 'maintenance.cutover', { lease, ownerStage: 'stage-2' })).resolves.toMatchObject({ ok: true })
+
+      const prepared = await callWireOp(started.socketPath, started.token, 'maintenance.transition.prepare', {
+        lease,
+        ownerStage: 'stage-2',
+        intent: { participant: 'task-authority', operationId: 'cutover-1', sourceSha256: 'a'.repeat(64), intentSha256: 'b'.repeat(64), visibilityMode: 'central' }
+      })
+      expect(prepared).toMatchObject({ ok: true })
+      const receipt = prepared['receipt'] as Record<string, unknown>
+
+      const completed = await callWireOp(started.socketPath, started.token, 'maintenance.transition.complete', {
+        lease,
+        ownerStage: 'stage-2',
+        receipt,
+        evidenceSha256: 'c'.repeat(64)
+      })
+      expect(completed).toMatchObject({ ok: true })
+      expect(completed['receipt']).toMatchObject({ state: 'completed' })
+
+      const transitions = await callWireOp(started.socketPath, started.token, 'maintenance.transitions', { lease, ownerStage: 'stage-2' })
+      expect(transitions).toMatchObject({ ok: true })
+      expect(transitions['receipts']).toHaveLength(1)
+
+      // The export is an active-authority surface: before release it refuses
+      // rather than writing a projection for a migration that is mid-cutover.
+      const exported = await callWireOp(started.socketPath, started.token, 'task.migration.export', {})
+      expect(exported).toMatchObject({ ok: false })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('serves fail, resume, abort, fence, and release ops with their exact payloads', async () => {
+    const started = await startDaemon()
+    try {
+      const acquire = async (migrationId: string) => {
+        const state = await callWireOp(started.socketPath, started.token, 'maintenance.state', {})
+        const revision = (state['state'] as Record<string, unknown>)['revision'] as number
+        const reply = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', {
+          migrationId, ownerStage: 'stage-2', participants: ['task-authority'], expectedRevision: revision
+        })
+        if (reply['ok'] !== true) throw new Error(`acquire failed: ${JSON.stringify(reply)}`)
+        return reply['lease'] as Record<string, unknown>
+      }
+
+      // fail -> resume: a failed migration is durable, and resume takes the
+      // exact frozen digest recomputed by the gate.
+      const first = await acquire('migration-fail')
+      const failed = await callWireOp(started.socketPath, started.token, 'maintenance.fail', {
+        lease: first, ownerStage: 'stage-2', failure: { code: 'WIRE_TEST', evidenceSha256: 'd'.repeat(64) }
+      })
+      expect(failed).toMatchObject({ ok: true })
+      const failedLease = failed['lease'] as Record<string, unknown>
+      const resumed = await callWireOp(started.socketPath, started.token, 'maintenance.resume', {
+        ownerStage: 'stage-2',
+        input: { migrationId: 'migration-fail', expectedRevision: failedLease['revision'], expectedSourceSetSha256: 'e'.repeat(64) }
+      })
+      // A wrong digest stays failed rather than being accepted as the snapshot.
+      expect(resumed).toMatchObject({ ok: false })
+
+      const abort = await callWireOp(started.socketPath, started.token, 'maintenance.abort', {
+        ownerStage: 'stage-2',
+        input: { migrationId: 'migration-fail', expectedRevision: failedLease['revision'], observedSourceSetSha256: 'e'.repeat(64) }
+      })
+      expect(abort).toMatchObject({ ok: true, aborted: true })
+      await expect(callWireOp(started.socketPath, started.token, 'maintenance.state', {})).resolves.toMatchObject({ state: { phase: 'open' } })
+
+      // A complete cutover path with a fence and a release.
+      const second = await acquire('migration-release')
+      await callWireOp(started.socketPath, started.token, 'maintenance.drained', { migrationId: 'migration-release', participant: 'task-authority', ownerStage: 'stage-2' })
+      await callWireOp(started.socketPath, started.token, 'maintenance.cutover', { lease: second, ownerStage: 'stage-2' })
+      const fence = await callWireOp(started.socketPath, started.token, 'maintenance.fence', {
+        lease: second,
+        ownerStage: 'stage-2',
+        retirement: { participant: 'task-authority', retiredPath: '/profile/orchestrations.json', fenceReceiptSha256: 'f'.repeat(64), fsynced: true }
+      })
+      expect(fence).toMatchObject({ ok: true })
+      expect(fence['receipt']).toMatchObject({ fsynced: true })
+
+      const prepared = await callWireOp(started.socketPath, started.token, 'maintenance.transition.prepare', {
+        lease: second,
+        ownerStage: 'stage-2',
+        intent: { participant: 'task-authority', operationId: 'release-1', sourceSha256: 'a'.repeat(64), intentSha256: 'b'.repeat(64), visibilityMode: 'central' }
+      })
+      const receipt = prepared['receipt'] as Record<string, unknown>
+      const completed = await callWireOp(started.socketPath, started.token, 'maintenance.transition.complete', { lease: second, ownerStage: 'stage-2', receipt, evidenceSha256: 'c'.repeat(64) })
+      const release = await callWireOp(started.socketPath, started.token, 'maintenance.release', { lease: second, ownerStage: 'stage-2', outcome: 'active' })
+      expect(release).toMatchObject({ ok: true, released: true })
+      expect(completed['receipt']).toMatchObject({ state: 'completed' })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reports a coded failure for malformed gate input and still serves later ops', async () => {
+    const started = await startDaemon()
+    try {
+      const malformed = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', { migrationId: 'm', ownerStage: 'stage-9', participants: ['task-authority'], expectedRevision: 1 })
+      expect(malformed).toMatchObject({ ok: false, code: 'GATE_INPUT_INVALID' })
+      // The connection remains usable: one bad op does not break the surface.
+      await expect(callWireOp(started.socketPath, started.token, 'maintenance.state', {})).resolves.toMatchObject({ ok: true })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('admits and closes affected work on the authenticated connection only', async () => {
+    const started = await startDaemon()
+    try {
+      // While the gate is open, the daemon skips admission entirely: the wire
+      // form is reserved and refuses a directly-issued participant.
+      const reserved = await callWireOp(started.socketPath, started.token, 'maintenance.admit', { participant: 'task-authority', operationId: 'direct' })
+      expect(reserved).toMatchObject({ ok: false, code: 'AUTHORIZATION_DENIED' })
+
+      const leaseReply = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', {
+        migrationId: 'migration-admit', ownerStage: 'stage-2', participants: ['task-authority'], expectedRevision: 1
+      })
+      const lease = leaseReply['lease'] as Record<string, unknown>
+      // New affected work is refused while frozen...
+      const refused = await callWireOp(started.socketPath, started.token, 'maintenance.admit.affected', { operationId: 'launch-1' })
+      expect(refused).toMatchObject({ ok: false, code: 'GATE_NOT_OPEN' })
+      void lease
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
   })
 })

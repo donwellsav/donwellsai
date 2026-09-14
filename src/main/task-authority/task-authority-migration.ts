@@ -408,6 +408,14 @@ export function readRegisteredProjects(userDataDirectory: string): readonly Back
 // Private file helpers
 // ---------------------------------------------------------------------------
 
+/** Bounded non-empty identifier, matching the authority's own input contract. */
+function boundedField(value: unknown, field: string, maximum: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes('\0')) {
+    throw new TaskAuthorityMigrationError('MIGRATION_STATE_INVALID', `${field}: must be a non-empty string of at most ${maximum} characters`)
+  }
+  return value
+}
+
 function isPrivateFile(path: string): boolean {
   try {
     const stats = lstatSync(path)
@@ -903,16 +911,46 @@ export class TaskAuthorityMigration {
    */
   abort(): void {
     this.database.withImmediate(db => {
-      db.prepare("DELETE FROM artifact_adoptions WHERE artifact_id IN (SELECT id FROM verification_artifacts WHERE provenance_kind = 'imported-legacy')").run()
-      db.prepare("DELETE FROM verification_artifacts WHERE provenance_kind = 'imported-legacy'").run()
-      db.prepare("DELETE FROM run_members WHERE task_id IN (SELECT id FROM tasks WHERE provenance_kind = 'imported-legacy')").run()
-      db.prepare("DELETE FROM schedule_executions WHERE task_id IN (SELECT id FROM tasks WHERE provenance_kind = 'imported-legacy')").run()
-      db.prepare("DELETE FROM attempts WHERE provenance_kind = 'imported-legacy'").run()
-      db.prepare("DELETE FROM run_groups WHERE id IN (SELECT authority_entity_id FROM migration_entity_mappings WHERE entity_kind = 'run-group')").run()
-      db.prepare("DELETE FROM schedules WHERE id IN (SELECT authority_entity_id FROM migration_entity_mappings WHERE entity_kind = 'schedule')").run()
-      db.prepare("DELETE FROM task_dependencies WHERE task_id IN (SELECT id FROM tasks WHERE provenance_kind = 'imported-legacy')").run()
-      db.prepare("DELETE FROM tasks WHERE provenance_kind = 'imported-legacy'").run()
-      db.prepare("DELETE FROM execution_specifications WHERE provenance_kind = 'imported-legacy'").run()
+      // Deletion order follows the foreign keys with `foreign_keys=ON`: every
+      // child row that references an imported task, attempt, schedule, group,
+      // or specification is removed before the row it points at. Imported rows
+      // carry either `imported-legacy` (attempts, tasks, imported schedule
+      // tasks) or `legacy-unknown` (historical execution specifications), so
+      // both provenance values are covered wherever the spec may appear.
+      const importedSpecifications = "SELECT id FROM execution_specifications WHERE provenance_kind IN ('imported-legacy','legacy-unknown')"
+      const importedTasks = "SELECT id FROM tasks WHERE provenance_kind = 'imported-legacy'"
+      const importedAttempts = "SELECT id FROM attempts WHERE provenance_kind = 'imported-legacy'"
+      const importedGroups = "SELECT authority_entity_id FROM migration_entity_mappings WHERE entity_kind = 'run-group'"
+      const importedSchedules = "SELECT authority_entity_id FROM migration_entity_mappings WHERE entity_kind = 'schedule'"
+
+      // 1. Leaves that reference an imported task/attempt/artifact.
+      db.prepare(`DELETE FROM artifact_adoptions WHERE artifact_id IN (SELECT id FROM verification_artifacts WHERE provenance_kind = 'imported-legacy')`).run()
+      db.prepare(`DELETE FROM verification_artifacts WHERE provenance_kind = 'imported-legacy'`).run()
+      db.prepare(`DELETE FROM task_mailbox WHERE task_id IN (${importedTasks})`).run()
+      db.prepare(`DELETE FROM task_events WHERE task_id IN (${importedTasks})`).run()
+      db.prepare(`DELETE FROM handoff_offers WHERE attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM launch_intents WHERE attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM runtime_reconciliations WHERE attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM lease_renewals WHERE attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM leases WHERE attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM resource_reservations WHERE attempt_id IN (${importedAttempts})`).run()
+
+      // 2. Group/schedule children before their parents.
+      db.prepare(`DELETE FROM run_members WHERE run_group_id IN (${importedGroups}) OR task_id IN (${importedTasks})`).run()
+      db.prepare(`DELETE FROM schedule_executions WHERE schedule_id IN (${importedSchedules}) OR task_id IN (${importedTasks})`).run()
+      db.prepare(`DELETE FROM run_groups WHERE id IN (${importedGroups})`).run()
+      db.prepare(`DELETE FROM schedules WHERE id IN (${importedSchedules})`).run()
+
+      // 3. Task children, then tasks themselves (dependencies reference tasks).
+      db.prepare(`DELETE FROM task_dependencies WHERE task_id IN (${importedTasks}) OR depends_on_task_id IN (${importedTasks})`).run()
+      // Attempts must go before tasks: they reference their task.
+      db.prepare(`UPDATE tasks SET current_attempt_id = NULL WHERE current_attempt_id IN (${importedAttempts})`).run()
+      db.prepare(`DELETE FROM attempts WHERE id IN (${importedAttempts})`).run()
+      // Specs reference their task, so they go before it — both provenance values.
+      db.prepare(`DELETE FROM execution_specifications WHERE id IN (${importedSpecifications})`).run()
+      db.prepare(`DELETE FROM tasks WHERE id IN (${importedTasks})`).run()
+
+      // 4. Provenance rows last.
       db.prepare('DELETE FROM migration_entity_mappings').run()
       db.prepare('DELETE FROM migration_sources').run()
       this.setState(db, 'legacy', null, 'ABORTED')
@@ -933,20 +971,26 @@ export class TaskAuthorityMigration {
    * user-data projection directory keyed by repository ID. The export carries a
    * generated/read-only header and the source authority event sequence, and is
    * never parsed back into authority. Repository task files are never touched.
+   *
+   * The projection is scoped to the requested project: an export keyed by one
+   * repository must never carry another repository's tasks.
    */
-  exportBacklog(repositoryId: string, limit = MIGRATION_EXPORT_LIMIT): Readonly<{ path: string; sha256: string; tasks: number }> {
+  exportBacklog(projectId: string, limit = MIGRATION_EXPORT_LIMIT): Readonly<{ path: string; sha256: string; tasks: number }> {
     this.requireState('active')
     const status = this.status()
+    const repositoryId = boundedField(projectId, 'repositoryId', 128)
     const directory = join(this.userDataDirectory, 'task-authority-projections', repositoryId)
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     const tasks = this.authority.query({
       connection: { connectionId: 'migration-export', role: 'administrator' },
+      projectId: repositoryId,
       limit: Math.max(1, Math.min(limit, 500))
     }).tasks
-    const events = this.database.withReadOnly(db => db.prepare('SELECT sequence, event_type, entity_version, created_at FROM task_events ORDER BY sequence LIMIT 500').all() as Row[])
+    const events = this.database.withReadOnly(db => db.prepare('SELECT sequence, event_type, entity_version, created_at FROM task_events WHERE project_id = ? ORDER BY sequence LIMIT 500').all(repositoryId) as Row[])
     const lines = [
       '<!-- generated: do not edit; this is a read-only Task Authority projection -->',
       `<!-- authority: task-authority; profile: ${this.profileId}; repository: ${repositoryId} -->`,
+      `<!-- scope: project ${repositoryId} only; no other project's tasks are included -->`,
       `<!-- frozen-source-set: ${status.sourceSetSha256 ?? 'unknown'} -->`,
       '',
       ...tasks.map(task => `- [${task.status}] ${task.externalTaskId} · ${task.title}${task.dependencies.length === 0 ? '' : ` (depends on ${task.dependencies.join(', ')})`}`),

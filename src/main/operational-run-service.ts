@@ -74,8 +74,11 @@ export class OperationalRunService implements OperationalRunsApi {
     this.scheduler = new ScheduledRunScheduler(new ScheduledRunStore(userDataDir), launch, inspect, release, stop)
     this.parallelStore = new ParallelRunStore(userDataDir)
     this.parallel = new ParallelRunOrchestrator(this.parallelStore, async request => {
+      // The admission is held across the whole launch — workspace resolution,
+      // evidence observation, and the daemon job open — so a cutover cannot
+      // proceed while this member is still starting. It closes in both branches.
       const admission = await this.admitAffectedWork(`parallel-launch:${request.runId}:${request.taskId}`)
-      await this.completeAffectedWork(admission, 'completed').catch(() => undefined)
+      try {
       const root=await this.localWorkspace(request.target)
       const setup = this.parallelStore.get(request.runId)?.tasks.find(task => task.id === request.taskId)?.verificationSetup
       const outputs: VerificationOutput[] = []
@@ -95,7 +98,14 @@ export class OperationalRunService implements OperationalRunsApi {
       const current=this.parallelStore.get(request.runId),task=current?.tasks.find(task=>task.id===request.taskId)
       if(!current||!task||task.status!=='launching'||current.status==='cancelling')throw new Error('Run cancelled or removed before verification launch')
       task.verification=evidence;this.parallelStore.upsert(current)
-      return launch(request)
+      const sessionId = await launch(request)
+      await this.completeAffectedWork(admission, 'completed').catch(() => undefined)
+      return sessionId
+      } catch (error) {
+        // A launch that never happened must not leave its admission live.
+        await this.completeAffectedWork(admission, 'cancelled').catch(() => undefined)
+        throw error
+      }
     }, stop, async sessionId => {
       const result=await inspect(sessionId)
       if(result.exited)await this.captureCompletion(sessionId)

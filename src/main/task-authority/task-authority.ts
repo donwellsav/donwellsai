@@ -2893,17 +2893,3 @@ export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEnti
     return entities
   }
 }
-
-/**
- * Marks the imported entities of a superseded snapshot so a rebuild can
- * identify them. The rebuild transaction already reuses stable IDs for every
- * surviving entity; this closes the imported attempts of entities the source
- * no longer carries.
- */
-export function retireImportedEntities(database: TaskAuthorityDatabase, authorityEntityIds: readonly string[]): void {
-  database.withImmediate(db => {
-    for (const id of authorityEntityIds) {
-      db.prepare("UPDATE attempts SET state = 'exited', finished_at = COALESCE(finished_at, ?) WHERE id = ? AND provenance_kind = 'imported-legacy'").run(nowIso(), id)
-    }
-  })
-}

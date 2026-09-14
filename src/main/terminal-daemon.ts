@@ -32,9 +32,10 @@ import { SqliteTaskAuthority } from './task-authority/task-authority'
 import { readRegisteredProjects, TaskAuthorityMigration, TaskAuthorityMigrationError } from './task-authority/task-authority-migration'
 import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './task-authority/backlog-migration-reader'
 import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
-import type { AuthenticatedProfileMaintenanceMigrationContext } from '@shared/profile-maintenance'
+import type { AuthenticatedProfileMaintenanceMigrationContext, AuthenticatedProfileMaintenanceParticipantContext } from '@shared/profile-maintenance'
 import {
   ProfileMaintenanceError,
+  ProfileMaintenanceValidationError,
   parseProfileMaintenanceAbortInput,
   parseProfileMaintenanceFailure,
   parseProfileMaintenanceLease,
@@ -493,13 +494,9 @@ export class TerminalDaemon {
       this.resolveMaintenancePhaseAtStartup()
       this.taskSchedulerPump = new TaskSchedulerPump(this.taskAuthority, this.daemonWorkerOwnerId(), { connectionId: 'daemon-scheduler' })
       await this.reconcileTaskAuthority()
-      this.runTaskSchedulerTick()
+      this.scheduleTaskSchedulerTick()
       this.taskPumpTimer = setInterval(() => {
-        try {
-          this.runTaskSchedulerTick()
-        } catch (error) {
-          logger.warn({ err: error }, 'task scheduler tick failed')
-        }
+        this.scheduleTaskSchedulerTick()
       }, TASK_SCHEDULER_TICK_MS)
       this.taskPumpTimer.unref?.()
     } catch (error) {
@@ -1202,7 +1199,10 @@ export class TerminalDaemon {
               error: error instanceof Error ? error.message : String(error),
               ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
               ...(error instanceof TaskAuthorityMigrationError ? { code: error.code } : {}),
-              ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {})
+              ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {}),
+              // A malformed gate input is a coded maintenance failure, not an
+              // uncoded daemon error: callers branch on it like any other.
+              ...(error instanceof ProfileMaintenanceValidationError ? { code: 'GATE_INPUT_INVALID', field: error.field } : {})
             })
           )
           break
@@ -1342,14 +1342,36 @@ export class TerminalDaemon {
     for (const event of events) logger.info({ taskAuthority: event }, 'task-authority:startup-reconciled')
   }
 
-  private runTaskSchedulerTick(): void {
+  /**
+   * One scheduler tick, fenced by a durable admission.
+   *
+   * Enqueuing a due occurrence and claiming a task both mutate authority state
+   * that a migration may be about to freeze, so the tick registers an affected
+   * admission first. While the gate is open the admission is skipped entirely,
+   * so ordinary operation pays no extra database work.
+   */
+  private async runTaskSchedulerTick(): Promise<void> {
     const pump = this.taskSchedulerPump
     if (!pump) return
-    const result = pump.tick()
-    for (const failure of result.failures) logger.warn({ scope: failure.scope, error: failure.error }, 'task scheduler tick rejected one enqueue or claim')
-    for (const entry of result.claimed) {
-      this.launchClaimedTask(entry.claim, entry.specification, 'finite-job', this.daemonWorkerConnection(entry.claim.task.projectId))
+    const admission = await this.admitDaemonWork('task-authority', `scheduler-tick:${Date.now()}`)
+    let outcome: 'completed' | 'cancelled' = 'completed'
+    try {
+      const result = pump.tick()
+      for (const failure of result.failures) logger.warn({ scope: failure.scope, error: failure.error }, 'task scheduler tick rejected one enqueue or claim')
+      for (const entry of result.claimed) {
+        this.launchClaimedTask(entry.claim, entry.specification, 'finite-job', this.daemonWorkerConnection(entry.claim.task.projectId))
+      }
+    } catch (error) {
+      outcome = 'cancelled'
+      throw error
+    } finally {
+      await this.completeDaemonWork(admission, 'task-authority', outcome)
     }
+  }
+
+  /** Fire-and-forget tick for timers: a rejected tick is logged, never fatal. */
+  private scheduleTaskSchedulerTick(): void {
+    void this.runTaskSchedulerTick().catch(error => logger.warn({ err: error }, 'task scheduler tick failed'))
   }
 
   // -- profile maintenance gate -----------------------------------------------
@@ -1404,13 +1426,20 @@ export class TerminalDaemon {
     }
   }
 
+  /**
+   * Dispatches one maintenance or migration command.
+   *
+   * Principal contexts are built lazily inside the op that needs them: most
+   * commands carry neither a participant nor an owner stage, so eagerly parsing
+   * both would reject the majority of valid calls before their handler runs.
+   */
   private async handleMaintenanceOp(socket: Socket, message: Record<string, unknown>): Promise<unknown> {
     const op = String(message['op'] ?? '')
-    const caller = this.migrationCaller(socket, message)
-    const participantCaller = {
+    const caller = (): AuthenticatedProfileMaintenanceMigrationContext => this.migrationCaller(socket, message)
+    const participantCaller = (): AuthenticatedProfileMaintenanceParticipantContext => ({
       connectionId: this.taskConnectionKey(socket),
       participant: parseProfileMaintenanceParticipant(message['participant'], 'participant')
-    }
+    })
     switch (op) {
       case 'maintenance.state':
         return { state: this.maintenanceGate.readState() }
@@ -1448,41 +1477,54 @@ export class TerminalDaemon {
       }
       case 'maintenance.acquire':
         return {
-          lease: this.maintenanceGate.acquire(caller, {
+          lease: await this.maintenanceGate.acquire({
+            connectionId: this.taskConnectionKey(socket),
+            ownerStage: parseProfileMaintenanceOwnerStage(message['ownerStage'], 'ownerStage')
+          }, {
             migrationId: taskWireRequiredString(message['migrationId'], 'migrationId'),
             ownerStage: parseProfileMaintenanceOwnerStage(message['ownerStage'], 'ownerStage'),
             participants: parseProfileMaintenanceParticipantSet(message['participants']),
             expectedRevision: taskWireInteger(message['expectedRevision'], 'expectedRevision', 1, Number.MAX_SAFE_INTEGER) ?? 1
           })
         }
-      case 'maintenance.freeze':
-        return { frozen: this.maintenanceGate.freeze(caller, parseProfileMaintenanceLease(message['lease'])).then(() => true) }
-      case 'maintenance.drained':
-        return { acknowledged: this.maintenanceGate.acknowledgeDrained(participantCaller, taskWireRequiredString(message['migrationId'], 'migrationId')).then(() => true) }
-      case 'maintenance.cutover':
-        return { cutover: this.maintenanceGate.beginCutover(caller, parseProfileMaintenanceLease(message['lease'])).then(() => true) }
+      case 'maintenance.freeze': {
+        await this.maintenanceGate.freeze(caller(), parseProfileMaintenanceLease(message['lease']))
+        return { frozen: true }
+      }
+      case 'maintenance.drained': {
+        await this.maintenanceGate.acknowledgeDrained(participantCaller(), taskWireRequiredString(message['migrationId'], 'migrationId'))
+        return { acknowledged: true }
+      }
+      case 'maintenance.cutover': {
+        await this.maintenanceGate.beginCutover(caller(), parseProfileMaintenanceLease(message['lease']))
+        return { cutover: true }
+      }
       case 'maintenance.transition.prepare':
-        return { receipt: this.maintenanceGate.prepareMigrationTransition(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceTransitionIntent(message['intent'])) }
+        return { receipt: await this.maintenanceGate.prepareMigrationTransition(caller(), parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceTransitionIntent(message['intent'])) }
       case 'maintenance.transition.complete':
-        return { receipt: this.maintenanceGate.completeMigrationTransition(caller, parseProfileMaintenanceReceipt(message['receipt']), taskWireRequiredString(message['evidenceSha256'], 'evidenceSha256')) }
+        return { receipt: await this.maintenanceGate.completeMigrationTransition(caller(), parseProfileMaintenanceReceipt(message['receipt']), taskWireRequiredString(message['evidenceSha256'], 'evidenceSha256')) }
       case 'maintenance.transition.visibility':
-        return { receipt: this.maintenanceGate.acknowledgeExternalVisibility(caller, parseProfileMaintenanceReceipt(message['receipt']), {
+        return { receipt: await this.maintenanceGate.acknowledgeExternalVisibility(caller(), parseProfileMaintenanceReceipt(message['receipt']), {
           expectedRevision: taskWireInteger(message['expectedRevision'], 'expectedRevision', 1, Number.MAX_SAFE_INTEGER) ?? 1,
           localVisibleRevision: taskWireRequiredString(message['localVisibleRevision'], 'localVisibleRevision'),
           localVisibleEvidenceSha256: taskWireRequiredString(message['localVisibleEvidenceSha256'], 'localVisibleEvidenceSha256')
         }) }
       case 'maintenance.transitions':
-        return { receipts: this.maintenanceGate.listMigrationTransitions(caller, parseProfileMaintenanceLease(message['lease'])) }
+        return { receipts: await this.maintenanceGate.listMigrationTransitions(caller(), parseProfileMaintenanceLease(message['lease'])) }
       case 'maintenance.fence':
-        return { receipt: this.maintenanceGate.recordRetirementFence(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceRetirement(message['retirement'])) }
+        return { receipt: await this.maintenanceGate.recordRetirementFence(caller(), parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceRetirement(message['retirement'])) }
       case 'maintenance.fail':
-        return { lease: this.maintenanceGate.fail(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceFailure(message['failure'])) }
+        return { lease: await this.maintenanceGate.fail(caller(), parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceFailure(message['failure'])) }
       case 'maintenance.resume':
-        return { lease: this.maintenanceGate.resume(caller, parseProfileMaintenanceResumeInput(message['input'])) }
-      case 'maintenance.abort':
-        return { aborted: this.maintenanceGate.abort(caller, parseProfileMaintenanceAbortInput(message['input'])).then(() => true) }
-      case 'maintenance.release':
-        return { released: this.maintenanceGate.release(caller, parseProfileMaintenanceLease(message['lease']), 'active').then(() => true) }
+        return { lease: await this.maintenanceGate.resume(caller(), parseProfileMaintenanceResumeInput(message['input'])) }
+      case 'maintenance.abort': {
+        await this.maintenanceGate.abort(caller(), parseProfileMaintenanceAbortInput(message['input']))
+        return { aborted: true }
+      }
+      case 'maintenance.release': {
+        await this.maintenanceGate.release(caller(), parseProfileMaintenanceLease(message['lease']), 'active')
+        return { released: true }
+      }
       default:
         throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `unknown maintenance op: ${op}`)
     }

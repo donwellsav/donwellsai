@@ -546,6 +546,84 @@ describe('task authority migration cutover and activation', () => {
     expect(rawScalar(harness, 'SELECT COUNT(*) FROM task_dependencies')).toBe(0)
   })
 
+  it('aborts to legacy through every foreign-key child, including legacy-unknown specifications', async () => {
+    // This fixture produces both provenance values: an imported task (with a
+    // specification) and a historical schedule execution whose specification is
+    // `legacy-unknown`. Abort must clear both without violating a foreign key.
+    const harness = createHarness({
+      operational: {
+        'automations.json': {
+          schemaVersion: 1,
+          scheduledRuns: [{
+            id: 'sched-1', name: 'nightly', target: { kind: 'local', root: '/workspace/repo', label: 'repo' },
+            command: 'node nightly.js', schedule: { kind: 'interval', minutes: 30 }, enabled: true,
+            createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z'
+          }]
+        },
+        'automation-runs.json': {
+          schemaVersion: 1,
+          executions: [{ id: 'exec-1', scheduledRunId: 'sched-1', trigger: 'schedule', startedAt: '2026-01-01T00:00:00.000Z', status: 'succeeded' }]
+        },
+        'orchestrations.json': {
+          schemaVersion: 1,
+          parallelRuns: [{
+            id: 'run-1', name: 'parallel run', command: 'node build.js', concurrency: 1, status: 'succeeded', createdAt: '2026-01-01T00:00:00.000Z',
+            tasks: [{ id: 'task-1', target: { kind: 'local', root: '/workspace/repo', label: 'repo' }, command: 'node build.js', status: 'succeeded', startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:01:00.000Z', exitCode: 0 }]
+          }]
+        }
+      }
+    })
+    await harness.migration.prepare()
+    const native = harness.authority.createTask({ connection: ADMIN, projectId: PROJECT_BETA, externalTaskId: 'NATIVE-ABORT', title: 'native task' })
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM execution_specifications WHERE provenance_kind = 'legacy-unknown'"))).toBeGreaterThan(0)
+    expect(Number(rawScalar(harness, "SELECT COUNT(*) FROM schedule_executions"))).toBeGreaterThan(0)
+
+    harness.migration.abort()
+
+    // The abort committed: the state is legacy, not a rolled-back failure.
+    expect(harness.migration.status()).toMatchObject({ state: 'legacy', sourceSetSha256: null })
+    expect(rawScalar(harness, "SELECT reason FROM task_authority_migration_failure WHERE reason = 'ABORTED'")).toBe('ABORTED')
+    // Zero imported rows of either provenance survive...
+    expect(rawScalar(harness, "SELECT COUNT(*) FROM tasks WHERE provenance_kind = 'imported-legacy'")).toBe(0)
+    expect(rawScalar(harness, "SELECT COUNT(*) FROM execution_specifications WHERE provenance_kind IN ('imported-legacy','legacy-unknown')")).toBe(0)
+    // ...and zero orphan children remain in any table that referenced them.
+    for (const [table, clause] of [
+      ['attempts', "provenance_kind = 'imported-legacy'"],
+      ['run_members', "task_id NOT IN (SELECT id FROM tasks)"],
+      ['schedule_executions', "task_id NOT IN (SELECT id FROM tasks)"],
+      ['run_groups', "id NOT IN (SELECT DISTINCT run_group_id FROM run_members)"],
+      ['schedules', "id NOT IN (SELECT DISTINCT schedule_id FROM schedule_executions)"],
+      ['task_dependencies', '1 = 1'],
+      ['verification_artifacts', "provenance_kind = 'imported-legacy'"],
+      ['artifact_adoptions', '1 = 1'],
+      ['migration_sources', '1 = 1'],
+      ['migration_entity_mappings', '1 = 1']
+    ] as const) {
+      expect({ table, count: Number(rawScalar(harness, `SELECT COUNT(*) FROM ${table} WHERE ${clause}`)) }).toEqual({ table, count: 0 })
+    }
+    // The native row is untouched and still addressable.
+    expect(harness.authority.query({ connection: ADMIN }).tasks.map(task => task.taskId)).toEqual([native.taskId])
+  })
+
+  it('scopes the generated export to the requested project only', async () => {
+    const harness = createHarness()
+    await activated(harness)
+    const alpha = harness.migration.exportBacklog(PROJECT_ALPHA)
+    const content = readFileSync(alpha.path, 'utf8')
+    // Alpha's own tasks are present; Beta's identical external id is not.
+    expect(content).toContain('DW-1')
+    expect(content).toContain('DW-2')
+    expect(content).toContain(`scope: project ${PROJECT_ALPHA} only`)
+    expect(content).not.toContain('Beta one')
+    expect(alpha.tasks).toBe(2)
+
+    const beta = harness.migration.exportBacklog(PROJECT_BETA)
+    expect(readFileSync(beta.path, 'utf8')).toContain('Beta one')
+    expect(beta.tasks).toBe(1)
+    // The two exports are genuinely different projections.
+    expect(beta.sha256).not.toBe(alpha.sha256)
+  })
+
   it('reopens and resumes after an interruption without duplicating rows', async () => {
     const harness = createHarness()
     await harness.migration.prepare()

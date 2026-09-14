@@ -864,7 +864,7 @@ void app.whenReady().then(async () => {
     return result
   })
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
-    operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}}, async operationId => {
+  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}}, async operationId => {
     // Affected legacy work registers a durable admission through the
     // daemon-owned gate before launching; a frozen, draining, or cut-over gate
     // refuses it, and a failed gate refuses every affected launch.
