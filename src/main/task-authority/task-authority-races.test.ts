@@ -345,8 +345,8 @@ describe('task authority fencing races', () => {
     const winnerA = claim(first, PROJECT_ALPHA, 'CAP-1')
     const winnerB = claim(second, PROJECT_ALPHA, 'CAP-2', OWNER_BOB)
     expect(winnerA.token.leaseId).not.toBe(winnerB.token.leaseId)
-    expect(() => claim(first, PROJECT_ALPHA, 'CAP-3', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'TASK_NOT_RUNNABLE' }))
-    expect(() => claim(second, PROJECT_ALPHA, 'CAP-3', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'TASK_NOT_RUNNABLE' }))
+    expect(() => claim(first, PROJECT_ALPHA, 'CAP-3', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'CAPACITY_EXHAUSTED' }))
+    expect(() => claim(second, PROJECT_ALPHA, 'CAP-3', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'CAPACITY_EXHAUSTED' }))
     // Completion releases capacity for a follow-on claim.
     first.write({ kind: 'complete', connection: worker(OWNER_ALICE), token: winnerA.token, result: { summary: 'ok' } })
     const followOn = claim(second, PROJECT_ALPHA, 'CAP-3', OWNER_CARA)

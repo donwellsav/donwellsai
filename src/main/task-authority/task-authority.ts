@@ -1381,7 +1381,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
           "SELECT COUNT(*) AS count FROM run_members m JOIN tasks t ON t.project_id = m.project_id AND t.id = m.task_id JOIN attempts a ON a.project_id = t.project_id AND a.id = t.current_attempt_id WHERE m.run_group_id = ? AND a.state IN ('claimed','launching','running','cancelling','quarantined')"
         ).get(text(member['group_id'])) as Row
         if (int(consuming['count']) >= int(member['group_concurrency'])) {
-          throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `run group ${text(member['group_id'])} has no free concurrency`)
+          throw new TaskAuthorityError('CAPACITY_EXHAUSTED', `run group ${text(member['group_id'])} has no free concurrency`)
         }
       }
       const specificationId = insertSpecification(db, projectId, taskIdValue, specification)

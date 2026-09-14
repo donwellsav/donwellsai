@@ -652,7 +652,7 @@ describe('task scheduler pump', () => {
     const claimA = authority.claim({ connection: worker(OWNER_BOB), projectId: PROJECT, taskId: memberA.taskId, specification: SPEC(workspace) })
     expect(claimA.task.taskId).toBe(memberA.taskId)
     expect(() => authority.claim({ connection: worker(OWNER_BOB), projectId: PROJECT, taskId: memberB.taskId, specification: SPEC(workspace) }))
-      .toThrowError(expect.objectContaining({ code: 'TASK_NOT_RUNNABLE' }))
+      .toThrowError(expect.objectContaining({ code: 'CAPACITY_EXHAUSTED' }))
   })
 
   it('claims queued manual schedule executions even though they never appear in the due list', () => {
@@ -766,13 +766,18 @@ describe('task scheduler pump', () => {
     const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
     const first = pump.tick()
     // Capacity 1: only the first member is claimed. The capacity rejection is
-    // expected scheduling state: the rest of the group is skipped silently for
-    // this tick (no failure noise, no extra claim transactions) and retried later.
+    // expected scheduling state: reported once as a bounded diagnostic, the rest
+    // of the group is skipped for this tick, and repeat ticks stay quiet.
     expect(first.claimed).toHaveLength(1)
     expect(first.claimed[0]!.claim.task.taskId).toBe(memberA.taskId)
     expect(first.claimed[0]!.specification).toEqual(specA)
-    expect(first.failures).toEqual([])
+    expect(first.failures).toHaveLength(1)
+    expect(first.failures[0]!.scope).toBe(`run-member:${PROJECT}:${memberB.taskId}`)
     expect(authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === memberB.taskId)!.currentAttempt).toBeNull()
+    // The next tick retries the blocked member silently.
+    const quiet = pump.tick()
+    expect(quiet.claimed).toHaveLength(0)
+    expect(quiet.failures).toEqual([])
 
     // Finish member A; the next tick fans out member B from its committed specification.
     const finishedA = authority.write({ kind: 'complete', connection: worker(OWNER_ALICE), token: first.claimed[0]!.claim.token, result: { summary: 'a done' } })
@@ -800,6 +805,79 @@ describe('task scheduler pump', () => {
     expect(ticked.claimed).toHaveLength(0)
     expect(ticked.failures).toEqual([])
     expect(authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === member.taskId)!.currentAttempt).toBeNull()
+  })
+
+  it('claims a todo sibling when an ordinal-0 member is blocked, reporting the blocked member once', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const blockedMember = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-B0', title: 'blocked ordinal zero', status: 'blocked' })
+    const todoSibling = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-B1', title: 'todo sibling' })
+    authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'blocked fan-out',
+      concurrency: 2,
+      members: [
+        { projectId: PROJECT, taskId: blockedMember.taskId, specification: SPEC(workspace) },
+        { projectId: PROJECT, taskId: todoSibling.taskId, specification: SPEC(workspace) }
+      ]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const first = pump.tick()
+    // The blocked ordinal-0 member is reported as a failure but does NOT starve
+    // the group: capacity skip applies only to CAPACITY_EXHAUSTED, so the todo
+    // sibling at ordinal 1 is still claimed.
+    expect(first.claimed.map(entry => entry.claim.task.taskId)).toEqual([todoSibling.taskId])
+    expect(first.failures).toHaveLength(1)
+    expect(first.failures[0]!.scope).toBe(`run-member:${PROJECT}:${blockedMember.taskId}`)
+
+    // Repeat ticks stay quiet for the same blocked scope (bounded diagnostic).
+    const second = pump.tick()
+    expect(second.claimed).toHaveLength(0)
+    expect(second.failures).toEqual([])
+
+    // Unblocking the member restores dispatch on the next tick.
+    const version = authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === blockedMember.taskId)!.entityVersion
+    authority.updateTask({ connection: ADMIN, projectId: PROJECT, taskId: blockedMember.taskId, expectedEntityVersion: version, status: 'todo' })
+    const third = pump.tick()
+    expect(third.claimed.map(entry => entry.claim.task.taskId)).toEqual([blockedMember.taskId])
+    expect(third.failures).toEqual([])
+  })
+
+  it('reports a dependency-blocked member once and claims it once the dependency finishes', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const dependency = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-DEP', title: 'dependency' })
+    const dependent = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-DEPENDENT', title: 'dependent' })
+    authority.setDependencies({
+      connection: ADMIN,
+      projectId: PROJECT,
+      taskId: dependent.taskId,
+      expectedEntityVersion: authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === dependent.taskId)!.entityVersion,
+      dependsOnTaskIds: [dependency.taskId]
+    })
+    authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'dependency fan-out',
+      concurrency: 1,
+      members: [{ projectId: PROJECT, taskId: dependent.taskId, specification: SPEC(workspace) }]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const blocked = pump.tick()
+    expect(blocked.claimed).toHaveLength(0)
+    expect(blocked.failures).toHaveLength(1)
+    expect(blocked.failures[0]!.scope).toBe(`run-member:${PROJECT}:${dependent.taskId}`)
+    // The next tick is quiet while the dependency remains unfinished.
+    expect(pump.tick().failures).toEqual([])
+
+    // Finishing the dependency releases the member to the pump.
+    const depClaim = authority.claim({ connection: worker(OWNER_BOB), projectId: PROJECT, taskId: dependency.taskId, specification: SPEC(workspace) })
+    authority.write({ kind: 'complete', connection: worker(OWNER_BOB), token: depClaim.token, result: { summary: 'dep done' } })
+    const released = pump.tick()
+    expect(released.claimed.map(entry => entry.claim.task.taskId)).toEqual([dependent.taskId])
   })
 
   it('preserves member specifications across run-group retry and fans the retried member out', () => {

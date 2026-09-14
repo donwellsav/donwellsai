@@ -861,7 +861,7 @@ describe('task authority run groups and mailbox', () => {
     expect(group.members).toHaveLength(3)
     claim(authority, PROJECT_ALPHA, 'G-A1')
     claim(authority, PROJECT_BETA, 'G-B1', OWNER_BOB)
-    expect(() => claim(authority, PROJECT_ALPHA, 'G-A2', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'TASK_NOT_RUNNABLE' }))
+    expect(() => claim(authority, PROJECT_ALPHA, 'G-A2', OWNER_CARA)).toThrowError(expect.objectContaining({ code: 'CAPACITY_EXHAUSTED' }))
     // The projection still reports the task runnable; profile capacity is enforced atomically at claim.
     const snapshot = authority.query({ connection: ADMIN, projectId: PROJECT_ALPHA }).tasks.find(task => task.externalTaskId === 'G-A2')
     expect(snapshot?.runnable).toBe(true)

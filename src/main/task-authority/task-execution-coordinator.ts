@@ -465,10 +465,32 @@ export type TaskSchedulerTickResult = Readonly<{
 export class TaskSchedulerPump {
   private readonly now: () => number
   private readonly connectionId: string
+  /** Expected-scheduling failure scopes reported so far; repeat ticks stay quiet. */
+  private readonly expectedSchedulingReported = new Set<string>()
 
   constructor(private readonly authority: SqliteTaskAuthority, private readonly workerOwnerId: string, options: Readonly<{ now?: () => number; connectionId?: string }> = {}) {
     this.now = options.now ?? Date.now
     this.connectionId = options.connectionId ?? 'daemon-scheduler'
+  }
+
+  /**
+   * Expected scheduling state (capacity, blocked, unfinished dependency) is
+   * reported once per scope and then stays quiet across ticks; unexpected
+   * failures are always reported.
+   */
+  private recordClaimFailure(scope: string, error: unknown, failures: Array<{ scope: string; error: string }>): void {
+    if (error instanceof TaskAuthorityError && (error.code === 'CAPACITY_EXHAUSTED' || error.code === 'DEPENDENCY_BLOCKED' || error.code === 'TASK_NOT_RUNNABLE')) {
+      if (!this.expectedSchedulingReported.has(scope)) {
+        this.expectedSchedulingReported.add(scope)
+        failures.push({ scope, error: authorityMessage(error) })
+      }
+      return
+    }
+    failures.push({ scope, error: authorityMessage(error) })
+  }
+
+  private static isCapacityExhausted(error: unknown): boolean {
+    return error instanceof TaskAuthorityError && error.code === 'CAPACITY_EXHAUSTED'
   }
 
   tick(): TaskSchedulerTickResult {
@@ -508,8 +530,9 @@ export class TaskSchedulerPump {
           }),
           specification
         })
+        this.expectedSchedulingReported.delete(`${execution.projectId}:${execution.taskId}`)
       } catch (error) {
-        failures.push({ scope: `execution:${execution.executionId}`, error: authorityMessage(error) })
+        this.recordClaimFailure(`execution:${execution.executionId}`, error, failures)
       }
     }
     // Queued run-group members with a committed immutable specification are
@@ -534,12 +557,12 @@ export class TaskSchedulerPump {
           }),
           specification: member.specification
         })
+        this.expectedSchedulingReported.delete(`${member.projectId}:${member.taskId}`)
       } catch (error) {
-        if (error instanceof TaskAuthorityError && error.code === 'TASK_NOT_RUNNABLE') {
+        if (TaskSchedulerPump.isCapacityExhausted(error)) {
           capacityBlockedGroups.add(member.runGroupId)
-          continue
         }
-        failures.push({ scope: `run-member:${member.projectId}:${member.taskId}`, error: authorityMessage(error) })
+        this.recordClaimFailure(`run-member:${member.projectId}:${member.taskId}`, error, failures)
       }
     }
     return { enqueued, claimed, failures }

@@ -29,6 +29,7 @@ export class TaskAuthorityError extends Error {
     | 'TASK_NOT_FOUND'
     | 'TASK_NOT_RUNNABLE'
     | 'DEPENDENCY_BLOCKED'
+    | 'CAPACITY_EXHAUSTED'
     | 'STALE_AUTHORITY'
     | 'LEASE_EXPIRED'
     | 'HANDOFF_PENDING'
