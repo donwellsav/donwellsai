@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -92,6 +92,31 @@ function authorization(overrides: Partial<ProviderLaunchAuthorization> = {}): Pr
 
 function codeOf(error: unknown): string | undefined {
   return error instanceof SecretAuthorityError ? error.code : undefined
+}
+
+/** One sealed record as the store itself holds it. */
+type StoredRecord = { ciphertext: string | null; revokedAt: string | null }
+
+/**
+ * The store's records map, read from the profile's own store file. A missing
+ * store is a test failure: absence must never be silently read as "clean".
+ */
+function storeRecords(directory: string): Record<string, StoredRecord> {
+  const storePath = join(directory, 'provider-secrets.enc.json')
+  if (!existsSync(storePath)) throw new Error('the provider secret store must exist to observe its records')
+  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as { records?: Record<string, StoredRecord> }
+  if (!parsed.records) throw new Error('the provider secret store has no records map')
+  return parsed.records
+}
+
+/** Refs whose sealed material still decrypts; a revoked ref is an inert tombstone. */
+function liveRefs(directory: string): string[] {
+  return Object.entries(storeRecords(directory)).filter(([, record]) => record.ciphertext !== null).map(([ref]) => ref).sort()
+}
+
+/** The records of one captured store document, for observing state while it is unreadable. */
+function recordsOf(text: string): Record<string, StoredRecord> {
+  return (JSON.parse(text) as { records: Record<string, StoredRecord> }).records
 }
 
 /** Every serialized file in the profile, so a plaintext leak cannot hide. */
@@ -441,10 +466,23 @@ describe('ProviderCredentialAuthority', () => {
     // A bind that landed is kept; a bind that did not is abandoned. Either way
     // exactly one ref is active and the staged ref is never left live-but-unbound.
     expect(after!.credentialRef).toBe(bind ? staged : before.credentialRef)
-    const store = JSON.parse(readFileSync(join(directory, 'provider-secrets.enc.json'), 'utf8')) as { records: Record<string, { revokedAt: string | null }> }
-    const active = Object.entries(store.records).filter(([, record]) => record.revokedAt === null)
-    expect(active).toHaveLength(1)
-    expect(active[0]![0]).toBe(after!.credentialRef)
+    // Exactly one record is live in every variant: never the staged ref left
+    // live-but-unbound, and never a superseded ref left decryptable.
+    expect(liveRefs(directory)).toEqual([after!.credentialRef])
+    if (!seal) {
+      // The staged material was never written, so its ref has no record at all.
+      expect(storeRecords(directory)[staged]).toBeUndefined()
+      expect(Object.keys(storeRecords(directory))).toEqual([after!.credentialRef])
+    } else {
+      // A sealed staged ref is accounted for as either the published target or an
+      // inert revoked tombstone, never as orphaned live material; the superseded
+      // prior ref is the other record and is always the tombstone in that pair.
+      expect(storeRecords(directory)[staged]).toMatchObject({ ciphertext: bind ? expect.any(String) : null })
+      expect(storeRecords(directory)[before.credentialRef]).toMatchObject({ ciphertext: bind ? null : expect.any(String) })
+      expect(Object.keys(storeRecords(directory)).sort()).toEqual([staged, before.credentialRef].sort())
+    }
+    // Retained only as a plaintext-leak guard; the record-state checks above are
+    // the discriminating ones.
     expect(profileBytes(directory)).not.toContain('staged-marker')
     expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
   })
@@ -484,8 +522,11 @@ describe('ProviderCredentialAuthority', () => {
     const binding = catalog.credentialBinding(instance.id, account.id)!
     catalog.stageCredentialRevoke({ operationId: 'failing-revoke', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })
 
-    // The store becomes unreadable, so the reconciliation revoke cannot succeed.
+    // The store is made temporarily unreadable, then restored to its exact
+    // bytes, so the revoked material is genuinely still durable while blind and
+    // genuinely revoked afterwards.
     const storePath = join(directory, 'provider-secrets.enc.json')
+    const intact = readFileSync(storePath, 'utf8')
     writeFileSync(storePath, '{corrupt', { mode: 0o600 })
     const reconciled = await credentials.reconcile()
     expect(reconciled.resolved).toBe(0)
@@ -494,10 +535,16 @@ describe('ProviderCredentialAuthority', () => {
     // The binding was not retired: revocation precedes retirement.
     expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe(binding.credentialRef)
 
-    // Once the store is readable again, reconciliation completes it idempotently.
-    rmSync(storePath)
+    // While blind, the target record is untouched and still decryptable.
+    writeFileSync(storePath, intact, { mode: 0o600 })
+    expect(liveRefs(directory)).toContain(binding.credentialRef)
+
+    // Once the store is readable again, reconciliation revokes it and retires.
     expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
     expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
+    // The ref survives as an inert tombstone: revoked, not deleted.
+    expect(storeRecords(directory)[binding.credentialRef]).toMatchObject({ ciphertext: null })
+    expect(liveRefs(directory)).not.toContain(binding.credentialRef)
   })
 
   it('leaves a catalog-bound operation incomplete when its superseded revoke fails', async () => {
@@ -512,6 +559,7 @@ describe('ProviderCredentialAuthority', () => {
     // Drive the real saga to its catalog-bound checkpoint, then corrupt the store
     // so the superseded-ref revocation cannot complete.
     const staged = await secrets.reserveProviderCredentialRef()
+    const prior = catalog.credentialBinding(instance.id, account.id)!
     const revision = catalog.snapshot().instances[0]!.revision
     const operation = catalog.stageCredentialReplace({ operationId: 'bound-op', providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: revision, expectedAccountRevision: account.revision, stagedCredentialRef: staged })
     const target: ResolvedProviderCredentialPrincipal = { driverId: 'codex', providerInstanceId: instance.id, instanceRevision: revision + 1, accountId: account.id, accountRevision: account.revision, credentialRef: staged, bindingGeneration: operation.targetBindingGeneration! }
@@ -520,6 +568,7 @@ describe('ProviderCredentialAuthority', () => {
     expect(catalog.credentialOperation('bound-op')?.state).toBe('catalog-bound')
 
     const storePath = join(directory, 'provider-secrets.enc.json')
+    const intact = readFileSync(storePath, 'utf8')
     writeFileSync(storePath, '{corrupt', { mode: 0o600 })
     const reconciled = await credentials.reconcile()
     expect(reconciled.resolved).toBe(0)
@@ -527,9 +576,14 @@ describe('ProviderCredentialAuthority', () => {
     // A bound saga is never rewritten to a terminal state it did not reach.
     expect(catalog.credentialOperation('bound-op')?.state).toBe('catalog-bound')
 
-    rmSync(storePath)
+    writeFileSync(storePath, intact, { mode: 0o600 })
+    expect(liveRefs(directory)).toContain(staged)
+    expect(liveRefs(directory)).toContain(prior.credentialRef)
     expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
     expect(catalog.credentialOperation('bound-op')?.state).toBe('complete')
+    // The superseded ref is the one revoked; the published target stays live.
+    expect(storeRecords(directory)[prior.credentialRef]).toMatchObject({ ciphertext: null })
+    expect(liveRefs(directory)).toEqual([staged])
   })
 
   it('keeps a failed revoke() recoverable instead of orphaning a revoked binding', async () => {
@@ -589,15 +643,17 @@ describe('ProviderCredentialAuthority', () => {
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
 
-    // The binding changes underneath the saga, and the store is made unreadable at
-    // the same seam, so the staged revoke cannot succeed either.
     const storePath = join(directory, 'provider-secrets.enc.json')
-    let lostRevision = 0
+    // Captured at the corruption seam, i.e. after the staged material is already
+    // sealed and persisted, so restoring it preserves the very evidence under test.
+    let sealed = ''
+    // The binding changes underneath the saga, and the store becomes unreadable at
+    // the same seam, so its staged revoke cannot succeed either.
     const racing: ProviderCredentialCatalog = {
       ...localProviderCredentialCatalog(catalog),
-      bindStagedCredential: async input => {
-        lostRevision = input.expectedInstanceRevision
+      bindStagedCredential: async () => {
         loseRaceWithNewBinding(catalog, instance.id, account.id, 'third-ref')
+        sealed = readFileSync(storePath, 'utf8')
         writeFileSync(storePath, '{corrupt', { mode: 0o600 })
         return false
       }
@@ -606,30 +662,35 @@ describe('ProviderCredentialAuthority', () => {
     await expect(racingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
     expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
 
-    // The unrevocable saga stays visible: reconciliation reports it rather than
-    // losing it, and the concurrent binding is untouched.
+    // The unrevocable saga stays visible, and the staged material is exactly the
+    // decryptable record the invariant forbids writing off.
     const blocked = await credentials.reconcile()
     expect(blocked.blocked).toHaveLength(1)
     expect(blocked.resolved).toBe(0)
     expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
-    void lostRevision
+    const staged = catalog.incompleteCredentialOperations()[0]!.stagedCredentialRef!
+    writeFileSync(storePath, sealed, { mode: 0o600 })
+    expect(liveRefs(directory)).toContain(staged)
+    expect(storeRecords(directory)[staged]).toMatchObject({ ciphertext: expect.any(String), revokedAt: null })
 
-    // While a third binding stands, the saga stays blocked for explicit recovery
-    // even once the store is readable: the brief forbids guessing.
-    rmSync(storePath)
+    // While a third binding stands, the saga stays blocked even with a readable
+    // store: the brief forbids guessing which binding the user meant.
     const stillBlocked = await credentials.reconcile()
     expect(stillBlocked.resolved).toBe(0)
     expect(stillBlocked.blocked).toHaveLength(1)
+    expect(storeRecords(directory)[staged]).toMatchObject({ ciphertext: expect.any(String) })
 
-    // Once the competing binding is gone the prior/absent case applies, so
-    // reconciliation revokes the staged ref and closes the saga.
+    // Once the competing binding is gone the absent-binding case applies, so
+    // reconciliation revokes the exact staged ref and closes the saga.
     const connection = new DatabaseSync(catalog.databasePath)
     connection.prepare('UPDATE provider_credential_bindings SET retired_at=? WHERE provider_instance_id=? AND account_id=? AND retired_at IS NULL').run(new Date().toISOString(), instance.id, account.id)
     connection.close()
     expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
     expect(catalog.incompleteCredentialOperations()).toEqual([])
     expect(catalog.credentialBinding(instance.id, account.id)).toBeNull()
-    expect(profileBytes(directory)).not.toContain('staged-marker')
+    // Revoked into an inert tombstone, not deleted and not left live.
+    expect(storeRecords(directory)[staged]).toMatchObject({ ciphertext: null })
+    expect(liveRefs(directory)).not.toContain(staged)
   })
 
   it('aborts a lost compare-and-set once the staged ref is provably revoked', async () => {
@@ -639,6 +700,7 @@ describe('ProviderCredentialAuthority', () => {
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+    const before = liveRefs(directory)
 
     const racing: ProviderCredentialCatalog = {
       ...localProviderCredentialCatalog(catalog),
@@ -650,11 +712,12 @@ describe('ProviderCredentialAuthority', () => {
     const racingCredentials = new ProviderCredentialAuthority({ catalog: racing, authority: secrets })
     await expect(racingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toMatchObject({ code: 'BINDING_CHANGED' })
 
-    // The provable abort still terminates the saga, with no regression.
+    // The provable abort still terminates the saga, and the staged secret is
+    // genuinely gone: revoked into a tombstone rather than left decryptable.
     expect(catalog.incompleteCredentialOperations()).toEqual([])
     expect(catalog.credentialBinding(instance.id, account.id)?.credentialRef).toBe('third-ref')
+    expect(liveRefs(directory)).toEqual(before)
     expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
-    expect(profileBytes(directory)).not.toContain('staged-marker')
   })
 
   it('leaves no decryptable staged material when a throwing bind can still revoke', async () => {
@@ -664,6 +727,7 @@ describe('ProviderCredentialAuthority', () => {
     const account = catalog.createAccount({ driverId: 'codex', displayLabel: 'Personal' })
     const instance = catalog.create({ ...managed, accountId: account.id })
     await credentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, secret: MARKER })
+    const before = liveRefs(directory)
 
     // The bind throws after the staged ciphertext is durable. Reachable from the
     // real method through revision validation and foreign-key guarding.
@@ -674,17 +738,22 @@ describe('ProviderCredentialAuthority', () => {
     const throwingCredentials = new ProviderCredentialAuthority({ catalog: throwing, authority: secrets })
     await expect(throwingCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'staged-marker' })).rejects.toThrowError(/could not be published/)
 
-    // Where the abort can revoke, it does: no incomplete saga is left, and no
-    // decryptable staged material survives in the store.
+    // Where the abort can revoke, it does: every live record is the one from the
+    // prior successful write, so the staged secret did not survive.
     expect(catalog.incompleteCredentialOperations()).toEqual([])
+    expect(liveRefs(directory)).toEqual(before)
     expect(await credentials.reconcile()).toEqual({ resolved: 0, blocked: [] })
-    expect(profileBytes(directory)).not.toContain('staged-marker')
 
-    // The same failure with an unreadable store leaves the saga blocked, then recovers.
+    // The same failure with an unreadable store leaves the saga blocked. The store
+    // is restored to its exact bytes, so the staged material is genuinely still
+    // durable while blind and genuinely revoked after reconciliation.
     const storePath = join(directory, 'provider-secrets.enc.json')
+    // Captured at the corruption seam, after the staged record is durable.
+    let sealed = ''
     const unreadable: ProviderCredentialCatalog = {
       ...localProviderCredentialCatalog(catalog),
       bindStagedCredential: async () => {
+        sealed = readFileSync(storePath, 'utf8')
         writeFileSync(storePath, '{corrupt', { mode: 0o600 })
         throw new ProviderCatalogError('FOREIGN_KEY_CONFLICT', 'the target credential binding could not be published')
       }
@@ -692,13 +761,21 @@ describe('ProviderCredentialAuthority', () => {
     const blockedCredentials = new ProviderCredentialAuthority({ catalog: unreadable, authority: secrets })
     await expect(blockedCredentials.write({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, secret: 'third-staged-marker' })).rejects.toThrowError(/could not be published/)
     expect(catalog.incompleteCredentialOperations()).toHaveLength(1)
-    const blocked = await credentials.reconcile()
-    expect(blocked.resolved).toBe(0)
-    expect(blocked.blocked).toHaveLength(1)
-    rmSync(storePath)
+    const staged = catalog.incompleteCredentialOperations()[0]!.stagedCredentialRef!
+    // While the store is unreadable the saga is blocked, not closed.
+    const blind = await credentials.reconcile()
+    expect(blind.resolved).toBe(0)
+    expect(blind.blocked).toHaveLength(1)
+
+    // Restoring the sealed bytes leaves the staged material genuinely durable.
+    writeFileSync(storePath, sealed, { mode: 0o600 })
+    expect(liveRefs(directory)).toContain(staged)
+
+    // Now reconciliation actually revokes the surviving material and closes the saga.
     expect(await credentials.reconcile()).toEqual({ resolved: 1, blocked: [] })
     expect(catalog.incompleteCredentialOperations()).toEqual([])
-    expect(profileBytes(directory)).not.toContain('third-staged-marker')
+    expect(storeRecords(directory)[staged]).toMatchObject({ ciphertext: null })
+    expect(liveRefs(directory)).not.toContain(staged)
   })
 
   it('leaves a third-binding conflict blocked for explicit recovery', async () => {
