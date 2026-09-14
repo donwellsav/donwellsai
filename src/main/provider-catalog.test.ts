@@ -302,6 +302,38 @@ describe('ProviderCatalog', () => {
     expect(rowCount(databasePathOf(catalogInstance), 'provider_credential_bindings')).toBe(2)
   })
 
+  /**
+   * The wire seam and the in-process seam must report the same thing. Task 2
+   * parked this asymmetry here: the wire facade discarded the projection the
+   * Catalog returns, so a caller over the daemon saw `void` while a caller
+   * holding the Catalog saw the retired binding's instance projection.
+   */
+  it('reports the retired-instance projection as a decodable sanitized document', () => {
+    const catalogInstance = catalog()
+    const account = catalogInstance.createAccount({ driverId: 'codex', displayLabel: 'Account' })
+    const instance = catalogInstance.create({ ...external(), accountId: account.id })
+    const bound = catalogInstance.bindCredential({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, credentialRef: 'wire-ref', expectedBindingGeneration: 0 })
+    const connection = new DatabaseSync(databasePathOf(catalogInstance))
+    connection.prepare("INSERT INTO provider_credential_operations(id,operation_kind,provider_instance_id,instance_revision,account_id,account_revision,prior_credential_ref,prior_binding_generation,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run('op-wire', 'revoke', instance.id, bound.revision, account.id, account.revision, 'wire-ref', 1, 'pending', new Date().toISOString(), new Date().toISOString())
+    connection.close()
+    const projected = catalogInstance.retireCredentialBindingForOperation({
+      providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: bound.revision, expectedAccountRevision: account.revision, expectedBindingGeneration: 1, credentialOperationId: 'op-wire'
+    })
+    // The in-process projection is a real instance projection for the exact
+    // instance whose binding was retired, and it is the SAME projection the
+    // snapshot reports: retiring a binding is a catalog-wide change, not an
+    // instance-identity change, so the instance revision is unchanged.
+    expect(projected.id).toBe(instance.id)
+    expect(projected.revision).toBe(bound.revision)
+    expect(catalogInstance.credentialBinding(instance.id, account.id)).toBeNull()
+    // ...and it is the sanitized document the wire carries, so folding it through
+    // the daemon seam cannot disagree with what a local caller observes.
+    const snapshot = catalogInstance.snapshot()
+    expect(parseProviderCatalogSnapshot({ revision: snapshot.revision, defaultInstanceId: null, drivers: snapshot.drivers, accounts: snapshot.accounts, instances: [projected] }).instances[0]).toMatchObject({ id: instance.id, revision: projected.revision })
+    expect(JSON.stringify(projected)).not.toContain('wire-ref')
+  })
+
   it('refuses to remove an account that an instance still references', () => {
     const catalogInstance = catalog()
     const account = catalogInstance.createAccount({ driverId: 'codex', displayLabel: 'Account' })
@@ -316,8 +348,14 @@ describe('ProviderCatalog', () => {
     const preparation = catalogInstance.prepareLaunch({ selection: selectionFor(created), attemptId: 'attempt', sessionId: 'session', purpose: 'agent-launch' })
     const databasePath = databasePathOf(catalogInstance)
     const connection = new DatabaseSync(databasePath)
-    connection.prepare('UPDATE provider_launch_preparations SET consumed_at=? WHERE id=?').run(new Date().toISOString(), preparation.id)
-    connection.prepare('INSERT INTO task_launch_admissions(id,task_id,attempt_id,lease_id,lease_generation,session_id,preparation_id,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run('admission', 'task', 'attempt', 'lease', 1, 'session', preparation.id, 'admitted', new Date().toISOString(), new Date().toISOString())
+    const now = new Date().toISOString()
+    connection.prepare('UPDATE provider_launch_preparations SET consumed_at=? WHERE id=?').run(now, preparation.id)
+    // The admission receipt is the trusted broker authorization tuple, so this
+    // out-of-band row must satisfy its full v5 shape rather than the older
+    // pointer-only one the purge used to carry.
+    connection.prepare(
+      "INSERT INTO task_launch_admissions(id,task_id,attempt_id,lease_id,lease_generation,session_id,preparation_id,purpose,driver_id,provider_instance_id,instance_revision,account_id,account_revision,credential_mode,credential_ref,binding_generation,command_spec_json,maintenance_operation_id,maintenance_epoch,launch_intent_id,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).run('admission', 'task', 'attempt', 'lease', 1, 'session', preparation.id, 'agent-launch', 'codex', created.id, created.revision, null, null, 'external', null, null, '{"kind":"driver","driverId":"codex"}', 'maintenance-op', 1, 'intent', 'admitted', now, now)
     connection.close()
     expect(() => catalogInstance.remove(created.id, created.revision)).not.toThrow()
     // The admission receipt references the preparation, so it is purged first.

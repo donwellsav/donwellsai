@@ -7,7 +7,9 @@ import type {
   AgentProviderDefinition
 } from '@shared/agent-runtime'
 import { parseAgentExecutable, unavailableAgentHooks } from '@shared/agent-runtime'
+import type { ProviderCommandSpec } from '@shared/provider-authority'
 import { quoteWindowsCmdArgument } from '@shared/child-process/windows-command-line'
+import { windowsSystem32Binary } from '@shared/child-process/windows-system-binary'
 
 export const AGENT_HOOK_ENV = {
   socket: 'DONWELLS_AGENT_HOOK_SOCKET',
@@ -29,6 +31,81 @@ export type AgentLaunchPlan = {
   env: NodeJS.ProcessEnv
   hookSupport: AgentHookSupport
   cleanup: () => void
+}
+
+/**
+ * A resolved provider command: the executable and argv a launch actually runs.
+ *
+ * `driver` mode resolves through the driver registry (never through caller
+ * text), so a caller cannot smuggle an alternate executable, home, config root,
+ * credential helper, or shell past the driver's own argument policy.
+ */
+export type ResolvedProviderInvocation = Readonly<{
+  kind: ProviderCommandSpec['kind']
+  /** Program handed to the process launcher (a shell for a shell program). */
+  program: string
+  args: readonly string[]
+  /** Exact argv retained for driver-owned hook injection; absent for shell programs. */
+  launch?: AgentExecutable
+}>
+
+export class ProviderInvocationError extends Error {
+  readonly code: 'EXECUTABLE_UNRESOLVED' | 'COMMAND_SHAPE_INVALID'
+
+  constructor(code: ProviderInvocationError['code'], message: string) {
+    super(message)
+    this.name = 'ProviderInvocationError'
+    this.code = code
+  }
+}
+
+/**
+ * Resolves one provider command spec into the exact program and argv a launch
+ * runs. This is the only `driver` path, in every credential mode: the
+ * executable comes from driver resolution and the arguments from the driver's
+ * own policy, so a `driver` instance can never be pointed at an arbitrary
+ * program by its configuration.
+ *
+ * `external-argv` and `external-shell` are the explicit custom-command escape
+ * hatch. They execute only their own literal spec, which is also why managed
+ * credentials are refused for them: a custom command has no reviewed argument
+ * policy for an environment overlay to bind to.
+ */
+export function resolveProviderInvocation(options: {
+  command: ProviderCommandSpec
+  /** Driver executable resolved by the registry; absent when discovery failed. */
+  driverExecutable?: string
+  platform?: NodeJS.Platform
+  /** Shell used only for the `external-shell` kind. */
+  shellPath?: string
+}): ResolvedProviderInvocation {
+  const platform = options.platform ?? process.platform
+  if (options.command.kind === 'driver') {
+    const executable = options.driverExecutable
+    if (executable === undefined || executable.length === 0) {
+      throw new ProviderInvocationError('EXECUTABLE_UNRESOLVED', `driver ${options.command.driverId} executable could not be resolved`)
+    }
+    return { kind: 'driver', program: executable, args: [], launch: { executable, args: [] } }
+  }
+  if (options.command.kind === 'external-argv') {
+    const executable = options.command.executable.executable
+    if (executable.length === 0) throw new ProviderInvocationError('COMMAND_SHAPE_INVALID', 'external argv command has no executable')
+    const args = [...options.command.executable.args]
+    return { kind: 'external-argv', program: executable, args, launch: { executable, args: [...args] } }
+  }
+  const program = options.command.program
+  if (program.length === 0) throw new ProviderInvocationError('COMMAND_SHAPE_INVALID', 'external shell command has no program')
+  const shellPath = options.shellPath ?? defaultProviderShell(platform)
+  return {
+    kind: 'external-shell',
+    program: shellPath,
+    args: platform === 'win32' ? ['/d', '/s', '/c', program] : ['-c', program]
+  }
+}
+
+function defaultProviderShell(platform: NodeJS.Platform): string {
+  if (platform === 'win32') return process.env.ComSpec ?? windowsSystem32Binary('cmd.exe')
+  return process.env.SHELL || '/bin/sh'
 }
 
 function quotePosix(value: string): string {

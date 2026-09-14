@@ -1,4 +1,5 @@
 import type { ProcessIdentity, ProcessIdentityVerdict } from './child-process/process-spec'
+import type { ProviderCommandSpec, ProviderCredentialMode, ProviderSelection } from './provider-authority'
 import { OPERATIONAL_ERROR_LIMIT, OPERATIONAL_OUTPUT_LIMIT } from './operational-runs'
 
 /**
@@ -38,6 +39,11 @@ export class TaskAuthorityError extends Error {
     | 'COMPLETION_REJECTED'
     | 'RESOURCE_QUARANTINED'
     | 'AUTHORIZATION_DENIED'
+    | 'PROVIDER_ADMISSION_REQUIRED'
+    | 'PROVIDER_SELECTION_REQUIRED'
+    | 'PREPARATION_STALE'
+    | 'MAINTENANCE_ADMISSION_STALE'
+    | 'CORRUPT_AUTHORITY'
     | 'MIGRATION_REQUIRED'
     | 'DAEMON_UPGRADE_REQUIRED'
     | 'PROJECT_SCOPE_MISMATCH'
@@ -175,6 +181,16 @@ function rejectUnknownKeys(record: Record<string, unknown>, field: string, allow
 export type TaskStatus = 'todo' | 'blocked' | 'in-progress' | 'cancelling' | 'cancelled' | 'done' | 'failed' | 'quarantined'
 export type AttemptState = 'claimed' | 'launching' | 'running' | 'cancelling' | 'cancelled' | 'exited' | 'completed' | 'failed' | 'quarantined'
 export type AttemptProvenance = 'native' | 'imported-legacy'
+/**
+ * The immutable provider identity one attempt was claimed for.
+ *
+ * `null` is the explicit provider-free variant: generic shell and
+ * verification attempts carry no provider identity at all, and they are the
+ * only attempts a provider-backed admission will never touch. A non-null
+ * selection is written once at claim/retry and never updated, so a later
+ * Catalog edit cannot retarget a recorded attempt.
+ */
+export type AttemptProviderSelection = ProviderSelection | null
 export type TaskCancelState = 'none' | 'requested'
 export type HandoffOfferStatus = 'pending' | 'accepted' | 'cancelled' | 'expired'
 export type LaunchIntentState = 'planned' | 'spawning' | 'reconciling-no-spawn' | 'stopped'
@@ -391,6 +407,8 @@ export type AttemptSnapshot = Readonly<{
   provenance: AttemptProvenance
   state: AttemptState
   specificationId: string
+  /** Immutable provider identity, or null for the explicit provider-free variant. */
+  providerSelection: AttemptProviderSelection
   currentLease: LeaseSnapshot | null
   runtime: AttemptRuntimeSnapshot | null
   reservation: ResourceReservationSnapshot | null
@@ -648,6 +666,12 @@ export type AuthenticatedClaimInput = Readonly<{
   externalTaskId?: string
   specification: TaskExecutionSpecificationInput
   leaseTtlMs?: number
+  /**
+   * Omit for the provider-free variant (generic shell/verification work). A
+   * provider-backed claim supplies the exact selection; Task Authority records
+   * it immutably and never queries the Catalog inside a claim transaction.
+   */
+  providerSelection?: ProviderSelection
 }>
 
 /**
@@ -761,6 +785,72 @@ export type TrustedExitAcknowledgement = Readonly<{
 }>
 
 // ---------------------------------------------------------------------------
+// Provider-backed launch admission (Stage 3, daemon-internal)
+//
+// The admitted row is the trusted source of the complete broker authorization
+// tuple: the daemon builds the Secret Authority request from exactly what this
+// transaction committed, never from a re-read or a serialized request. Every
+// field here is non-secret except the credential ref, which is an opaque
+// handle — so nothing on this surface may be rendered, logged, or replayed.
+// ---------------------------------------------------------------------------
+
+/** The exact live credential the admission bound, when the mode has one. */
+export type ProviderLaunchCredential = Readonly<{
+  credentialRef: string
+  bindingGeneration: number
+  accountId: string
+  accountRevision: number
+}>
+
+/** The immutable, renderer-safe projection of one committed launch admission. */
+export type ProviderLaunchAdmission = Readonly<{
+  id: string
+  attemptId: string
+  sessionId: string
+  preparationId: string
+  selection: ProviderSelection
+  state: 'admitted'
+}>
+
+/** The trusted admission tuple: the projection plus everything a spawn needs. */
+export type ProviderLaunchAdmissionTuple = ProviderLaunchAdmission & Readonly<{
+  purpose: 'agent-launch'
+  credentialMode: ProviderCredentialMode
+  command: ProviderCommandSpec
+  credential: ProviderLaunchCredential | null
+  /** The attempt's own specification, so the pre-spawn check needs no re-read. */
+  specificationId: string
+  launchIntentId: string
+  maintenanceEpoch: number
+  admittedAt: string
+}>
+
+/** The daemon's internal request shape; it never crosses the wire. */
+export type ProviderBackedLaunchRequest = Readonly<{
+  lease: LeaseToken
+  attemptId: string
+  sessionId: string
+  purpose: 'agent-launch'
+  preparationId: string
+}>
+
+/**
+ * The durable proof that a `provider-authority` maintenance admission preceded
+ * this transaction. It is daemon-authored from the gate's own answer, never
+ * decoded from a request payload, and the transaction re-reads the persisted
+ * row rather than trusting these values.
+ */
+export type ProviderLaunchMaintenanceClaim = Readonly<{
+  operationId: string
+  epoch: number
+  ownerConnectionId: string
+}>
+
+export type ProviderLaunchAdmissionInput = ProviderBackedLaunchRequest & Readonly<{
+  maintenance: ProviderLaunchMaintenanceClaim
+}>
+
+// ---------------------------------------------------------------------------
 // Mailbox, projection
 // ---------------------------------------------------------------------------
 
@@ -825,6 +915,12 @@ export type AdminRetryFailedTaskInput = Readonly<{
   ownerId: string
   specification?: TaskExecutionSpecificationInput
   leaseTtlMs?: number
+  /**
+   * A retry may deliberately choose a different instance or account, including
+   * dropping to the provider-free variant. Omission is the provider-free
+   * variant, never "inherit the failed attempt's provider".
+   */
+  providerSelection?: ProviderSelection
 }>
 
 export type ReviewedArtifactAdoptionInput = Readonly<{
@@ -860,6 +956,20 @@ export interface TaskAuthority {
   claim(input: AuthenticatedClaimInput): ClaimResult
   write(input: AuthorizedTaskOperation): TaskSnapshot
   beginSpawn(input: TrustedBeginSpawnInput): SpawnAdmission
+  /**
+   * The only `claimed -> launching` path for a provider-backed attempt.
+   *
+   * It authenticates the full current lease, requires the current
+   * non-cancelled claimed attempt, validates the still-live maintenance
+   * admission and epoch from the database without a gate RPC, binds
+   * session/purpose/selection, joins the live Catalog instance/account/binding
+   * rows, compares instance revision, account revision, credential ref, and
+   * binding generation against the unexpired preparation, consumes that
+   * preparation, and persists the Stage 2 pre-launch intent and admission in
+   * one `BEGIN IMMEDIATE` transaction. A failure changes neither preparation
+   * nor attempt.
+   */
+  admitProviderLaunch(input: ProviderLaunchAdmissionInput): ProviderLaunchAdmissionTuple
   offerHandoff(input: AuthenticatedHandoffOfferInput): HandoffOffer
   cancelHandoff(input: AuthenticatedHandoffCancelInput): HandoffOffer
   acceptHandoff(input: AuthenticatedHandoffAcceptInput): ClaimResult

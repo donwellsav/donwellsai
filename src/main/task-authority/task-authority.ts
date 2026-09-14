@@ -41,6 +41,7 @@ import {
   type ArtifactRelationship,
   type AttemptSnapshot,
   type AttemptState,
+  type AttemptProviderSelection,
   type AuthenticatedAttentionAcknowledgement,
   type AuthenticatedAuthorityConnection,
   type AuthenticatedClaimInput,
@@ -55,6 +56,8 @@ import {
   type EnqueueManualScheduleExecutionInput,
   type HandoffOffer,
   type LeaseToken,
+  type ProviderLaunchAdmissionInput,
+  type ProviderLaunchAdmissionTuple,
   type ResourceReservationSnapshot,
   type ReviewedArtifactAdoptionInput,
   type RunGroupSnapshot,
@@ -79,6 +82,8 @@ import {
   type TrustedExpiredOwnerReconciliationInput
 } from '@shared/task-authority'
 import { MAX_PARALLELISM } from '@shared/operational-runs'
+import { parseProviderSelection, parseProviderCommandSpec, isAgentDriverId, sameProviderSelection, type ProviderCommandSpec, type ProviderCredentialMode, type ProviderSelection } from '@shared/provider-authority'
+import { PROFILE_MAINTENANCE_UNMIGRATED } from '@shared/profile-maintenance'
 import { DeferredAuthorityError, openTaskAuthorityDatabase, type TaskAuthorityDatabase } from './schema'
 
 type Row = Record<string, unknown>
@@ -125,6 +130,52 @@ function bool(value: unknown): boolean {
 
 function parseJson(value: unknown): unknown {
   return JSON.parse(String(value))
+}
+
+/**
+ * Decodes the immutable attempt selection out of its persisted column.
+ *
+ * A persisted row that is present but unreadable is corruption, not a
+ * provider-free attempt: silently returning `null` would turn a damaged
+ * provider-backed attempt into one that a provider-free launch path accepts.
+ */
+function readProviderSelection(value: string | null): AttemptProviderSelection {
+  if (value === null) return null
+  try {
+    return parseProviderSelection(parseJson(value), 'persisted provider selection')
+  } catch (error) {
+    throw new TaskAuthorityError('CORRUPT_AUTHORITY', `persisted attempt provider selection is invalid: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/** The selection a claim/retry supplies, or `null` for the provider-free variant. */
+function parseClaimProviderSelection(value: unknown, field = 'providerSelection'): AttemptProviderSelection {
+  if (value === undefined || value === null) return null
+  try {
+    return parseProviderSelection(value, field)
+  } catch (error) {
+    throw new TaskAuthorityValidationError(field, error instanceof Error ? error.message : String(error))
+  }
+}
+
+/** A persisted driver id must be a registered driver; an unknown one cannot launch. */
+function parsePersistedDriverId(value: string): ProviderSelection['driverId'] {
+  if (!isAgentDriverId(value)) throw new TaskAuthorityError('CORRUPT_AUTHORITY', `persisted provider driver ${value} is not registered`)
+  return value
+}
+
+/** A persisted command spec is decoded strictly; only the command shape is bounded here. */
+function parsePersistedCommandSpec(value: string, driverId: ProviderSelection['driverId']): ProviderCommandSpec {
+  try {
+    const command = parseProviderCommandSpec(parseJson(value))
+    if (command.kind === 'driver' && command.driverId !== driverId) {
+      throw new TaskAuthorityError('CORRUPT_AUTHORITY', 'persisted driver command does not match its instance driver')
+    }
+    return command
+  } catch (error) {
+    if (error instanceof TaskAuthorityError) throw error
+    throw new TaskAuthorityError('CORRUPT_AUTHORITY', `persisted provider command spec is invalid: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 function boundedField(value: unknown, field: string, maximum: number): string {
@@ -264,6 +315,7 @@ function attemptSnapshot(db: DatabaseSync, attempt: Row): AttemptSnapshot {
     provenance: text(attempt['provenance_kind']) as AttemptSnapshot['provenance'],
     state: text(attempt['state']) as AttemptSnapshot['state'],
     specificationId: text(attempt['specification_id']),
+    providerSelection: readProviderSelection(textOrNull(attempt['provider_selection_json'])),
     currentLease: lease === null ? null : leaseSnapshot(db, lease),
     runtime: intent === undefined ? null : {
       sessionId: textOrNull(intent['session_id']),
@@ -475,13 +527,15 @@ function ensureProject(db: DatabaseSync, projectId: string, repositoryId: string
   db.prepare('INSERT INTO projects(id, repository_id, workspace_root, version) VALUES (?,?,?,1)').run(projectId, repositoryId ?? '', workspaceRoot ?? '')
 }
 
-function insertAttemptWithLease(db: DatabaseSync, projectId: string, taskId: string, sequence: number, retryOfAttemptId: string | null, specificationId: string, ownerId: string, ttl: number, nowMs: number): { attemptId: string; leaseId: string } {
+function insertAttemptWithLease(db: DatabaseSync, projectId: string, taskId: string, sequence: number, retryOfAttemptId: string | null, specificationId: string, ownerId: string, ttl: number, nowMs: number, providerSelection: AttemptProviderSelection = null): { attemptId: string; leaseId: string } {
   const attemptId = randomUUID()
   const leaseId = randomUUID()
   db.prepare('INSERT INTO leases(id, project_id, task_id, attempt_id, owner_id, generation, issued_at_ms, initial_expires_at_ms) VALUES (?,?,?,?,?,1,?,?)')
     .run(leaseId, projectId, taskId, attemptId, ownerId, nowMs, nowMs + ttl)
-  db.prepare("INSERT INTO attempts(id, project_id, task_id, sequence, retry_of_attempt_id, provenance_kind, state, specification_id, current_lease_id, started_at, finished_at) VALUES (?,?,?,?,?,'native','claimed',?,?,?,NULL)")
-    .run(attemptId, projectId, taskId, sequence, retryOfAttemptId, specificationId, leaseId, nowIso())
+  // The selection is written exactly once, here, and no later statement updates
+  // it: an attempt's provider identity is immutable for the attempt's lifetime.
+  db.prepare("INSERT INTO attempts(id, project_id, task_id, sequence, retry_of_attempt_id, provenance_kind, state, specification_id, provider_selection_json, current_lease_id, started_at, finished_at) VALUES (?,?,?,?,?,'native','claimed',?,?,?,?,NULL)")
+    .run(attemptId, projectId, taskId, sequence, retryOfAttemptId, specificationId, providerSelection === null ? null : JSON.stringify(providerSelection), leaseId, nowIso())
   return { attemptId, leaseId }
 }
 
@@ -1358,10 +1412,11 @@ export class SqliteTaskAuthority implements TaskAuthority {
   // -- claims ---------------------------------------------------------------
 
   claim(input: AuthenticatedClaimInput): ClaimResult {
-    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'externalTaskId', 'specification', 'leaseTtlMs'])
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'externalTaskId', 'specification', 'leaseTtlMs', 'providerSelection'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const specification = parseTaskExecutionSpecification(input?.['specification'])
+    const providerSelection = parseClaimProviderSelection(input?.['providerSelection'])
     const ttl = ttlMs(input?.['leaseTtlMs'], 'leaseTtlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
     const taskId = input?.['taskId'] === undefined ? undefined : assertAuthorityUuid(input['taskId'], 'taskId')
     const externalTaskId = input?.['externalTaskId'] === undefined ? undefined : boundedField(input['externalTaskId'], 'externalTaskId', 128)
@@ -1393,7 +1448,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
         }
       }
       const specificationId = insertSpecification(db, projectId, taskIdValue, specification)
-      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskIdValue, nextAttemptSequence(db, projectId, taskIdValue), null, specificationId, ownerId, ttl, nowMs)
+      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskIdValue, nextAttemptSequence(db, projectId, taskIdValue), null, specificationId, ownerId, ttl, nowMs, providerSelection)
       db.prepare("UPDATE tasks SET current_attempt_id = ?, status = 'in-progress', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?").run(attemptId, nowIso(), projectId, taskIdValue)
       db.prepare("UPDATE run_members SET state = 'claimed' WHERE project_id = ? AND task_id = ? AND state = 'queued'").run(projectId, taskIdValue)
       syncExecutionForTask(db, projectId, taskIdValue, () => ({ state: 'running', attemptId }))
@@ -1630,6 +1685,211 @@ export class SqliteTaskAuthority implements TaskAuthority {
         launchIntentId,
         specificationId: expectedSpecificationId,
         admittedAt
+      }
+    })
+  }
+
+  // -- provider-backed launch admission ---------------------------------------
+
+  /**
+   * The only `claimed -> launching` path for a provider-backed attempt.
+   *
+   * Everything it authorizes is decided inside this one `BEGIN IMMEDIATE`
+   * transaction over the shared database: the lease, the claimed attempt, the
+   * still-live maintenance admission, the unexpired preparation, and the live
+   * Catalog instance/account/binding rows. The returning tuple is therefore the
+   * trusted source of the broker authorization, and a rejection rolls back
+   * both the preparation and the attempt so the caller can retry cleanly.
+   *
+   * No gate RPC happens here: the persisted admission row carries its epoch and
+   * its pre-migration reservation, which is exactly what proves it preceded any
+   * freeze. The caller must have obtained that admission before entering.
+   */
+  admitProviderLaunch(input: ProviderLaunchAdmissionInput): ProviderLaunchAdmissionTuple {
+    assertKnownFields(input, 'input', ['lease', 'attemptId', 'sessionId', 'purpose', 'preparationId', 'maintenance'])
+    const token = parseLeaseToken(input?.['lease'], 'lease')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const sessionId = boundedField(input?.['sessionId'], 'sessionId', 128)
+    const preparationId = assertAuthorityUuid(input?.['preparationId'], 'preparationId')
+    if (input?.['purpose'] !== 'agent-launch') throw new TaskAuthorityValidationError('purpose', 'must be "agent-launch"')
+    const maintenance = input?.['maintenance']
+    if (typeof maintenance !== 'object' || maintenance === null || Array.isArray(maintenance)) {
+      throw new TaskAuthorityValidationError('maintenance', 'must be a maintenance admission claim')
+    }
+    const maintenanceRecord = maintenance as Record<string, unknown>
+    assertKnownFields(maintenanceRecord, 'maintenance', ['operationId', 'epoch', 'ownerConnectionId'])
+    const maintenanceOperationId = boundedField(maintenanceRecord['operationId'], 'maintenance.operationId', 128)
+    const maintenanceEpoch = entityVersion(maintenanceRecord['epoch'], 'maintenance.epoch')
+    const maintenanceOwner = boundedField(maintenanceRecord['ownerConnectionId'], 'maintenance.ownerConnectionId', 128)
+    if (attemptId !== token.attemptId) throw new TaskAuthorityValidationError('attemptId', 'must match the lease token attempt')
+
+    return this.database.withImmediate(db => {
+      const task = loadTaskRow(db, token.projectId, token.taskId)
+      const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(token.projectId, token.attemptId, token.taskId) as Row | undefined
+      if (!attempt) throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} was not found in project ${token.projectId}`)
+      if (textOrNull(attempt['current_lease_id']) !== token.leaseId) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} does not hold lease ${token.leaseId}`)
+      }
+      const lease = loadLeaseRow(db, token.projectId, token.leaseId)
+      if (int(lease['generation']) !== token.generation) {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${token.leaseId} generation ${token.generation} is not current`)
+      }
+      if (text(lease['owner_id']) !== token.ownerId) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', `lease ${token.leaseId} belongs to a different owner than the token names`)
+      }
+      if (text(task['cancel_state']) !== 'none') throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} has cancellation requested`)
+      if (text(attempt['state']) === 'quarantined') throw new TaskAuthorityError('RESOURCE_QUARANTINED', `attempt ${token.attemptId} is quarantined`)
+      // Strictly `claimed`: an already-launching attempt must not admit a second
+      // spawn, and this is the only transition that leaves `claimed`.
+      if (text(attempt['state']) !== 'claimed') {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${token.attemptId} is ${text(attempt['state'])}; provider admission requires a claimed attempt`)
+      }
+      const cancellingMember = db.prepare(
+        "SELECT 1 FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.project_id = ? AND rm.task_id = ? AND (rg.state IN ('cancelling','cancelled') OR rm.state IN ('cancelling','cancelled')) LIMIT 1"
+      ).get(token.projectId, token.taskId) as Row | undefined
+      if (cancellingMember) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling run group or member`)
+      const cancellingExecution = db.prepare(
+        "SELECT 1 FROM schedule_executions WHERE project_id = ? AND task_id = ? AND state IN ('cancelling','cancelled') LIMIT 1"
+      ).get(token.projectId, token.taskId) as Row | undefined
+      if (cancellingExecution) throw new TaskAuthorityError('TASK_CANCELLED', `task ${token.taskId} belongs to a cancelling schedule execution`)
+      if (effectiveExpiryMs(db, lease) <= authorityNowMs(db)) throw new TaskAuthorityError('LEASE_EXPIRED', `lease ${token.leaseId} expired before provider admission`)
+
+      // The attempt's own immutable selection is one half of the binding; the
+      // preparation is the other. Neither may be trusted alone.
+      const selection = readProviderSelection(textOrNull(attempt['provider_selection_json']))
+      if (selection === null) {
+        throw new TaskAuthorityError('PROVIDER_SELECTION_REQUIRED', `attempt ${token.attemptId} is the provider-free variant and has no provider to admit`)
+      }
+
+      const preparation = db.prepare('SELECT * FROM provider_launch_preparations WHERE id = ?').get(preparationId) as Row | undefined
+      if (!preparation) throw new TaskAuthorityError('PREPARATION_STALE', `launch preparation ${preparationId} was not found`)
+      if (textOrNull(preparation['consumed_at']) !== null) throw new TaskAuthorityError('PREPARATION_STALE', `launch preparation ${preparationId} was already consumed`)
+      const expiresAtMs = Date.parse(text(preparation['expires_at']))
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+        throw new TaskAuthorityError('PREPARATION_STALE', `launch preparation ${preparationId} expired before admission`)
+      }
+      if (text(preparation['attempt_id']) !== attemptId) throw new TaskAuthorityError('PREPARATION_STALE', 'launch preparation belongs to a different attempt')
+      if (text(preparation['session_id']) !== sessionId) throw new TaskAuthorityError('PREPARATION_STALE', 'launch preparation belongs to a different session')
+      if (text(preparation['purpose']) !== 'agent-launch') throw new TaskAuthorityError('PREPARATION_STALE', 'launch preparation has an unexpected purpose')
+
+      // Exact selection binding: instance revision and account revision are
+      // compared as recorded, so a Catalog edit between preparation and
+      // admission is a refusal rather than a silent retarget. The preparation
+      // carries no driver column, so its driver is read from the instance row it
+      // names — the same row the live checks below then re-validate.
+      const preparedInstanceId = text(preparation['provider_instance_id'])
+      const preparedInstance = db.prepare('SELECT * FROM provider_instances WHERE id = ?').get(preparedInstanceId) as Row | undefined
+      if (!preparedInstance) throw new TaskAuthorityError('PREPARATION_STALE', 'launch preparation names a provider instance that no longer exists')
+      const preparationSelection: ProviderSelection = {
+        driverId: parsePersistedDriverId(text(preparedInstance['driver_id'])),
+        providerInstanceId: preparedInstanceId,
+        instanceRevision: int(preparation['instance_revision']),
+        accountId: textOrNull(preparation['account_id']),
+        accountRevision: preparation['account_revision'] === null ? null : int(preparation['account_revision'])
+      }
+      if (!sameProviderSelection(selection, preparationSelection)) {
+        throw new TaskAuthorityError('PREPARATION_STALE', 'launch preparation selection no longer matches the attempt selection')
+      }
+
+      // Live Catalog rows: the instance, its account, and the active binding
+      // must all still say exactly what the preparation recorded. `instance` is
+      // the same row `preparedInstance` already named, re-read through the
+      // selection so both halves of the comparison are explicit.
+      const instance = db.prepare('SELECT * FROM provider_instances WHERE id = ?').get(selection.providerInstanceId) as Row | undefined
+      if (!instance) throw new TaskAuthorityError('PREPARATION_STALE', 'selected provider instance no longer exists')
+      if (text(instance['driver_id']) !== selection.driverId) throw new TaskAuthorityError('PREPARATION_STALE', 'selected provider instance changed driver')
+      if (int(instance['revision']) !== selection.instanceRevision) throw new TaskAuthorityError('PREPARATION_STALE', `selected provider instance revision moved from ${selection.instanceRevision} to ${int(instance['revision'])}`)
+      if (Number(instance['enabled']) !== 1) throw new TaskAuthorityError('PREPARATION_STALE', 'selected provider instance is disabled')
+      const credentialMode = text(instance['credential_mode']) as ProviderCredentialMode
+      if (credentialMode !== 'external' && credentialMode !== 'managed' && credentialMode !== 'none') {
+        throw new TaskAuthorityError('CORRUPT_AUTHORITY', 'persisted provider credential mode is invalid')
+      }
+      const command = parsePersistedCommandSpec(text(instance['command_spec_json']), selection.driverId)
+
+      let credential: ProviderLaunchAdmissionTuple['credential'] = null
+      const preparedRef = textOrNull(preparation['credential_ref'])
+      const preparedGeneration = preparation['binding_generation'] === null ? null : int(preparation['binding_generation'])
+      if (selection.accountId !== null) {
+        const account = db.prepare('SELECT * FROM provider_accounts WHERE id = ?').get(selection.accountId) as Row | undefined
+        if (!account) throw new TaskAuthorityError('PREPARATION_STALE', 'selected provider account no longer exists')
+        if (int(account['revision']) !== selection.accountRevision) throw new TaskAuthorityError('PREPARATION_STALE', `selected provider account revision moved from ${String(selection.accountRevision)} to ${int(account['revision'])}`)
+        if (text(account['driver_id']) !== selection.driverId) throw new TaskAuthorityError('PREPARATION_STALE', 'selected provider account changed driver')
+        const binding = db.prepare('SELECT * FROM provider_credential_bindings WHERE provider_instance_id = ? AND account_id = ? AND retired_at IS NULL').get(selection.providerInstanceId, selection.accountId) as Row | undefined
+        if (preparedRef !== null) {
+          if (!binding) throw new TaskAuthorityError('PREPARATION_STALE', 'the prepared credential binding was retired before admission')
+          if (text(binding['credential_ref']) !== preparedRef) throw new TaskAuthorityError('PREPARATION_STALE', 'the live credential ref no longer matches the preparation')
+          if (int(binding['generation']) !== preparedGeneration) throw new TaskAuthorityError('PREPARATION_STALE', 'the live binding generation no longer matches the preparation')
+          if (int(binding['account_revision']) !== selection.accountRevision) throw new TaskAuthorityError('PREPARATION_STALE', 'the live binding authenticates a different account revision')
+          credential = { credentialRef: preparedRef, bindingGeneration: preparedGeneration as number, accountId: selection.accountId, accountRevision: selection.accountRevision as number }
+        }
+      }
+      if (credentialMode === 'managed' && credential === null) {
+        throw new TaskAuthorityError('PREPARATION_STALE', 'managed provider admission requires a bound credential')
+      }
+      if (credentialMode === 'none' && credential !== null) {
+        throw new TaskAuthorityError('PREPARATION_STALE', 'none mode must not carry a credential')
+      }
+
+      // The still-live maintenance admission, read from this same database
+      // without any gate RPC. Its persistence under the pre-migration
+      // reservation is the durable proof that it was taken while admissions were
+      // open, and therefore before any freeze that followed.
+      const admissionRows = db.prepare('SELECT * FROM profile_maintenance_admissions WHERE participant = ? AND operation_id = ?')
+        .all('provider-authority', maintenanceOperationId) as Row[]
+      if (admissionRows.length === 0) throw new TaskAuthorityError('MAINTENANCE_ADMISSION_STALE', `provider-authority admission ${maintenanceOperationId} was not found`)
+      if (admissionRows.length > 1) throw new TaskAuthorityError('CORRUPT_AUTHORITY', `provider-authority admission ${maintenanceOperationId} is ambiguous across profiles`)
+      const admission = admissionRows[0] as Row
+      const admissionState = text(admission['state'])
+      if (admissionState !== 'active' && admissionState !== 'indeterminate') {
+        throw new TaskAuthorityError('MAINTENANCE_ADMISSION_STALE', `provider-authority admission ${maintenanceOperationId} is ${admissionState}`)
+      }
+      if (text(admission['migration_id']) !== PROFILE_MAINTENANCE_UNMIGRATED) {
+        throw new TaskAuthorityError('MAINTENANCE_ADMISSION_STALE', `provider-authority admission ${maintenanceOperationId} was adopted by migration ${text(admission['migration_id'])}; a freeze precedes it`)
+      }
+      if (int(admission['epoch']) !== maintenanceEpoch) {
+        throw new TaskAuthorityError('MAINTENANCE_ADMISSION_STALE', `provider-authority admission ${maintenanceOperationId} epoch ${maintenanceEpoch} is not the admitted epoch`)
+      }
+      if (text(admission['owner_connection_id']) !== maintenanceOwner) {
+        throw new TaskAuthorityError('MAINTENANCE_ADMISSION_STALE', `provider-authority admission ${maintenanceOperationId} belongs to another authenticated connection`)
+      }
+
+      // Consume the exact preparation. The predicate makes a concurrent second
+      // admission lose here rather than admitting the same preparation twice.
+      const consumedAt = nowIso()
+      const consumed = db.prepare('UPDATE provider_launch_preparations SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL').run(consumedAt, preparationId)
+      if (Number(consumed.changes) !== 1) throw new TaskAuthorityError('PREPARATION_STALE', `launch preparation ${preparationId} was consumed concurrently`)
+
+      const launchIntentId = randomUUID()
+      const created = nowIso()
+      db.prepare("INSERT INTO launch_intents(id, project_id, task_id, attempt_id, lease_id, state, session_id, process_identity_json, stop_state, created_at, updated_at) VALUES (?,?,?,?,?,'spawning',NULL,NULL,'none',?,?)")
+        .run(launchIntentId, token.projectId, token.taskId, attemptId, token.leaseId, created, created)
+      const admissionId = randomUUID()
+      db.prepare("INSERT INTO task_launch_admissions(id,task_id,attempt_id,lease_id,lease_generation,session_id,preparation_id,purpose,driver_id,provider_instance_id,instance_revision,account_id,account_revision,credential_mode,credential_ref,binding_generation,command_spec_json,maintenance_operation_id,maintenance_epoch,launch_intent_id,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?)")
+        .run(admissionId, token.taskId, attemptId, token.leaseId, token.generation, sessionId, preparationId, 'agent-launch', selection.driverId, selection.providerInstanceId, selection.instanceRevision, selection.accountId, selection.accountRevision, credentialMode, credential?.credentialRef ?? null, credential?.bindingGeneration ?? null, JSON.stringify(command), maintenanceOperationId, maintenanceEpoch, launchIntentId, created, created)
+      db.prepare("UPDATE attempts SET state = 'launching' WHERE project_id = ? AND id = ? AND state = 'claimed'").run(token.projectId, attemptId)
+      db.prepare("UPDATE run_members SET state = 'launching' WHERE project_id = ? AND task_id = ? AND state = 'claimed'").run(token.projectId, token.taskId)
+      appendTaskEvent(db, token.projectId, token.taskId, attemptId, 'provider-launch-admitted', int(task['entity_version']), {
+        launchAdmissionId: admissionId,
+        preparationId,
+        launchIntentId,
+        providerInstanceId: selection.providerInstanceId,
+        accountId: selection.accountId
+      })
+      return {
+        id: admissionId,
+        attemptId,
+        sessionId,
+        preparationId,
+        selection,
+        state: 'admitted',
+        purpose: 'agent-launch',
+        credentialMode,
+        command,
+        credential,
+        specificationId: text(attempt['specification_id']),
+        launchIntentId,
+        maintenanceEpoch,
+        admittedAt: created
       }
     })
   }
@@ -2139,13 +2399,14 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   retryFailedTask(input: AdminRetryFailedTaskInput): ClaimResult {
-    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'ownerId', 'specification', 'leaseTtlMs'])
+    assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'ownerId', 'specification', 'leaseTtlMs', 'providerSelection'])
     const connection = parseAuthorityConnection(input?.['connection'])
     const projectId = boundedField(input?.['projectId'], 'projectId', 128)
     const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
     const expectedEntityVersion = entityVersion(input?.['expectedEntityVersion'], 'expectedEntityVersion')
     const ownerId = assertAuthorityUuid(input?.['ownerId'], 'ownerId')
     const specification = input?.['specification'] === undefined ? undefined : parseTaskExecutionSpecification(input['specification'])
+    const providerSelection = parseClaimProviderSelection(input?.['providerSelection'])
     const ttl = ttlMs(input?.['leaseTtlMs'], 'leaseTtlMs', TASK_AUTHORITY_DEFAULT_LEASE_TTL_MS)
     return this.database.withImmediate(db => {
       requireAdminProject(connection, projectId)
@@ -2164,7 +2425,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
       }
       const nowMs = authorityNowMs(db)
       const specificationId = specification === undefined ? text(failedAttempt['specification_id']) : insertSpecification(db, projectId, taskId, specification)
-      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskId, nextAttemptSequence(db, projectId, taskId), failedAttemptId, specificationId, ownerId, ttl, nowMs)
+      const { attemptId, leaseId } = insertAttemptWithLease(db, projectId, taskId, nextAttemptSequence(db, projectId, taskId), failedAttemptId, specificationId, ownerId, ttl, nowMs, providerSelection)
       db.prepare("UPDATE tasks SET current_attempt_id = ?, status = 'in-progress', cancel_state = 'none', entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?")
         .run(attemptId, nowIso(), projectId, taskId)
       db.prepare("UPDATE run_members SET state = 'claimed' WHERE project_id = ? AND task_id = ? AND state = 'failed'").run(projectId, taskId)

@@ -550,7 +550,12 @@ export function localProviderCredentialCatalog(catalog: ProviderCatalog): Provid
     bindStagedCredential: async input => catalog.bindStagedCredential(input),
     stageCredentialRevoke: async input => catalog.stageCredentialRevoke(input),
     closeCredentialOperation: async input => catalog.closeCredentialOperation(input),
-    retireCredentialBindingForOperation: async input => { catalog.retireCredentialBindingForOperation(input) }
+    // The in-process form retires first, then reports the same projection the
+    // wire form returns, so both seams are observationally identical.
+    retireCredentialBindingForOperation: async input => {
+      catalog.retireCredentialBindingForOperation(input)
+      return catalog.snapshot()
+    }
   }
 }
 

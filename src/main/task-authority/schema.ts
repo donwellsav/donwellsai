@@ -21,7 +21,7 @@ import {
  * synchronous=FULL) used by every mutation.
  */
 
-export const TASK_AUTHORITY_SCHEMA_VERSION = 4
+export const TASK_AUTHORITY_SCHEMA_VERSION = 5
 export const TASK_AUTHORITY_FILE_NAME = 'task-authority.sqlite'
 
 export class TaskAuthorityDatabaseError extends Error {
@@ -90,6 +90,7 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
     db.exec(SCHEMA_V1)
     db.exec(SCHEMA_V3_ADDITIONS)
     upgradeProviderCredentialOperations(db)
+    upgradeLaunchAdmissions(db)
     applySchemaColumns(db)
     db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
     return
@@ -97,6 +98,7 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
   if (version === TASK_AUTHORITY_SCHEMA_VERSION) {
     db.exec(SCHEMA_V3_ADDITIONS)
     upgradeProviderCredentialOperations(db)
+    upgradeLaunchAdmissions(db)
     applySchemaColumns(db)
     return
   }
@@ -104,6 +106,7 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
   if (version === 1) addColumnIfMissing(db, 'run_members', 'specification_json', 'TEXT')
   db.exec(SCHEMA_V3_ADDITIONS)
   upgradeProviderCredentialOperations(db)
+  upgradeLaunchAdmissions(db)
   applySchemaColumns(db)
   db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
 }
@@ -149,8 +152,62 @@ CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provide
 }
 
 function applySchemaColumns(db: DatabaseSync): void {
-  for (const column of SCHEMA_V3_COLUMNS) addColumnIfMissing(db, column.table, column.column, column.definition)
+  for (const column of SCHEMA_ADDITIVE_COLUMNS) addColumnIfMissing(db, column.table, column.column, column.definition)
 }
+
+/**
+ * v5 makes `task_launch_admissions` the trusted source of the complete broker
+ * authorization tuple.
+ *
+ * The v4 shape stored only the lease/preparation pointer, which cannot express
+ * which exact instance, account, credential ref, and binding generation an
+ * admission authorized. Those fields cannot be added to existing rows without
+ * inventing authority for admissions that never carried it, and the rows are
+ * transient receipts that the Catalog already purges with their expired
+ * preparation, so the table is rebuilt empty rather than backfilled.
+ */
+function upgradeLaunchAdmissions(db: DatabaseSync): void {
+  const existing = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_launch_admissions'").get() as Record<string, unknown> | undefined
+  if (existing === undefined) {
+    // Fresh databases reach v5 without ever having the v3 shape.
+    db.exec(LAUNCH_ADMISSIONS_DDL)
+    return
+  }
+  if (String(existing['sql']).includes('maintenance_epoch')) return
+  db.exec('DROP TABLE task_launch_admissions')
+  db.exec(LAUNCH_ADMISSIONS_DDL)
+}
+
+const LAUNCH_ADMISSIONS_DDL = `
+CREATE TABLE IF NOT EXISTS task_launch_admissions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  lease_id TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  preparation_id TEXT NOT NULL REFERENCES provider_launch_preparations(id),
+  purpose TEXT NOT NULL CHECK (purpose = 'agent-launch'),
+  driver_id TEXT NOT NULL,
+  provider_instance_id TEXT NOT NULL,
+  instance_revision INTEGER NOT NULL CHECK (instance_revision >= 1),
+  account_id TEXT,
+  account_revision INTEGER,
+  credential_mode TEXT NOT NULL CHECK (credential_mode IN ('external','managed','none')),
+  credential_ref TEXT,
+  binding_generation INTEGER,
+  command_spec_json TEXT NOT NULL,
+  maintenance_operation_id TEXT NOT NULL,
+  maintenance_epoch INTEGER NOT NULL CHECK (maintenance_epoch >= 1),
+  launch_intent_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state = 'admitted'),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((account_id IS NULL) = (account_revision IS NULL)),
+  CHECK ((credential_ref IS NULL) = (binding_generation IS NULL)),
+  CHECK (credential_mode <> 'managed' OR (account_id IS NOT NULL AND credential_ref IS NOT NULL))
+);
+`
 
 /** Full structural validation; run once at authority open, not per operation. */
 export function validateTaskAuthorityDatabase(db: DatabaseSync): void {
@@ -849,26 +906,18 @@ CREATE TABLE IF NOT EXISTS provider_credential_operations (
   CHECK ((operation_kind = 'create-replace') OR (prior_credential_ref IS NOT NULL AND prior_binding_generation IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound');
-CREATE TABLE IF NOT EXISTS task_launch_admissions (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL,
-  attempt_id TEXT NOT NULL,
-  lease_id TEXT NOT NULL,
-  lease_generation INTEGER NOT NULL,
-  session_id TEXT NOT NULL,
-  preparation_id TEXT NOT NULL REFERENCES provider_launch_preparations(id),
-  state TEXT NOT NULL CHECK (state = 'admitted'),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
 `
+// `task_launch_admissions` is created by `LAUNCH_ADMISSIONS_DDL` (v5): the
+// admission row is the trusted source of the complete broker authorization
+// tuple, so its shape is versioned with the upgrade that introduced those
+// fields rather than with the v3 provider tables.
 
 /**
- * v3 column additions, applied separately from the table DDL because SQLite
- * has no `ADD COLUMN IF NOT EXISTS`: each one is guarded by a `PRAGMA
+ * Additive column migrations, applied separately from the table DDL because
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`: each one is guarded by a `PRAGMA
  * table_info` check so a replay of an interrupted migration is idempotent.
  */
-const SCHEMA_V3_COLUMNS: readonly Readonly<{ table: string; column: string; definition: string }>[] = [
+const SCHEMA_ADDITIVE_COLUMNS: readonly Readonly<{ table: string; column: string; definition: string }>[] = [
   // Imported history keeps the provenance of its execution specification: a
   // legacy execution record does not prove which mutable definition ran, so its
   // specification is marked legacy-unknown and never re-bound to the current one.
@@ -879,7 +928,12 @@ const SCHEMA_V3_COLUMNS: readonly Readonly<{ table: string; column: string; defi
   // The exact byte length of the frozen source file, recorded beside its
   // digest so the frozen source-set digest is reproducible from the database
   // alone rather than re-derived from a re-serialized payload.
-  { table: 'migration_sources', column: 'source_bytes', definition: 'INTEGER NOT NULL DEFAULT 0' }
+  { table: 'migration_sources', column: 'source_bytes', definition: 'INTEGER NOT NULL DEFAULT 0' },
+  // v5: the immutable provider identity an attempt was claimed for. NULL is the
+  // explicit provider-free variant, so every pre-Stage-3 attempt reads as
+  // provider-free rather than as an unknown provider. It is written once at
+  // claim/retry and no code path updates it.
+  { table: 'attempts', column: 'provider_selection_json', definition: 'TEXT' }
 ]
 
 function addColumnIfMissing(db: DatabaseSync, table: string, column: string, definition: string): void {

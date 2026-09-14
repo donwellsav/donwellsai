@@ -775,9 +775,34 @@ function acpHook(value: unknown, label: string): AcpUnknownRecord {
   return parsed
 }
 
+/**
+ * The provider identity a run was admitted for. It is identity and display
+ * metadata only: a renderer-safe `RunningAgent` never carries environment
+ * credentials, credential refs, or binding generations, and this decoder
+ * refuses any record that tries to add one.
+ */
+function decodeAgentRunProviderIdentity(value: unknown, label: string): AgentRunProviderIdentity {
+  const input = acpRecord(value, label)
+  acpExactKeys(input, ['driverId', 'providerInstanceId', 'providerInstanceRevision', 'accountId', 'providerAccountRevision'], [], label)
+  const accountId = input['accountId']
+  if (accountId !== null && typeof accountId !== 'string') throw new Error(label + '.accountId must be null or a string')
+  const accountRevision = input['providerAccountRevision']
+  if (accountRevision !== null && (typeof accountRevision !== 'number' || !Number.isSafeInteger(accountRevision) || accountRevision < 1)) throw new Error(label + '.providerAccountRevision must be null or a positive integer')
+  const instanceRevision = input['providerInstanceRevision']
+  if (typeof instanceRevision !== 'number' || !Number.isSafeInteger(instanceRevision) || instanceRevision < 1) throw new Error(label + '.providerInstanceRevision must be a positive integer')
+  if ((accountId === null) !== (accountRevision === null)) throw new Error(label + ' must name an account and its revision together')
+  return {
+    driverId: acpWireString(input['driverId'], label + '.driverId', 128),
+    providerInstanceId: acpWireString(input['providerInstanceId'], label + '.providerInstanceId', 128),
+    providerInstanceRevision: instanceRevision,
+    accountId: accountId === null ? null : acpWireString(accountId, label + '.accountId', 128),
+    providerAccountRevision: accountRevision
+  }
+}
+
 function acpRunningAgent(value: unknown, label: string): RunningAgent {
   const input = acpRecord(value, label)
-  acpExactKeys(input, ['id', 'sessionId', 'workspacePath', 'command', 'startedAt', 'updatedAt', 'liveness', 'activity', 'hook'], ['task', 'launch', 'presetId', 'detail', 'exitCode', 'stopRequestedAt'], label)
+  acpExactKeys(input, ['id', 'sessionId', 'workspacePath', 'command', 'startedAt', 'updatedAt', 'liveness', 'activity', 'hook'], ['task', 'launch', 'presetId', 'provider', 'detail', 'exitCode', 'stopRequestedAt'], label)
   const parsed: AcpUnknownRecord = {
     id: acpWireString(input['id'], label + '.id', 128),
     sessionId: acpWireString(input['sessionId'], label + '.sessionId', 256),
@@ -792,6 +817,7 @@ function acpRunningAgent(value: unknown, label: string): RunningAgent {
   if (Object.hasOwn(input, 'task')) parsed['task'] = parseAgentTaskIntent(input['task'])
   if (Object.hasOwn(input, 'launch')) parsed['launch'] = parseAgentExecutable(input['launch'])
   if (Object.hasOwn(input, 'presetId')) parsed['presetId'] = acpEnum(input['presetId'], label + '.presetId', AGENT_PROVIDER_IDS)
+  if (Object.hasOwn(input, 'provider')) parsed['provider'] = decodeAgentRunProviderIdentity(input['provider'], label + '.provider')
   const detail = acpOptionalString(input, 'detail', label + '.detail', 2_048)
   if (detail !== undefined) parsed['detail'] = detail
   const exitCode = acpOptionalNumber(input, 'exitCode', label + '.exitCode')
@@ -930,6 +956,13 @@ export type RunningAgent = {
   workspacePath: string
   command: string
   presetId?: AgentProviderId
+  /**
+   * The exact provider identity this run was admitted for. Present only for a
+   * provider-backed launch; it is identity and display metadata only. A
+   * `RunningAgent` never carries environment credentials, credential refs, or
+   * binding generations, so it stays renderer-safe.
+   */
+  provider?: AgentRunProviderIdentity
   startedAt: string
   updatedAt: string
   liveness: AgentLiveness
@@ -941,6 +974,42 @@ export type RunningAgent = {
   }
   exitCode?: number
   stopRequestedAt?: string
+}
+
+/** The renderer-safe provider identity of one admitted agent run. */
+export type AgentRunProviderIdentity = {
+  driverId: string
+  providerInstanceId: string
+  providerInstanceRevision: number
+  accountId: string | null
+  providerAccountRevision: number | null
+}
+
+/**
+ * What a renderer (or a direct test) submits to start a provider-backed agent.
+ *
+ * Task 3 exposes this intent only to direct tests: the renderer never sees a
+ * lease, preparation, broker frame, credential ref, binding generation, or
+ * maintenance admission, and the daemon derives the authenticated worker
+ * identity and the full lease itself. Until Task 4 migrates the production
+ * callers, the legacy command path remains authoritative and this intent is
+ * unreachable from any production caller.
+ */
+export type AgentStartIntent = {
+  workspacePath: string
+  providerInstanceId: string
+  task?: AgentTaskIntent
+}
+
+export function parseAgentStartIntent(value: unknown): AgentStartIntent {
+  if (!isRecord(value) || Object.keys(value).some(key => key !== 'workspacePath' && key !== 'providerInstanceId' && key !== 'task')) throw new Error('Invalid agent start intent')
+  if (typeof value['workspacePath'] !== 'string' || !value['workspacePath'].trim() || value['workspacePath'].length > 4096 || value['workspacePath'].includes('\0')) throw new Error('Invalid agent start workspace')
+  if (typeof value['providerInstanceId'] !== 'string' || !value['providerInstanceId'] || value['providerInstanceId'].length > 128 || value['providerInstanceId'].includes('\0')) throw new Error('Invalid provider instance id')
+  return {
+    workspacePath: value['workspacePath'],
+    providerInstanceId: value['providerInstanceId'],
+    ...(value['task'] === undefined ? {} : { task: parseAgentTaskIntent(value['task']) })
+  }
 }
 
 export type AgentStartResult = {

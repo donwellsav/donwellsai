@@ -1225,7 +1225,9 @@ export class TerminalDaemon {
             expectedBindingGeneration: taskWireInteger(record['expectedBindingGeneration'], 'input.expectedBindingGeneration', 1, Number.MAX_SAFE_INTEGER) ?? 1,
             credentialOperationId: taskWireRequiredString(record['credentialOperationId'], 'input.credentialOperationId')
           })
-          reply(true, {})
+          // The projection is carried on the wire so both the in-process and the
+          // wire-seam form of this call report the same retired binding.
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
           break
         }
         case 'agent.authenticate': {

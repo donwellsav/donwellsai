@@ -12,7 +12,7 @@ import {
   type ProfileMaintenanceTransitionReceipt
 } from '@shared/profile-maintenance'
 import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
-import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseCredentialBinding, parseCredentialOperation, parseCredentialScope, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderCredentialCatalog, type ProviderInstanceInput } from '@shared/provider-authority'
+import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseProviderSelection, parseCredentialBinding, parseCredentialOperation, parseCredentialScope, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderCredentialCatalog, type ProviderInstanceInput } from '@shared/provider-authority'
 import {
   PROVIDER_SECRET_BROKER_CAPABILITY,
   PROVIDER_SECRET_BROKER_PROTOCOL,
@@ -428,6 +428,11 @@ function parseAttemptSnapshotWire(value: unknown): AttemptSnapshot {
     provenance: parseWireEnum(record['provenance'], 'attempt.provenance', ['native', 'imported-legacy'] as const),
     state: parseWireEnum(record['state'], 'attempt.state', ATTEMPT_STATES),
     specificationId: parseWireString(record['specificationId'], 'attempt.specificationId'),
+    // The immutable selection is part of the attempt contract, so a wire frame
+    // that omits it is refused rather than silently read as provider-free.
+    providerSelection: record['providerSelection'] === null || record['providerSelection'] === undefined
+      ? null
+      : parseProviderSelection(record['providerSelection'], 'attempt.providerSelection'),
     currentLease: record['currentLease'] === null || record['currentLease'] === undefined ? null : parseLeaseSnapshotWire(record['currentLease']),
     runtime,
     reservation,
@@ -1328,7 +1333,12 @@ export class DaemonClient {
       },
       retireCredentialBindingForOperation: async input => {
         await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'retiring a credential binding')
-        await this.request('provider.credential.retire', { input })
+        // The projection the Catalog returns is folded through, so this facade
+        // reports the same retired binding the in-process Catalog does. That is
+        // the asymmetry Task 2 parked here: the wire form had silently dropped
+        // it while the local form returned it.
+        const response = await this.request<{ snapshot: unknown }>('provider.credential.retire', { input })
+        return parseProviderCatalogSnapshot(response.snapshot)
       }
     }
   }

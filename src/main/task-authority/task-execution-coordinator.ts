@@ -1,6 +1,8 @@
 import { realpathSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import type { ProcessIdentity, ProcessIdentityVerdict } from '@shared/child-process/process-spec'
+import { isolatedProviderEnvironment } from '@shared/child-process/process-environment'
 import {
   canonicalResourceKey,
   TaskAuthorityError,
@@ -8,14 +10,19 @@ import {
   type AttemptSnapshot,
   type ClaimResult,
   type LeaseToken,
+  type ProviderLaunchAdmissionTuple,
   type ScheduleExecutionSnapshot,
   type TaskExecutionSpecificationInput,
   type TaskSnapshot
 } from '@shared/task-authority'
+import type { ProviderCredentialMode, ProviderLaunchPreparation, ProviderSelection } from '@shared/provider-authority'
+import { SecretAuthorityError, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
 import { SequencedTaskOutputPump } from '@shared/terminal-stream'
 import { agentProviderForExecutable } from '@shared/agent-runtime'
 import { SqliteTaskAuthority, launchIntentFingerprint } from './task-authority'
 import type { DaemonTaskEvidencePort, TaskEvidencePreObservation } from './task-evidence-port'
+import type { SecretOutputBoundary } from '../secret-output-redactor'
+import { ProviderInvocationError, resolveProviderInvocation, type ResolvedProviderInvocation } from '../agents/provider-hooks'
 
 /** Task children bind runtime only as acp-agent today; Stage 5 widens the union. */
 export type TaskChildRuntime = 'finite-job' | 'acp-agent'
@@ -56,6 +63,131 @@ export type PreparedTaskLaunch = Readonly<{
   preObservation: TaskEvidencePreObservation
 }>
 
+// ---------------------------------------------------------------------------
+// Provider-backed launch (Stage 3, DORMANT)
+//
+// Nothing in production reaches the provider path: no renderer control,
+// settings payload, CLI schema, or scheduled job names a provider selection
+// yet, so until Task 4 migrates the real callers the only entries are this
+// stage's direct tests. Generic shell and verification work continues on the
+// provider-free path above and is never reinterpreted as provider work.
+// ---------------------------------------------------------------------------
+
+/** The maintenance gate calls a provider launch makes, and nothing else. */
+export interface ProviderMaintenancePort {
+  admit(participant: 'provider-authority', operationId: string): Promise<{ operationId: string; epoch: number; ownerConnectionId: string }>
+  complete(operationId: string, epoch: number, ownerConnectionId: string, outcome: 'completed' | 'cancelled'): Promise<void>
+}
+
+/** The one credential-bearing call this daemon makes, and only after admission. */
+export interface ProviderSecretPort {
+  materialize(authorization: ProviderLaunchAuthorization): Promise<ProviderLaunchSecrets>
+}
+
+/**
+ * The exact authorization tuple the admitted row produced. Every field comes
+ * from the committed admission, never from a re-read or a serialized request.
+ */
+export type ProviderLaunchAuthorization = Readonly<{
+  launchAdmissionId: string
+  preparationId: string
+  attemptId: string
+  sessionId: string
+  purpose: 'agent-launch'
+  driverId: ProviderSelection['driverId']
+  providerInstanceId: string
+  instanceRevision: number
+  accountId: string
+  accountRevision: number
+  credentialRef: string
+  bindingGeneration: number
+}>
+
+/** The provider-instance surface the coordinator consumes: preparation only. */
+export interface ProviderLaunchCatalogPort {
+  prepareLaunch(input: { selection: ProviderSelection; attemptId: string; sessionId: string; purpose: 'agent-launch' }): ProviderLaunchPreparation
+}
+
+/** One provider child, owned by the daemon until its exit is confirmed. */
+export interface ProviderChildPort {
+  open(input: {
+    /** The daemon-owned session id; the child must bind exactly this id so the output boundary and the PTY sink agree. */
+    sessionId: string
+    workspaceRoot: string
+    invocation: ResolvedProviderInvocation
+    environment: NodeJS.ProcessEnv
+    cols: number
+    rows: number
+  }): OpenedTaskChild
+  stop(sessionId: string): Promise<void>
+  stopProcess(identity: ProcessIdentity): Promise<void>
+  /**
+   * Cumulative per-stream output since spawn, plus the daemon-owned exit facts.
+   * Cumulative totals (rather than deltas) match the PTY scrollback discipline,
+   * so a restarted reader cannot double-consume or skip bytes; exit is never
+   * inferred from transport loss.
+   */
+  output(sessionId: string): { stdout: string; stderr: string; exited: boolean; exitCode?: number }
+}
+
+export type ProviderLaunchPorts = Readonly<{
+  maintenance: ProviderMaintenancePort
+  catalog: ProviderLaunchCatalogPort
+  /** Resolves a driver's executable; undefined when discovery failed. */
+  driverExecutable: (driverId: ProviderSelection['driverId']) => string | undefined
+  /** Creates the private per-launch isolation root the child's home resolves into. */
+  createIsolationRoot: (sessionId: string) => string
+  removeIsolationRoot: (root: string) => void
+  /** Driver-declared environment pointing inside the isolated root. */
+  driverEnvironment?: (driverId: ProviderSelection['driverId'], root: string) => NodeJS.ProcessEnv
+  /** Present only when this daemon has an authenticated broker; absent for `none`. */
+  secrets?: ProviderSecretPort | null
+  boundary: SecretOutputBoundary
+  child: ProviderChildPort
+}>
+
+export type ProviderLaunchDisposition = 'completed' | 'failed' | 'cancelled' | 'superseded' | 'secret-unavailable'
+
+export type ProviderLaunchOutcome = Readonly<{
+  disposition: ProviderLaunchDisposition
+  admission: ProviderLaunchAdmissionTuple | null
+  sessionId: string | null
+  exitCode: number | null
+  /** Why a pre-spawn rejection produced no child; never secret material. */
+  reason: string | null
+}>
+
+/** Typed, retryable marker for a launch that no broker could authorize. */
+export const SECRET_AUTHORITY_UNAVAILABLE = 'SECRET_AUTHORITY_UNAVAILABLE'
+
+/**
+ * Resolves one provider command spec into the exact program and argv a launch
+ * runs, in every credential mode.
+ *
+ * A `driver` command is the only path that reaches driver-owned executable and
+ * argument policy. Managed/none may never execute an arbitrary program, so a
+ * non-driver command in those modes is refused here as defense in depth behind
+ * the Catalog's own creation-time certification check.
+ */
+export function resolveProviderLaunchInvocation(
+  command: ProviderLaunchPreparation['command'],
+  credentialMode: ProviderCredentialMode,
+  driverExecutable: (driverId: ProviderSelection['driverId']) => string | undefined,
+  platform?: NodeJS.Platform
+): ResolvedProviderInvocation {
+  if (command.kind === 'driver') {
+    return resolveProviderInvocation({
+      command,
+      driverExecutable: driverExecutable(command.driverId),
+      ...(platform === undefined ? {} : { platform })
+    })
+  }
+  if (credentialMode !== 'external') {
+    throw new ProviderInvocationError('COMMAND_SHAPE_INVALID', `${credentialMode} mode requires a driver-owned command`)
+  }
+  return resolveProviderInvocation({ command, ...(platform === undefined ? {} : { platform }) })
+}
+
 export type TaskLaunchDisposition = 'completed' | 'failed' | 'cancelled' | 'superseded' | 'reconciled'
 
 export type TaskLaunchOutcome = Readonly<{
@@ -87,6 +219,11 @@ function authorityMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Bounded, secret-free description of a refusal for attempt error text. */
+function describeFailure(error: unknown): string {
+  return authorityMessage(error).slice(0, 512)
+}
+
 function shellCommand(specification: TaskExecutionSpecificationInput): string {
   return [specification.command.program, ...specification.command.args].map(part => (/^[A-Za-z0-9_./:=+-]+$/.test(part) ? part : JSON.stringify(part))).join(' ')
 }
@@ -110,6 +247,7 @@ export class TaskExecutionCoordinator {
   private readonly cancelCheckMs: number
   private readonly deliveredStops = new Set<string>()
   private readonly childKinds = new Map<string, 'finite-job' | 'acp-agent'>()
+  private readonly provider: ProviderLaunchPorts | null
 
   constructor(options: Readonly<{
     authority: SqliteTaskAuthority
@@ -120,15 +258,335 @@ export class TaskExecutionCoordinator {
     outputLimitBytes?: number
     pumpPollMs?: number
     cancelCheckMs?: number
+    /**
+     * The provider-backed launch seam. Absent by default: a daemon without this
+     * wiring simply has no provider path, which is the shipped state until
+     * Task 4 migrates the production callers.
+     */
+    provider?: ProviderLaunchPorts
   }>) {
     this.authority = options.authority
     this.ports = options.ports
     this.evidence = options.evidence
+    this.provider = options.provider ?? null
     this.resolveWorkspace = options.resolveWorkspace ?? ((root: string) => realpathSync.native(root))
     this.verifyIdentity = options.verifyIdentity ?? null
     this.outputLimitBytes = options.outputLimitBytes ?? 64 * 1024
     this.pumpPollMs = options.pumpPollMs ?? 10
     this.cancelCheckMs = options.cancelCheckMs ?? 250
+  }
+
+  /**
+   * One provider-backed launch, end to end.
+   *
+   * The durable order is: maintenance admission (before any freeze), Catalog
+   * preparation, the Task Authority admission that consumes it, and only then
+   * the broker request. Every rejection before the OS spawn returns without a
+   * child; a failure after it converges through the Stage 2 stop/quarantine
+   * path rather than claiming the spawn was rolled back.
+   *
+   * This method is unreachable from production in Stage 3: no caller outside
+   * this stage's direct tests supplies a selection.
+   */
+  async launchProviderBacked(input: Readonly<{
+    lease: LeaseToken
+    attemptId: string
+    sessionId: string
+    workspaceRoot: string
+    selection: ProviderSelection
+    connection: AuthenticatedAuthorityConnection
+  }>): Promise<ProviderLaunchOutcome> {
+    const ports = this.provider
+    if (!ports) return this.providerRejection(null, 'no provider-backed launch wiring is registered on this daemon')
+    const operationId = `provider-launch:${input.sessionId}`
+    let claim: { operationId: string; epoch: number; ownerConnectionId: string }
+    try {
+      claim = await ports.maintenance.admit('provider-authority', operationId)
+    } catch (error) {
+      return this.providerRejection(null, `maintenance admission refused: ${describeFailure(error)}`)
+    }
+
+    let admission: ProviderLaunchAdmissionTuple
+    try {
+      const preparation = ports.catalog.prepareLaunch({ selection: input.selection, attemptId: input.attemptId, sessionId: input.sessionId, purpose: 'agent-launch' })
+      admission = this.authority.admitProviderLaunch({
+        lease: input.lease,
+        attemptId: input.attemptId,
+        sessionId: input.sessionId,
+        purpose: 'agent-launch',
+        preparationId: preparation.id,
+        maintenance: { operationId: claim.operationId, epoch: claim.epoch, ownerConnectionId: claim.ownerConnectionId }
+      })
+    } catch (error) {
+      // The preparation and the attempt both rolled back; no child exists.
+      await this.closeProviderMaintenance(claim, 'cancelled')
+      return this.providerRejection(null, `launch admission refused: ${describeFailure(error)}`)
+    }
+
+    let invocation: ResolvedProviderInvocation
+    try {
+      invocation = resolveProviderLaunchInvocation(admission.command, admission.credentialMode, ports.driverExecutable)
+    } catch (error) {
+      await this.failProviderAttempt(input, admission, `provider invocation refused: ${describeFailure(error)}`)
+      await this.closeProviderMaintenance(claim, 'cancelled')
+      return this.providerRejection(admission, `provider invocation refused: ${describeFailure(error)}`)
+    }
+
+    let secrets: ProviderLaunchSecrets | null = null
+    if (admission.credentialMode === 'managed') {
+      const broker = ports.secrets
+      if (!broker || !admission.credential) {
+        await this.failProviderAttempt(input, admission, `${SECRET_AUTHORITY_UNAVAILABLE}: no authenticated credential broker is available`)
+        await this.closeProviderMaintenance(claim, 'cancelled')
+        return this.providerRejection(admission, SECRET_AUTHORITY_UNAVAILABLE)
+      }
+      try {
+        secrets = await broker.materialize({
+          launchAdmissionId: admission.id,
+          preparationId: admission.preparationId,
+          attemptId: admission.attemptId,
+          sessionId: admission.sessionId,
+          purpose: admission.purpose,
+          driverId: admission.selection.driverId,
+          providerInstanceId: admission.selection.providerInstanceId,
+          instanceRevision: admission.selection.instanceRevision,
+          accountId: admission.credential.accountId,
+          accountRevision: admission.credential.accountRevision,
+          credentialRef: admission.credential.credentialRef,
+          bindingGeneration: admission.credential.bindingGeneration
+        })
+      } catch (error) {
+        // Broker absence, timeout, stale reply, or a Secret Authority refusal.
+        // No child is created, the attempt fails with a typed retryable reason,
+        // and this path never falls back to inherited or file credentials,
+        // another instance, another account, or the global default.
+        await this.failProviderAttempt(input, admission, `${SECRET_AUTHORITY_UNAVAILABLE}: ${describeFailure(error)}`)
+        await this.closeProviderMaintenance(claim, 'cancelled')
+        return this.providerRejection(admission, SECRET_AUTHORITY_UNAVAILABLE)
+      }
+    }
+
+    // Environment construction is mode-specific and this is the boundary that
+    // makes it so. A managed or `none` child starts from a strict ALLOWLIST plus
+    // one private isolated home/config root; an external child deliberately
+    // keeps the driver's inherited external authentication, because that is what
+    // `external` mode means.
+    const isolationRoot = admission.credentialMode === 'external' ? null : ports.createIsolationRoot(input.sessionId)
+    let environment: NodeJS.ProcessEnv
+    if (isolationRoot === null) {
+      environment = { ...process.env }
+    } else {
+      environment = isolatedProviderEnvironment({
+        isolationRoot,
+        inherited: process.env,
+        driverEnvironment: ports.driverEnvironment?.(admission.selection.driverId, isolationRoot) ?? {},
+        credentialEnvironment: secrets?.environment ?? {}
+      })
+    }
+    // Exactly the broker's own values become redaction patterns, and the last
+    // local reference to the plaintext beyond the child's own environment is
+    // released as soon as the spawn has taken it.
+    const managedValues = secrets === null ? [] : Object.values(secrets.environment)
+    secrets = null
+    if (managedValues.length > 0) ports.boundary.register(input.sessionId, managedValues)
+
+    const releaseIsolation = (): void => {
+      if (isolationRoot !== null) ports.removeIsolationRoot(isolationRoot)
+      if (managedValues.length > 0) ports.boundary.close(input.sessionId)
+    }
+
+    // The Stage 2 launch-intent state check, immediately before spawn: a
+    // cancellation committed before this point prevents the spawn.
+    try {
+      this.authority.beginSpawn({ token: input.lease, launchIntentId: admission.launchIntentId, expectedSpecificationId: admission.specificationId })
+    } catch (error) {
+      releaseIsolation()
+      await this.closeProviderMaintenance(claim, 'cancelled')
+      return this.providerRejection(admission, `launch-intent check refused: ${describeFailure(error)}`)
+    }
+
+    let opened: OpenedTaskChild
+    try {
+      opened = ports.child.open({
+        sessionId: input.sessionId,
+        workspaceRoot: input.workspaceRoot,
+        invocation,
+        environment,
+        cols: this.providerCols,
+        rows: this.providerRows
+      })
+    } catch (error) {
+      releaseIsolation()
+      await this.failProviderAttempt(input, admission, `provider child failed to start: ${describeFailure(error)}`)
+      await this.closeProviderMaintenance(claim, 'cancelled')
+      return this.providerRejection(admission, `provider child failed to start: ${describeFailure(error)}`)
+    }
+
+    // The OS spawn is a fact now. Ownership is taken here and every later
+    // failure converges through stop + quarantine.
+    this.authority.recordReturnedIdentity({
+      projectId: input.lease.projectId,
+      taskId: input.lease.taskId,
+      attemptId: input.attemptId,
+      sessionId: opened.sessionId,
+      processIdentity: opened.processIdentity
+    })
+
+    try {
+      if (opened.processIdentity === null) throw new TaskAuthorityError('RESOURCE_QUARANTINED', 'the provider child returned no process identity to bind')
+      this.authority.write({ kind: 'bind-runtime', connection: input.connection, token: input.lease, sessionId: opened.sessionId, processIdentity: opened.processIdentity })
+    } catch {
+      return this.convergeProviderLoss(input, admission, opened, isolationRoot, claim, 'runtime bind was refused after the provider child started')
+    }
+    return this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
+  }
+
+  private readonly providerCols = 100
+  private readonly providerRows = 30
+
+  /** Pumps redacted output to the child's exit, then records the fenced terminal state. */
+  private async pumpProviderToExit(
+    input: Readonly<{ lease: LeaseToken; attemptId: string; connection: AuthenticatedAuthorityConnection }>,
+    admission: ProviderLaunchAdmissionTuple,
+    opened: OpenedTaskChild,
+    isolationRoot: string | null,
+    claim: { operationId: string; epoch: number; ownerConnectionId: string }
+  ): Promise<ProviderLaunchOutcome> {
+    const ports = this.provider as ProviderLaunchPorts
+    // Both streams share one bounded redactor but one combined pump, so the
+    // retained output stays a single bounded view of the child's bytes.
+    const pump = new SequencedTaskOutputPump(this.outputLimitBytes)
+    let stdoutOffset = 0
+    let stderrOffset = 0
+    let exitCode: number | null = null
+    for (;;) {
+      const chunk = ports.child.output(opened.sessionId)
+      // Backpressure and the output limit apply to the settled redacted bytes,
+      // never to the redactor's retain window.
+      const safeStdout = this.redactProviderChunk(opened.sessionId, 'stdout', chunk.stdout, stdoutOffset)
+      const safeStderr = this.redactProviderChunk(opened.sessionId, 'stderr', chunk.stderr, stderrOffset)
+      stdoutOffset = chunk.stdout.length
+      stderrOffset = chunk.stderr.length
+      if (safeStdout.length > 0) pump.append(safeStdout)
+      if (safeStderr.length > 0) pump.append(safeStderr)
+      if (chunk.exited) {
+        exitCode = chunk.exitCode ?? null
+        break
+      }
+      await this.delay(this.pumpPollMs)
+    }
+    // Every child output pipe has closed, so the residual undecided bytes are
+    // safe to emit and the patterns/carry can be zeroized.
+    for (const stream of ['stdout', 'stderr'] as const) {
+      const residual = ports.boundary.flush(opened.sessionId, stream)
+      if (residual.length > 0) pump.append(residual)
+    }
+    ports.boundary.close(opened.sessionId)
+    if (isolationRoot !== null) ports.removeIsolationRoot(isolationRoot)
+    await this.closeProviderMaintenance(claim, 'completed')
+
+    const attempt = this.freshAttemptOrNull(input)
+    if (attempt !== null && (attempt.state === 'cancelling' || attempt.state === 'cancelled')) {
+      this.authority.acknowledgeExit({
+        projectId: input.lease.projectId,
+        taskId: input.lease.taskId,
+        attemptId: input.attemptId,
+        leaseId: input.lease.leaseId,
+        generation: input.lease.generation,
+        reason: 'coordinator observed the cancelled provider child exit'
+      })
+      return { disposition: 'cancelled', admission, sessionId: opened.sessionId, exitCode, reason: 'cancelled' }
+    }
+    try {
+      if (exitCode === 0) {
+        this.authority.write({ kind: 'complete', connection: input.connection, token: input.lease, result: { summary: `provider child exited 0 (admission ${admission.id})` } })
+        return { disposition: 'completed', admission, sessionId: opened.sessionId, exitCode, reason: null }
+      }
+      this.authority.write({ kind: 'fail', connection: input.connection, token: input.lease, error: `provider child exited with code ${exitCode}` })
+      return { disposition: 'failed', admission, sessionId: opened.sessionId, exitCode, reason: `exit ${exitCode}` }
+    } catch (error) {
+      return { disposition: 'superseded', admission, sessionId: opened.sessionId, exitCode, reason: describeFailure(error) }
+    }
+  }
+
+  /** Redacts one stream's new bytes, or passes them through for a `none` launch. */
+  private redactProviderChunk(sessionId: string, stream: 'stdout' | 'stderr', cumulative: string, consumed: number): string {
+    const ports = this.provider as ProviderLaunchPorts
+    const fresh = consumed > 0 && consumed <= cumulative.length ? cumulative.slice(consumed) : cumulative
+    if (fresh.length === 0) return ''
+    return ports.boundary.has(sessionId) ? ports.boundary.push(sessionId, stream, fresh) : fresh
+  }
+
+  /**
+   * Converges a post-spawn loss: idempotent stop, then quarantine until the
+   * exit is confirmed. The spawn is never claimed to have been rolled back.
+   */
+  private async convergeProviderLoss(
+    input: Readonly<{ lease: LeaseToken; attemptId: string; connection: AuthenticatedAuthorityConnection }>,
+    admission: ProviderLaunchAdmissionTuple,
+    opened: OpenedTaskChild,
+    isolationRoot: string | null,
+    claim: { operationId: string; epoch: number; ownerConnectionId: string },
+    reason: string
+  ): Promise<ProviderLaunchOutcome> {
+    const ports = this.provider as ProviderLaunchPorts
+    ports.boundary.flush(opened.sessionId, 'stdout')
+    ports.boundary.flush(opened.sessionId, 'stderr')
+    ports.boundary.close(opened.sessionId)
+    try {
+      await ports.child.stop(opened.sessionId)
+    } catch {
+      if (opened.processIdentity !== null) {
+        try { await ports.child.stopProcess(opened.processIdentity) } catch { /* quarantine records it below */ }
+      }
+    }
+    if (isolationRoot !== null) ports.removeIsolationRoot(isolationRoot)
+    await this.closeProviderMaintenance(claim, 'completed')
+    this.authority.reconcileStartupAttempt({
+      projectId: input.lease.projectId,
+      taskId: input.lease.taskId,
+      attemptId: input.attemptId,
+      verdict: 'indeterminate',
+      reason: `provider launch lost ownership: ${reason}`
+    })
+    return { disposition: 'cancelled', admission, sessionId: opened.sessionId, exitCode: null, reason }
+  }
+
+  /** Records a terminal retryable attempt failure through the fenced write path. */
+  private async failProviderAttempt(
+    input: Readonly<{ lease: LeaseToken; attemptId: string; connection: AuthenticatedAuthorityConnection }>,
+    admission: ProviderLaunchAdmissionTuple,
+    reason: string
+  ): Promise<void> {
+    try {
+      this.authority.write({ kind: 'fail', connection: input.connection, token: input.lease, error: `${reason} (admission ${admission.id})` })
+    } catch {
+      // A superseded lease owns the attempt now; its own reconciliation applies.
+    }
+  }
+
+  private freshAttemptOrNull(input: Readonly<{ lease: LeaseToken; connection: AuthenticatedAuthorityConnection }>): AttemptSnapshot | null {
+    try {
+      return this.freshTask(input.connection, input.lease.projectId, input.lease.taskId).currentAttempt
+    } catch {
+      return null
+    }
+  }
+
+  /** Completes the maintenance admission exactly once, and never under a database lock. */
+  private async closeProviderMaintenance(claim: { operationId: string; epoch: number; ownerConnectionId: string }, outcome: 'completed' | 'cancelled'): Promise<void> {
+    const ports = this.provider
+    if (!ports) return
+    try {
+      await ports.maintenance.complete(claim.operationId, claim.epoch, claim.ownerConnectionId, outcome)
+    } catch {
+      // A closed or already-reconciled admission is not a launch failure; the
+      // gate's own reconciliation owns the residue.
+    }
+  }
+
+  private providerRejection(admission: ProviderLaunchAdmissionTuple | null, reason: string): ProviderLaunchOutcome {
+    return { disposition: 'failed', admission, sessionId: null, exitCode: null, reason }
   }
 
   /** Stages 1-2: canonical reservation plus the durable `planned` launch intent. */

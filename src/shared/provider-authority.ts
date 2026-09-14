@@ -117,7 +117,7 @@ export interface ProviderCredentialCatalog extends Omit<ProviderCredentialOperat
   bindStagedCredential(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number; targetCredentialRef: string; targetBindingGeneration: number; expectedBindingGeneration: number }): Promise<boolean>
   stageCredentialRevoke(input: { operationId: string; providerInstanceId: string; accountId: string; expectedInstanceRevision: number; expectedAccountRevision: number }): Promise<ProviderCredentialOperation>
   closeCredentialOperation(input: { operationId: string; state: ProviderCredentialOperationState }): Promise<ProviderCredentialOperation>
-  retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): Promise<void>
+  retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): Promise<ProviderCatalogSnapshot>
 }
 
 export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
@@ -226,6 +226,49 @@ function exactKeys(input: Record<string, unknown>, allowed: readonly string[], l
   const allowedSet = new Set(allowed)
   const extra = Object.keys(input).find(key => !allowedSet.has(key))
   if (extra) throw new Error(`${label} contains unknown field: ${extra}`)
+}
+
+/**
+ * The immutable attempt-scoped selection decoder. A selection names one exact
+ * provider instance and (when it has one) one exact account at one exact
+ * revision each, so a later catalog edit cannot silently retarget a recorded
+ * attempt: the revisions stop matching and admission refuses.
+ */
+export function parseProviderSelection(value: unknown, label = 'provider selection'): ProviderSelection {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`)
+  const input = value as Record<string, unknown>
+  exactKeys(input, ['driverId', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision'], label)
+  const accountId = input['accountId']
+  if (accountId !== null && (typeof accountId !== 'string' || accountId.length === 0 || accountId.length > 128 || accountId.includes('\0'))) {
+    throw new Error(`${label}.accountId must be null or a bounded identifier`)
+  }
+  const accountRevision = input['accountRevision']
+  if (accountRevision !== null && (!Number.isSafeInteger(accountRevision) || (accountRevision as number) < 1)) {
+    throw new Error(`${label}.accountRevision must be null or a positive integer`)
+  }
+  if ((accountId === null) !== (accountRevision === null)) throw new Error(`${label} must name an account and its revision together`)
+  if (typeof input['providerInstanceId'] !== 'string' || input['providerInstanceId'].length === 0 || input['providerInstanceId'].length > 128 || input['providerInstanceId'].includes('\0')) {
+    throw new Error(`${label}.providerInstanceId must be a bounded identifier`)
+  }
+  if (!Number.isSafeInteger(input['instanceRevision']) || (input['instanceRevision'] as number) < 1) {
+    throw new Error(`${label}.instanceRevision must be a positive integer`)
+  }
+  return {
+    driverId: parseAgentDriverId(input['driverId'], `${label}.driverId`),
+    providerInstanceId: input['providerInstanceId'],
+    instanceRevision: input['instanceRevision'] as number,
+    accountId: accountId as string | null,
+    accountRevision: accountRevision as number | null
+  }
+}
+
+/** Exact identity comparison; `revision` fields are numbers, never coerced strings. */
+export function sameProviderSelection(left: ProviderSelection, right: ProviderSelection): boolean {
+  return left.driverId === right.driverId
+    && left.providerInstanceId === right.providerInstanceId
+    && left.instanceRevision === right.instanceRevision
+    && left.accountId === right.accountId
+    && left.accountRevision === right.accountRevision
 }
 
 export function parseProviderCommandSpec(value: unknown): ProviderCommandSpec {
