@@ -15,6 +15,8 @@ Complete. Commits on `roadmap/stage-3-provider-authority`:
 | `078837d` | fix: close provider secret authority review findings |
 | `605f0ce` | docs: append the Task 2 fix-round-1 section |
 | `aa6fdd3` | fix: never abort a saga whose staged secret still decrypts |
+| `3224388` | docs: append the Task 2 fix-round-2 section |
+| `26d1709` | test: observe staged credential state instead of scanning bytes |
 
 Base: `722752b` (Task 1 catalog complete).
 
@@ -286,11 +288,13 @@ source: an **`aborted` row must never coexist with a live sealed staged record**
 because `incompleteCredentialOperations()` skips terminal rows and reconciliation
 therefore never revokes it.
 
-Non-vacuity proven by stashing both source files back to `605f0ce`: the new
-tests fail **2 failed / 28 passed**; restored, **30 passed**. Focused suites
-(provider-secret-authority + provider-catalog + task-authority) are **89 passed**,
-and `pnpm typecheck` is clean. Full suite/build/package are left to the round
-owner as instructed.
+Non-vacuity was re-established in fix round 3 after two of these tests were
+found to prove nothing (see below). Against the pre-round-2 source
+(`605f0ce`) the corrected tests fail **2 failed / 28 passed**, on the correct
+grounds — a surviving live staged record and the wrong refusal code — and pass
+**30 passed** with the fix. Focused suites (provider-secret-authority +
+provider-catalog + task-authority) are **89 passed**, and `pnpm typecheck` is
+clean.
 
 ### Instance 1 — the Catalog aborted its own lost compare-and-set
 
@@ -345,3 +349,85 @@ A note on the race harness: the two lost-CAS cases replace the binding
 saga on the same tuple is refused by design (one live intent per
 tuple). Driving it through the API would have tested that guard instead of the
 recovery path.
+
+## Fix round 3
+
+Delta re-review approved all four product defects (`approved=true`) and found no
+reachable product defect. Two **test-only** defects were repaired, because these
+tests are the durable proof of the invariant and two of them proved nothing. No
+product change was needed, which is itself a finding: the corrected assertions
+pass against the shipped code.
+
+### Defect A — assertions that could not fail
+
+`FakeEncryption.encrypt` seals as `'sealed:' + base64(plaintext)`, and base64
+cannot contain `-`. So every
+`expect(profileBytes(directory)).not.toContain('staged-marker')` in the round-2
+tests **passed in exactly the states the tests exist to exclude**; the Catalog
+ledger stores only the opaque ref, so nothing on disk could ever contain the
+literal. Verified directly: `Buffer.from('staged-marker').toString('base64')` is
+`c3RhZ2VkLW1hcmtlcg==`, with no hyphen.
+
+Replaced with assertions that discriminate in **both** directions, read through
+the store's own records rather than a byte scan:
+
+| Helper | Contract |
+|---|---|
+| `storeRecords(directory)` | The store's `records` map. **Fails the test when the file is absent**, so a missing store can never be silently read as clean. |
+| `liveRefs(directory)` | Refs whose `ciphertext !== null`, i.e. whose material still decrypts. |
+| `recordsOf(text)` | The records of a captured store document, for observing state while the file is unreadable. |
+
+Per site the staged record's actual state is now asserted:
+
+- **Abort succeeded** ⇒ the exact staged ref is present with `ciphertext: null`
+  (an inert revoked tombstone), and `liveRefs` no longer contains it.
+- **Abort could not run / stayed blocked** ⇒ the exact staged ref is present with
+  `ciphertext: expect.any(String)` — the decryptable material genuinely survived.
+  This is the half that proves the fix.
+
+Refs are never asserted *absent*: `revokeProviderCredential` intentionally leaves
+a tombstone, and asserting absence would have re-encoded the same mistake. Every
+structural assertion (`incompleteCredentialOperations`, `reconcile`, binding refs)
+was kept.
+
+### Defect B — the unreadable-store scenario destroyed its own evidence
+
+Both halves wrote `'{corrupt'` over the store path holding the just-sealed staged
+record and later called `rmSync(storePath)`. The test therefore observed itself
+deleting the material, and the following `reconcile()` "success" was an
+idempotent no-op against a nonexistent record — it never observed a live staged
+record surviving a failed revoke and then being revoked.
+
+Both halves now capture the sealed bytes **at the corruption seam** and restore
+exactly those bytes, so the staged record is genuinely durable while blind and
+genuinely revoked afterwards. The strong invariant is asserted: while corrupt the
+saga stays incomplete, blocked and untouched; after restoring, `reconcile()`
+reports `resolved: 1` and the rewritten store shows `ciphertext: null` for the
+exact staged ref.
+
+An initial capture placed *before* the seal would have restored a pre-seal store
+and destroyed the evidence a second time; placing the capture at the corruption
+seam is what makes the observation real. The interrupted-create-replace boundary
+test was also made variant-aware (no seal ⇒ no record at all; a seal ⇒ the
+published target or a tombstone, with the superseded prior ref as the other half).
+
+### Re-verified stash result
+
+Only what was actually re-run is claimed here. Both source files were reverted to
+`605f0ce` with the corrected tests in place:
+
+```
+× keeps a lost compare-and-set recoverable when the staged revoke fails
+× leaves no decryptable staged material when a throwing bind can still revoke
+Tests  2 failed | 28 passed (30)
+```
+
+The first fails on the wrong refusal code (the pre-fix source reported
+`CREDENTIAL_ABSENT` where the contract requires `BINDING_CHANGED`); the second on
+live records surviving. Both fail for the reason the invariant names, not on
+assertion shape. With the fix restored: **30 passed**, focused suites **89
+passed**, `pnpm typecheck` clean.
+
+The round-2 commit message's non-vacuity claim was accurate as to *which* cases
+failed but was made with the vacuous assertions in place; the corrected claim
+above supersedes it.
