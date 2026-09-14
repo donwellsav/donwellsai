@@ -1242,7 +1242,7 @@ export class DaemonClient {
     return parseScheduleExecutionWire(response.execution)
   }
 
-  async taskRunGroupCreate(input: Readonly<{ profileId: string; name: string; concurrency: number; members: readonly Readonly<{ projectId: string; taskId: string }>[] }>): Promise<RunGroupSnapshot> {
+  async taskRunGroupCreate(input: Readonly<{ profileId: string; name: string; concurrency: number; members: readonly Readonly<{ projectId: string; taskId: string; specification?: TaskExecutionSpecificationInput }>[] }>): Promise<RunGroupSnapshot> {
     await this.requireCapability(TASK_AUTHORITY, 'creating a run group')
     const response = await this.request<{ runGroup: unknown }>('task.run-group.create', { ...input, members: input.members.map(member => ({ ...member })) })
     return parseRunGroupWire(response.runGroup)

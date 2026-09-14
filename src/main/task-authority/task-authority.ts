@@ -1196,8 +1196,10 @@ export class SqliteTaskAuthority implements TaskAuthority {
       members.forEach((member, ordinal) => {
         const memberProject = boundedField(member?.['projectId'], `members[${ordinal}].projectId`, 128)
         const memberTask = assertAuthorityUuid(member?.['taskId'], `members[${ordinal}].taskId`)
+        const memberSpecification = member?.['specification'] === undefined ? null : parseTaskExecutionSpecification(member['specification'], `members[${ordinal}].specification`)
         loadTaskRow(db, memberProject, memberTask)
-        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state) VALUES (?,?,?,NULL,?,'queued')").run(runGroupId, memberProject, memberTask, ordinal)
+        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state, specification_json) VALUES (?,?,?,NULL,?,'queued',?)")
+          .run(runGroupId, memberProject, memberTask, ordinal, memberSpecification === null ? null : JSON.stringify({ command: memberSpecification.command, target: memberSpecification.target, verification: memberSpecification.verification }))
       })
       appendProfileEvent(db, profileId, runGroupId, 'run-group-created', 1, { name, concurrency, members: members.length })
       return runGroupSnapshot(db, loadRunGroup(db, runGroupId))
@@ -1253,8 +1255,8 @@ export class SqliteTaskAuthority implements TaskAuthority {
           throw new TaskAuthorityError('TASK_NOT_RUNNABLE', `member ${member.taskId} is ${text(sourceMember['state'])}; only failed members can be retried`)
         }
         const sourceAttemptId = textOrNull(loadTaskRow(db, member.projectId, member.taskId)['current_attempt_id'])
-        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state) VALUES (?,?,?,?,?,'queued')")
-          .run(newGroupId, member.projectId, member.taskId, sourceAttemptId, ordinal)
+        db.prepare("INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state, specification_json) VALUES (?,?,?,?,?,'queued',?)")
+          .run(newGroupId, member.projectId, member.taskId, sourceAttemptId, ordinal, textOrNull(sourceMember['specification_json']))
         db.prepare("UPDATE tasks SET status = 'todo', cancel_state = 'none', current_attempt_id = NULL, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ?")
           .run(nowIso(), member.projectId, member.taskId)
       })
@@ -2061,17 +2063,20 @@ export class SqliteTaskAuthority implements TaskAuthority {
   }
 
   /** Queued members of active run groups, in deterministic dispatch order. */
-  listQueuedRunMembers(): Array<Readonly<{ runGroupId: string; profileId: string; projectId: string; taskId: string; ordinal: number }>> {
+  listQueuedRunMembers(): Array<Readonly<{ runGroupId: string; profileId: string; projectId: string; taskId: string; ordinal: number; specification: TaskExecutionSpecificationInput | null }>> {
     return this.database.withReadOnly(db => {
       const rows = db.prepare(
-        "SELECT rm.run_group_id AS run_group_id, rg.profile_id AS profile_id, rm.project_id AS project_id, rm.task_id AS task_id, rm.ordinal AS ordinal FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.state = 'queued' AND rg.state = 'active' ORDER BY rg.created_at, rm.ordinal, rm.project_id, rm.task_id"
+        "SELECT rm.run_group_id AS run_group_id, rg.profile_id AS profile_id, rm.project_id AS project_id, rm.task_id AS task_id, rm.ordinal AS ordinal, rm.specification_json AS specification_json FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.state = 'queued' AND rg.state = 'active' ORDER BY rg.created_at, rm.ordinal, rm.project_id, rm.task_id"
       ).all() as Row[]
       return rows.map(row => ({
         runGroupId: text(row['run_group_id']),
         profileId: text(row['profile_id']),
         projectId: text(row['project_id']),
         taskId: text(row['task_id']),
-        ordinal: int(row['ordinal'])
+        ordinal: int(row['ordinal']),
+        specification: textOrNull(row['specification_json']) === null
+          ? null
+          : parseTaskExecutionSpecification(parseJson(textOrNull(row['specification_json']) as string), 'persisted run member specification')
       }))
     })
   }

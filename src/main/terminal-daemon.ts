@@ -169,12 +169,16 @@ function taskWireStringList(value: unknown, field: string): readonly string[] {
   return value.map((entry, index) => taskWireRequiredString(entry, `${field}[${index}]`, 128))
 }
 
-function taskWireMemberList(value: unknown, field: string): readonly { projectId: string; taskId: string }[] {
+function taskWireMemberList(value: unknown, field: string): readonly { projectId: string; taskId: string; specification?: TaskExecutionSpecificationInput }[] {
   if (!Array.isArray(value)) throw new TaskAuthorityValidationError(field, 'must be an array of members')
   return value.map((entry, index) => {
     if (typeof entry !== 'object' || entry === null) throw new TaskAuthorityValidationError(`${field}[${index}]`, 'must be an object')
     const record = entry as Record<string, unknown>
-    return { projectId: taskWireRequiredString(record['projectId'], `${field}[${index}].projectId`), taskId: taskWireUuid(record['taskId'], `${field}[${index}].taskId`) }
+    return {
+      projectId: taskWireRequiredString(record['projectId'], `${field}[${index}].projectId`),
+      taskId: taskWireUuid(record['taskId'], `${field}[${index}].taskId`),
+      ...(record['specification'] === undefined ? {} : { specification: parseTaskExecutionSpecification(record['specification'], `${field}[${index}].specification`) })
+    }
   })
 }
 

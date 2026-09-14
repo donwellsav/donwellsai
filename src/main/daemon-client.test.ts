@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -430,12 +431,23 @@ describe('daemon task authority upgrade negotiation', () => {
       expect(projection.tasks).toEqual([])
       expect(oldDaemon.requests).toContain('daemon.status')
       expect(oldDaemon.requests).toContain('daemon.shutdown')
+      await client.shutdownIfIdle()
     } finally {
       client.disconnect()
       await new Promise<void>(resolve => oldDaemon.server.close(() => resolve()))
       rmSync(directory, { recursive: true, force: true })
     }
-  }, 20_000)
+    // The detached packaged daemon must not survive the test.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        execFileSync('pgrep', ['-f', `terminal-daemon-entry\\.js ${directory}`], { stdio: 'pipe' })
+      } catch {
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    throw new Error('packaged daemon process survived shutdownIfIdle teardown')
+  }, 30_000)
 
   it.runIf(process.platform !== 'win32')('blocks activation with sanitized status while an old daemon owns live sessions', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-upgrade-live-')))

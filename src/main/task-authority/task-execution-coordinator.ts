@@ -286,7 +286,12 @@ export class TaskExecutionCoordinator {
         }
       }
     }
-    if (!delivered) throw lastError instanceof Error ? lastError : new Error(String(lastError))
+    if (!delivered) {
+      // A failed delivery must not latch: the next mid-run cancel check or
+      // restart reconciliation re-delivers through the retained handle.
+      this.deliveredStops.delete(key)
+      throw lastError instanceof Error ? lastError : new Error(String(lastError))
+    }
     return this.authority.acknowledgeExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, reason: 'cancellation stop delivered and exit confirmed' })
   }
 
@@ -505,6 +510,28 @@ export class TaskSchedulerPump {
         })
       } catch (error) {
         failures.push({ scope: `execution:${execution.executionId}`, error: authorityMessage(error) })
+      }
+    }
+    // Queued run-group members with a committed immutable specification are
+    // fanned out by the daemon worker; profile-wide capacity is enforced inside
+    // the claim transaction, and members without a specification await an
+    // external worker that brings its own.
+    const members = this.authority.listQueuedRunMembers()
+    for (const member of members) {
+      if (member.specification === null) continue
+      if (claimed.some(entry => entry.claim.task.taskId === member.taskId)) continue
+      try {
+        claimed.push({
+          claim: this.authority.claim({
+            connection: { connectionId: `${this.connectionId}-worker`, role: 'worker', ownerId: this.workerOwnerId, authorizedProjectIds: [member.projectId] },
+            projectId: member.projectId,
+            taskId: member.taskId,
+            specification: member.specification
+          }),
+          specification: member.specification
+        })
+      } catch (error) {
+        failures.push({ scope: `run-member:${member.projectId}:${member.taskId}`, error: authorityMessage(error) })
       }
     }
     return { enqueued, claimed, failures }

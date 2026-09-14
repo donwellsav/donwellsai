@@ -21,7 +21,7 @@ import {
  * synchronous=FULL) used by every mutation.
  */
 
-export const TASK_AUTHORITY_SCHEMA_VERSION = 1
+export const TASK_AUTHORITY_SCHEMA_VERSION = 2
 export const TASK_AUTHORITY_FILE_NAME = 'task-authority.sqlite'
 
 export class TaskAuthorityDatabaseError extends Error {
@@ -89,6 +89,13 @@ function initializeSchema(db: DatabaseSync): void {
     return
   }
   if (version !== TASK_AUTHORITY_SCHEMA_VERSION) {
+    if (version === 1 && TASK_AUTHORITY_SCHEMA_VERSION === 2) {
+      // v2 adds the immutable committed execution specification for run-group
+      // members so the daemon scheduler pump can fan out queued members.
+      db.exec('ALTER TABLE run_members ADD COLUMN specification_json TEXT')
+      db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
+      return
+    }
     throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
   }
 }
@@ -474,6 +481,7 @@ CREATE TABLE run_members (
   source_attempt_id TEXT,
   ordinal INTEGER NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('queued','claimed','launching','running','cancelling','cancelled','completed','failed','quarantined')),
+  specification_json TEXT,
   PRIMARY KEY(run_group_id, project_id, task_id),
   FOREIGN KEY (project_id, task_id) REFERENCES tasks(project_id, id),
   FOREIGN KEY (source_attempt_id) REFERENCES attempts(id)

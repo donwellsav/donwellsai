@@ -420,6 +420,44 @@ describe('task execution coordinator', () => {
     expect(calls.stopAttempts).toBe(2)
   })
 
+  integration('re-delivers a fully failed mid-run stop on the next cancel check instead of latching', async () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    createTask(authority, 'DW-17')
+    const claimed = claim(authority, 'DW-17', OWNER_ALICE, SPEC(workspace))
+    const { ports, calls, setPending } = fakePorts(authority, {
+      // Exhaust the whole first delivery (both session stops and both identity fallbacks).
+      stopFailures: 4,
+      script: [
+        {
+          output: 'working',
+          exited: false,
+          run: () => {
+            authority.requestCancellation({ connection: ADMIN, projectId: PROJECT, taskId: claimed.task.taskId, expectedEntityVersion: taskOf(authority, claimed.task.taskId).entityVersion })
+          }
+        },
+        { output: 'still running', exited: false },
+        { output: '', exited: true, exitCode: 0 }
+      ]
+    })
+    const coordinator = new TaskExecutionCoordinator({
+      authority,
+      ports,
+      evidence: new DaemonTaskEvidencePort(),
+      pumpPollMs: 1,
+      cancelCheckMs: 1
+    })
+    setPending(claimed)
+    const outcome = await coordinator.launch(claimed, SPEC(workspace), worker(OWNER_ALICE))
+    expect(outcome.disposition).toBe('cancelled')
+    expect(taskOf(authority, claimed.task.taskId).status).toBe('cancelled')
+    // First delivery failed entirely (2 session stops + 2 fallbacks); the unlatched
+    // next check re-delivered and the second session stop succeeded.
+    expect(calls.stopAttempts).toBe(3)
+    expect(calls.processStops).toBe(2)
+  })
+
   integration('cannot complete a successful exit until daemon-owned evidence satisfies the specification', async () => {
     const { authority, directory } = openAuthority()
     const workspace = join(directory, 'work')
@@ -706,5 +744,94 @@ describe('task scheduler pump', () => {
     const retried = pump.tick()
     expect(retried.claimed).toHaveLength(1)
     expect(retried.claimed[0]!.claim.task.taskId).toBe(scheduledTaskId)
+  })
+
+  it('fans out queued run-group members with committed specifications under authority capacity with no client connected', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const memberA = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-F1', title: 'fan a' })
+    const memberB = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-F2', title: 'fan b' })
+    const specA = SPEC(workspace)
+    authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'daemon fan-out',
+      concurrency: 1,
+      members: [
+        { projectId: PROJECT, taskId: memberA.taskId, specification: specA },
+        { projectId: PROJECT, taskId: memberB.taskId, specification: SPEC(workspace, [{ path: 'b.txt', relationship: 'observed-during-run' }]) }
+      ]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const first = pump.tick()
+    // Capacity 1: only the first member is claimed; the second is fenced by the
+    // authority capacity check, recorded as a failure, and stays queued.
+    expect(first.claimed).toHaveLength(1)
+    expect(first.claimed[0]!.claim.task.taskId).toBe(memberA.taskId)
+    expect(first.claimed[0]!.specification).toEqual(specA)
+    expect(first.failures).toHaveLength(1)
+    expect(first.failures[0]!.scope).toBe(`run-member:${PROJECT}:${memberB.taskId}`)
+    expect(authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === memberB.taskId)!.currentAttempt).toBeNull()
+
+    // Finish member A; the next tick fans out member B from its committed specification.
+    const finishedA = authority.write({ kind: 'complete', connection: worker(OWNER_ALICE), token: first.claimed[0]!.claim.token, result: { summary: 'a done' } })
+    expect(finishedA.status).toBe('done')
+    const second = pump.tick()
+    expect(second.claimed).toHaveLength(1)
+    expect(second.claimed[0]!.claim.task.taskId).toBe(memberB.taskId)
+    expect(second.claimed[0]!.specification.verification.requiredArtifacts).toEqual([{ path: 'b.txt', relationship: 'observed-during-run' }])
+  })
+
+  it('leaves queued run-group members without a committed specification for external workers', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const member = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-F3', title: 'external member' })
+    authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'external fan-out',
+      concurrency: 1,
+      members: [{ projectId: PROJECT, taskId: member.taskId }]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const ticked = pump.tick()
+    expect(ticked.claimed).toHaveLength(0)
+    expect(ticked.failures).toEqual([])
+    expect(authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === member.taskId)!.currentAttempt).toBeNull()
+  })
+
+  it('preserves member specifications across run-group retry and fans the retried member out', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const member = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-F4', title: 'retry member' })
+    const spec = SPEC(workspace, [{ path: 'retry.txt', relationship: 'attached-reference' }])
+    const group = authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'retry fan-out',
+      concurrency: 1,
+      members: [{ projectId: PROJECT, taskId: member.taskId, specification: spec }]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const claimedEntry = pump.tick().claimed[0]!
+    expect(claimedEntry.claim.task.taskId).toBe(member.taskId)
+    authority.write({ kind: 'fail', connection: worker(OWNER_ALICE), token: claimedEntry.claim.token, error: 'member failed' })
+
+    const retriedGroup = authority.retryRunGroup({
+      connection: ADMIN,
+      runGroupId: group.runGroupId,
+      expectedEntityVersion: group.entityVersion,
+      requestId: 'retry-request-1',
+      ownerId: OWNER_ALICE,
+      memberTaskIds: [{ projectId: PROJECT, taskId: member.taskId }]
+    })
+    expect(retriedGroup.retryOfRunGroupId).toBe(group.runGroupId)
+    const retried = pump.tick()
+    expect(retried.claimed).toHaveLength(1)
+    expect(retried.claimed[0]!.claim.task.taskId).toBe(member.taskId)
+    expect(retried.claimed[0]!.specification).toEqual(spec)
   })
 })

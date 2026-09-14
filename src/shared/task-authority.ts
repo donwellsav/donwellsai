@@ -588,7 +588,7 @@ export type AdminCreateRunGroupInput = Readonly<{
   profileId: string
   name: string
   concurrency: number
-  members: readonly Readonly<{ projectId: string; taskId: string }>[]
+  members: readonly Readonly<{ projectId: string; taskId: string; specification?: TaskExecutionSpecificationInput }>[]
 }>
 
 export type RunMemberSnapshot = Readonly<{
