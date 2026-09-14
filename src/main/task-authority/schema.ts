@@ -21,7 +21,7 @@ import {
  * synchronous=FULL) used by every mutation.
  */
 
-export const TASK_AUTHORITY_SCHEMA_VERSION = 2
+export const TASK_AUTHORITY_SCHEMA_VERSION = 3
 export const TASK_AUTHORITY_FILE_NAME = 'task-authority.sqlite'
 
 export class TaskAuthorityDatabaseError extends Error {
@@ -66,7 +66,10 @@ const REQUIRED_TABLES = [
   'schedules', 'schedule_executions', 'run_groups', 'run_members', 'run_group_mutation_receipts',
   'resource_reservations', 'verification_artifacts', 'artifact_adoptions', 'task_mailbox',
   'task_events', 'authority_profile_events', 'authority_state', 'migration_sources',
-  'migration_entity_mappings', 'projection_checkpoints'
+  'migration_entity_mappings', 'projection_checkpoints', 'profile_maintenance_state',
+  'profile_maintenance_admissions', 'profile_maintenance_acknowledgements',
+  'profile_maintenance_transitions', 'profile_maintenance_retirements',
+  'task_authority_migration_state', 'task_authority_migration_failure'
 ] as const
 
 function fail(code: TaskAuthorityDatabaseError['code'], message: string): never {
@@ -85,24 +88,32 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
       throw new TaskAuthorityError('MIGRATION_REQUIRED', 'task authority database is unrecognized and not empty; refusing to initialize over foreign data')
     }
     db.exec(SCHEMA_V1)
+    db.exec(SCHEMA_V3_ADDITIONS)
+    applySchemaColumns(db)
     db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
     return
   }
-  if (version !== TASK_AUTHORITY_SCHEMA_VERSION) {
-    if (allowMigration && version === 1 && TASK_AUTHORITY_SCHEMA_VERSION === 2) {
-      // v2 adds the immutable committed execution specification for run-group
-      // members so the daemon scheduler pump can fan out queued members. The
-      // column check makes the migration idempotent: an interrupted migration
-      // that already added the column only advances the version.
-      const columns = db.prepare('PRAGMA table_info(run_members)').all() as Array<Record<string, unknown>>
-      if (!columns.some(column => String(column['name']) === 'specification_json')) {
-        db.exec('ALTER TABLE run_members ADD COLUMN specification_json TEXT')
-      }
-      db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
-      return
-    }
+  if (version === TASK_AUTHORITY_SCHEMA_VERSION) return
+  if (!allowMigration || version > TASK_AUTHORITY_SCHEMA_VERSION) {
     throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
   }
+  // Forward migrations are stepwise and idempotent: an interrupted migration
+  // that already applied part of a step only advances the stored version. The
+  // whole sequence runs inside the caller's BEGIN IMMEDIATE, so a crash cannot
+  // leave a half-applied schema behind.
+  if (version === 1) {
+    // v2 adds the immutable committed execution specification for run-group
+    // members so the daemon scheduler pump can fan out queued members.
+    addColumnIfMissing(db, 'run_members', 'specification_json', 'TEXT')
+  }
+  // v3 adds the durable stage-neutral profile maintenance gate.
+  db.exec(SCHEMA_V3_ADDITIONS)
+  applySchemaColumns(db)
+  db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
+}
+
+function applySchemaColumns(db: DatabaseSync): void {
+  for (const column of SCHEMA_V3_COLUMNS) addColumnIfMissing(db, column.table, column.column, column.definition)
 }
 
 /** Full structural validation; run once at authority open, not per operation. */
@@ -639,3 +650,130 @@ CREATE TABLE projection_checkpoints (
   updated_at TEXT NOT NULL
 );
 `
+
+/**
+ * Durable stage-neutral profile maintenance gate (schema v3).
+ *
+ * One row per profile is the single migration lease. Ordinary affected work
+ * records one bounded admission row before authority work and closes or
+ * reconciles it exactly once; a live admission is the only thing that can
+ * refuse `beginCutover` or `release`.
+ */
+const SCHEMA_V3_ADDITIONS = `
+CREATE TABLE IF NOT EXISTS profile_maintenance_state (
+  profile_id TEXT PRIMARY KEY,
+  phase TEXT NOT NULL CHECK (phase IN ('open','freezing','draining','cutting-over','failed')),
+  migration_id TEXT,
+  owner_stage TEXT,
+  epoch INTEGER NOT NULL,
+  revision INTEGER NOT NULL,
+  participants_json TEXT NOT NULL,
+  frozen_source_set_sha256 TEXT,
+  safe_phase TEXT,
+  irreversible INTEGER NOT NULL DEFAULT 0,
+  failure_code TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK ((migration_id IS NULL) = (owner_stage IS NULL))
+);
+
+CREATE TABLE IF NOT EXISTS profile_maintenance_admissions (
+  profile_id TEXT NOT NULL,
+  migration_id TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  participant TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  owner_connection_id TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('active','completed','cancelled','indeterminate')),
+  evidence_sha256 TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(profile_id, migration_id, participant, operation_id)
+);
+CREATE INDEX IF NOT EXISTS profile_maintenance_admissions_owner ON profile_maintenance_admissions(profile_id, owner_connection_id, state);
+CREATE INDEX IF NOT EXISTS profile_maintenance_admissions_live ON profile_maintenance_admissions(profile_id, migration_id, state);
+
+CREATE TABLE IF NOT EXISTS profile_maintenance_acknowledgements (
+  profile_id TEXT NOT NULL,
+  migration_id TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  participant TEXT NOT NULL,
+  acknowledged_at TEXT NOT NULL,
+  PRIMARY KEY(profile_id, migration_id, epoch, participant)
+);
+
+CREATE TABLE IF NOT EXISTS profile_maintenance_transitions (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  migration_id TEXT NOT NULL,
+  owner_stage TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  participant TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  intent_sha256 TEXT NOT NULL,
+  visibility_mode TEXT NOT NULL CHECK (visibility_mode IN ('central','external-wal')),
+  state TEXT NOT NULL CHECK (state IN ('prepared','completed')),
+  external_visibility TEXT NOT NULL CHECK (external_visibility IN ('not-required','pending','acknowledged')),
+  local_visible_revision TEXT,
+  local_visible_evidence_sha256 TEXT,
+  evidence_sha256 TEXT,
+  revision INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(profile_id, migration_id, epoch, participant, operation_id, intent_sha256),
+  CHECK ((external_visibility = 'acknowledged') = (local_visible_revision IS NOT NULL AND local_visible_evidence_sha256 IS NOT NULL))
+);
+
+CREATE TABLE IF NOT EXISTS task_authority_migration_state (
+  profile_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('legacy','preparing','shadow','draining','cutting-over','active','failed')),
+  source_set_sha256 TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_authority_migration_failure (
+  profile_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS profile_maintenance_retirements (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL,
+  migration_id TEXT NOT NULL,
+  owner_stage TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  participant TEXT NOT NULL,
+  retired_path TEXT NOT NULL,
+  fence_receipt_sha256 TEXT NOT NULL,
+  fsynced INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(profile_id, migration_id, participant, retired_path)
+);
+`
+
+/**
+ * v3 column additions, applied separately from the table DDL because SQLite
+ * has no `ADD COLUMN IF NOT EXISTS`: each one is guarded by a `PRAGMA
+ * table_info` check so a replay of an interrupted migration is idempotent.
+ */
+const SCHEMA_V3_COLUMNS: readonly Readonly<{ table: string; column: string; definition: string }>[] = [
+  // Imported history keeps the provenance of its execution specification: a
+  // legacy execution record does not prove which mutable definition ran, so its
+  // specification is marked legacy-unknown and never re-bound to the current one.
+  { table: 'execution_specifications', column: 'provenance_kind', definition: "TEXT NOT NULL DEFAULT 'native'" },
+  // Imported tasks carry migration provenance so "never mutate native
+  // post-cutover rows" is enforced by SQL rather than by convention.
+  { table: 'tasks', column: 'provenance_kind', definition: "TEXT NOT NULL DEFAULT 'native'" },
+  // The exact byte length of the frozen source file, recorded beside its
+  // digest so the frozen source-set digest is reproducible from the database
+  // alone rather than re-derived from a re-serialized payload.
+  { table: 'migration_sources', column: 'source_bytes', definition: 'INTEGER NOT NULL DEFAULT 0' }
+]
+
+function addColumnIfMissing(db: DatabaseSync, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>
+  if (!columns.some(entry => String(entry['name']) === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
+}

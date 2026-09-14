@@ -38,6 +38,7 @@ import {
   type AdminSetDependenciesInput,
   type AdminUpdateScheduleInput,
   type AdminUpdateTaskInput,
+  type ArtifactRelationship,
   type AttemptSnapshot,
   type AttemptState,
   type AuthenticatedAttentionAcknowledgement,
@@ -57,6 +58,7 @@ import {
   type ResourceReservationSnapshot,
   type ReviewedArtifactAdoptionInput,
   type RunGroupSnapshot,
+  type RunGroupState,
   type RunMemberState,
   type ScheduleExecutionPage,
   type ScheduleExecutionQuery,
@@ -68,6 +70,7 @@ import {
   type TaskMailboxEntry,
   type TaskProjection,
   type TaskQuery,
+  type TaskScheduleCadence,
   type TaskScheduleSpec,
   type TaskSnapshot,
   type TaskStatus,
@@ -461,7 +464,7 @@ function insertSpecification(db: DatabaseSync, projectId: string, taskId: string
   const commandJson = JSON.stringify(specification.command)
   const targetJson = JSON.stringify(specification.target)
   const verificationJson = JSON.stringify(specification.verification)
-  db.prepare('INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, created_at) VALUES (?,?,?,?,?,?,?,?)')
+  db.prepare("INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,'native',?)")
     .run(specificationId, projectId, taskId, commandJson, targetJson, verificationJson, sha256(commandJson + targetJson + verificationJson), nowIso())
   return specificationId
 }
@@ -803,7 +806,12 @@ export function launchIntentFingerprint(launchIntentId: string, attemptId: strin
 // ---------------------------------------------------------------------------
 
 export class SqliteTaskAuthority implements TaskAuthority {
-  private readonly database: TaskAuthorityDatabase
+  /**
+   * The shared central database. Daemon-internal surfaces (the profile
+   * maintenance gate and the legacy importer) open this same connection policy
+   * rather than a second file, connection, or SQLite `ATTACH`.
+   */
+  readonly database: TaskAuthorityDatabase
 
   constructor(database: TaskAuthorityDatabase) {
     this.database = database
@@ -2366,6 +2374,8 @@ export type TaskAuthorityMigrationSourceInput = Readonly<{
   canonicalSourcePath: string
   sourceSha256: string
   normalizedJson: string
+  /** Exact byte length of the frozen source file; defaults to the normalized payload length. */
+  sourceBytes?: number
   phase?: 'imported' | 'superseded' | 'retired'
   supersedesSourceId?: string
   entityMappings?: readonly TaskAuthorityMigrationMappingInput[]
@@ -2392,7 +2402,12 @@ function migrationPhase(value: unknown, field: string): 'imported' | 'superseded
  * the same source ID, and native authority rows are never touched here.
  */
 export function recordMigrationSource(database: TaskAuthorityDatabase, input: TaskAuthorityMigrationSourceInput): TaskAuthorityMigrationSourceReceipt {
-  assertKnownFields(input, 'input', ['scopeKind', 'scopeId', 'projectId', 'sourceKind', 'canonicalSourcePath', 'sourceSha256', 'normalizedJson', 'phase', 'supersedesSourceId', 'entityMappings'])
+  return database.withImmediate(db => recordMigrationSourceIn(db, input))
+}
+
+/** Transaction-internal form of {@link recordMigrationSource} for callers that own the transaction. */
+export function recordMigrationSourceIn(db: DatabaseSync, input: TaskAuthorityMigrationSourceInput): TaskAuthorityMigrationSourceReceipt {
+  assertKnownFields(input, 'input', ['scopeKind', 'scopeId', 'projectId', 'sourceKind', 'canonicalSourcePath', 'sourceSha256', 'sourceBytes', 'normalizedJson', 'phase', 'supersedesSourceId', 'entityMappings'])
   const scopeKind = input?.['scopeKind']
   if (scopeKind !== 'project' && scopeKind !== 'profile') {
     throw new TaskAuthorityValidationError('scopeKind', 'must be "project" or "profile"')
@@ -2402,6 +2417,10 @@ export function recordMigrationSource(database: TaskAuthorityDatabase, input: Ta
   const canonicalSourcePath = boundedField(input?.['canonicalSourcePath'], 'canonicalSourcePath', 128)
   const sourceSha256 = boundedField(input?.['sourceSha256'], 'sourceSha256', 64)
   const normalizedJson = boundedText(input?.['normalizedJson'], 'normalizedJson', TASK_AUTHORITY_MAX_USER_TEXT)
+  const sourceBytes = input?.['sourceBytes'] ?? Buffer.byteLength(normalizedJson, 'utf8')
+  if (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0) {
+    throw new TaskAuthorityValidationError('sourceBytes', 'must be a non-negative integer')
+  }
   const phase = migrationPhase(input?.['phase'], 'phase')
   const mappings = input?.['entityMappings'] ?? []
   if (!Array.isArray(mappings) || mappings.length > TASK_AUTHORITY_MAX_BATCH) {
@@ -2409,7 +2428,7 @@ export function recordMigrationSource(database: TaskAuthorityDatabase, input: Ta
   }
   const projectId = input?.['projectId'] === undefined ? null : boundedField(input['projectId'], 'projectId', 128)
   const supersedesSourceId = input?.['supersedesSourceId'] === undefined ? null : assertAuthorityUuid(input['supersedesSourceId'], 'supersedesSourceId')
-  return database.withImmediate(db => {
+  {
     const existing = db.prepare('SELECT id FROM migration_sources WHERE scope_kind = ? AND scope_id = ? AND source_kind = ? AND canonical_source_path = ? AND source_sha256 = ?')
       .get(scopeKind, scopeId, sourceKind, canonicalSourcePath, sourceSha256) as Row | undefined
     let sourceId: string
@@ -2419,8 +2438,8 @@ export function recordMigrationSource(database: TaskAuthorityDatabase, input: Ta
       created = false
     } else {
       sourceId = randomUUID()
-      db.prepare('INSERT INTO migration_sources(id, scope_kind, scope_id, project_id, source_kind, canonical_source_path, source_sha256, normalized_json, phase, supersedes_source_id, retired_path, fence_receipt_json, imported_at) VALUES (?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)')
-        .run(sourceId, scopeKind, scopeId, projectId, sourceKind, canonicalSourcePath, sourceSha256, normalizedJson, phase, supersedesSourceId, nowIso())
+      db.prepare('INSERT INTO migration_sources(id, scope_kind, scope_id, project_id, source_kind, canonical_source_path, source_sha256, source_bytes, normalized_json, phase, supersedes_source_id, retired_path, fence_receipt_json, imported_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)')
+        .run(sourceId, scopeKind, scopeId, projectId, sourceKind, canonicalSourcePath, sourceSha256, sourceBytes, normalizedJson, phase, supersedesSourceId, nowIso())
       created = true
     }
     for (const mapping of mappings) {
@@ -2440,7 +2459,7 @@ export function recordMigrationSource(database: TaskAuthorityDatabase, input: Ta
       db.prepare("UPDATE migration_entity_mappings SET state = 'superseded' WHERE source_id = ? AND state = 'active'").run(supersedesSourceId)
     }
     return { sourceId, created }
-  })
+  }
 }
 
 /** Terminal metadata compaction for a recorded source; native rows are untouched. */
@@ -2451,5 +2470,440 @@ export function retireMigrationSource(database: TaskAuthorityDatabase, sourceId:
     if (!existing) throw new TaskAuthorityError('TASK_NOT_FOUND', `migration source ${sourceId} was not found`)
     db.prepare("UPDATE migration_sources SET phase = 'retired', retired_path = ? WHERE id = ?").run(retired, sourceId)
     db.prepare("UPDATE migration_entity_mappings SET state = 'retired' WHERE source_id = ? AND state <> 'retired'").run(sourceId)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Migration-only legacy import surface (Task 3)
+// ---------------------------------------------------------------------------
+
+export type LegacyImportTask = Readonly<{
+  /**
+   * Owning project. Required for a profile-global snapshot, which maps entities
+   * across projects; for a project-scoped snapshot it must equal the scope.
+   */
+  projectId?: string
+  externalTaskId: string
+  title: string
+  body: string
+  /** Explicit user/admin state. `blocked` is never invented from dependency readiness. */
+  status: Extract<TaskStatus, 'todo' | 'blocked' | 'in-progress' | 'done' | 'failed' | 'cancelled'>
+  priority: number
+  dependencies: readonly string[]
+}>
+
+export type LegacyImportArtifact = Readonly<{
+  path: string
+  sha256: string
+  bytes: number
+  sourceFingerprint?: string
+  relationship: ArtifactRelationship
+}>
+
+export type LegacyImportAttempt = Readonly<{
+  attemptKey: string
+  /** Owning project of the owning task; same rules as {@link LegacyImportTask.projectId}. */
+  projectId?: string
+  taskExternalTaskId: string
+  state: Extract<AttemptState, 'cancelled' | 'exited' | 'completed' | 'failed'>
+  specification: TaskExecutionSpecificationInput
+  /** True when the source does not prove which mutable definition ran. */
+  specificationLegacyUnknown?: boolean
+  retryOfAttemptKey?: string
+  sessionId?: string
+  startedAt: string
+  finishedAt?: string
+  exitCode?: number
+  error?: string
+  output?: string
+  artifacts?: readonly LegacyImportArtifact[]
+}>
+
+export type LegacyImportSchedule = Readonly<{
+  scheduleKey: string
+  projectId: string
+  profileId: string
+  taskTitle: string
+  cadence: TaskScheduleCadence
+  specification: TaskExecutionSpecificationInput
+  enabled: boolean
+  nextRunAt?: string | null
+  createdAt: string
+  updatedAt: string
+}>
+
+export type LegacyImportScheduleExecution = Readonly<{
+  executionKey: string
+  scheduleKey: string
+  trigger: 'due' | 'manual'
+  idempotencyKey: string
+  dueAt?: string | null
+  state: ScheduleExecutionState
+  createdAt: string
+  attemptKey?: string
+}>
+
+export type LegacyImportRunGroupMember = Readonly<{
+  projectId: string
+  taskExternalTaskId: string
+  ordinal: number
+  state: RunMemberState
+  specification?: TaskExecutionSpecificationInput
+  sourceAttemptKey?: string
+}>
+
+export type LegacyImportRunGroup = Readonly<{
+  groupKey: string
+  profileId: string
+  name: string
+  retryOfGroupKey?: string
+  concurrency: number
+  state: RunGroupState
+  createdAt: string
+  updatedAt: string
+  members: readonly LegacyImportRunGroupMember[]
+}>
+
+export type LegacyImportEntitiesInput = Readonly<{
+  scopeKind: 'project' | 'profile'
+  scopeId: string
+  tasks?: readonly LegacyImportTask[]
+  attempts?: readonly LegacyImportAttempt[]
+  schedules?: readonly LegacyImportSchedule[]
+  scheduleExecutions?: readonly LegacyImportScheduleExecution[]
+  runGroups?: readonly LegacyImportRunGroup[]
+}>
+
+/**
+ * Stable authority entity id for one source-scoped legacy key.
+ *
+ * Derived from the scope, kind, and key alone — never from the source digest or
+ * the wall clock — so a resumed or concurrent import re-derives exactly the
+ * same IDs and a duplicate is rejected by the primary key instead of
+ * duplicating rows.
+ */
+export function legacyEntityId(scopeKind: 'project' | 'profile', scopeId: string, kind: string, key: string): string {
+  const hex = sha256(`${scopeKind}\u0000${scopeId}\u0000${kind}\u0000${key}`)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+function legacyTaskStatus(value: unknown): LegacyImportTask['status'] {
+  if (value === 'todo' || value === 'blocked' || value === 'in-progress' || value === 'done' || value === 'failed' || value === 'cancelled') return value
+  throw new TaskAuthorityValidationError('tasks.status', 'must be a known importable legacy task status')
+}
+
+function legacyAttemptState(value: unknown): LegacyImportAttempt['state'] {
+  if (value === 'cancelled' || value === 'exited' || value === 'completed' || value === 'failed') return value
+  throw new TaskAuthorityValidationError('attempts.state', 'imported attempts must be terminal and lease-less')
+}
+
+function legacyExecutionState(value: unknown): ScheduleExecutionState {
+  if (value === 'queued' || value === 'running' || value === 'cancelling' || value === 'cancelled' || value === 'succeeded' || value === 'failed') return value
+  throw new TaskAuthorityValidationError('scheduleExecutions.state', 'must be a known schedule execution state')
+}
+
+function legacyGroupState(value: unknown): RunGroupState {
+  if (value === 'active' || value === 'cancelling' || value === 'cancelled' || value === 'completed') return value
+  throw new TaskAuthorityValidationError('runGroups.state', 'must be a known run group state')
+}
+
+function legacyMemberState(value: unknown): RunMemberState {
+  if (value === 'queued' || value === 'claimed' || value === 'launching' || value === 'running' || value === 'cancelling' || value === 'cancelled' || value === 'completed' || value === 'failed' || value === 'quarantined') return value
+  throw new TaskAuthorityValidationError('runGroups.members.state', 'must be a known run member state')
+}
+
+function importArtifactRelationship(value: unknown): ArtifactRelationship {
+  if (value === 'attached-reference' || value === 'observed-during-run') return value
+  throw new TaskAuthorityValidationError('artifacts.relationship', 'must be a known artifact relationship')
+}
+
+function parseImportCadence(value: unknown): TaskScheduleCadence {
+  if (typeof value !== 'object' || value === null) throw new TaskAuthorityValidationError('schedules.cadence', 'must be an object')
+  const record = value as Record<string, unknown>
+  if (record['kind'] === 'interval') {
+    const minutes = record['minutes']
+    if (typeof minutes !== 'number' || !Number.isSafeInteger(minutes) || minutes < 1 || minutes > 60 * 24 * 31) {
+      throw new TaskAuthorityValidationError('schedules.cadence.minutes', 'must be an integer number of minutes')
+    }
+    return { kind: 'interval', minutes }
+  }
+  if (record['kind'] === 'daily') {
+    const time = record['time']
+    const timeZone = record['timeZone']
+    if (typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new TaskAuthorityValidationError('schedules.cadence.time', 'must be HH:MM')
+    if (typeof timeZone !== 'string' || timeZone.length === 0) throw new TaskAuthorityValidationError('schedules.cadence.timeZone', 'must be an IANA time zone name')
+    return { kind: 'daily', time, timeZone }
+  }
+  throw new TaskAuthorityValidationError('schedules.cadence.kind', 'must be "interval" or "daily"')
+}
+
+/**
+ * Writes the imported-legacy entities of one recorded source snapshot.
+ *
+ * Every row is lease-less and provenance-marked. The importer never invents an
+ * owner, a lease, a generation, a live claim, or a mutable schedule
+ * definition: an imported execution carries either the execution-time
+ * specification the source proves or a `legacy-unknown` specification that no
+ * native completion or adoption path can consume without explicit review.
+ *
+ * Only `imported-legacy` rows are written or replaced here, so a rebuild can
+ * never mutate a native post-cutover row. The whole write is one
+ * `BEGIN IMMEDIATE`, so an interruption leaves no partial import.
+ */
+export function importLegacyEntities(database: TaskAuthorityDatabase, input: LegacyImportEntitiesInput): Record<string, string> {
+  return database.withImmediate(db => importLegacyEntitiesIn(db, input))
+}
+
+/**
+ * Transaction-internal form of {@link importLegacyEntities}.
+ *
+ * Callers that must commit the source record and its entity mappings together
+ * use this inside their own `BEGIN IMMEDIATE`; the migration does exactly that,
+ * so an interrupted import leaves no entity without its provenance row.
+ */
+export function importLegacyEntitiesIn(db: DatabaseSync, input: LegacyImportEntitiesInput): Record<string, string> {
+  assertKnownFields(input, 'input', ['scopeKind', 'scopeId', 'tasks', 'attempts', 'schedules', 'scheduleExecutions', 'runGroups'])
+  const scopeKind = input?.scopeKind
+  if (scopeKind !== 'project' && scopeKind !== 'profile') {
+    throw new TaskAuthorityValidationError('scopeKind', 'must be "project" or "profile"')
+  }
+  const scopeId = boundedField(input?.['scopeId'], 'scopeId', 128)
+  const taskInputs = (input?.tasks ?? []).map(task => ({
+    projectId: task?.projectId,
+    externalTaskId: boundedField(task?.externalTaskId, 'tasks.externalTaskId', 128),
+    title: boundedText(task?.title, 'tasks.title', TASK_AUTHORITY_MAX_TITLE, false),
+    body: boundedText(task?.body ?? '', 'tasks.body', TASK_AUTHORITY_MAX_USER_TEXT),
+    status: legacyTaskStatus(task?.status),
+    priority: typeof task?.priority === 'number' && Number.isSafeInteger(task.priority) && task.priority >= 0 ? task.priority : 0,
+    dependencies: (task?.dependencies ?? []).map(dependency => boundedField(dependency, 'tasks.dependencies', 128))
+  }))
+  const attemptInputs = (input?.attempts ?? []).map(attempt => ({
+    attemptKey: boundedField(attempt?.attemptKey, 'attempts.attemptKey', 128),
+    projectId: attempt?.projectId,
+    taskExternalTaskId: boundedField(attempt?.taskExternalTaskId, 'attempts.taskExternalTaskId', 128),
+    state: legacyAttemptState(attempt?.state),
+    specification: parseTaskExecutionSpecification(attempt?.specification, 'attempts.specification'),
+    specificationLegacyUnknown: attempt?.specificationLegacyUnknown === true,
+    retryOfAttemptKey: attempt?.retryOfAttemptKey === undefined ? null : boundedField(attempt.retryOfAttemptKey, 'attempts.retryOfAttemptKey', 128),
+    sessionId: attempt?.sessionId === undefined ? null : boundedField(attempt.sessionId, 'attempts.sessionId', 128),
+    startedAt: isoTimestamp(attempt?.startedAt, 'attempts.startedAt'),
+    finishedAt: attempt?.finishedAt === undefined ? null : isoTimestamp(attempt.finishedAt, 'attempts.finishedAt'),
+    exitCode: typeof attempt?.exitCode === 'number' && Number.isSafeInteger(attempt.exitCode) ? attempt.exitCode : null,
+    error: attempt?.error === undefined ? null : boundedText(attempt.error, 'attempts.error', TASK_AUTHORITY_MAX_ERROR_TEXT),
+    output: attempt?.output === undefined ? null : boundedText(attempt.output, 'attempts.output', TASK_AUTHORITY_MAX_USER_TEXT),
+    artifacts: (attempt?.artifacts ?? []).map(artifact => ({
+      path: boundedField(artifact?.path, 'attempts.artifacts.path', 128),
+      sha256: boundedField(artifact?.sha256, 'attempts.artifacts.sha256', 64),
+      bytes: typeof artifact?.bytes === 'number' && Number.isSafeInteger(artifact.bytes) && artifact.bytes >= 0 ? artifact.bytes : 0,
+      sourceFingerprint: artifact?.sourceFingerprint === undefined ? null : boundedField(artifact.sourceFingerprint, 'attempts.artifacts.sourceFingerprint', 128),
+      relationship: importArtifactRelationship(artifact?.relationship)
+    }))
+  }))
+  const scheduleInputs = (input?.schedules ?? []).map(schedule => ({
+    scheduleKey: boundedField(schedule?.scheduleKey, 'schedules.scheduleKey', 128),
+    projectId: boundedField(schedule?.projectId, 'schedules.projectId', 128),
+    profileId: boundedField(schedule?.profileId, 'schedules.profileId', 128),
+    taskTitle: boundedText(schedule?.taskTitle, 'schedules.taskTitle', TASK_AUTHORITY_MAX_TITLE, false),
+    cadence: parseImportCadence(schedule?.cadence),
+    specification: parseTaskExecutionSpecification(schedule?.specification, 'schedules.specification'),
+    enabled: schedule?.enabled !== false,
+    nextRunAt: schedule?.nextRunAt === undefined || schedule.nextRunAt === null ? null : isoTimestamp(schedule.nextRunAt, 'schedules.nextRunAt'),
+    createdAt: isoTimestamp(schedule?.createdAt, 'schedules.createdAt'),
+    updatedAt: isoTimestamp(schedule?.updatedAt, 'schedules.updatedAt')
+  }))
+  const executionInputs = (input?.scheduleExecutions ?? []).map(execution => ({
+    executionKey: boundedField(execution?.executionKey, 'scheduleExecutions.executionKey', 128),
+    scheduleKey: boundedField(execution?.scheduleKey, 'scheduleExecutions.scheduleKey', 128),
+    trigger: execution?.trigger === 'manual' ? 'manual' as const : 'due' as const,
+    idempotencyKey: boundedField(execution?.idempotencyKey, 'scheduleExecutions.idempotencyKey', 128),
+    dueAt: execution?.dueAt === undefined || execution.dueAt === null ? null : isoTimestamp(execution.dueAt, 'scheduleExecutions.dueAt'),
+    state: legacyExecutionState(execution?.state),
+    createdAt: isoTimestamp(execution?.createdAt, 'scheduleExecutions.createdAt'),
+    attemptKey: execution?.attemptKey === undefined ? null : boundedField(execution.attemptKey, 'scheduleExecutions.attemptKey', 128)
+  }))
+  const groupInputs = (input?.runGroups ?? []).map(group => ({
+    groupKey: boundedField(group?.groupKey, 'runGroups.groupKey', 128),
+    profileId: boundedField(group?.profileId, 'runGroups.profileId', 128),
+    name: boundedText(group?.name, 'runGroups.name', TASK_AUTHORITY_MAX_TITLE, false),
+    retryOfGroupKey: group?.retryOfGroupKey === undefined ? null : boundedField(group.retryOfGroupKey, 'runGroups.retryOfGroupKey', 128),
+    concurrency: typeof group?.concurrency === 'number' && Number.isSafeInteger(group.concurrency) && group.concurrency >= 1 && group.concurrency <= MAX_PARALLELISM ? group.concurrency : 1,
+    state: legacyGroupState(group?.state),
+    createdAt: isoTimestamp(group?.createdAt, 'runGroups.createdAt'),
+    updatedAt: isoTimestamp(group?.updatedAt, 'runGroups.updatedAt'),
+    members: (group?.members ?? []).map(member => ({
+      projectId: boundedField(member?.projectId, 'runGroups.members.projectId', 128),
+      taskExternalTaskId: boundedField(member?.taskExternalTaskId, 'runGroups.members.taskExternalTaskId', 128),
+      ordinal: typeof member?.ordinal === 'number' && Number.isSafeInteger(member.ordinal) && member.ordinal >= 0 ? member.ordinal : 0,
+      state: legacyMemberState(member?.state),
+      specification: member?.specification === undefined ? undefined : parseTaskExecutionSpecification(member.specification, 'runGroups.members.specification'),
+      sourceAttemptKey: member?.sourceAttemptKey === undefined ? null : boundedField(member.sourceAttemptKey, 'runGroups.members.sourceAttemptKey', 128)
+    }))
+  }))
+
+  {
+    const entities: Record<string, string> = {}
+    // A project-scoped snapshot owns exactly one project. A profile-global
+    // snapshot maps entities across projects, so each entity names its own
+    // project and is never duplicated per project.
+    const projectFor = (candidate: string | undefined, field: string): string => {
+      if (scopeKind === 'project') {
+        if (candidate !== undefined && candidate !== scopeId) {
+          throw new TaskAuthorityValidationError(field, 'must equal the project scope of this snapshot')
+        }
+        return scopeId
+      }
+      return boundedField(candidate, field, 128)
+    }
+
+    for (const task of taskInputs) {
+      const projectId = projectFor(task.projectId, 'tasks.projectId')
+      const taskId = legacyEntityId(scopeKind, scopeId, 'task', task.externalTaskId)
+      const existing = db.prepare('SELECT provenance_kind FROM tasks WHERE project_id = ? AND id = ?').get(projectId, taskId) as Row | undefined
+      ensureProject(db, projectId, undefined, undefined)
+      if (existing && text(existing['provenance_kind']) !== 'imported-legacy') {
+        throw new TaskAuthorityError('MIGRATION_REQUIRED', `import would overwrite native task ${taskId}`)
+      }
+      if (existing) {
+        db.prepare("UPDATE tasks SET title = ?, body = ?, status = ?, priority = ?, updated_at = ? WHERE project_id = ? AND id = ? AND provenance_kind = 'imported-legacy' AND (title <> ? OR body <> ? OR status <> ? OR priority <> ?)")
+          .run(task.title, task.body, task.status, task.priority, nowIso(), projectId, taskId, task.title, task.body, task.status, task.priority)
+      } else {
+        db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at, provenance_kind) VALUES (?,?,?,?,?,?,?,?,NULL,'none',1,?,?,'imported-legacy')")
+          .run(taskId, projectId, task.externalTaskId, canonicalExternalTaskId(task.externalTaskId), task.title, task.body, task.status, task.priority, nowIso(), nowIso())
+      }
+      // Dependencies are rewritten from the exact snapshot, so an edge the
+      // source no longer carries does not linger from the prior import.
+      db.prepare('DELETE FROM task_dependencies WHERE project_id = ? AND task_id = ?').run(projectId, taskId)
+      for (const dependency of task.dependencies) {
+        db.prepare('INSERT INTO task_dependencies(project_id, task_id, depends_on_task_id) VALUES (?,?,?) ON CONFLICT DO NOTHING')
+          .run(projectId, taskId, legacyEntityId(scopeKind, scopeId, 'task', dependency))
+      }
+      entities[`task:${task.externalTaskId}`] = taskId
+    }
+
+    for (const attempt of attemptInputs) {
+      const projectId = projectFor(attempt.projectId, 'attempts.projectId')
+      const taskId = legacyEntityId(scopeKind, scopeId, 'task', attempt.taskExternalTaskId)
+      const attemptId = legacyEntityId(scopeKind, scopeId, 'attempt', attempt.attemptKey)
+      entities[`attempt:${attempt.attemptKey}`] = attemptId
+      if (db.prepare('SELECT id FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId)) continue
+      const specificationId = legacyEntityId(scopeKind, scopeId, 'specification', attempt.attemptKey)
+      const specificationJson = JSON.stringify(attempt.specification)
+      db.prepare('INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(specificationId, projectId, taskId, JSON.stringify(attempt.specification.command), JSON.stringify(attempt.specification.target), JSON.stringify(attempt.specification.verification),
+          attempt.specificationLegacyUnknown ? 'legacy-unknown' : sha256(specificationJson),
+          attempt.specificationLegacyUnknown ? 'legacy-unknown' : 'native', attempt.startedAt)
+      const sequence = int((db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS seq FROM attempts WHERE project_id = ? AND task_id = ?').get(projectId, taskId) as Row)['seq'])
+      db.prepare("INSERT INTO attempts(id, project_id, task_id, sequence, retry_of_attempt_id, provenance_kind, state, specification_id, current_lease_id, started_at, finished_at) VALUES (?,?,?,?,?,'imported-legacy',?,?,NULL,?,?)")
+        .run(attemptId, projectId, taskId, sequence,
+          attempt.retryOfAttemptKey === null ? null : legacyEntityId(scopeKind, scopeId, 'attempt', attempt.retryOfAttemptKey),
+          attempt.state, specificationId, attempt.startedAt, attempt.finishedAt)
+      appendTaskEvent(db, projectId, taskId, attemptId, 'legacy-attempt-imported', 1, {
+        specificationLegacyUnknown: attempt.specificationLegacyUnknown,
+        sessionId: attempt.sessionId, exitCode: attempt.exitCode, error: attempt.error, output: attempt.output
+      })
+      for (const artifact of attempt.artifacts) {
+        const artifactId = legacyEntityId(scopeKind, scopeId, 'artifact', `${attempt.attemptKey}\u0000${artifact.path}`)
+        entities[`artifact:${attempt.attemptKey}:${artifact.path}`] = artifactId
+        if (db.prepare('SELECT id FROM verification_artifacts WHERE project_id = ? AND id = ?').get(projectId, artifactId)) continue
+        db.prepare("INSERT INTO verification_artifacts(id, project_id, task_id, attempt_id, lease_id, generation, provenance_kind, path, sha256, bytes, source_fingerprint, relationship, attached_at) VALUES (?,?,?,?,NULL,NULL,'imported-legacy',?,?,?,?,?,?)")
+          .run(artifactId, projectId, taskId, attemptId, artifact.path, artifact.sha256, artifact.bytes, artifact.sourceFingerprint, artifact.relationship, attempt.finishedAt ?? attempt.startedAt)
+      }
+    }
+
+    for (const schedule of scheduleInputs) {
+      const scheduleId = legacyEntityId(scopeKind, scopeId, 'schedule', schedule.scheduleKey)
+      entities[`schedule:${schedule.scheduleKey}`] = scheduleId
+      ensureProject(db, schedule.projectId, undefined, undefined)
+      const definitionJson = scheduleDefinitionJson({
+        profileId: schedule.profileId,
+        taskTitle: schedule.taskTitle,
+        cadence: schedule.cadence,
+        command: schedule.specification.command,
+        target: schedule.specification.target,
+        verification: schedule.specification.verification
+      })
+      const existing = db.prepare('SELECT id FROM schedules WHERE project_id = ? AND id = ?').get(schedule.projectId, scheduleId) as Row | undefined
+      if (existing) {
+        // A definition that already matches the frozen snapshot is untouched:
+        // replaying an import must not churn the entity version.
+        db.prepare('UPDATE schedules SET definition_json = ?, enabled = ?, next_run_at = ?, entity_version = entity_version + 1, updated_at = ? WHERE project_id = ? AND id = ? AND definition_json <> ?')
+          .run(definitionJson, schedule.enabled ? 1 : 0, schedule.nextRunAt, schedule.updatedAt, schedule.projectId, scheduleId, definitionJson)
+      } else {
+        db.prepare('INSERT INTO schedules(id, project_id, definition_json, enabled, entity_version, next_run_at, created_at, updated_at) VALUES (?,?,?,?,1,?,?,?)')
+          .run(scheduleId, schedule.projectId, definitionJson, schedule.enabled ? 1 : 0, schedule.nextRunAt, schedule.createdAt, schedule.updatedAt)
+      }
+      appendProfileEvent(db, schedule.profileId, null, 'legacy-schedule-imported', 1, { projectId: schedule.projectId, scheduleId, scheduleKey: schedule.scheduleKey })
+    }
+
+    for (const execution of executionInputs) {
+      const executionId = legacyEntityId(scopeKind, scopeId, 'execution', execution.executionKey)
+      const scheduleId = legacyEntityId(scopeKind, scopeId, 'schedule', execution.scheduleKey)
+      entities[`execution:${execution.executionKey}`] = executionId
+      const scheduleRow = db.prepare('SELECT project_id, definition_json FROM schedules WHERE id = ?').get(scheduleId) as Row | undefined
+      if (scheduleRow === undefined) {
+        throw new TaskAuthorityValidationError('scheduleExecutions.scheduleKey', `schedule ${execution.scheduleKey} was not part of this snapshot`)
+      }
+      const ownerProject = text(scheduleRow['project_id'])
+      if (db.prepare('SELECT id FROM schedule_executions WHERE project_id = ? AND id = ?').get(ownerProject, executionId)) continue
+      // A historical execution does not prove which mutable definition ran, so
+      // its materialized task carries a provenance-marked legacy-unknown
+      // specification rather than the current definition.
+      const taskId = legacyEntityId(scopeKind, scopeId, 'execution-task', execution.executionKey)
+      const spec = readScheduleSpec(text(scheduleRow['definition_json']))
+      db.prepare("INSERT INTO tasks(id, project_id, external_task_id, external_task_id_canonical, title, body, status, priority, current_attempt_id, cancel_state, entity_version, created_at, updated_at, provenance_kind) VALUES (?,?,?,?,?,'','todo',0,NULL,'none',1,?,?,'imported-legacy')")
+        .run(taskId, ownerProject, `${execution.executionKey}:legacy`, canonicalExternalTaskId(`${execution.executionKey}:legacy`), spec.taskTitle, execution.createdAt, execution.createdAt)
+      const specificationId = legacyEntityId(scopeKind, scopeId, 'execution-specification', execution.executionKey)
+      db.prepare("INSERT INTO execution_specifications(id, project_id, task_id, command_json, target_json, verification_json, source_sha256, provenance_kind, created_at) VALUES (?,?,?,?,?,?,?,'legacy-unknown',?)")
+        .run(specificationId, ownerProject, taskId, JSON.stringify(spec.command), JSON.stringify(spec.target), JSON.stringify(spec.verification), 'legacy-unknown', execution.createdAt)
+      const attemptId = execution.attemptKey === null ? null : legacyEntityId(scopeKind, scopeId, 'attempt', execution.attemptKey)
+      db.prepare('INSERT INTO schedule_executions(id, project_id, schedule_id, trigger, idempotency_key, intent_sha256, task_id, attempt_id, due_at, state, entity_version, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)')
+        .run(executionId, ownerProject, scheduleId, execution.trigger, execution.idempotencyKey, sha256(`${execution.scheduleKey}\u0000${execution.trigger}\u0000${execution.idempotencyKey}`), taskId, attemptId, execution.dueAt, execution.state, execution.createdAt)
+      appendTaskEvent(db, ownerProject, taskId, attemptId, 'legacy-execution-imported', 1, { scheduleId, executionId, trigger: execution.trigger, dueAt: execution.dueAt })
+    }
+
+    for (const group of groupInputs) {
+      const groupId = legacyEntityId(scopeKind, scopeId, 'run-group', group.groupKey)
+      entities[`run-group:${group.groupKey}`] = groupId
+      const existing = db.prepare('SELECT id FROM run_groups WHERE id = ?').get(groupId) as Row | undefined
+      if (existing) {
+        db.prepare('UPDATE run_groups SET name = ?, concurrency = ?, state = ?, updated_at = ? WHERE id = ? AND (name <> ? OR concurrency <> ? OR state <> ?)')
+          .run(group.name, group.concurrency, group.state, group.updatedAt, groupId, group.name, group.concurrency, group.state)
+      } else {
+        db.prepare('INSERT INTO run_groups(id, profile_id, name, retry_of_run_group_id, concurrency, state, entity_version, created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)')
+          .run(groupId, group.profileId, group.name,
+            group.retryOfGroupKey === null ? null : legacyEntityId(scopeKind, scopeId, 'run-group', group.retryOfGroupKey),
+            group.concurrency, group.state, group.createdAt, group.updatedAt)
+      }
+      for (const member of group.members) {
+        // Membership is project-scoped: the member names both its project and
+        // its task, and the pair must already exist in this snapshot.
+        const memberTask = db.prepare('SELECT id FROM tasks WHERE project_id = ? AND id = ?')
+          .get(member.projectId, legacyEntityId(scopeKind, scopeId, 'task', member.taskExternalTaskId)) as Row | undefined
+        if (memberTask === undefined) {
+          throw new TaskAuthorityValidationError('runGroups.members.taskExternalTaskId', `member task ${member.taskExternalTaskId} was not part of this snapshot in project ${member.projectId}`)
+        }
+        const taskId = text(memberTask['id'])
+        db.prepare('INSERT INTO run_members(run_group_id, project_id, task_id, source_attempt_id, ordinal, state, specification_json) VALUES (?,?,?,?,?,?,?) ON CONFLICT(run_group_id, project_id, task_id) DO UPDATE SET source_attempt_id = excluded.source_attempt_id, ordinal = excluded.ordinal, state = excluded.state, specification_json = excluded.specification_json')
+          .run(groupId, member.projectId, taskId,
+            member.sourceAttemptKey === null ? null : legacyEntityId(scopeKind, scopeId, 'attempt', member.sourceAttemptKey),
+            member.ordinal, member.state, member.specification === undefined ? null : JSON.stringify(member.specification))
+      }
+    }
+
+    return entities
+  }
+}
+
+/**
+ * Marks the imported entities of a superseded snapshot so a rebuild can
+ * identify them. The rebuild transaction already reuses stable IDs for every
+ * surviving entity; this closes the imported attempts of entities the source
+ * no longer carries.
+ */
+export function retireImportedEntities(database: TaskAuthorityDatabase, authorityEntityIds: readonly string[]): void {
+  database.withImmediate(db => {
+    for (const id of authorityEntityIds) {
+      db.prepare("UPDATE attempts SET state = 'exited', finished_at = COALESCE(finished_at, ?) WHERE id = ? AND provenance_kind = 'imported-legacy'").run(nowIso(), id)
+    }
   })
 }

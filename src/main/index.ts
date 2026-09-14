@@ -6,6 +6,7 @@ import { appResourcesRoot } from './app-resources'
 import { NativeTerminals } from './native-terminals'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
+import { publishRegisteredProjects } from './task-authority/task-authority-migration'
 import { ProjectHandoffService } from './project-handoff'
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } from 'electron'
 import { restoreWindowBounds } from './window-bounds'
@@ -842,9 +843,41 @@ void app.whenReady().then(async () => {
     ])
   })
   ipcMain.handle('projectTasksInspect', (_e, path: string) => projectTasks.inspect(path))
-  ipcMain.handle('projectTaskAuthority', (_e, path: string, enabled: boolean) => projectTasks.setAuthority(path, enabled))
+  /**
+   * The detached daemon cannot read this process's repository registry, so the
+   * migration's exact project set is handed over as one private identity file
+   * (project, repository, canonical workspace root — never task content).
+   */
+  const publishProjectRegistry = (): void => {
+    try {
+      publishRegisteredProjects(app.getPath('userData'), store.listRepos()
+        .filter(repo => repo.taskAuthority === 'backlog.md')
+        .map(repo => ({ projectId: repo.id, repositoryId: repo.id, workspaceRoot: repo.path })))
+    } catch (error) {
+      logger.warn({ err: error }, 'could not publish the migration project registry')
+    }
+  }
+  publishProjectRegistry()
+  ipcMain.handle('projectTaskAuthority', async (_e, path: string, enabled: boolean) => {
+    const result = await projectTasks.setAuthority(path, enabled)
+    publishProjectRegistry()
+    return result
+  })
   ipcMain.handle('projectTaskTool', (_e, path: string, tool: 'lazygit' | 'backlog') => projectTasks.openTool(path, tool))
-  operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}})
+    operationalRuns = new OperationalRunService(app.getPath('userData'), terminalBus, resolveRegisteredWorkspace, {source: path => git.handoffSource(path),openArtifact: (path, workspacePath, sha256) => openVerificationArtifact(path, workspacePath, sha256, (worktreePath, relPath) => uiControl({ op: 'editor.open', worktreePath, relPath }), path => shell.openPath(path)),artifactRoots: async path => {const scope=await resolveProjectToolScope(path,async path=>resolveRegisteredProjectWorkspace(store,path));return [scope.checkoutPath,join(app.getPath('userData'),'project-tools','browser',scope.indexKey)]}}, async operationId => {
+    // Affected legacy work registers a durable admission through the
+    // daemon-owned gate before launching; a frozen, draining, or cut-over gate
+    // refuses it, and a failed gate refuses every affected launch.
+    const state = await terminalBus.maintenanceState()
+    if (state.phase === 'open') return ''
+    const admission = await terminalBus.maintenanceAdmitAffected(operationId)
+    return admission.operationId
+  }, async (operationId, outcome) => {
+    // Closing the admission is best-effort here: a launch that already
+    // happened must not fail because its bookkeeping could not be written.
+    await terminalBus.maintenanceCompleteAffected(operationId, outcome).catch(() => undefined)
+  })
+
   try {
     await terminalBus.connect()
   } catch (error) {

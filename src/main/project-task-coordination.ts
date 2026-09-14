@@ -11,6 +11,7 @@ import { resolveRegisteredProjectWorkspace } from './git'
 import { WorktreeFiles } from './worktree-files'
 import type { Store } from './store'
 import type { DaemonClient } from './daemon-client'
+import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './task-authority/backlog-migration-reader'
 
 const TOOLS = {
   lazygit: { version: '0.62.2', sha256: 'f7ff3785fc0b85305933da9ab1ea46e099557c2e73d03d9bb8545e59cd72807c' },
@@ -74,6 +75,38 @@ export class ProjectTaskCoordination {
       } catch (error) { result.problem = String(error) }
     }
     return result
+  }
+
+  /**
+   * Migration-only full-record reader.
+   *
+   * It deliberately does not reuse the summary-only `inspect()` projection or
+   * the existence-only `requireTask()` check: a migration must validate the
+   * complete record (project-scoped external ID, title, body, status,
+   * priority, dependencies) plus each task's exact source file before it
+   * freezes a snapshot. Callers gate it behind the migration phase, so it is
+   * unreachable once the authority is active.
+   */
+  backlogMigrationReadPort(): BacklogMigrationReadPort {
+    return {
+      run: async (identity, args) => {
+        this.assertMigrationWorkspace(identity)
+        return this.backlog(identity.workspaceRoot, [...args])
+      },
+      readWorkspaceFile: async (identity, relPath) => {
+        this.assertMigrationWorkspace(identity)
+        const file = await new WorktreeFiles().readFile(identity.workspaceRoot, relPath)
+        return { bytes: Buffer.from(file.content, 'utf8'), truncated: file.truncated, binary: file.binary === true }
+      }
+    }
+  }
+
+  /** The migration may only read a workspace that is still registered to this project. */
+  private assertMigrationWorkspace(identity: BacklogWorkspaceIdentity): void {
+    const registered = this.store.listRepos().find(repo => repo.id === identity.repositoryId)
+    if (!registered || registered.taskAuthority !== 'backlog.md') {
+      throw new Error('Migration source is not the project selected task authority')
+    }
   }
 
   async setAuthority(path: string, enabled: boolean): Promise<void> {

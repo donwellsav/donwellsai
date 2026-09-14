@@ -36,10 +36,37 @@ export class OperationalRunService implements OperationalRunsApi {
   private readonly parallelStore: ParallelRunStore
   private readonly completing = new Map<string,Promise<void>>()
 
-  constructor(userDataDir: string, private readonly terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>; openArtifact?:(path:string,workspacePath:string,sha256:string)=>Promise<void>}) {
-    const launch = async ({ target, command }: { target: OperationalTarget; command: string }): Promise<string> => {
-      const workspacePath = await this.localWorkspace(target)
-      return (await terminals.openJob(workspacePath, command)).id
+  /**
+   * Maintenance admission for legacy affected work.
+   *
+   * Legacy operational runs are affected work: while the profile maintenance
+   * gate is frozen, drained, or cutting over, a launch must be refused rather
+   * than started against a source set the migration is about to retire. The
+   * gate itself fails closed, so no local phase check is needed here.
+   */
+  private readonly admitAffectedWork: (operationId: string) => Promise<string>
+  private readonly completeAffectedWork: (operationId: string, outcome: 'completed' | 'cancelled') => Promise<void>
+
+  constructor(userDataDir: string, private readonly terminals: DaemonClient, private readonly resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: {source:(path:string)=>Promise<VerificationSource>; artifactRoots:(path:string)=>Promise<string[]>; openArtifact?:(path:string,workspacePath:string,sha256:string)=>Promise<void>}, admitAffectedWork?: (operationId: string) => Promise<string>, completeAffectedWork?: (operationId: string, outcome: 'completed' | 'cancelled') => Promise<void>) {
+    // Absent a wired gate (tests, unrelated call sites) affected work proceeds
+    // unfenced; production wires the daemon-owned gate.
+    this.admitAffectedWork = admitAffectedWork ?? (async () => '')
+    this.completeAffectedWork = completeAffectedWork ?? (async () => undefined)
+    const launch = async ({ target, command, executionId }: { target: OperationalTarget; command: string; executionId?: string }): Promise<string> => {
+      const operationId = `scheduled-launch:${executionId ?? target.root}`
+      const admission = await this.admitAffectedWork(operationId)
+      try {
+        const workspacePath = await this.localWorkspace(target)
+        const sessionId = (await terminals.openJob(workspacePath, command)).id
+        // The durable admission closes as soon as the launch itself is done:
+        // it fences the launch against a frozen source set, and the run then
+        // proceeds under the normal daemon job lifecycle.
+        await this.completeAffectedWork(admission, 'completed')
+        return sessionId
+      } catch (error) {
+        await this.completeAffectedWork(admission, 'cancelled').catch(() => undefined)
+        throw error
+      }
     }
     const inspect = (sessionId: string) => terminals.jobResult(sessionId)
     const release = (sessionId: string) => terminals.close(sessionId)
@@ -47,6 +74,8 @@ export class OperationalRunService implements OperationalRunsApi {
     this.scheduler = new ScheduledRunScheduler(new ScheduledRunStore(userDataDir), launch, inspect, release, stop)
     this.parallelStore = new ParallelRunStore(userDataDir)
     this.parallel = new ParallelRunOrchestrator(this.parallelStore, async request => {
+      const admission = await this.admitAffectedWork(`parallel-launch:${request.runId}:${request.taskId}`)
+      await this.completeAffectedWork(admission, 'completed').catch(() => undefined)
       const root=await this.localWorkspace(request.target)
       const setup = this.parallelStore.get(request.runId)?.tasks.find(task => task.id === request.taskId)?.verificationSetup
       const outputs: VerificationOutput[] = []

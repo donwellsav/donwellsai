@@ -163,17 +163,22 @@ describe('task authority schema security', () => {
     )
   })
 
-  it('migrates a v1 database to v2 so run-group members carry committed specifications', () => {
+  it('migrates a v1 database forward so run-group members and the maintenance gate exist', () => {
     const { path } = openAuthority()
     const downgrade = openTaskAuthorityRawConnection(path)
     downgrade.exec('ALTER TABLE run_members DROP COLUMN specification_json')
+    downgrade.exec('DROP TABLE profile_maintenance_state')
+    downgrade.exec('DROP TABLE profile_maintenance_admissions')
+    downgrade.exec('DROP TABLE profile_maintenance_acknowledgements')
+    downgrade.exec('DROP TABLE profile_maintenance_transitions')
+    downgrade.exec('DROP TABLE profile_maintenance_retirements')
     downgrade.exec('PRAGMA user_version=1')
     downgrade.close()
 
     const migrated = reopen(path)
     const db = openTaskAuthorityRawConnection(path)
     try {
-      expect(taskAuthoritySchemaVersion(db)).toBe(2)
+      expect(taskAuthoritySchemaVersion(db)).toBe(3)
       const columns = db.prepare('PRAGMA table_info(run_members)').all()
       if (!Array.isArray(columns)) throw new Error('table_info returned no rows')
       expect(columns.some(column => typeof column === 'object' && column !== null && 'name' in column && column.name === 'specification_json')).toBe(true)
@@ -191,10 +196,11 @@ describe('task authority schema security', () => {
     expect(group.members).toHaveLength(1)
   })
 
-  it('recovers an interrupted v1->v2 migration that already added the column', () => {
+  it('recovers an interrupted v1->v3 migration that already added the columns', () => {
     const { path } = openAuthority()
     // Simulate the torn state a crash between ALTER and the version bump would
-    // leave: the column exists but the database still declares version 1.
+    // leave: the columns and tables exist but the database still declares
+    // version 1.
     const torn = openTaskAuthorityRawConnection(path)
     torn.exec('PRAGMA user_version=1')
     torn.close()
@@ -211,7 +217,7 @@ describe('task authority schema security', () => {
     expect(group.members).toHaveLength(1)
     const db = openTaskAuthorityRawConnection(path)
     try {
-      expect(taskAuthoritySchemaVersion(db)).toBe(2)
+      expect(taskAuthoritySchemaVersion(db)).toBe(3)
     } finally {
       db.close()
     }

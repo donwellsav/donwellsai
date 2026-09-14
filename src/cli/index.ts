@@ -173,7 +173,9 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
   }
   try {
     const userData = parsed.userData ?? defaultUserData()
-    if (parsed.command.method.startsWith('task.')) {
+    // The daemon owns the authority database, the maintenance gate, and the
+    // migration; task, migration, and maintenance commands all speak its wire.
+    if (parsed.command.method.startsWith('task.') || parsed.command.method.startsWith('maintenance.')) {
       const envelope = await callTaskAuthority(parsed.command.method, parsed.params, userData, parsed.timeoutMs)
       if (parsed.text && !envelope.ok) console.error((envelope.code ?? 'COMMAND_FAILED') + ': ' + envelope.error)
       else console.log(JSON.stringify(parsed.text ? envelope.result : envelope, null, parsed.text ? 2 : undefined))

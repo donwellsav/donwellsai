@@ -29,6 +29,24 @@ import {
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
 import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
 import { SqliteTaskAuthority } from './task-authority/task-authority'
+import { readRegisteredProjects, TaskAuthorityMigration, TaskAuthorityMigrationError } from './task-authority/task-authority-migration'
+import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './task-authority/backlog-migration-reader'
+import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
+import type { AuthenticatedProfileMaintenanceMigrationContext } from '@shared/profile-maintenance'
+import {
+  ProfileMaintenanceError,
+  parseProfileMaintenanceAbortInput,
+  parseProfileMaintenanceFailure,
+  parseProfileMaintenanceLease,
+  parseProfileMaintenanceOwnerStage,
+  parseProfileMaintenanceParticipant,
+  parseProfileMaintenanceParticipantSet,
+  parseProfileMaintenanceReceipt,
+  parseProfileMaintenanceResumeInput,
+  parseProfileMaintenanceRetirement,
+  parseProfileMaintenanceTransitionIntent,
+  type ProfileMaintenanceParticipant
+} from '@shared/profile-maintenance'
 import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
 import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
@@ -258,6 +276,8 @@ export class TerminalDaemon {
   private readonly acp: AcpSessions
   private readonly identity: RuntimeIdentityAuthority
   private readonly taskAuthority: SqliteTaskAuthority
+  private readonly maintenanceGate: SqliteProfileMaintenanceGate
+  private readonly migration: TaskAuthorityMigration
   private readonly taskCoordinator: TaskExecutionCoordinator
   private taskSchedulerPump!: TaskSchedulerPump
   private readonly taskWorkerCredentials = new Map<string, { token: string; ownerId: string; connectionKey: string; projectIds: readonly string[] }>()
@@ -269,6 +289,14 @@ export class TerminalDaemon {
     shell?: string
     emitterCommand?: readonly string[]
     identity?: RuntimeIdentityAuthority
+    /**
+     * Registered projects the migration covers, resolved by the app process
+     * that owns the repository registry. Absent (or empty) means the migration
+     * has no Backlog sources to freeze on this profile.
+     */
+    projectRegistry?: () => Promise<readonly BacklogWorkspaceIdentity[]>
+    /** Migration-only Backlog reader bound to the app's pinned CLI. */
+    backlogPort?: () => BacklogMigrationReadPort
   }) {
     const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
     this.authToken = opts.authToken
@@ -298,6 +326,27 @@ export class TerminalDaemon {
       })
     })
     this.taskAuthority = SqliteTaskAuthority.open({ userDataDirectory: this.paths.runtimeDir })
+    this.maintenanceGate = new SqliteProfileMaintenanceGate({
+      database: this.taskAuthority.database,
+      profileId: opts.userDataDir
+    })
+    this.migration = new TaskAuthorityMigration({
+      authority: this.taskAuthority,
+      database: this.taskAuthority.database,
+      profileId: opts.userDataDir,
+      userDataDirectory: opts.userDataDir,
+      readers: {
+        parallelRuns: async () => [],
+        scheduledRuns: async () => [],
+        scheduledExecutions: async () => [],
+        projects: () => (opts.projectRegistry ?? (async () => readRegisteredProjects(opts.userDataDir)))(),
+        projectTaskSummaries: async () => ({})
+      },
+      backlog: opts.backlogPort?.() ?? {
+        run: async () => { throw new TaskAuthorityError('MIGRATION_REQUIRED', 'the migration-only Backlog reader is not configured in this daemon') },
+        readWorkspaceFile: async () => { throw new TaskAuthorityError('MIGRATION_REQUIRED', 'the migration-only Backlog reader is not configured in this daemon') }
+      }
+    })
     this.taskCoordinator = new TaskExecutionCoordinator({
       authority: this.taskAuthority,
       evidence: new DaemonTaskEvidencePort(),
@@ -437,6 +486,11 @@ export class TerminalDaemon {
       }
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
+      // Startup resolves the persisted maintenance phase before any affected
+      // handler registers. A `failed` migration registers no scheduler or
+      // launch handler at all: the durable phase must be resumed or aborted
+      // explicitly before affected work may restart.
+      this.resolveMaintenancePhaseAtStartup()
       this.taskSchedulerPump = new TaskSchedulerPump(this.taskAuthority, this.daemonWorkerOwnerId(), { connectionId: 'daemon-scheduler' })
       await this.reconcileTaskAuthority()
       this.runTaskSchedulerTick()
@@ -682,6 +736,11 @@ export class TerminalDaemon {
         for (const [credentialId, binding] of this.taskWorkerCredentials) {
           if (binding.connectionKey === connectionKey) this.taskWorkerCredentials.delete(credentialId)
         }
+        // A disconnect marks that connection's ordinary admissions
+        // indeterminate; only the same participant can reconcile them later.
+        void this.maintenanceGate.markConnectionDisconnected(connectionKey).catch(error => {
+          logger.warn({ err: error }, 'profile maintenance disconnect bookkeeping failed')
+        })
       }
     })
     socket.on('error', () => socket.destroy())
@@ -1116,6 +1175,37 @@ export class TerminalDaemon {
           reply(true, { stopped: true })
           setImmediate(() => void this.stopIfIdle())
           break
+        case 'maintenance.state':
+        case 'maintenance.admit':
+        case 'maintenance.admit.affected':
+        case 'maintenance.complete.affected':
+        case 'task.migration.status':
+        case 'task.migration.import':
+        case 'task.migration.shadow':
+        case 'task.migration.export':
+        case 'maintenance.acquire':
+        case 'maintenance.freeze':
+        case 'maintenance.drained':
+        case 'maintenance.cutover':
+        case 'maintenance.transition.prepare':
+        case 'maintenance.transition.complete':
+        case 'maintenance.transition.visibility':
+        case 'maintenance.transitions':
+        case 'maintenance.fence':
+        case 'maintenance.fail':
+        case 'maintenance.resume':
+        case 'maintenance.abort':
+        case 'maintenance.release':
+          void this.handleMaintenanceOp(socket, message).then(
+            result => reply(true, result as Record<string, unknown>),
+            error => reply(false, {
+              error: error instanceof Error ? error.message : String(error),
+              ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
+              ...(error instanceof TaskAuthorityMigrationError ? { code: error.code } : {}),
+              ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {})
+            })
+          )
+          break
         case 'task.credential.issue':
         case 'task.query':
         case 'task.create':
@@ -1229,6 +1319,24 @@ export class TerminalDaemon {
     }
   }
 
+  /**
+   * Resolves the durable gate phase before affected handlers exist.
+   *
+   * `open` starts affected work normally, a leased phase keeps admissions
+   * frozen (the coordinator owns the resume), and `failed` refuses to register
+   * any launch or scheduler handler until an authenticated migration
+   * coordinator authorizes a resume or abort.
+   */
+  private resolveMaintenancePhaseAtStartup(): void {
+    const state = this.maintenanceGate.readState()
+    if (state.phase === 'failed') {
+      throw new TaskAuthorityError('MIGRATION_REQUIRED', `profile maintenance is failed (${state.failureCode ?? 'unknown'}); an authorized migration coordinator must resume or abort before affected work restarts`)
+    }
+    if (state.phase !== 'open') {
+      logger.warn({ phase: state.phase, migrationId: state.lease?.migrationId ?? null }, 'profile maintenance lease is held; affected admissions stay frozen')
+    }
+  }
+
   private async reconcileTaskAuthority(): Promise<void> {
     const events = await this.taskCoordinator.reconcileStartup(identity => this.identity.verify(identity))
     for (const event of events) logger.info({ taskAuthority: event }, 'task-authority:startup-reconciled')
@@ -1241,6 +1349,142 @@ export class TerminalDaemon {
     for (const failure of result.failures) logger.warn({ scope: failure.scope, error: failure.error }, 'task scheduler tick rejected one enqueue or claim')
     for (const entry of result.claimed) {
       this.launchClaimedTask(entry.claim, entry.specification, 'finite-job', this.daemonWorkerConnection(entry.claim.task.projectId))
+    }
+  }
+
+  // -- profile maintenance gate -----------------------------------------------
+  // The gate persists one profile-wide migration lease, its epoch/revision,
+  // the frozen participant set, acknowledgements, bounded ordinary admissions,
+  // and migration-transition receipts. Startup resolves the persisted phase
+  // before any affected handler registers.
+
+  /**
+   * Authenticated connection identity for ordinary affected work.
+   *
+   * A participant-bound context is created only when the daemon authenticated
+   * that exact connection as a maintenance participant; nothing here decodes a
+   * participant name from the request body.
+   */
+  private maintenanceCaller(socket: Socket): { connectionId: string; participant?: ProfileMaintenanceParticipant } {
+    return { connectionId: this.taskConnectionKey(socket) }
+  }
+
+  /**
+   * Daemon-internal admission for the daemon's own affected work (scheduler
+   * ticks, launches). Returns null when the profile has no migration in flight,
+   * so ordinary operation pays no extra work.
+   */
+  private async admitDaemonWork(participant: ProfileMaintenanceParticipant, operationId: string): Promise<string | null> {
+    const state = this.maintenanceGate.readState()
+    if (state.phase === 'open') return null
+    const admission = await this.maintenanceGate.admit({ connectionId: 'daemon-internal' }, participant, operationId)
+    return admission.operationId
+  }
+
+  private async completeDaemonWork(operationId: string | null, participant: ProfileMaintenanceParticipant, outcome: 'completed' | 'cancelled'): Promise<void> {
+    if (operationId === null) return
+    await this.maintenanceGate.complete({ connectionId: 'daemon-internal' }, {
+      participant,
+      operationId,
+      epoch: this.maintenanceGate.readState().lease?.epoch ?? 1,
+      ownerConnectionId: 'daemon-internal'
+    }, outcome)
+  }
+
+  /**
+   * Migration-owner context: daemon-created for the authenticated connection
+   * that names the owner stage. Renderer, CLI, plugin, worker, and participant
+   * callers cannot author one, because every admin op below re-validates the
+   * stage against the persisted lease inside the gate.
+   */
+  private migrationCaller(socket: Socket, message: Record<string, unknown>): AuthenticatedProfileMaintenanceMigrationContext {
+    return {
+      connectionId: this.taskConnectionKey(socket),
+      ownerStage: parseProfileMaintenanceOwnerStage(message['ownerStage'], 'ownerStage')
+    }
+  }
+
+  private async handleMaintenanceOp(socket: Socket, message: Record<string, unknown>): Promise<unknown> {
+    const op = String(message['op'] ?? '')
+    const caller = this.migrationCaller(socket, message)
+    const participantCaller = {
+      connectionId: this.taskConnectionKey(socket),
+      participant: parseProfileMaintenanceParticipant(message['participant'], 'participant')
+    }
+    switch (op) {
+      case 'maintenance.state':
+        return { state: this.maintenanceGate.readState() }
+      case 'task.migration.status':
+        return { status: this.migration.status() }
+      case 'task.migration.import':
+        return { result: await this.migration.prepare() }
+      case 'task.migration.shadow':
+        return { report: await this.migration.shadow() }
+      case 'task.migration.export': {
+        const repositoryId = taskWireRequiredString(message['repositoryId'], 'repositoryId')
+        return { export: this.migration.exportBacklog(repositoryId) }
+      }
+      case 'maintenance.admit':
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the admission wire form is reserved; the daemon names the participant for each affected operation')
+      case 'maintenance.admit.affected': {
+        // The daemon maps the authenticated connection's operation onto the
+        // participant that owns it; the caller never supplies a participant.
+        const operationId = taskWireRequiredString(message['operationId'], 'operationId')
+        return { admission: await this.maintenanceGate.admit(this.maintenanceCaller(socket), 'task-authority', operationId) }
+      }
+      case 'maintenance.complete.affected': {
+        // The epoch comes from the persisted admission, never from the caller:
+        // a client cannot close work it admitted under a superseded epoch.
+        const operationId = taskWireRequiredString(message['operationId'], 'operationId')
+        const outcome = message['outcome'] === 'cancelled' ? 'cancelled' as const : 'completed' as const
+        const epoch = this.maintenanceGate.admissionEpoch('task-authority', operationId)
+        await this.maintenanceGate.complete(this.maintenanceCaller(socket), {
+          participant: 'task-authority',
+          operationId,
+          epoch,
+          ownerConnectionId: this.taskConnectionKey(socket)
+        }, outcome)
+        return { completed: true }
+      }
+      case 'maintenance.acquire':
+        return {
+          lease: this.maintenanceGate.acquire(caller, {
+            migrationId: taskWireRequiredString(message['migrationId'], 'migrationId'),
+            ownerStage: parseProfileMaintenanceOwnerStage(message['ownerStage'], 'ownerStage'),
+            participants: parseProfileMaintenanceParticipantSet(message['participants']),
+            expectedRevision: taskWireInteger(message['expectedRevision'], 'expectedRevision', 1, Number.MAX_SAFE_INTEGER) ?? 1
+          })
+        }
+      case 'maintenance.freeze':
+        return { frozen: this.maintenanceGate.freeze(caller, parseProfileMaintenanceLease(message['lease'])).then(() => true) }
+      case 'maintenance.drained':
+        return { acknowledged: this.maintenanceGate.acknowledgeDrained(participantCaller, taskWireRequiredString(message['migrationId'], 'migrationId')).then(() => true) }
+      case 'maintenance.cutover':
+        return { cutover: this.maintenanceGate.beginCutover(caller, parseProfileMaintenanceLease(message['lease'])).then(() => true) }
+      case 'maintenance.transition.prepare':
+        return { receipt: this.maintenanceGate.prepareMigrationTransition(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceTransitionIntent(message['intent'])) }
+      case 'maintenance.transition.complete':
+        return { receipt: this.maintenanceGate.completeMigrationTransition(caller, parseProfileMaintenanceReceipt(message['receipt']), taskWireRequiredString(message['evidenceSha256'], 'evidenceSha256')) }
+      case 'maintenance.transition.visibility':
+        return { receipt: this.maintenanceGate.acknowledgeExternalVisibility(caller, parseProfileMaintenanceReceipt(message['receipt']), {
+          expectedRevision: taskWireInteger(message['expectedRevision'], 'expectedRevision', 1, Number.MAX_SAFE_INTEGER) ?? 1,
+          localVisibleRevision: taskWireRequiredString(message['localVisibleRevision'], 'localVisibleRevision'),
+          localVisibleEvidenceSha256: taskWireRequiredString(message['localVisibleEvidenceSha256'], 'localVisibleEvidenceSha256')
+        }) }
+      case 'maintenance.transitions':
+        return { receipts: this.maintenanceGate.listMigrationTransitions(caller, parseProfileMaintenanceLease(message['lease'])) }
+      case 'maintenance.fence':
+        return { receipt: this.maintenanceGate.recordRetirementFence(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceRetirement(message['retirement'])) }
+      case 'maintenance.fail':
+        return { lease: this.maintenanceGate.fail(caller, parseProfileMaintenanceLease(message['lease']), parseProfileMaintenanceFailure(message['failure'])) }
+      case 'maintenance.resume':
+        return { lease: this.maintenanceGate.resume(caller, parseProfileMaintenanceResumeInput(message['input'])) }
+      case 'maintenance.abort':
+        return { aborted: this.maintenanceGate.abort(caller, parseProfileMaintenanceAbortInput(message['input'])).then(() => true) }
+      case 'maintenance.release':
+        return { released: this.maintenanceGate.release(caller, parseProfileMaintenanceLease(message['lease']), 'active').then(() => true) }
+      default:
+        throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `unknown maintenance op: ${op}`)
     }
   }
 
