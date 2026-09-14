@@ -105,12 +105,6 @@ export class ProjectTaskCoordination {
     this.store.setTaskAuthority(scope.repo.id, enabled)
   }
 
-  async requireTask(path: string, id: string): Promise<void> {
-    const scope = await this.workspace(path)
-    const projection = await this.terminals.taskQuery({ projectId: scope.projectId, limit: 100 })
-    const task = projection.tasks.find(candidate => candidate.taskId.toLowerCase() === id.toLowerCase() || candidate.externalTaskId.toLowerCase() === id.toLowerCase())
-    if (!task) throw new Error('Task does not exist in daemon authority')
-  }
 
   async openTool(path: string, tool: 'lazygit' | 'backlog') {
     if (tool !== 'lazygit' && tool !== 'backlog') throw new Error('Unknown project task tool')

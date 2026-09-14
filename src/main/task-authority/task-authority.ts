@@ -2054,22 +2054,30 @@ export class SqliteTaskAuthority implements TaskAuthority {
     })
   }
 
-  /** Read-only schedule projection for authenticated app adapters. */
-  listSchedules(projectId?: string): ScheduleSnapshot[] {
+  /** Read-only schedule projection for an authenticated administrator. */
+  listSchedules(input: Readonly<{ connection: AuthenticatedAuthorityConnection; projectId?: string }>): ScheduleSnapshot[] {
+    const connection = parseAuthorityConnection(input?.connection)
+    requireAdministrator(connection)
+    const projectId = input?.projectId === undefined ? undefined : boundedField(input.projectId, 'projectId', 128)
+    if (projectId !== undefined) requireAdminProject(connection, projectId)
     return this.database.withReadOnly(db => {
       const rows = projectId === undefined
         ? db.prepare('SELECT * FROM schedules ORDER BY project_id, created_at, id').all() as Row[]
-        : db.prepare('SELECT * FROM schedules WHERE project_id = ? ORDER BY created_at, id').all(boundedField(projectId, 'projectId', 128)) as Row[]
-      return rows.map(row => scheduleSnapshot(db, row))
+        : db.prepare('SELECT * FROM schedules WHERE project_id = ? ORDER BY created_at, id').all(projectId) as Row[]
+      return rows.filter(row => connection.authorizedProjectIds === undefined || connection.authorizedProjectIds.includes(text(row['project_id']))).map(row => scheduleSnapshot(db, row))
     })
   }
 
-  /** Read-only run-group projection for authenticated app adapters. */
-  listRunGroups(profileId?: string): RunGroupSnapshot[] {
+  /** Read-only run-group projection for an authenticated administrator. */
+  listRunGroups(input: Readonly<{ connection: AuthenticatedAuthorityConnection; profileId?: string }>): RunGroupSnapshot[] {
+    const connection = parseAuthorityConnection(input?.connection)
+    requireAdministrator(connection)
+    const profileId = input?.profileId === undefined ? undefined : boundedField(input.profileId, 'profileId', 128)
+    if (profileId !== undefined) requireAdminProfile(connection, profileId)
     return this.database.withReadOnly(db => {
       const rows = profileId === undefined
         ? db.prepare('SELECT * FROM run_groups ORDER BY created_at, id').all() as Row[]
-        : db.prepare('SELECT * FROM run_groups WHERE profile_id = ? ORDER BY created_at, id').all(boundedField(profileId, 'profileId', 128)) as Row[]
+        : db.prepare('SELECT * FROM run_groups WHERE profile_id = ? ORDER BY created_at, id').all(profileId) as Row[]
       return rows.map(row => runGroupSnapshot(db, row))
     })
   }
@@ -2335,7 +2343,8 @@ function runGroupSnapshot(db: DatabaseSync, group: Row): RunGroupSnapshot {
       taskId: text(member['task_id']),
       attemptId: textOrNull(member['source_attempt_id']),
       ordinal: int(member['ordinal']),
-      state: text(member['state']) as RunGroupSnapshot['members'][number]['state']
+      state: text(member['state']) as RunGroupSnapshot['members'][number]['state'],
+      specification: textOrNull(member['specification_json']) === null ? null : parseTaskExecutionSpecification(parseJson(textOrNull(member['specification_json']) as string), 'run member specification')
     })),
     createdAt: text(group['created_at']),
     updatedAt: text(group['updated_at'])

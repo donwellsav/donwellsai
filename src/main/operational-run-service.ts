@@ -1,6 +1,6 @@
 import { lstat } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename, isAbsolute, join, relative, sep } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import type { DiffReviewRunState } from '@shared/diff-review'
 import { isObject } from '@shared/command-catalog'
 import { runProcess } from '@shared/child-process/run-process'
@@ -12,7 +12,52 @@ import { hashVerificationArtifact } from './diff-review'
 import type { VerificationRunOptions, VerificationSource, VerificationArtifact, VerificationEntry, OperationalRunsApi, OperationalTarget, ParallelRunInput, ScheduledRunInput, ParallelRun, ParallelRunTask, ScheduledRunDefinition, ScheduledExecution } from '@shared/operational-runs'
 import { parseParallelRunInput, parseScheduledRunInput, parseVerificationOutputPaths } from '@shared/operational-runs'
 import type { DaemonClient } from './daemon-client'
+import { projectParallelRun, projectScheduledRunDefinition, projectScheduledExecution, type ProjectionRunGroup, type ProjectionSchedule, type ProjectionScheduleExecution, type ProjectionSpecification } from './task-authority/task-projections'
 import type { RunGroupSnapshot, ScheduleExecutionSnapshot, ScheduleSnapshot, TaskExecutionSpecificationInput, TaskSnapshot } from '@shared/task-authority'
+
+function projectionSpecification(specification: TaskExecutionSpecificationInput): ProjectionSpecification {
+  return { ...specification, legacyUnknown: false }
+}
+
+function runGroupProjection(group: RunGroupSnapshot, specs: readonly TaskExecutionSpecificationInput[] = []): ProjectionRunGroup {
+  return {
+    runGroupId: group.runGroupId,
+    profileId: group.profileId,
+    name: group.name,
+    retryOfRunGroupId: group.retryOfRunGroupId,
+    concurrency: group.concurrency,
+    state: group.state,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    members: group.members.map((member, index) => ({
+      projectId: member.projectId,
+      taskId: member.taskId,
+      ordinal: member.ordinal,
+      state: member.state,
+      externalTaskId: null,
+      title: null,
+      specification: (member.specification ?? specs[index]) === undefined ? null : projectionSpecification(member.specification ?? specs[index]!),
+      attempt: null
+    }))
+  }
+}
+
+function runGroupToLegacy(group: RunGroupSnapshot, specs: readonly TaskExecutionSpecificationInput[] = []): ParallelRun {
+  return projectParallelRun(runGroupProjection(group, specs))
+}
+
+function scheduleProjection(schedule: ScheduleSnapshot): ProjectionSchedule {
+  return { ...schedule, verification: schedule.verification, nextRunAt: schedule.nextRunAt, lastRunAt: null, lastStatus: null }
+}
+
+function scheduleToLegacy(schedule: ScheduleSnapshot): ScheduledRunDefinition {
+  return projectScheduledRunDefinition(scheduleProjection(schedule))
+}
+
+function executionToLegacy(execution: ScheduleExecutionSnapshot): ScheduledExecution {
+  const projection: ProjectionScheduleExecution = { ...execution, attempt: null }
+  return projectScheduledExecution(projection)
+}
 
 /** Open verified checkout text in the existing editor; other artifacts use the platform opener. */
 export async function openVerificationArtifact(path: string, workspacePath: string, sha256: string, openEditor: (workspacePath: string, relPath: string) => Promise<unknown>, openExternal: (path: string) => Promise<string>): Promise<void> {
@@ -39,50 +84,15 @@ function commandSpec(command: string, root: string, outputs: readonly string[] =
   }
 }
 
-function runGroupToLegacy(group: RunGroupSnapshot, specs: readonly TaskExecutionSpecificationInput[] = []): ParallelRun {
-  const tasks: ParallelRunTask[] = group.members.map((member, index) => {
-    const spec = specs[index]
-    const attempt = member.attemptId
-    const status: ParallelRunTask['status'] = member.state === 'claimed' || member.state === 'launching' ? 'launching' : member.state === 'running' ? 'running' : member.state === 'completed' ? 'succeeded' : member.state === 'failed' ? 'failed' : member.state === 'cancelled' ? 'cancelled' : member.state === 'cancelling' ? 'cancelling' : 'queued'
-    return {
-      id: member.taskId,
-      target: spec?.target ?? { kind: 'local', root: '', label: member.taskId },
-      command: spec ? [spec.command.program, ...spec.command.args].join(' ') : '',
-      status,
-      ...(attempt ? { sessionId: attempt } : {})
-    }
-  })
-  const status: ParallelRun['status'] = group.state === 'completed' ? 'succeeded' : group.state === 'cancelled' ? 'cancelled' : group.state === 'cancelling' ? 'cancelling' : tasks.some(task => task.status === 'running') ? 'running' : 'queued'
-  return { id: group.runGroupId, name: group.name, command: tasks[0]?.command ?? '', concurrency: group.concurrency, status, createdAt: group.createdAt, ...(group.retryOfRunGroupId ? { retryOfRunId: group.retryOfRunGroupId } : {}), tasks }
-}
 
-function scheduleToLegacy(schedule: ScheduleSnapshot): ScheduledRunDefinition {
-  return {
-    id: schedule.scheduleId,
-    name: schedule.taskTitle,
-    target: schedule.target,
-    command: [schedule.command.program, ...schedule.command.args].join(' '),
-    schedule: schedule.cadence,
-    enabled: schedule.enabled,
-    createdAt: schedule.createdAt,
-    updatedAt: schedule.updatedAt,
-    ...(schedule.nextRunAt ? { nextRunAt: schedule.nextRunAt } : {})
-  }
-}
-
-function executionToLegacy(execution: ScheduleExecutionSnapshot): ScheduledExecution {
-  const status: ScheduledExecution['status'] = execution.state === 'succeeded' ? 'succeeded' : execution.state === 'failed' ? 'failed' : execution.state === 'cancelled' ? 'cancelled' : execution.state === 'cancelling' ? 'running' : execution.state === 'running' ? 'running' : 'running'
-  return { id: execution.executionId, scheduledRunId: execution.scheduleId, trigger: execution.trigger === 'manual' ? 'manual' : 'schedule', startedAt: execution.createdAt, status, ...(execution.attemptId ? { sessionId: execution.attemptId } : {}) }
-}
-
-/** Main-process validation and intent adapter. All durable run state belongs to the daemon. */
+/** Main-process validation and intent adapter. All durable run state and maintenance admission belong to the daemon. */
 export class OperationalRunService implements OperationalRunsApi {
   private readonly profileId: string
   private readonly resolveProjectId: (path: string) => Promise<string>
   private readonly resolveWorkspacePath: (path: string) => Promise<string>
 
-  constructor(userDataDir: string, private readonly terminals: DaemonClient, resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: { source: (path: string) => Promise<VerificationSource>; artifactRoots: (path: string) => Promise<string[]>; openArtifact?: (path: string, workspacePath: string, sha256: string) => Promise<void> }, _admitAffectedWork?: (operationId: string) => Promise<string>, _completeAffectedWork?: (operationId: string, outcome: 'completed' | 'cancelled') => Promise<void>, resolveProjectId?: (path: string) => Promise<string>) {
-    this.profileId = userDataDir
+  constructor(userDataDir: string, private readonly terminals: DaemonClient, resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: { source: (path: string) => Promise<VerificationSource>; artifactRoots: (path: string) => Promise<string[]>; openArtifact?: (path: string, workspacePath: string, sha256: string) => Promise<void> }, resolveProjectId?: (path: string) => Promise<string>) {
+    this.profileId = createHash('sha256').update(userDataDir, 'utf8').digest('hex').slice(0, 32)
     this.resolveWorkspacePath = resolveWorkspace
     this.resolveProjectId = resolveProjectId ?? (async path => path)
   }
@@ -118,9 +128,15 @@ export class OperationalRunService implements OperationalRunsApi {
     const root = await this.localWorkspace(input.target)
     const projectId = await this.resolveProjectId(root)
     const spec = commandSpec(input.command, root)
-    const schedule = input.id
-      ? await this.terminals.taskScheduleUpdate({ projectId, scheduleId: input.id, expectedEntityVersion: 1, spec: { profileId: this.profileId, taskTitle: input.name, cadence: input.schedule, command: spec.command, target: spec.target, verification: spec.verification }, enabled: input.enabled })
-      : await this.terminals.taskScheduleCreate({ projectId, spec: { profileId: this.profileId, taskTitle: input.name, cadence: input.schedule, command: spec.command, target: spec.target, verification: spec.verification }, enabled: input.enabled, workspaceRoot: root })
+    const definition = { profileId: this.profileId, taskTitle: input.name, cadence: input.schedule, command: spec.command, target: spec.target, verification: spec.verification }
+    let schedule: ScheduleSnapshot
+    if (input.id) {
+      const current = (await this.terminals.taskSchedules(projectId)).find(candidate => candidate.scheduleId === input.id)
+      if (!current) throw new Error('Scheduled run does not exist')
+      schedule = await this.terminals.taskScheduleUpdate({ projectId, scheduleId: input.id, expectedEntityVersion: current.entityVersion, spec: definition, enabled: input.enabled })
+    } else {
+      schedule = await this.terminals.taskScheduleCreate({ projectId, spec: definition, enabled: input.enabled, workspaceRoot: root })
+    }
     return scheduleToLegacy(schedule)
   }
 
@@ -165,10 +181,11 @@ export class OperationalRunService implements OperationalRunsApi {
   async parallelRunStart(value: ParallelRunInput, options?: VerificationRunOptions): Promise<ParallelRun> {
     const input = parseParallelRunInput(value)
     const outputs = parseVerificationOutputPaths(options?.outputs ?? [])
-    if (options?.credential) await this.terminals.authenticateAgent(options.credential)
+    const authenticated = options?.credential ? await this.terminals.authenticateAgent(options.credential) : undefined
     const members: Array<{ projectId: string; taskId: string; specification: TaskExecutionSpecificationInput }> = []
     for (const target of input.targets) {
       const root = await this.localWorkspace(target)
+      if (authenticated && authenticated.workspacePath !== root) throw new Error('Agent session credential is not authorized for every parallel target workspace')
       const task = await this.createTask(root, input.name)
       const spec = commandSpec(input.command, root, outputs)
       members.push({ projectId: task.projectId, taskId: task.taskId, specification: spec })
@@ -230,7 +247,7 @@ export class OperationalRunService implements OperationalRunsApi {
     const root = await this.resolveWorkspacePath(workspacePath)
     const projectId = await this.resolveProjectId(root)
     const projection = await this.terminals.taskQuery({ projectId, limit: 100 })
-    return projection.tasks.filter(task => task.currentAttempt?.runtime?.sessionId !== null).slice(0, 20).map(task => ({ runId: task.currentAttempt?.attemptId ?? task.taskId, task: this.taskToLegacy(task), sourceState: task.status === 'done' ? 'current' : task.status === 'failed' ? 'stale' : 'running', artifacts: [] }))
+    return projection.tasks.filter(task => task.currentAttempt?.runtime?.sessionId !== undefined && task.currentAttempt.runtime.sessionId !== null).slice(0, 20).map(task => ({ runId: task.currentAttempt?.attemptId ?? task.taskId, task: this.taskToLegacy(task), sourceState: task.status === 'done' ? 'current' : task.status === 'failed' ? 'stale' : task.currentAttempt?.runtime?.sessionId ? 'running' : 'unverified', artifacts: [] }))
   }
 
   async verificationReviewRuns(workspacePath: string): Promise<Record<string, DiffReviewRunState>> {
@@ -241,7 +258,8 @@ export class OperationalRunService implements OperationalRunsApi {
   private taskToLegacy(task: TaskSnapshot): ParallelRunTask {
     const attempt = task.currentAttempt
     const spec = attempt ? { command: { program: 'unknown', args: [] }, target: { kind: 'local' as const, root: '', label: '' }, verification: { requiredArtifacts: [] } } : undefined
-    return { id: task.taskId, target: spec?.target ?? { kind: 'local', root: '', label: '' }, command: spec ? spec.command.program : '', status: task.status === 'done' ? 'succeeded' : task.status === 'failed' ? 'failed' : task.status === 'cancelled' ? 'cancelled' : 'running', ...(attempt?.runtime?.sessionId ? { sessionId: attempt.runtime.sessionId } : {}), ...(attempt?.startedAt ? { startedAt: attempt.startedAt } : {}), ...(attempt?.finishedAt ? { finishedAt: attempt.finishedAt } : {}) }
+    const status: ParallelRunTask['status'] = task.status === 'done' ? 'succeeded' : task.status === 'failed' ? 'failed' : task.status === 'cancelled' ? 'cancelled' : task.currentAttempt?.runtime?.sessionId ? 'running' : 'queued'
+    return { id: task.taskId, target: spec?.target ?? { kind: 'local', root: '', label: '' }, command: spec ? spec.command.program : '', status, ...(attempt?.runtime?.sessionId ? { sessionId: attempt.runtime.sessionId } : {}), ...(attempt?.startedAt ? { startedAt: attempt.startedAt } : {}), ...(attempt?.finishedAt ? { finishedAt: attempt.finishedAt } : {}) }
   }
 
   async verificationOpen(_workspacePath: string, _runId: string, _taskId: string, _path: string): Promise<void> {

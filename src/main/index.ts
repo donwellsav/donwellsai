@@ -837,7 +837,6 @@ void app.whenReady().then(async () => {
       if (!mcp) throw new Error('Project memory MCP launcher is unavailable')
       return [{ name: 'donwells-project-memory', command: mcp.command, args: [...mcp.args, 'memory-mcp', '--workspace', workspacePath, '--harness', 'opencode', '--user-data', meta.userDataDir], env: Object.entries(mcp.env).map(([name, value]) => ({ name, value })) }]
     },
-    requireTask: (path, id) => projectTasks.requireTask(path, id),
     registeredWorkspaces: async () => (await git.listAll()).flatMap<AgentWorkspaceRegistration>((summary) => [
       { path: summary.repo.path, host: { kind: 'local' } },
       ...summary.worktrees.map<AgentWorkspaceRegistration>((worktree) => ({ path: worktree.path, host: { kind: 'local' } }))
@@ -877,12 +876,6 @@ void app.whenReady().then(async () => {
         return [scope.checkoutPath, join(app.getPath('userData'), 'project-tools', 'browser', scope.indexKey)]
       }
     },
-    async operationId => {
-      const state = await terminalBus.maintenanceState()
-      if (state.phase === 'open') return ''
-      return (await terminalBus.maintenanceAdmitAffected(operationId)).operationId
-    },
-    async (operationId, outcome) => { await terminalBus.maintenanceCompleteAffected(operationId, outcome).catch(() => undefined) },
     async path => (await resolveRegisteredProjectWorkspace(store, path)).projectId
   )
 

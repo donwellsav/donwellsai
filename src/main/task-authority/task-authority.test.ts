@@ -847,6 +847,16 @@ describe('task authority schedules and executions', () => {
   })
 })
 
+describe('authenticated task projection reads', () => {
+  it('allows administrators and rejects worker connections for schedule and run-group lists', () => {
+    const { authority } = openAuthority()
+    expect(authority.listSchedules({ connection: admin() })).toEqual([])
+    expect(authority.listRunGroups({ connection: admin() })).toEqual([])
+    expect(() => authority.listSchedules({ connection: worker(OWNER_ALICE) })).toThrowError(expect.objectContaining({ code: 'AUTHORIZATION_DENIED' }))
+    expect(() => authority.listRunGroups({ connection: worker(OWNER_ALICE) })).toThrowError(expect.objectContaining({ code: 'AUTHORIZATION_DENIED' }))
+  })
+})
+
 describe('task authority run groups and mailbox', () => {
   it('enforces profile-wide capacity across mixed-repository members', () => {
     const { authority } = openAuthority()

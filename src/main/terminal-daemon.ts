@@ -1720,7 +1720,7 @@ export class TerminalDaemon {
         }
       case 'task.schedule.list': {
         const projectId = taskWireString(message['projectId'], 'projectId')
-        return { schedules: this.taskAuthority.listSchedules(projectId) }
+        return { schedules: this.taskAuthority.listSchedules({ connection: this.taskAdminConnection(socket), ...(projectId === undefined ? {} : { projectId }) }) }
       }
       case 'task.schedule.executions.list': {
         const state = taskWireString(message['state'], 'state', 16)
@@ -1742,7 +1742,7 @@ export class TerminalDaemon {
       }
       case 'task.run-group.list': {
         const profileId = taskWireString(message['profileId'], 'profileId')
-        return { runGroups: this.taskAuthority.listRunGroups(profileId) }
+        return { runGroups: this.taskAuthority.listRunGroups({ connection: this.taskAdminConnection(socket), ...(profileId === undefined ? {} : { profileId }) }) }
       }
       case 'task.schedule.execution.cancel':
         return {

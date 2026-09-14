@@ -46,23 +46,24 @@ import { spawnProcess } from '@shared/child-process/run-process'
 import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
 import { reconcileRuntimeOwner } from './runtime-ownership'
-import type {
-  AttemptSnapshot,
-  ClaimResult,
-  HandoffOffer,
-  LeaseSnapshot,
-  LeaseToken,
-  RunGroupSnapshot,
-  ScheduleExecutionSnapshot,
-  ScheduleSnapshot,
-  TaskExecutionSpecificationInput,
-  TaskMailboxEntry,
-  TaskProjection,
-  TaskScheduleCadence,
-  TaskScheduleSpec,
-  TaskSnapshot,
-  TaskStatus,
-  VerificationArtifactInput
+import {
+  parseTaskExecutionSpecification,
+  type AttemptSnapshot,
+  type ClaimResult,
+  type HandoffOffer,
+  type LeaseSnapshot,
+  type LeaseToken,
+  type RunGroupSnapshot,
+  type ScheduleExecutionSnapshot,
+  type ScheduleSnapshot,
+  type TaskExecutionSpecificationInput,
+  type TaskMailboxEntry,
+  type TaskProjection,
+  type TaskScheduleCadence,
+  type TaskScheduleSpec,
+  type TaskSnapshot,
+  type TaskStatus,
+  type VerificationArtifactInput
 } from '@shared/task-authority'
 
 /** Daemon protocol capability that activates the task authority command surface. */
@@ -516,12 +517,14 @@ function parseRunGroupWire(value: unknown): RunGroupSnapshot {
     entityVersion: parseWireInteger(record['entityVersion'], 'runGroup.entityVersion'),
     members: record['members'].map((member, index) => {
       const memberRecord = parseWireRecord(member, `runGroup.members[${index}]`)
+      const specification = memberRecord['specification'] === null || memberRecord['specification'] === undefined ? null : parseTaskExecutionSpecification(memberRecord['specification'], `runGroup.members[${index}].specification`)
       return {
         projectId: parseWireString(memberRecord['projectId'], `runGroup.members[${index}].projectId`),
         taskId: parseWireString(memberRecord['taskId'], `runGroup.members[${index}].taskId`),
         attemptId: parseWireStringOrNull(memberRecord['attemptId'], `runGroup.members[${index}].attemptId`),
         ordinal: parseWireInteger(memberRecord['ordinal'], `runGroup.members[${index}].ordinal`),
-        state: parseWireEnum(memberRecord['state'], `runGroup.members[${index}].state`, RUN_MEMBER_STATES)
+        state: parseWireEnum(memberRecord['state'], `runGroup.members[${index}].state`, RUN_MEMBER_STATES),
+        specification
       }
     }),
     createdAt: parseWireString(record['createdAt'], 'runGroup.createdAt'),

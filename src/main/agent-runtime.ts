@@ -14,6 +14,16 @@ import type { DaemonClient } from './daemon-client'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
 const MAX_AGENT_COMMAND_LENGTH = 16 * 1024
+
+/** Task-linked opens require the coordinator's claim/launch-intent seam. */
+export class TaskLinkedAgentOpenError extends Error {
+  readonly code = 'TASK_LINKED_AGENT_REQUIRES_COORDINATOR'
+
+  constructor() {
+    super('Task-linked agent.open requires the task coordinator claim and launch-intent path')
+    this.name = 'TaskLinkedAgentOpenError'
+  }
+}
 export type AgentWorkspaceRegistration = { path: string; host: ExecutionHost }
 
 export type AgentRuntimeOptions = {
@@ -22,7 +32,6 @@ export type AgentRuntimeOptions = {
   registeredWorkspaces: () =>
     | readonly AgentWorkspaceRegistration[]
     | Promise<readonly AgentWorkspaceRegistration[]>
-  requireTask?: (path: string, id: string) => Promise<void>
   registry?: AgentRegistry
 }
 
@@ -153,11 +162,7 @@ export class AgentRuntime {
     if (normalizedCommand.length > MAX_AGENT_COMMAND_LENGTH) throw new Error('agent command exceeds limit')
     const registrations = await this.options.registeredWorkspaces()
     const cwd = validateAgentWorkspacePath(workspacePath, registrations)
-    if (intent?.externalId) {
-      if (!this.options.requireTask) throw new Error('External task authority is unavailable')
-      await this.options.requireTask(cwd, intent.externalId)
-      validateAgentWorkspacePath(workspacePath, await this.options.registeredWorkspaces())
-    }
+    if (intent?.externalId !== undefined) throw new TaskLinkedAgentOpenError()
     const provider = launch ? agentProviderForExecutable(launch.executable) : this.registry.providerForCommand(normalizedCommand)
     if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
       throw new Error(`${provider.name} executable is unavailable`)

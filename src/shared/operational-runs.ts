@@ -45,7 +45,6 @@ export type ScheduledRunInput = {
   enabled?: boolean
 }
 
-export type ScheduledRunPatch = Partial<Omit<ScheduledRunInput, 'id'>>
 
 export type ScheduledExecution = {
   id: string
@@ -332,16 +331,6 @@ export function parseScheduledRunInput(value: unknown, field = 'scheduledRun'): 
   }
 }
 
-export function parseScheduledRunPatch(value: unknown, field = 'scheduledRunPatch'): ScheduledRunPatch {
-  const source = record(value, field)
-  const result: ScheduledRunPatch = {}
-  if (source.name !== undefined) result.name = stringValue(source.name, `${field}.name`, 256, true)
-  if (source.target !== undefined) result.target = parseOperationalTarget(source.target, `${field}.target`)
-  if (source.command !== undefined) result.command = stringValue(source.command, `${field}.command`, 32_768, true)
-  if (source.schedule !== undefined) result.schedule = parseScheduledRunSchedule(source.schedule, `${field}.schedule`)
-  if (source.enabled !== undefined) result.enabled = booleanValue(source.enabled, `${field}.enabled`)
-  return result
-}
 
 const SCHEDULED_EXECUTION_STATUSES = [
   'running', 'cancelling', 'succeeded', 'failed', 'cancelled', 'unverifiable', 'skipped', 'interrupted'
@@ -544,6 +533,18 @@ export function parseVerificationOutputPaths(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 16 || value.some(path => typeof path !== 'string' || !path || path.length > 4096 || /[\\\x00-\x1f\x7f]/.test(path) || path.startsWith('/') || /^[A-Za-z]:/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..'))) throw new Error('Declare up to16 unique checkout-relative output files without traversal')
   if (new Set(value).size !== value.length) throw new Error('Duplicate declared output path')
   return [...value]
+}
+
+export function parseVerificationRunOptions(value: unknown, field = 'verificationOptions'): VerificationRunOptions | undefined {
+  if (value === undefined) return undefined
+  const source = record(value, field)
+  for (const key of Object.keys(source)) if (!['outputs', 'credential'].includes(key)) throw new OperationalRunValidationError(field, `unknown key "${key}"`)
+  const credential = source.credential === undefined ? undefined : record(source.credential, `${field}.credential`)
+  if (credential && (Object.keys(credential).some(key => !['runId', 'sessionId', 'token'].includes(key)) || ['runId', 'sessionId', 'token'].some(key => typeof credential[key] !== 'string' || !(credential[key] as string) || (credential[key] as string).length > 256))) throw new OperationalRunValidationError(`${field}.credential`, 'must contain only bounded runId, sessionId, and token strings')
+  return {
+    ...(source.outputs === undefined ? {} : { outputs: parseVerificationOutputPaths(source.outputs) }),
+    ...(credential === undefined ? {} : { credential: { runId: credential.runId as string, sessionId: credential.sessionId as string, token: credential.token as string } })
+  }
 }
 function parseVerificationOrigin(value: unknown): VerificationOrigin {
   const input = record(value, 'verification origin')

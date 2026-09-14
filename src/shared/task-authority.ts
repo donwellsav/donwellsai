@@ -598,6 +598,7 @@ export type RunMemberSnapshot = Readonly<{
   attemptId: string | null
   ordinal: number
   state: RunMemberState
+  specification: TaskExecutionSpecificationInput | null
 }>
 
 export type RunGroupSnapshot = Readonly<{
@@ -842,6 +843,8 @@ export interface TaskAuthority {
   createTask(input: AdminCreateTaskInput): TaskSnapshot
   updateTask(input: AdminUpdateTaskInput): TaskSnapshot
   setDependencies(input: AdminSetDependenciesInput): TaskSnapshot
+  listSchedules(input: Readonly<{ connection: AuthenticatedAuthorityConnection; projectId?: string }>): readonly ScheduleSnapshot[]
+  listRunGroups(input: Readonly<{ connection: AuthenticatedAuthorityConnection; profileId?: string }>): readonly RunGroupSnapshot[]
   createSchedule(input: AdminCreateScheduleInput): ScheduleSnapshot
   updateSchedule(input: AdminUpdateScheduleInput): ScheduleSnapshot
   duplicateSchedule(input: AdminDuplicateScheduleInput): ScheduleSnapshot
