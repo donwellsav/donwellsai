@@ -2,13 +2,15 @@
 
 ## Status
 
-Complete. Three commits on `roadmap/stage-3-provider-authority`:
+Complete. Commits on `roadmap/stage-3-provider-authority`:
 
 | Commit | Subject |
 |---|---|
 | `7372ecd` | feat: add provider secret authority |
 | `c35dae0` | feat: add the authenticated provider secret broker |
 | `8d14167` | feat: delete raw renderer secret authority |
+| `e181efa` | feat: deliver the Graphiti password over bounded child stdin |
+| `dd05737` | docs: record the Task 2 secret authority report |
 
 Base: `722752b` (Task 1 catalog complete).
 
