@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord, type LocalRuntimeRecord } from './local-runtime'
-import { DaemonClient, DaemonUpgradeRequiredError, type DaemonEvents } from './daemon-client'
+import { DaemonClient, DaemonRequestError, DaemonUpgradeRequiredError, type DaemonEvents } from './daemon-client'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
 
@@ -474,6 +474,92 @@ describe('daemon task authority upgrade negotiation', () => {
     } finally {
       client.disconnect()
       await new Promise<void>(resolve => oldDaemon.server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('provider catalog client surface', () => {
+  /** A daemon that advertises the provider catalog and answers with canned frames. */
+  function providerServer(token: string, respond: (message: Record<string, unknown>) => Record<string, unknown>): { server: Server; requests: Record<string, unknown>[] } {
+    const requests: Record<string, unknown>[] = []
+    const server = createServer(socket => {
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>
+          buffer = buffer.slice(newline + 1)
+          if (message['op'] === 'hello') {
+            // A legacy locator handshake, matching the shape the other legacy
+            // cases in this file use: declare capabilities only.
+            socket.write(JSON.stringify({ id: message['id'], ok: message['authToken'] === token, protocolVersion: 3, capabilities: ['provider-catalog-v1'] }) + '\n')
+            continue
+          }
+          requests.push(message)
+          socket.write(JSON.stringify({ id: message['id'], ...respond(message) }) + '\n')
+        }
+      })
+    })
+    return { server, requests }
+  }
+  const emptySnapshot = { revision: 1, defaultInstanceId: null, drivers: [], accounts: [], instances: [] }
+  const connection = (directory: string, token: string) => new DaemonClient(directory, events, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
+
+  it.runIf(process.platform !== 'win32')('sends instance operations under the non-colliding instanceId field', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'provider-client-wire-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    const token = 'provider-client-token-123456'
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: paths.socketPath, authToken: token }), { mode: 0o600 })
+    const { server, requests } = providerServer(token, message => {
+      if (message['op'] === 'agent.providers') return { ok: true, snapshot: emptySnapshot }
+      return { ok: true, snapshot: emptySnapshot }
+    })
+    const client = connection(directory, token)
+    try {
+      await listen(server, paths.socketPath)
+      await expect(client.providerCatalogSnapshot()).resolves.toMatchObject({ revision: 1 })
+      await expect(client.providerCatalogCreate({ driverId: 'codex', displayName: 'c', command: { kind: 'driver', driverId: 'codex' }, credentialMode: 'external', accountId: null, enabled: true })).resolves.toMatchObject({ revision: 1 })
+      await expect(client.providerCatalogUpdate('instance-1', 1, { driverId: 'codex', displayName: 'c', command: { kind: 'driver', driverId: 'codex' }, credentialMode: 'external', accountId: null, enabled: true })).resolves.toMatchObject({ revision: 1 })
+      await expect(client.providerCatalogRemove('instance-1', 1)).resolves.toMatchObject({ revision: 1 })
+      await expect(client.providerCatalogSetDefault('instance-1', 1)).resolves.toMatchObject({ revision: 1 })
+      await expect(client.providerCatalogSetDefault(null, 1)).resolves.toMatchObject({ revision: 1 })
+      const update = requests.find(request => request['op'] === 'agent.providers.update')
+      // The envelope id stays the correlation id; the instance travels beside it.
+      expect(update).toMatchObject({ instanceId: 'instance-1', expectedRevision: 1 })
+      expect(update?.['id']).not.toBe('instance-1')
+      expect(requests.find(request => request['op'] === 'agent.providers.default')).toMatchObject({ instanceId: 'instance-1' })
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('surfaces a coded daemon refusal as a typed error and refuses a leaked projection', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'provider-client-typed-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    const token = 'provider-client-typed-token-123456'
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: paths.socketPath, authToken: token }), { mode: 0o600 })
+    const { server } = providerServer(token, message => {
+      if (message['op'] === 'agent.providers.remove') return { ok: false, code: 'INSTANCE_CHANGED', error: 'provider revision changed' }
+      // A daemon that leaked credential material must not be trusted.
+      return { ok: true, snapshot: { ...emptySnapshot, accounts: [{ id: 'a', driverId: 'codex', displayLabel: 'x', revision: 1, credentialRef: 'stolen' }] } }
+    })
+    const client = connection(directory, token)
+    try {
+      await listen(server, paths.socketPath)
+      const refusal = await client.providerCatalogRemove('instance-1', 1).then(() => null, error => error)
+      expect(refusal).toBeInstanceOf(DaemonRequestError)
+      expect(refusal).toMatchObject({ code: 'INSTANCE_CHANGED', operation: 'agent.providers.remove' })
+      await expect(client.providerCatalogSnapshot()).rejects.toThrow(/credential field/)
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
       rmSync(directory, { recursive: true, force: true })
     }
   })

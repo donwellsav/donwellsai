@@ -12,7 +12,7 @@ import {
   type ProfileMaintenanceTransitionReceipt
 } from '@shared/profile-maintenance'
 import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
-import { parseProviderCatalogSnapshot, type ProviderCatalogSnapshot } from '@shared/provider-authority'
+import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderInstanceInput } from '@shared/provider-authority'
 import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
@@ -69,7 +69,6 @@ import {
 
 /** Daemon protocol capability that activates the task authority command surface. */
 const TASK_AUTHORITY = 'task-authority-v1'
-const PROVIDER_CATALOG = 'provider-catalog-v1'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
@@ -102,6 +101,7 @@ export type DaemonStatus = {
 }
 
 type Pending = {
+  operation: string
   resolve(value: unknown): void
   reject(error: Error): void
   timer: NodeJS.Timeout
@@ -141,6 +141,18 @@ export class DaemonUpgradeRequiredError extends Error {
     super(`terminal daemon owns live sessions and blocks task authority activation until they exit (pid=${status.pid ?? 'unknown'}, sessions=${status.sessionCount}, live=${status.liveSessionCount})`)
     this.name = 'DaemonUpgradeRequiredError'
     this.status = status
+  }
+}
+
+/**
+ * A daemon refusal that carried a typed code. Provider catalog callers switch on
+ * `code` (revision conflicts, credential holds, corrupt catalog) instead of
+ * matching message text, so the refusal survives the wire as a contract.
+ */
+export class DaemonRequestError extends Error {
+  constructor(readonly operation: string, readonly code: string, message: string) {
+    super(message)
+    this.name = 'DaemonRequestError'
   }
 }
 
@@ -828,7 +840,11 @@ export class DaemonClient {
       clearTimeout(pending.timer)
       this.pending.delete(id)
       if (message['ok'] === true) pending.resolve(message)
-      else pending.reject(new Error(String(message['error'] ?? 'daemon error')))
+      else {
+        const code = message['code']
+        if (typeof code === 'string' && code.length > 0) pending.reject(new DaemonRequestError(pending.operation, code, String(message['error'] ?? 'daemon error')))
+        else pending.reject(new Error(String(message['error'] ?? 'daemon error')))
+      }
     }
   }
 
@@ -956,6 +972,7 @@ export class DaemonClient {
       pending.reject(new Error(`terminal daemon request timed out: ${operation}`))
     }, this.requestTimeoutMs)
     this.pending.set(id, {
+      operation,
       resolve: completion.resolve,
       reject: completion.reject,
       timer
@@ -1077,8 +1094,45 @@ export class DaemonClient {
     return response.runs.map(requireRunningAgent)
   }
   async providerCatalogSnapshot(): Promise<ProviderCatalogSnapshot> {
-    await this.requireCapability(PROVIDER_CATALOG, 'reading provider catalog')
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'reading provider catalog')
     const response = await this.request<{ snapshot: unknown }>('agent.providers')
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogCreate(input: ProviderInstanceInput): Promise<ProviderCatalogSnapshot> {
+    const parsed = parseProviderInstanceInput(input)
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'creating provider instance')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.create', { input: parsed })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogUpdate(id: string, expectedRevision: number, input: ProviderInstanceInput): Promise<ProviderCatalogSnapshot> {
+    const parsed = parseProviderInstanceInput({ ...input, id })
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'updating provider instance')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.update', { instanceId: id, expectedRevision, input: parsed })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogRemove(id: string, expectedRevision: number): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'removing provider instance')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.remove', { instanceId: id, expectedRevision })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogSetDefault(id: string | null, expectedRevision: number): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'setting provider default')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.default', { instanceId: id, expectedRevision })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogCreateAccount(input: { driverId: ProviderAccount['driverId']; displayLabel: string }): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'creating provider account')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.account.create', { input })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogUpdateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'updating provider account')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.account.update', { input })
+    return parseProviderCatalogSnapshot(response.snapshot)
+  }
+  async providerCatalogRemoveAccount(input: { id: string; expectedRevision: number }): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'removing provider account')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers.account.remove', { input })
     return parseProviderCatalogSnapshot(response.snapshot)
   }
   /** Optional capability: an older detached daemon remains authoritative and untouched. */

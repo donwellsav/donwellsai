@@ -48,7 +48,7 @@ import {
   parseProfileMaintenanceTransitionIntent,
   type ProfileMaintenanceParticipant
 } from '@shared/profile-maintenance'
-import { SqliteProviderCatalog } from './provider-catalog'
+import { SqliteProviderCatalog, ProviderCatalogError } from './provider-catalog'
 import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
   AGENT_PROVIDER_DEFINITIONS,
@@ -64,6 +64,7 @@ import {
   type AgentTaskIntent,
   type RunningAgent
 } from '@shared/agent-runtime'
+import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAPABILITY } from '@shared/provider-authority'
 import {
   ATTENTION_INBOX_CAPABILITY,
   parseAttentionAcknowledgeRequest
@@ -83,7 +84,7 @@ import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { RuntimeOwnershipError } from '@shared/runtime-ownership'
 import { AcpSessions } from './agents/acp-sessions'
 export const TASK_AUTHORITY_CAPABILITY = 'task-authority-v1'
-export const PROVIDER_CATALOG_CAPABILITY = 'provider-catalog-v1'
+export const PROVIDER_CATALOG_CAPABILITY = AGENT_PROVIDER_CATALOG_CAPABILITY
 
 export const SCROLLBACK_MAX = 512 * 1024
 export const DAEMON_PROTOCOL_VERSION = 3
@@ -1060,6 +1061,65 @@ export class TerminalDaemon {
         case 'agent.providers':
           reply(true, { snapshot: this.providerCatalog.snapshot() })
           break
+        case 'agent.providers.create': {
+          const input = parseProviderInstanceInput(message['input'])
+          this.providerCatalog.create(input)
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
+        case 'agent.providers.update': {
+          // The transport reserves the envelope's `id` for request correlation,
+          // so the instance is named by its own field.
+          const instanceId = taskWireRequiredString(message['instanceId'], 'instanceId')
+          const expectedRevision = taskWireEntityVersion(message['expectedRevision'], 'expectedRevision')
+          const input = parseProviderInstanceInput({ ...(message['input'] as Record<string, unknown>), id: instanceId })
+          this.providerCatalog.update(instanceId, expectedRevision, input)
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
+        case 'agent.providers.remove': {
+          const instanceId = taskWireRequiredString(message['instanceId'], 'instanceId')
+          const expectedRevision = taskWireEntityVersion(message['expectedRevision'], 'expectedRevision')
+          this.providerCatalog.remove(instanceId, expectedRevision)
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
+        case 'agent.providers.default': {
+          const instanceId = message['instanceId'] === null ? null : taskWireRequiredString(message['instanceId'], 'instanceId')
+          const expectedRevision = taskWireEntityVersion(message['expectedRevision'], 'expectedRevision')
+          reply(true, { snapshot: this.providerCatalog.setDefault(instanceId, expectedRevision) })
+          break
+        }
+        case 'agent.providers.account.create': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be an account object')
+          const record = input as Record<string, unknown>
+          if (Object.keys(record).some(key => key !== 'driverId' && key !== 'displayLabel')) throw new TaskAuthorityValidationError('input', 'contains an unknown field')
+          const driverId = taskWireRequiredString(record['driverId'], 'input.driverId')
+          const displayLabel = taskWireRequiredString(record['displayLabel'], 'input.displayLabel', 256)
+          if (!isAgentDriverId(driverId)) throw new TaskAuthorityValidationError('input.driverId', 'must identify a known provider driver')
+          this.providerCatalog.createAccount({ driverId, displayLabel })
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
+        case 'agent.providers.account.update': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be an account update object')
+          const record = input as Record<string, unknown>
+          if (Object.keys(record).some(key => key !== 'id' && key !== 'expectedRevision' && key !== 'displayLabel')) throw new TaskAuthorityValidationError('input', 'contains an unknown field')
+          this.providerCatalog.updateAccount({ id: taskWireRequiredString(record['id'], 'input.id'), expectedRevision: taskWireEntityVersion(record['expectedRevision'], 'input.expectedRevision'), displayLabel: taskWireRequiredString(record['displayLabel'], 'input.displayLabel', 256) })
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
+        case 'agent.providers.account.remove': {
+          const input = message['input']
+          if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new TaskAuthorityValidationError('input', 'must be an account removal object')
+          const record = input as Record<string, unknown>
+          if (Object.keys(record).some(key => key !== 'id' && key !== 'expectedRevision')) throw new TaskAuthorityValidationError('input', 'contains an unknown field')
+          this.providerCatalog.removeAccount({ id: taskWireRequiredString(record['id'], 'input.id'), expectedRevision: taskWireEntityVersion(record['expectedRevision'], 'input.expectedRevision') })
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
+          break
+        }
         case 'agent.authenticate': {
           const binding = this.authenticateHook(message)
           if (binding && this.pty.liveness(binding.record.run.sessionId) === 'live') reply(true, { run: cloneRun(binding.record.run) })
@@ -1218,6 +1278,7 @@ export class TerminalDaemon {
             error => reply(false, {
               error: error instanceof Error ? error.message : String(error),
               ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
+              ...(error instanceof ProviderCatalogError ? { code: error.code } : {}),
               ...(error instanceof TaskAuthorityMigrationError ? { code: error.code } : {}),
               ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {}),
               // A malformed gate input is a coded maintenance failure, not an
@@ -1266,7 +1327,8 @@ export class TerminalDaemon {
     } catch (error) {
       reply(false, {
         error: error instanceof Error ? error.message : String(error),
-        ...(error instanceof TaskAuthorityError ? { code: error.code } : {})
+        ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
+        ...(error instanceof ProviderCatalogError ? { code: error.code } : {})
       })
     }
   }

@@ -705,3 +705,97 @@ describe('terminal daemon maintenance and migration wire surface', () => {
     }
   })
 })
+
+describe('terminal daemon provider catalog wire surface', () => {
+  async function startDaemon(): Promise<{ directory: string; socketPath: string; token: string; daemon: TerminalDaemon }> {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-providers-')))
+    const token = 'terminal-providers-token-123456789'
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: token })
+    await daemon.start()
+    const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+    if (locator.status !== 'current') {
+      await daemon.stopIfIdle()
+      throw new Error('terminal locator was not published')
+    }
+    return { directory, socketPath: locator.record.socketPath, token, daemon }
+  }
+  const instance = { driverId: 'codex', displayName: 'Wire codex', command: { kind: 'driver', driverId: 'codex' }, credentialMode: 'external', accountId: null, enabled: true }
+
+  it('advertises the provider catalog capability and serves a sanitized read', async () => {
+    const started = await startDaemon()
+    try {
+      const hello = await readHello(started.socketPath, started.token)
+      expect(hello['capabilities']).toContain('provider-catalog-v1')
+      const reply = await callWireOp(started.socketPath, started.token, 'agent.providers')
+      expect(reply).toMatchObject({ ok: true })
+      const snapshot = reply['snapshot'] as Record<string, unknown>
+      expect(snapshot).toMatchObject({ defaultInstanceId: null, accounts: [], instances: [] })
+      // Driver projections carry declarative capability facts, never credentials.
+      const drivers = snapshot['drivers'] as Array<Record<string, unknown>>
+      expect(drivers.some(driver => driver['kind'] === 'known' && driver['id'] === 'codex')).toBe(true)
+      expect(JSON.stringify(snapshot)).not.toMatch(/credentialRef|bindingGeneration|credentialRevision|authFile/)
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('serves governed create, default, update, and remove without returning secrets', async () => {
+    const started = await startDaemon()
+    try {
+      const created = await callWireOp(started.socketPath, started.token, 'agent.providers.create', { input: instance })
+      expect(created).toMatchObject({ ok: true })
+      const createdSnapshot = created['snapshot'] as Record<string, unknown>
+      const record = (createdSnapshot['instances'] as Array<Record<string, unknown>>)[0]!
+      expect(record).toMatchObject({ displayName: 'Wire codex', revision: 1, availability: 'available' })
+
+      const defaulted = await callWireOp(started.socketPath, started.token, 'agent.providers.default', { instanceId: record['id'], expectedRevision: Number(createdSnapshot['revision']) })
+      expect(defaulted['snapshot']).toMatchObject({ defaultInstanceId: record['id'] })
+
+      const updated = await callWireOp(started.socketPath, started.token, 'agent.providers.update', { instanceId: record['id'], expectedRevision: 1, input: { ...instance, displayName: 'Wire codex updated' } })
+      expect((updated['snapshot'] as Record<string, unknown>)['instances']).toMatchObject([{ displayName: 'Wire codex updated', revision: 2 }])
+
+      const removed = await callWireOp(started.socketPath, started.token, 'agent.providers.remove', { instanceId: record['id'], expectedRevision: 2 })
+      expect(removed['snapshot']).toMatchObject({ defaultInstanceId: null, instances: [] })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('serves account create, update, and remove with revision fencing', async () => {
+    const started = await startDaemon()
+    try {
+      const created = await callWireOp(started.socketPath, started.token, 'agent.providers.account.create', { input: { driverId: 'codex', displayLabel: 'Wire account' } })
+      expect(created).toMatchObject({ ok: true })
+      const account = ((created['snapshot'] as Record<string, unknown>)['accounts'] as Array<Record<string, unknown>>)[0]!
+
+      const updated = await callWireOp(started.socketPath, started.token, 'agent.providers.account.update', { input: { id: account['id'], expectedRevision: 1, displayLabel: 'Wire account renamed' } })
+      expect((updated['snapshot'] as Record<string, unknown>)['accounts']).toMatchObject([{ displayLabel: 'Wire account renamed', revision: 2 }])
+
+      const removed = await callWireOp(started.socketPath, started.token, 'agent.providers.account.remove', { input: { id: account['id'], expectedRevision: 2 } })
+      expect(removed['snapshot']).toMatchObject({ accounts: [] })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
+  it('returns typed codes for stale revisions and malformed frames', async () => {
+    const started = await startDaemon()
+    try {
+      await callWireOp(started.socketPath, started.token, 'agent.providers.create', { input: instance })
+      // A stale revision is a coded conflict, not a message the caller parses.
+      const stale = await callWireOp(started.socketPath, started.token, 'agent.providers.update', { instanceId: 'missing', expectedRevision: 1, input: instance })
+      expect(stale).toMatchObject({ ok: false, code: 'INSTANCE_NOT_FOUND' })
+      // Bounded frame validation still runs before the catalog sees anything.
+      const malformed = await callWireOp(started.socketPath, started.token, 'agent.providers.create', { input: { ...instance, credentialRef: 'stolen' } })
+      expect(malformed).toMatchObject({ ok: false })
+      const unknownDriver = await callWireOp(started.socketPath, started.token, 'agent.providers.account.create', { input: { driverId: 'not-a-driver', displayLabel: 'x' } })
+      expect(unknownDriver).toMatchObject({ ok: false })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+})
