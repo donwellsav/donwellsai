@@ -514,12 +514,16 @@ export class TaskSchedulerPump {
     }
     // Queued run-group members with a committed immutable specification are
     // fanned out by the daemon worker; profile-wide capacity is enforced inside
-    // the claim transaction, and members without a specification await an
+    // the claim transaction. Capacity rejection is expected scheduling state,
+    // not a failure: the whole group is skipped for the rest of this tick and
+    // retried on the next one. Members without a specification await an
     // external worker that brings its own.
     const members = this.authority.listQueuedRunMembers()
+    const capacityBlockedGroups = new Set<string>()
     for (const member of members) {
       if (member.specification === null) continue
       if (claimed.some(entry => entry.claim.task.taskId === member.taskId)) continue
+      if (capacityBlockedGroups.has(member.runGroupId)) continue
       try {
         claimed.push({
           claim: this.authority.claim({
@@ -531,6 +535,10 @@ export class TaskSchedulerPump {
           specification: member.specification
         })
       } catch (error) {
+        if (error instanceof TaskAuthorityError && error.code === 'TASK_NOT_RUNNABLE') {
+          capacityBlockedGroups.add(member.runGroupId)
+          continue
+        }
         failures.push({ scope: `run-member:${member.projectId}:${member.taskId}`, error: authorityMessage(error) })
       }
     }

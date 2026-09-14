@@ -424,6 +424,7 @@ describe('daemon task authority upgrade negotiation', () => {
     }
     const oldDaemon = oldDaemonServer(paths.socketPath, oldToken, { idle: true, sessionCount: 0, liveSessionCount: 0 }, { onShutdown: releaseOnlyOwnerRow, handshake: { ownerId: OLD_OWNER_ID, generation: 1, processIdentity: oldIdentity } })
     const client = new DaemonClient(directory, events, PACKAGED_DAEMON_ENTRY, { handshakeTimeoutMs: 2_000, requestTimeoutMs: 5_000 })
+    let daemonExited = false
     try {
       await listen(oldDaemon.server, paths.socketPath)
       await client.connect()
@@ -435,18 +436,19 @@ describe('daemon task authority upgrade negotiation', () => {
     } finally {
       client.disconnect()
       await new Promise<void>(resolve => oldDaemon.server.close(() => resolve()))
-      rmSync(directory, { recursive: true, force: true })
     }
-    // The detached packaged daemon must not survive the test.
-    for (let attempt = 0; attempt < 50; attempt += 1) {
+    // Wait for the detached packaged daemon to exit before removing userData;
+    // the daemon finalizes its WAL and locator during teardown.
+    for (let attempt = 0; attempt < 50 && !daemonExited; attempt += 1) {
       try {
         execFileSync('pgrep', ['-f', `terminal-daemon-entry\\.js ${directory}`], { stdio: 'pipe' })
+        await new Promise(resolve => setTimeout(resolve, 100))
       } catch {
-        return
+        daemonExited = true
       }
-      await new Promise(resolve => setTimeout(resolve, 100))
     }
-    throw new Error('packaged daemon process survived shutdownIfIdle teardown')
+    rmSync(directory, { recursive: true, force: true })
+    if (!daemonExited) throw new Error('packaged daemon process survived shutdownIfIdle teardown')
   }, 30_000)
 
   it.runIf(process.platform !== 'win32')('blocks activation with sanitized status while an old daemon owns live sessions', async () => {

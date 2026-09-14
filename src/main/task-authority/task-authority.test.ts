@@ -111,6 +111,14 @@ function claim(authority: TaskAuthority, projectId: string, externalTaskId: stri
   return authority.claim({ connection: worker(ownerId, [projectId]), projectId, externalTaskId, specification, leaseTtlMs: 60_000 })
 }
 
+function taskAuthoritySchemaVersion(db: DatabaseSync): number {
+  const row: unknown = db.prepare('PRAGMA user_version').get()
+  if (typeof row !== 'object' || row === null || !('user_version' in row) || typeof row.user_version !== 'number') {
+    throw new Error('task authority database reported no numeric user_version')
+  }
+  return row.user_version
+}
+
 describe('task authority schema security', () => {
   it('creates the database private to the current user and rejects links or permissive files', () => {
     const { path } = openAuthority()
@@ -153,6 +161,60 @@ describe('task authority schema security', () => {
     expect(() => SqliteTaskAuthority.open({ databasePath: foreignPath })).toThrowError(
       expect.objectContaining({ code: 'MIGRATION_REQUIRED' })
     )
+  })
+
+  it('migrates a v1 database to v2 so run-group members carry committed specifications', () => {
+    const { path } = openAuthority()
+    const downgrade = openTaskAuthorityRawConnection(path)
+    downgrade.exec('ALTER TABLE run_members DROP COLUMN specification_json')
+    downgrade.exec('PRAGMA user_version=1')
+    downgrade.close()
+
+    const migrated = reopen(path)
+    const db = openTaskAuthorityRawConnection(path)
+    try {
+      expect(taskAuthoritySchemaVersion(db)).toBe(2)
+      const columns = db.prepare('PRAGMA table_info(run_members)').all()
+      if (!Array.isArray(columns)) throw new Error('table_info returned no rows')
+      expect(columns.some(column => typeof column === 'object' && column !== null && 'name' in column && column.name === 'specification_json')).toBe(true)
+    } finally {
+      db.close()
+    }
+    const task = migrated.createTask({ connection: ADMIN, projectId: PROJECT_ALPHA, externalTaskId: 'DW-M1', title: 'migration member' })
+    const group = migrated.createRunGroup({
+      connection: ADMIN,
+      profileId: PROFILE_MAIN,
+      name: 'migrated fan-out',
+      concurrency: 1,
+      members: [{ projectId: PROJECT_ALPHA, taskId: task.taskId, specification: SPEC() }]
+    })
+    expect(group.members).toHaveLength(1)
+  })
+
+  it('recovers an interrupted v1->v2 migration that already added the column', () => {
+    const { path } = openAuthority()
+    // Simulate the torn state a crash between ALTER and the version bump would
+    // leave: the column exists but the database still declares version 1.
+    const torn = openTaskAuthorityRawConnection(path)
+    torn.exec('PRAGMA user_version=1')
+    torn.close()
+
+    const recovered = reopen(path)
+    const task = recovered.createTask({ connection: ADMIN, projectId: PROJECT_ALPHA, externalTaskId: 'DW-M2', title: 'recovered member' })
+    const group = recovered.createRunGroup({
+      connection: ADMIN,
+      profileId: PROFILE_MAIN,
+      name: 'recovered fan-out',
+      concurrency: 1,
+      members: [{ projectId: PROJECT_ALPHA, taskId: task.taskId, specification: SPEC() }]
+    })
+    expect(group.members).toHaveLength(1)
+    const db = openTaskAuthorityRawConnection(path)
+    try {
+      expect(taskAuthoritySchemaVersion(db)).toBe(2)
+    } finally {
+      db.close()
+    }
   })
 
   it('rejects a swapped database identity while in use', () => {

@@ -2066,7 +2066,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
   listQueuedRunMembers(): Array<Readonly<{ runGroupId: string; profileId: string; projectId: string; taskId: string; ordinal: number; specification: TaskExecutionSpecificationInput | null }>> {
     return this.database.withReadOnly(db => {
       const rows = db.prepare(
-        "SELECT rm.run_group_id AS run_group_id, rg.profile_id AS profile_id, rm.project_id AS project_id, rm.task_id AS task_id, rm.ordinal AS ordinal, rm.specification_json AS specification_json FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.state = 'queued' AND rg.state = 'active' ORDER BY rg.created_at, rm.ordinal, rm.project_id, rm.task_id"
+        "SELECT rm.run_group_id AS run_group_id, rg.profile_id AS profile_id, rm.project_id AS project_id, rm.task_id AS task_id, rm.ordinal AS ordinal, rm.specification_json AS specification_json FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.state = 'queued' AND rg.state = 'active' ORDER BY rg.created_at, rm.ordinal, rm.project_id, rm.task_id LIMIT 500"
       ).all() as Row[]
       return rows.map(row => ({
         runGroupId: text(row['run_group_id']),

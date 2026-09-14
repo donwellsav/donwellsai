@@ -765,13 +765,13 @@ describe('task scheduler pump', () => {
     })
     const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
     const first = pump.tick()
-    // Capacity 1: only the first member is claimed; the second is fenced by the
-    // authority capacity check, recorded as a failure, and stays queued.
+    // Capacity 1: only the first member is claimed. The capacity rejection is
+    // expected scheduling state: the rest of the group is skipped silently for
+    // this tick (no failure noise, no extra claim transactions) and retried later.
     expect(first.claimed).toHaveLength(1)
     expect(first.claimed[0]!.claim.task.taskId).toBe(memberA.taskId)
     expect(first.claimed[0]!.specification).toEqual(specA)
-    expect(first.failures).toHaveLength(1)
-    expect(first.failures[0]!.scope).toBe(`run-member:${PROJECT}:${memberB.taskId}`)
+    expect(first.failures).toEqual([])
     expect(authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === memberB.taskId)!.currentAttempt).toBeNull()
 
     // Finish member A; the next tick fans out member B from its committed specification.

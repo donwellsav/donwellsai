@@ -77,7 +77,7 @@ function identityKey(identity: RuntimeFileIdentity): string {
   return JSON.stringify(identity)
 }
 
-function initializeSchema(db: DatabaseSync): void {
+function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
   const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
   if (version === 0) {
     const objects = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<Record<string, unknown>>
@@ -89,10 +89,15 @@ function initializeSchema(db: DatabaseSync): void {
     return
   }
   if (version !== TASK_AUTHORITY_SCHEMA_VERSION) {
-    if (version === 1 && TASK_AUTHORITY_SCHEMA_VERSION === 2) {
+    if (allowMigration && version === 1 && TASK_AUTHORITY_SCHEMA_VERSION === 2) {
       // v2 adds the immutable committed execution specification for run-group
-      // members so the daemon scheduler pump can fan out queued members.
-      db.exec('ALTER TABLE run_members ADD COLUMN specification_json TEXT')
+      // members so the daemon scheduler pump can fan out queued members. The
+      // column check makes the migration idempotent: an interrupted migration
+      // that already added the column only advances the version.
+      const columns = db.prepare('PRAGMA table_info(run_members)').all() as Array<Record<string, unknown>>
+      if (!columns.some(column => String(column['name']) === 'specification_json')) {
+        db.exec('ALTER TABLE run_members ADD COLUMN specification_json TEXT')
+      }
       db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
       return
     }
@@ -213,9 +218,12 @@ export function openTaskAuthorityDatabase(options: TaskAuthorityDatabaseOptions 
       assertAuthorityIdentity()
       const db = openConnection(!write, stablePath)
       try {
-        initializeSchema(db)
+        // The write transaction opens before schema initialization so a version
+        // migration commits atomically with its version bump; an interrupted
+        // migration cannot leave a half-applied schema behind.
         if (write) db.exec('BEGIN IMMEDIATE')
         try {
+          initializeSchema(db, write)
           let result: T
           try {
             result = operation(db)
@@ -264,7 +272,7 @@ export function openTaskAuthorityDatabase(options: TaskAuthorityDatabaseOptions 
   }
   ensureAuthorityFile()
   handle.withImmediate(db => {
-    initializeSchema(db)
+    initializeSchema(db, true)
     validateTaskAuthorityDatabase(db)
   })
   return handle
