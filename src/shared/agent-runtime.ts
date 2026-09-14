@@ -23,6 +23,7 @@ export type AgentModeSwitchReceipt = {
 }
 
 export const ACP_DAEMON_CAPABILITY = 'agent-acp-v2'
+export const AGENT_PROVIDER_CATALOG_CAPABILITY = 'provider-catalog-v1'
 
 type AcpUnknownRecord = Record<string, unknown>
 

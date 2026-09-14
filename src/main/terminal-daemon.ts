@@ -1,4 +1,3 @@
-import { ACP_DAEMON_CAPABILITY, parseAgentTaskIntent, type AgentTaskIntent } from '@shared/agent-runtime'
 import type { McpServer } from '@agentclientprotocol/sdk'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
@@ -29,6 +28,7 @@ import {
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
 import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
 import { SqliteTaskAuthority } from './task-authority/task-authority'
+import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
 import { readRegisteredProjects, TaskAuthorityMigration, TaskAuthorityMigrationError } from './task-authority/task-authority-migration'
 import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './task-authority/backlog-migration-reader'
 import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
@@ -48,17 +48,20 @@ import {
   parseProfileMaintenanceTransitionIntent,
   type ProfileMaintenanceParticipant
 } from '@shared/profile-maintenance'
-import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
+import { SqliteProviderCatalog } from './provider-catalog'
 import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
   AGENT_PROVIDER_DEFINITIONS,
   AGENT_HOOK_CAPABILITY,
+  ACP_DAEMON_CAPABILITY,
   agentProviderForCommand,
   agentProviderForExecutable,
   parseAgentExecutable,
+  parseAgentTaskIntent,
   type AgentExecutable,
   normalizeAgentHookMessage,
   type AgentProviderId,
+  type AgentTaskIntent,
   type RunningAgent
 } from '@shared/agent-runtime'
 import {
@@ -75,14 +78,15 @@ import {
   type AgentHookBinding,
   type AgentLaunchPlan
 } from './agents/provider-hooks'
+import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { RuntimeOwnershipError } from '@shared/runtime-ownership'
-import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { AcpSessions } from './agents/acp-sessions'
+export const TASK_AUTHORITY_CAPABILITY = 'task-authority-v1'
+export const PROVIDER_CATALOG_CAPABILITY = 'provider-catalog-v1'
 
 export const SCROLLBACK_MAX = 512 * 1024
 export const DAEMON_PROTOCOL_VERSION = 3
-export const TASK_AUTHORITY_CAPABILITY = 'task-authority-v1'
 export const DAEMON_CAPABILITIES = [
   'sequenced-output',
   'oneshot-jobs',
@@ -98,7 +102,8 @@ export const DAEMON_CAPABILITIES = [
   ACP_DAEMON_CAPABILITY,
   'runtime-identity-v1',
   ATTENTION_INBOX_CAPABILITY,
-  TASK_AUTHORITY_CAPABILITY
+  TASK_AUTHORITY_CAPABILITY,
+  PROVIDER_CATALOG_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
 const MAX_CLIENT_QUEUED_BYTES = 8 * 1024 * 1024
@@ -277,8 +282,9 @@ export class TerminalDaemon {
   private readonly acp: AcpSessions
   private readonly identity: RuntimeIdentityAuthority
   private readonly taskAuthority: SqliteTaskAuthority
-  private readonly maintenanceGate: SqliteProfileMaintenanceGate
+  private readonly providerCatalog: SqliteProviderCatalog
   private readonly migration: TaskAuthorityMigration
+  private readonly maintenanceGate: SqliteProfileMaintenanceGate
   private readonly taskCoordinator: TaskExecutionCoordinator
   private taskSchedulerPump!: TaskSchedulerPump
   private readonly taskWorkerCredentials = new Map<string, { token: string; ownerId: string; connectionKey: string; projectIds: readonly string[] }>()
@@ -327,6 +333,7 @@ export class TerminalDaemon {
       })
     })
     this.taskAuthority = SqliteTaskAuthority.open({ userDataDirectory: this.paths.runtimeDir })
+    this.providerCatalog = new SqliteProviderCatalog({ database: this.taskAuthority.database })
     this.migration = new TaskAuthorityMigration({
       authority: this.taskAuthority,
       database: this.taskAuthority.database,
@@ -1049,6 +1056,9 @@ export class TerminalDaemon {
         }
         case 'agent.list':
           reply(true, { runs: [...this.agentsBySession.values()].map((record) => cloneRun(record.run)) })
+          break
+        case 'agent.providers':
+          reply(true, { snapshot: this.providerCatalog.snapshot() })
           break
         case 'agent.authenticate': {
           const binding = this.authenticateHook(message)

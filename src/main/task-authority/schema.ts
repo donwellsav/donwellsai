@@ -69,6 +69,8 @@ const REQUIRED_TABLES = [
   'migration_entity_mappings', 'projection_checkpoints', 'profile_maintenance_state',
   'profile_maintenance_admissions', 'profile_maintenance_acknowledgements',
   'profile_maintenance_transitions', 'profile_maintenance_retirements',
+  'provider_accounts', 'provider_instances', 'provider_credential_bindings', 'provider_catalog_state',
+  'provider_launch_preparations', 'provider_credential_operations', 'task_launch_admissions',
   'task_authority_migration_state', 'task_authority_migration_failure'
 ] as const
 
@@ -84,29 +86,20 @@ function initializeSchema(db: DatabaseSync, allowMigration: boolean): void {
   const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
   if (version === 0) {
     const objects = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<Record<string, unknown>>
-    if (objects.length > 0) {
-      throw new TaskAuthorityError('MIGRATION_REQUIRED', 'task authority database is unrecognized and not empty; refusing to initialize over foreign data')
-    }
+    if (objects.length > 0) throw new TaskAuthorityError('MIGRATION_REQUIRED', 'task authority database is unrecognized and not empty; refusing to initialize over foreign data')
     db.exec(SCHEMA_V1)
     db.exec(SCHEMA_V3_ADDITIONS)
     applySchemaColumns(db)
     db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
     return
   }
-  if (version === TASK_AUTHORITY_SCHEMA_VERSION) return
-  if (!allowMigration || version > TASK_AUTHORITY_SCHEMA_VERSION) {
-    throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
+  if (version === TASK_AUTHORITY_SCHEMA_VERSION) {
+    db.exec(SCHEMA_V3_ADDITIONS)
+    applySchemaColumns(db)
+    return
   }
-  // Forward migrations are stepwise and idempotent: an interrupted migration
-  // that already applied part of a step only advances the stored version. The
-  // whole sequence runs inside the caller's BEGIN IMMEDIATE, so a crash cannot
-  // leave a half-applied schema behind.
-  if (version === 1) {
-    // v2 adds the immutable committed execution specification for run-group
-    // members so the daemon scheduler pump can fan out queued members.
-    addColumnIfMissing(db, 'run_members', 'specification_json', 'TEXT')
-  }
-  // v3 adds the durable stage-neutral profile maintenance gate.
+  if (!allowMigration || version > TASK_AUTHORITY_SCHEMA_VERSION) throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
+  if (version === 1) addColumnIfMissing(db, 'run_members', 'specification_json', 'TEXT')
   db.exec(SCHEMA_V3_ADDITIONS)
   applySchemaColumns(db)
   db.exec(`PRAGMA user_version=${TASK_AUTHORITY_SCHEMA_VERSION}`)
@@ -119,22 +112,15 @@ function applySchemaColumns(db: DatabaseSync): void {
 /** Full structural validation; run once at authority open, not per operation. */
 export function validateTaskAuthorityDatabase(db: DatabaseSync): void {
   const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
-  if (version !== TASK_AUTHORITY_SCHEMA_VERSION) {
-    throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
-  }
+  if (version !== TASK_AUTHORITY_SCHEMA_VERSION) throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database schema version ${version} is not supported by this daemon`)
   const rows = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<Record<string, unknown>>
   const present: Record<string, true> = {}
   for (const row of rows) present[String(row['name'])] = true
-  for (const table of REQUIRED_TABLES) {
-    if (present[table] === undefined) {
-      throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database is missing required table "${table}"`)
-    }
-  }
+  for (const table of REQUIRED_TABLES) if (present[table] === undefined) throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `task authority database is missing required table "${table}"`)
   const check = db.prepare('PRAGMA quick_check').get() as Record<string, unknown>
-  if (String(check['quick_check']) !== 'ok') {
-    fail('SCHEMA_UNSUPPORTED', 'task authority database failed integrity check')
-  }
+  if (String(check['quick_check']) !== 'ok') fail('SCHEMA_UNSUPPORTED', 'task authority database failed integrity check')
 }
+
 
 export type TaskAuthorityDatabase = {
   readonly databasePath: string
@@ -749,6 +735,88 @@ CREATE TABLE IF NOT EXISTS profile_maintenance_retirements (
   fsynced INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(profile_id, migration_id, participant, retired_path)
+);
+CREATE TABLE IF NOT EXISTS provider_accounts (
+  id TEXT PRIMARY KEY,
+  driver_id TEXT NOT NULL,
+  display_label TEXT NOT NULL,
+  verified_subject TEXT,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS provider_instances (
+  id TEXT PRIMARY KEY,
+  driver_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  command_spec_json TEXT NOT NULL,
+  credential_mode TEXT NOT NULL CHECK (credential_mode IN ('external','managed','none')),
+  account_id TEXT REFERENCES provider_accounts(id),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS provider_credential_bindings (
+  provider_instance_id TEXT NOT NULL REFERENCES provider_instances(id),
+  account_id TEXT NOT NULL REFERENCES provider_accounts(id),
+  account_revision INTEGER NOT NULL,
+  credential_ref TEXT NOT NULL,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  created_at TEXT NOT NULL,
+  retired_at TEXT,
+  PRIMARY KEY(provider_instance_id, account_id, generation)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_bindings_active ON provider_credential_bindings(provider_instance_id, account_id) WHERE retired_at IS NULL;
+CREATE TABLE IF NOT EXISTS provider_catalog_state (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  default_instance_id TEXT REFERENCES provider_instances(id),
+  revision INTEGER NOT NULL CHECK (revision >= 1)
+);
+CREATE TABLE IF NOT EXISTS provider_launch_preparations (
+  id TEXT PRIMARY KEY,
+  provider_instance_id TEXT NOT NULL REFERENCES provider_instances(id),
+  instance_revision INTEGER NOT NULL,
+  account_id TEXT,
+  account_revision INTEGER,
+  credential_ref TEXT,
+  binding_generation INTEGER,
+  attempt_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  purpose TEXT NOT NULL CHECK (purpose = 'agent-launch'),
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS provider_credential_operations (
+  id TEXT PRIMARY KEY,
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN ('create-replace','revoke','account-update','account-remove','instance-update','instance-remove')),
+  provider_instance_id TEXT,
+  instance_revision INTEGER,
+  account_id TEXT,
+  account_revision INTEGER,
+  prior_credential_ref TEXT,
+  prior_binding_generation INTEGER,
+  staged_credential_ref TEXT,
+  target_binding_generation INTEGER,
+  state TEXT NOT NULL CHECK (state IN ('pending','complete','aborted')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((operation_kind = 'create-replace' AND staged_credential_ref IS NOT NULL AND target_binding_generation IS NOT NULL) OR (operation_kind <> 'create-replace' AND staged_credential_ref IS NULL AND target_binding_generation IS NULL)),
+  CHECK ((operation_kind = 'create-replace') OR (prior_credential_ref IS NOT NULL AND prior_binding_generation IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state = 'pending';
+CREATE TABLE IF NOT EXISTS task_launch_admissions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  lease_id TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  preparation_id TEXT NOT NULL REFERENCES provider_launch_preparations(id),
+  state TEXT NOT NULL CHECK (state = 'admitted'),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `
 

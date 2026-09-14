@@ -11,7 +11,8 @@ import {
   type ProfileMaintenanceTransitionIntent,
   type ProfileMaintenanceTransitionReceipt
 } from '@shared/profile-maintenance'
-import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, type AgentTaskIntent, parseAgentExecutable } from '@shared/agent-runtime'
+import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
+import { parseProviderCatalogSnapshot, type ProviderCatalogSnapshot } from '@shared/provider-authority'
 import type { ChildProcess } from 'node:child_process'
 import { createConnection, type Socket } from 'node:net'
 import { forceTerminateProcessTree } from '@shared/child-process/process-tree-termination'
@@ -68,6 +69,7 @@ import {
 
 /** Daemon protocol capability that activates the task authority command surface. */
 const TASK_AUTHORITY = 'task-authority-v1'
+const PROVIDER_CATALOG = 'provider-catalog-v1'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
@@ -1073,6 +1075,11 @@ export class DaemonClient {
     const response = await this.request<{ runs: unknown }>('agent.list')
     if (!Array.isArray(response.runs)) throw new Error('terminal daemon returned an invalid agent list')
     return response.runs.map(requireRunningAgent)
+  }
+  async providerCatalogSnapshot(): Promise<ProviderCatalogSnapshot> {
+    await this.requireCapability(PROVIDER_CATALOG, 'reading provider catalog')
+    const response = await this.request<{ snapshot: unknown }>('agent.providers')
+    return parseProviderCatalogSnapshot(response.snapshot)
   }
   /** Optional capability: an older detached daemon remains authoritative and untouched. */
   async attentionInboxList(): Promise<AttentionInboxListResult> {
