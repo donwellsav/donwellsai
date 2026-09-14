@@ -692,4 +692,16 @@ describe('terminal daemon maintenance and migration wire surface', () => {
       rmSync(started.directory, { recursive: true, force: true })
     }
   })
+  it('rejects the removed due-schedule wire operation', async () => {
+    const started = await startDaemon()
+    try {
+      await expect(callWireOp(started.socketPath, started.token, 'task.schedule.execution.enqueue-due')).resolves.toMatchObject({
+        ok: false,
+        error: 'unknown op: task.schedule.execution.enqueue-due'
+      })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
 })

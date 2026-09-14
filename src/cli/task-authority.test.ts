@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
+import { RPC_COMMANDS } from '../shared/command-catalog'
 import { localRuntimePaths, writeRuntimeRecord, type LocalRuntimeRecord } from '../main/local-runtime'
+import { parseCliArguments } from './arguments'
 import { runCli } from './index'
 
 const identity: ProcessIdentity = {
@@ -254,5 +256,21 @@ describe('CLI task authority credentials', () => {
     expect(code).toBe(1)
     expect(json['code']).toBe('AUTHORIZATION_DENIED')
     expect(String(json['error'])).toMatch(/administrator task commands do not accept/)
+  })
+
+  it('does not advertise non-executable lease-bound maintenance commands', () => {
+    const removed = [
+      'maintenance-acquire',
+      'maintenance-freeze',
+      'maintenance-drained',
+      'maintenance-cutover',
+      'maintenance-transitions',
+      'maintenance-fail',
+      'maintenance-resume',
+      'maintenance-abort',
+      'maintenance-release'
+    ]
+    expect(RPC_COMMANDS.map(command => command.name)).not.toEqual(expect.arrayContaining(removed))
+    for (const name of removed) expect(() => parseCliArguments([name])).toThrow(`Unknown command: ${name}`)
   })
 })

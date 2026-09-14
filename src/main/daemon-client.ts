@@ -1467,12 +1467,6 @@ export class DaemonClient {
     return parseScheduleSnapshotWire(response.schedule)
   }
 
-  async taskScheduleExecutionEnqueueDue(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number; expectedNextRunAt: string }>): Promise<ScheduleExecutionSnapshot> {
-    await this.requireCapability(TASK_AUTHORITY, 'enqueuing a due schedule occurrence')
-    const response = await this.request<{ execution: unknown }>('task.schedule.execution.enqueue-due', { ...input })
-    return parseScheduleExecutionWire(response.execution)
-  }
-
   async taskScheduleExecutionEnqueue(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number; requestId: string }>): Promise<ScheduleExecutionSnapshot> {
     await this.requireCapability(TASK_AUTHORITY, 'enqueuing a manual schedule execution')
     const response = await this.request<{ execution: unknown }>('task.schedule.execution.enqueue', { ...input })

@@ -1225,7 +1225,6 @@ export class TerminalDaemon {
         case 'task.schedule.update':
         case 'task.schedule.duplicate':
         case 'task.schedule.delete':
-        case 'task.schedule.execution.enqueue-due':
         case 'task.schedule.execution.enqueue':
         case 'task.schedule.executions.list':
         case 'task.schedule.list':
@@ -1694,20 +1693,6 @@ export class TerminalDaemon {
             expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
           })
         }
-      case 'task.schedule.execution.enqueue-due': {
-        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
-        const scheduleId = taskWireUuid(message['scheduleId'], 'scheduleId')
-        const schedule = this.taskAuthority.readSchedule(projectId, scheduleId)
-        return {
-          execution: this.taskAuthority.enqueueDueSchedule({
-            connection: { connectionId: this.taskConnectionKey(socket), role: 'daemon-scheduler', authorizedProjectIds: [projectId], authorizedProfileIds: [schedule.profileId] },
-            projectId,
-            scheduleId,
-            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
-            expectedNextRunAt: taskWireRequiredString(message['expectedNextRunAt'], 'expectedNextRunAt', 64)
-          })
-        }
-      }
       case 'task.schedule.execution.enqueue':
         return {
           execution: this.taskAuthority.enqueueManualScheduleExecution({
