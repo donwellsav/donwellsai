@@ -563,4 +563,43 @@ describe('provider catalog client surface', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+
+  it.runIf(process.platform !== 'win32')('decodes a snapshot holding an unknown-driver unavailable instance', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'provider-client-unknown-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    const token = 'provider-client-unknown-token-123456'
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: paths.socketPath, authToken: token }), { mode: 0o600 })
+    // A profile that still carries an instance for a driver this build no longer
+    // registers. The catalog preserves it as unavailable; the client must decode
+    // that snapshot instead of rejecting the whole catalog.
+    const unknownDriver = { kind: 'unknown', rawDriverId: 'retired-driver', availability: 'unavailable', problem: 'persisted driver is not registered' }
+    const unknownInstance = {
+      id: 'legacy-instance',
+      driver: unknownDriver,
+      displayName: 'Legacy',
+      command: { kind: 'driver', driverId: 'retired-driver' },
+      credentialMode: 'external',
+      account: null,
+      enabled: true,
+      revision: 1,
+      availability: 'unavailable',
+      problem: 'persisted driver is not registered'
+    }
+    const { server } = providerServer(token, () => ({
+      ok: true,
+      snapshot: { ...emptySnapshot, defaultInstanceId: 'legacy-instance', instances: [unknownInstance] }
+    }))
+    const client = connection(directory, token)
+    try {
+      await listen(server, paths.socketPath)
+      const snapshot = await client.providerCatalogSnapshot()
+      expect(snapshot).toEqual({ ...emptySnapshot, defaultInstanceId: 'legacy-instance', instances: [unknownInstance] })
+      expect(snapshot.instances[0]).toMatchObject({ availability: 'unavailable', driver: { kind: 'unknown', rawDriverId: 'retired-driver' }, command: { kind: 'driver', driverId: 'retired-driver' } })
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 })

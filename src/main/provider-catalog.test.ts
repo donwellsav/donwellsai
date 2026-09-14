@@ -124,7 +124,40 @@ describe('ProviderCatalog', () => {
     const connection = new DatabaseSync(databasePathOf(catalogInstance))
     connection.prepare("INSERT INTO provider_instances(id,driver_id,display_name,command_spec_json,credential_mode,account_id,enabled,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run('legacy', 'removed-driver', 'Legacy', '{"kind":"driver","driverId":"removed-driver"}', 'external', null, 1, 1, new Date().toISOString(), new Date().toISOString())
     connection.close()
-    expect(catalogInstance.snapshot().instances[0]).toMatchObject({ id: 'legacy', availability: 'unavailable', driver: { kind: 'unknown', rawDriverId: 'removed-driver' } })
+    const snapshot = catalogInstance.snapshot()
+    expect(snapshot.instances[0]).toMatchObject({ id: 'legacy', availability: 'unavailable', driver: { kind: 'unknown', rawDriverId: 'removed-driver' } })
+    // The unavailable projection must survive the sanitized decode unchanged:
+    // an unknown persisted driver is a legitimate catalog state, not corruption.
+    expect(parseProviderCatalogSnapshot(snapshot)).toEqual(snapshot)
+  })
+
+  it('keeps a snapshot decodable when an unknown-driver instance is present alongside known ones', () => {
+    const catalogInstance = catalog()
+    const known = catalogInstance.create(external())
+    const connection = new DatabaseSync(databasePathOf(catalogInstance))
+    const now = new Date().toISOString()
+    connection.prepare("INSERT INTO provider_instances(id,driver_id,display_name,command_spec_json,credential_mode,account_id,enabled,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run('legacy', 'removed-driver', 'Legacy', '{"kind":"driver","driverId":"removed-driver"}', 'external', null, 1, 1, now, now)
+    connection.prepare("INSERT INTO provider_instances(id,driver_id,display_name,command_spec_json,credential_mode,account_id,enabled,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run('legacy-argv', 'removed-driver', 'Legacy argv', '{"kind":"external-argv","executable":{"executable":"/usr/bin/legacy","args":[]}}', 'external', null, 0, 1, now, now)
+    connection.prepare("INSERT INTO provider_instances(id,driver_id,display_name,command_spec_json,credential_mode,account_id,enabled,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run('legacy-shell', 'removed-driver', 'Legacy shell', '{"kind":"external-shell","program":"legacy --flag"}', 'external', null, 1, 1, now, now)
+    connection.close()
+    const snapshot = catalogInstance.snapshot()
+    // Every instance, including the three unavailable ones, decodes: one legacy
+    // row must not blank out the whole catalog for every reader.
+    const decoded = parseProviderCatalogSnapshot(snapshot)
+    expect(decoded).toEqual(snapshot)
+    expect(decoded.instances.map(instance => instance.id).sort()).toEqual(['legacy', 'legacy-argv', 'legacy-shell', known.id].sort())
+    expect(decoded.instances.filter(instance => instance.driver.kind === 'unknown')).toHaveLength(3)
+  })
+
+  it('still refuses a structurally malformed command on an unavailable instance', () => {
+    const catalogInstance = catalog()
+    const connection = new DatabaseSync(databasePathOf(catalogInstance))
+    connection.prepare("INSERT INTO provider_instances(id,driver_id,display_name,command_spec_json,credential_mode,account_id,enabled,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run('legacy', 'removed-driver', 'Legacy', '{"kind":"not-a-command-kind"}', 'external', null, 1, 1, new Date().toISOString(), new Date().toISOString())
+    connection.close()
+    // Tolerance is scoped to an unknown driver id, not to structure: skipping
+    // command decoding wholesale for unavailable rows would let arbitrary
+    // malformed commands through.
+    expect(failureCode(() => catalogInstance.snapshot())).toBe('CORRUPT_CATALOG')
   })
 
   it('accepts every declaratively registered driver and rejects an unregistered one', () => {

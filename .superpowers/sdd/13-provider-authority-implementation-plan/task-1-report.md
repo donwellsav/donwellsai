@@ -86,3 +86,41 @@ Non-vacuity was proven, not assumed: the P1 tests were run against the committed
 - `pnpm test` emits pre-existing profile-maintenance disconnect warnings during daemon teardown (`open runtime authority name lock failed`); they are present on the exercised daemon path, do not fail tests, and are unrelated to this change.
 - The catalog remains unwired to renderer settings and live launch selection, as scoped for Task 1.
 
+## Fix round 2 (re-review High finding)
+
+One High finding against 1c7c297: my field-by-field `parseProviderCatalogSnapshot` was **stricter than the catalog it decodes**. `decodeInstance` → `decodeCommand` called `parseAgentDriverId` on an instance's `command.driverId`, which throws for an id the running build no longer registers. The catalog deliberately preserves those ids (`jsonCommand` restores the raw id; `instanceFromRow` reports an `unknown`/`unavailable` projection), so `providerCatalogSnapshot()` rejected the **entire snapshot** whenever any legacy instance existed — directly violating the brief's "invalid persisted raw driver IDs survive only as unavailable `unknown` projections". This was a regression introduced by round 1's stricter decoder, not a pre-existing defect.
+
+### Fix
+
+- `decodeCommand` gained an explicit `tolerateUnknownDriver` flag. It is scoped **precisely** to the case the catalog actually produces: an instance whose driver projection is `kind: 'unknown'`. The id is still validated as a bounded string, and command **structure** is still validated — only the id's registration is tolerated.
+- Deliberately not taken: skipping command decoding wholesale for unavailable instances. That would have let arbitrary malformed command JSON through on any `unavailable` row (including a *known* driver whose mode is merely uncertified). The narrower fix keeps structure enforcement intact.
+- Round 1's strictness is unchanged everywhere else: known-driver instances, driver projections, and certification tuples still reject an unregistered id.
+
+### Tests
+
+- `preserves an unknown persisted driver as unavailable instead of remapping it` now asserts the snapshot round-trips through the sanitized decoder.
+- New `keeps a snapshot decodable when an unknown-driver instance is present alongside known ones`: a known instance plus three unavailable legacy rows (`driver`, `external-argv`, and `external-shell` commands) all decode, so one legacy row cannot blank out the catalog.
+- New `still refuses a structurally malformed command on an unavailable instance`: pins the narrow scope — tolerance is for an unknown driver id, not for malformed structure.
+- New client round-trip `decodes a snapshot holding an unknown-driver unavailable instance`, exactly as the finding requested: the real `DaemonClient.providerCatalogSnapshot()` receives a daemon frame containing an unavailable unknown-driver instance and returns it intact.
+- One draft test of mine incorrectly asserted the in-process catalog returns `CORRUPT_CATALOG` for an unknown driver id; `jsonCommand` preserves it instead, so I corrected the test to the real behavior rather than changing the code to match a wrong expectation.
+
+Non-vacuity re-proven: the three new decode tests were run against 1c7c297 in a throwaway worktree, where **3 failed** (`must identify a known agent driver`), and pass after the fix. The worktree was removed.
+
+### Gates
+
+| Gate | Result |
+| --- | --- |
+| focused (provider-catalog, provider-certifications, terminal-daemon, daemon-client) | 60 passed |
+| `pnpm test` | 26 files, 368 passed, 6 skipped (round-1 baseline 365/6) |
+| `pnpm run typecheck` | passed (node, web, cli) |
+| `pnpm run build` | passed |
+| `pnpm run package:check` | passed (310 notices, darwin/arm64 identity) |
+
+Prior findings confirmed still fixed: all round-1 P1/P2/P3 tests remain green (per-test verification above), including default-instance removal, in-place update, retired-binding account removal, preparation purge, the `instanceId` wire-collision fix, typed errors, and certification drift rejection.
+
+### Fix round 2 concerns
+
+- The `command.driverId` type remains `AgentDriverId`, so a decoded unavailable instance's command id is a `string` asserted into that slot. This mirrors the catalog's own in-process `jsonCommand` behaviour (which already types the raw persisted id as `AgentDriverId`), so no new unsoundness is introduced, but the honest model would be a separate stored-command type on the `unknown` projection branch. That is a contract change for Task 2, not a fix-round change.
+- Round-1 concerns are unchanged: `task_launch_admissions` is purged with its preparation by design and needs a Task 2 decision; instance removal still waits out a live preparation's ≤30s TTL; the pre-existing profile-maintenance teardown warnings persist.
+
+

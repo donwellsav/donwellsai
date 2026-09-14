@@ -185,11 +185,19 @@ function wireEnum<T extends string>(value: unknown, label: string, allowed: read
   if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) throw new Error(`${label} must be one of ${allowed.join(', ')}`)
   return value as T
 }
-function decodeCommand(value: unknown, label: string): ProviderCommandSpec {
+/**
+ * Command specs are decoded strictly, except for a persisted instance's
+ * driver-mode command that still names an unregistered driver: the catalog keeps
+ * that instance as an unavailable projection, so refusing the id here would
+ * reject the entire snapshot for every reader because of one legacy row.
+ * Structure is still validated — only the id's registration is tolerated.
+ */
+function decodeCommand(value: unknown, label: string, tolerateUnknownDriver = false): ProviderCommandSpec {
   const spec = wireRecord(value, label)
   if (spec['kind'] === 'driver') {
     wireOptionalKeys(spec, ['kind', 'driverId'], ['kind', 'driverId'], label)
-    return { kind: 'driver', driverId: parseAgentDriverId(spec['driverId'], label + '.driverId') }
+    const driverId = tolerateUnknownDriver ? wireString(spec['driverId'], label + '.driverId', 256) : parseAgentDriverId(spec['driverId'], label + '.driverId')
+    return { kind: 'driver', driverId: driverId as AgentDriverId }
   }
   if (spec['kind'] === 'external-argv') {
     wireOptionalKeys(spec, ['kind', 'executable'], ['kind', 'executable'], label)
@@ -292,12 +300,16 @@ function decodeDriver(value: unknown, label: string): ProviderDriverProjection {
 function decodeInstance(value: unknown, label: string): ProviderInstanceProjection {
   const instance = wireRecord(value, label)
   wireOptionalKeys(instance, ['id', 'driver', 'displayName', 'command', 'credentialMode', 'account', 'enabled', 'revision', 'availability', 'problem'], ['id', 'driver', 'displayName', 'command', 'credentialMode', 'account', 'enabled', 'revision', 'availability'], label)
+  const driver = decodeDriver(instance['driver'], label + '.driver')
   const problem = wireString(instance['problem'], label + '.problem', 8_192, true)
+  // An unavailable instance may still carry an unregistered driver id, so its
+  // driver-mode command tolerates exactly that; every other command stays strict.
+  const unavailableDriver = driver.kind === 'unknown'
   return {
     id: wireString(instance['id'], label + '.id', 128) as string,
-    driver: decodeDriver(instance['driver'], label + '.driver'),
+    driver,
     displayName: wireString(instance['displayName'], label + '.displayName', 256) as string,
-    command: decodeCommand(instance['command'], label + '.command'),
+    command: decodeCommand(instance['command'], label + '.command', unavailableDriver),
     credentialMode: wireEnum(instance['credentialMode'], label + '.credentialMode', PROVIDER_CREDENTIAL_MODES),
     account: instance['account'] === null ? null : decodeAccount(instance['account'], label + '.account'),
     enabled: wireBoolean(instance['enabled'], label + '.enabled'),
