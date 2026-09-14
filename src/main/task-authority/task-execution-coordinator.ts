@@ -493,6 +493,14 @@ export class TaskSchedulerPump {
     return error instanceof TaskAuthorityError && error.code === 'CAPACITY_EXHAUSTED'
   }
 
+  private static executionScope(execution: Readonly<{ executionId: string }>): string {
+    return `execution:${execution.executionId}`
+  }
+
+  private static memberScope(member: Readonly<{ projectId: string; taskId: string }>): string {
+    return `run-member:${member.projectId}:${member.taskId}`
+  }
+
   tick(): TaskSchedulerTickResult {
     const enqueued: ScheduleExecutionSnapshot[] = []
     const claimed: Array<Readonly<{ claim: ClaimResult; specification: TaskExecutionSpecificationInput }>> = []
@@ -513,8 +521,11 @@ export class TaskSchedulerPump {
       }
     }
     const queued = this.authority.listScheduleExecutions({ connection: { connectionId: this.connectionId, role: 'administrator' }, state: 'queued', limit: 500 })
+    const liveScopes = new Set<string>()
     for (const execution of queued.executions) {
       if (claimed.some(entry => entry.claim.task.taskId === execution.taskId)) continue
+      const scope = TaskSchedulerPump.executionScope(execution)
+      liveScopes.add(scope)
       try {
         // Queued executions are claimed from their own committed schedule state,
         // independent of the due list: manual executions never advance next_run_at,
@@ -530,9 +541,9 @@ export class TaskSchedulerPump {
           }),
           specification
         })
-        this.expectedSchedulingReported.delete(`${execution.projectId}:${execution.taskId}`)
+        this.expectedSchedulingReported.delete(scope)
       } catch (error) {
-        this.recordClaimFailure(`execution:${execution.executionId}`, error, failures)
+        this.recordClaimFailure(scope, error, failures)
       }
     }
     // Queued run-group members with a committed immutable specification are
@@ -547,6 +558,8 @@ export class TaskSchedulerPump {
       if (member.specification === null) continue
       if (claimed.some(entry => entry.claim.task.taskId === member.taskId)) continue
       if (capacityBlockedGroups.has(member.runGroupId)) continue
+      const scope = TaskSchedulerPump.memberScope(member)
+      liveScopes.add(scope)
       try {
         claimed.push({
           claim: this.authority.claim({
@@ -557,13 +570,20 @@ export class TaskSchedulerPump {
           }),
           specification: member.specification
         })
-        this.expectedSchedulingReported.delete(`${member.projectId}:${member.taskId}`)
+        this.expectedSchedulingReported.delete(scope)
       } catch (error) {
         if (TaskSchedulerPump.isCapacityExhausted(error)) {
           capacityBlockedGroups.add(member.runGroupId)
         }
-        this.recordClaimFailure(`run-member:${member.projectId}:${member.taskId}`, error, failures)
+        this.recordClaimFailure(scope, error, failures)
       }
+    }
+    // Scopes absent from this tick's queued set left it for any reason — claimed
+    // by the pump, claimed by another worker, completed, or cancelled. Their
+    // condition resolved, so a future re-queue (for example a run-group retry)
+    // must be able to report again; still-queued blocked scopes stay quiet.
+    for (const scope of this.expectedSchedulingReported) {
+      if (!liveScopes.has(scope)) this.expectedSchedulingReported.delete(scope)
     }
     return { enqueued, claimed, failures }
   }

@@ -880,6 +880,59 @@ describe('task scheduler pump', () => {
     expect(released.claimed.map(entry => entry.claim.task.taskId)).toEqual([dependent.taskId])
   })
 
+  it('re-reports a scope that recovers, claims, and later re-blocks under a long-lived pump', () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    const first = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-R0', title: 'recover first' })
+    const second = authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId: 'DW-R1', title: 'recover second' })
+    const spec = SPEC(workspace)
+    const group = authority.createRunGroup({
+      connection: ADMIN,
+      profileId: 'profile-main',
+      name: 'long-lived pump',
+      concurrency: 1,
+      members: [
+        { projectId: PROJECT, taskId: first.taskId, specification: spec },
+        { projectId: PROJECT, taskId: second.taskId, specification: spec }
+      ]
+    })
+    const pump = new TaskSchedulerPump(authority, OWNER_ALICE, { now: () => Date.now() })
+    const scope = `run-member:${PROJECT}:${second.taskId}`
+
+    // Tick 1: the second member is capacity-blocked and reported once.
+    const tick1 = pump.tick()
+    expect(tick1.claimed.map(entry => entry.claim.task.taskId)).toEqual([first.taskId])
+    expect(tick1.failures.map(failure => failure.scope)).toEqual([scope])
+
+    // The first member finishes; tick 2 claims the second member, clearing its latch.
+    authority.write({ kind: 'complete', connection: worker(OWNER_ALICE), token: tick1.claimed[0]!.claim.token, result: { summary: 'first done' } })
+    const tick2 = pump.tick()
+    expect(tick2.claimed.map(entry => entry.claim.task.taskId)).toEqual([second.taskId])
+    expect(tick2.failures).toEqual([])
+
+    // The second member fails and is retried into a new group, then re-blocked.
+    authority.write({ kind: 'fail', connection: worker(OWNER_ALICE), token: tick2.claimed[0]!.claim.token, error: 'second failed' })
+    authority.retryRunGroup({
+      connection: ADMIN,
+      runGroupId: group.runGroupId,
+      expectedEntityVersion: group.entityVersion,
+      requestId: 'long-lived-retry',
+      ownerId: OWNER_ALICE,
+      memberTaskIds: [{ projectId: PROJECT, taskId: second.taskId }]
+    })
+    const blockedVersion = authority.query({ connection: ADMIN, projectId: PROJECT }).tasks.find(task => task.taskId === second.taskId)!.entityVersion
+    authority.updateTask({ connection: ADMIN, projectId: PROJECT, taskId: second.taskId, expectedEntityVersion: blockedVersion, status: 'blocked' })
+
+    // Tick 3: the re-blocked scope is reported again — the pump stayed quiet
+    // while the condition was unresolved, but a resolved-then-reblocked scope
+    // is never silent forever.
+    const tick3 = pump.tick()
+    expect(tick3.claimed).toHaveLength(0)
+    expect(tick3.failures.map(failure => failure.scope)).toEqual([scope])
+    expect(pump.tick().failures).toEqual([])
+  })
+
   it('preserves member specifications across run-group retry and fans the retried member out', () => {
     const { authority, directory } = openAuthority()
     const workspace = join(directory, 'work')
