@@ -195,7 +195,8 @@ export function parseCliArguments(argv: readonly string[]): CliArguments {
   for (const field of command.fields) {
     if (!field.flag || !flags.has(field.flag)) continue
     if (params[field.name] !== undefined) throw new Error('Parameter supplied twice: ' + field.name)
-    params[field.name] = flags.get(field.flag)
+    const value = flags.get(field.flag)
+    params[field.name] = field.kind === 'boolean' ? value === true : fieldValue(field, String(value))
   }
   for (const field of command.fields) {
     const value = params[field.name]

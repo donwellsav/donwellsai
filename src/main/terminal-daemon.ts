@@ -7,6 +7,30 @@ import { chmodSync, lstatSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { logger } from '@shared/logger'
+import {
+  assertAuthorityUuid,
+  parseTaskExecutionSpecification,
+  parseVerificationArtifact,
+  TASK_AUTHORITY_MAX_ERROR_TEXT,
+  TASK_AUTHORITY_MAX_PAGE,
+  TASK_AUTHORITY_MAX_USER_TEXT,
+  TASK_STATUSES,
+  TaskAuthorityError,
+  TaskAuthorityValidationError,
+  type AuthenticatedAuthorityConnection,
+  type ClaimResult,
+  type LeaseToken,
+  type TaskExecutionSpecificationInput,
+  type TaskScheduleCadence,
+  type TaskScheduleSpec,
+  type TaskStatus
+} from '@shared/task-authority'
+import type { ProcessIdentity } from '@shared/child-process/process-spec'
+import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
+import { SqliteTaskAuthority } from './task-authority/task-authority'
+import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
+import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
   AGENT_PROVIDER_DEFINITIONS,
   AGENT_HOOK_CAPABILITY,
@@ -39,6 +63,7 @@ import { AcpSessions } from './agents/acp-sessions'
 
 export const SCROLLBACK_MAX = 512 * 1024
 export const DAEMON_PROTOCOL_VERSION = 3
+export const TASK_AUTHORITY_CAPABILITY = 'task-authority-v1'
 export const DAEMON_CAPABILITIES = [
   'sequenced-output',
   'oneshot-jobs',
@@ -53,12 +78,14 @@ export const DAEMON_CAPABILITIES = [
   'agent-input-v1',
   ACP_DAEMON_CAPABILITY,
   'runtime-identity-v1',
-  ATTENTION_INBOX_CAPABILITY
+  ATTENTION_INBOX_CAPABILITY,
+  TASK_AUTHORITY_CAPABILITY
 ] as const
 const MAX_FRAME_BYTES = 1024 * 1024
 const MAX_CLIENT_QUEUED_BYTES = 8 * 1024 * 1024
 const MAX_AGENT_COMMAND_BYTES = 16 * 1024
 const MAX_HOOK_EVENTS_PER_MINUTE = 120
+const TASK_SCHEDULER_TICK_MS = 15_000
 
 type AgentRecord = {
   run: RunningAgent
@@ -87,6 +114,123 @@ function sameToken(actual: string | undefined, supplied: unknown): boolean {
 function cloneRun(run: RunningAgent): RunningAgent {
   return structuredClone(run)
 }
+
+/** Stops a detached task child through its recorded Stage 1 process identity. */
+function stopProcessByIdentity(identity: ProcessIdentity): Promise<void> {
+  if (process.platform === 'win32') {
+    return Promise.reject(new Error('process-group stop by identity is unavailable on this platform'))
+  }
+  return forceTerminatePosixProcessGroup(identity.pid).then(terminated => {
+    if (!terminated) throw new Error('task child process group exit is unverifiable after cancellation')
+  })
+}
+
+function taskWireString(value: unknown, field: string, maximum = 128): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0 || value.length > maximum || value.includes('\0')) {
+    throw new TaskAuthorityValidationError(field, `must be a non-empty string of at most ${maximum} characters`)
+  }
+  return value
+}
+
+function taskWireRequiredString(value: unknown, field: string, maximum = 128): string {
+  const parsed = taskWireString(value, field, maximum)
+  if (parsed === undefined) throw new TaskAuthorityValidationError(field, 'is required')
+  return parsed
+}
+
+function taskWireUuid(value: unknown, field: string): string {
+  const parsed = taskWireRequiredString(value, field, 128)
+  return assertAuthorityUuid(parsed, field)
+}
+
+function taskWireInteger(value: unknown, field: string, minimum: number, maximum: number): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new TaskAuthorityValidationError(field, `must be an integer from ${minimum} to ${maximum}`)
+  }
+  return value
+}
+
+function taskWireEntityVersion(value: unknown, field = 'expectedEntityVersion'): number {
+  const parsed = taskWireInteger(value, field, 1, Number.MAX_SAFE_INTEGER)
+  if (parsed === undefined) throw new TaskAuthorityValidationError(field, 'is required')
+  return parsed
+}
+
+function taskWireBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') throw new TaskAuthorityValidationError(field, 'must be a boolean')
+  return value
+}
+
+function taskWireStringList(value: unknown, field: string): readonly string[] {
+  if (!Array.isArray(value)) throw new TaskAuthorityValidationError(field, 'must be an array of strings')
+  return value.map((entry, index) => taskWireRequiredString(entry, `${field}[${index}]`, 128))
+}
+
+function taskWireMemberList(value: unknown, field: string): readonly { projectId: string; taskId: string }[] {
+  if (!Array.isArray(value)) throw new TaskAuthorityValidationError(field, 'must be an array of members')
+  return value.map((entry, index) => {
+    if (typeof entry !== 'object' || entry === null) throw new TaskAuthorityValidationError(`${field}[${index}]`, 'must be an object')
+    const record = entry as Record<string, unknown>
+    return { projectId: taskWireRequiredString(record['projectId'], `${field}[${index}].projectId`), taskId: taskWireUuid(record['taskId'], `${field}[${index}].taskId`) }
+  })
+}
+
+function taskWireLeaseToken(value: unknown): LeaseToken {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError('token', 'must be a lease token object')
+  }
+  const record = value as Record<string, unknown>
+  return {
+    projectId: taskWireRequiredString(record['projectId'], 'token.projectId'),
+    taskId: taskWireUuid(record['taskId'], 'token.taskId'),
+    attemptId: taskWireUuid(record['attemptId'], 'token.attemptId'),
+    ownerId: taskWireUuid(record['ownerId'], 'token.ownerId'),
+    leaseId: taskWireUuid(record['leaseId'], 'token.leaseId'),
+    generation: taskWireEntityVersion(record['generation'], 'token.generation'),
+    expiresAt: taskWireRequiredString(record['expiresAt'], 'token.expiresAt', 64)
+  }
+}
+
+const WORKER_TASK_OPS = new Set(['task.claim', 'task.write', 'task.handoff.offer', 'task.handoff.cancel', 'task.handoff.accept', 'task.takeover', 'task.mailbox.append'])
+
+function taskWireScheduleCadence(value: unknown): TaskScheduleCadence {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError('spec.cadence', 'must be an object')
+  }
+  const record = value as Record<string, unknown>
+  if (record['kind'] === 'interval') {
+    const minutes = taskWireInteger(record['minutes'], 'spec.cadence.minutes', 1, 60 * 24 * 31)
+    if (minutes === undefined) throw new TaskAuthorityValidationError('spec.cadence.minutes', 'is required')
+    return { kind: 'interval', minutes }
+  }
+  if (record['kind'] === 'daily') {
+    const time = taskWireRequiredString(record['time'], 'spec.cadence.time', 5)
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new TaskAuthorityValidationError('spec.cadence.time', 'must be HH:MM')
+    const timeZone = taskWireRequiredString(record['timeZone'], 'spec.cadence.timeZone', 128)
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone })
+    } catch {
+      throw new TaskAuthorityValidationError('spec.cadence.timeZone', 'must be an IANA time zone name')
+    }
+    return { kind: 'daily', time, timeZone }
+  }
+  throw new TaskAuthorityValidationError('spec.cadence.kind', 'must be "interval" or "daily"')
+}
+
+function taskWireScheduleSpec(value: unknown): TaskScheduleSpec {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TaskAuthorityValidationError('spec', 'must be a schedule specification object')
+  }
+  const record = value as Record<string, unknown>
+  const profileId = taskWireRequiredString(record['profileId'], 'spec.profileId')
+  const taskTitle = taskWireRequiredString(record['taskTitle'], 'spec.taskTitle', 512)
+  const cadence = taskWireScheduleCadence(record['cadence'])
+  const specification = parseTaskExecutionSpecification({ command: record['command'], target: record['target'], verification: record['verification'] }, 'spec')
+  return { profileId, taskTitle, cadence, command: specification.command, target: specification.target, verification: specification.verification }
+}
 /** Detached local execution owner. Client disconnect is never process-exit evidence. */
 export class TerminalDaemon {
   private server: Server | null = null
@@ -109,6 +253,12 @@ export class TerminalDaemon {
   private readonly agentsByRun = new Map<string, AgentRecord>()
   private readonly acp: AcpSessions
   private readonly identity: RuntimeIdentityAuthority
+  private readonly taskAuthority: SqliteTaskAuthority
+  private readonly taskCoordinator: TaskExecutionCoordinator
+  private taskSchedulerPump!: TaskSchedulerPump
+  private readonly taskWorkerCredentials = new Map<string, { token: string; ownerId: string; connectionKey: string; projectIds: readonly string[] }>()
+  private readonly taskConnections = new Map<Socket, string>()
+  private taskPumpTimer: NodeJS.Timeout | null = null
   constructor(opts: {
     userDataDir: string
     authToken: string
@@ -133,13 +283,62 @@ export class TerminalDaemon {
         exit: (sessionId, exitCode) => this.handlePtyExit(sessionId, exitCode),
         title: (sessionId, title) => this.broadcast({ event: 'title', sessionId, title })
       },
-      opts.shell
+      opts.shell,
+      undefined,
+      this.identity
     )
     this.attention = new AttentionInboxService(new AttentionInboxStore(opts.userDataDir), {
       resolveContact: (sessionId) => ({
         currentLiveness: this.agentsBySession.get(sessionId)?.run.liveness ?? 'unknown',
         terminalAvailability: this.pty.has(sessionId) ? 'retained' : 'unavailable'
       })
+    })
+    this.taskAuthority = SqliteTaskAuthority.open({ userDataDirectory: this.paths.runtimeDir })
+    this.taskCoordinator = new TaskExecutionCoordinator({
+      authority: this.taskAuthority,
+      evidence: new DaemonTaskEvidencePort(),
+      verifyIdentity: identity => this.identity.verify(identity),
+      ports: {
+        jobs: {
+          openJob: (cwd, command, cols, rows) => {
+            const session = this.pty.openJob(cwd, command, cols ?? 100, rows ?? 30)
+            return { sessionId: session.id, processIdentity: this.pty.processIdentity(session.id) }
+          },
+          stop: sessionId => this.pty.stop(sessionId),
+          stopProcess: identity => stopProcessByIdentity(identity),
+          output: (sessionId, afterOffset) => {
+            const scrollback = this.scrollback.get(sessionId) ?? ''
+            let exited = false
+            let exitCode: number | undefined
+            try {
+              const result = this.pty.jobResult(sessionId)
+              exited = result.exited
+              exitCode = result.exitCode
+            } catch {
+              exited = false
+            }
+            return { output: scrollback.slice(afterOffset), totalBytes: scrollback.length, exited, exitCode }
+          }
+        },
+        agents: {
+          openAgent: (cwd, _command, launch) => {
+            if (!launch) throw new Error('task agent launches require a resolvable agent provider executable')
+            const snapshot = this.acp.start(cwd, randomUUID(), launch, [])
+            return { sessionId: snapshot.id, processIdentity: snapshot.processIdentity }
+          },
+          stop: async sessionId => {
+            const workspacePath = this.acp.list().find(snapshot => snapshot.id === sessionId)?.workspacePath
+            if (!workspacePath) throw new Error('unknown ACP task session: ' + sessionId)
+            await this.acp.control(workspacePath, sessionId, 'stop')
+          },
+          stopProcess: identity => stopProcessByIdentity(identity),
+          output: sessionId => {
+            const snapshot = this.acp.list().find(candidate => candidate.id === sessionId)
+            const exited = snapshot?.state === 'exited'
+            return { output: '', totalBytes: 0, exited, exitCode: exited ? 0 : undefined }
+          }
+        }
+      }
     })
   }
 
@@ -159,6 +358,10 @@ export class TerminalDaemon {
     ++this.lifecycleGeneration
     if (this.hasOwnedSessions()) return false
     if (this.server && this.endpointPathState() === 'foreign') throw new Error('terminal daemon endpoint path changed; refusing to close it')
+    if (this.taskPumpTimer) {
+      clearInterval(this.taskPumpTimer)
+      this.taskPumpTimer = null
+    }
     const server = this.server
     this.server = null
     for (const client of this.connections) client.destroy()
@@ -230,6 +433,17 @@ export class TerminalDaemon {
       }
       if (reconciliation.action === 'republish-active') republishRuntimeOwner(publication, publication.owner.locatorSha256)
       else await publishRuntimeOwner(publication, () => undefined)
+      this.taskSchedulerPump = new TaskSchedulerPump(this.taskAuthority, this.daemonWorkerOwnerId(), { connectionId: 'daemon-scheduler' })
+      await this.reconcileTaskAuthority()
+      this.runTaskSchedulerTick()
+      this.taskPumpTimer = setInterval(() => {
+        try {
+          this.runTaskSchedulerTick()
+        } catch (error) {
+          logger.warn({ err: error }, 'task scheduler tick failed')
+        }
+      }, TASK_SCHEDULER_TICK_MS)
+      this.taskPumpTimer.unref?.()
     } catch (error) {
       let failure: unknown = error
       if (server?.listening && this.endpointPathState() === 'foreign') {
@@ -430,6 +644,7 @@ export class TerminalDaemon {
             && message['id'].length <= 256) {
             privileged = true
             this.clients.add(socket)
+            this.taskConnections.set(socket, randomUUID())
             this.reply(socket, message['id'], true, {
               protocolVersion: DAEMON_PROTOCOL_VERSION,
               runtimeIdentityContractVersion: 1,
@@ -457,6 +672,13 @@ export class TerminalDaemon {
     socket.on('close', () => {
       this.connections.delete(socket)
       this.clients.delete(socket)
+      const connectionKey = this.taskConnections.get(socket)
+      this.taskConnections.delete(socket)
+      if (connectionKey !== undefined) {
+        for (const [credentialId, binding] of this.taskWorkerCredentials) {
+          if (binding.connectionKey === connectionKey) this.taskWorkerCredentials.delete(credentialId)
+        }
+      }
     })
     socket.on('error', () => socket.destroy())
   }
@@ -890,6 +1112,36 @@ export class TerminalDaemon {
           reply(true, { stopped: true })
           setImmediate(() => void this.stopIfIdle())
           break
+        case 'task.credential.issue':
+        case 'task.query':
+        case 'task.create':
+        case 'task.update':
+        case 'task.dependencies.set':
+        case 'task.schedule.create':
+        case 'task.schedule.update':
+        case 'task.schedule.duplicate':
+        case 'task.schedule.delete':
+        case 'task.schedule.execution.enqueue-due':
+        case 'task.schedule.execution.enqueue':
+        case 'task.schedule.executions.list':
+        case 'task.schedule.execution.cancel':
+        case 'task.run-group.create':
+        case 'task.run-group.cancel':
+        case 'task.run-group.delete':
+        case 'task.run-group.retry':
+        case 'task.cancel':
+        case 'task.retry':
+        case 'task.adopt-artifact':
+        case 'task.claim':
+        case 'task.write':
+        case 'task.handoff.offer':
+        case 'task.handoff.cancel':
+        case 'task.handoff.accept':
+        case 'task.takeover':
+        case 'task.mailbox.append':
+        case 'task.mailbox.acknowledge':
+          reply(true, this.handleTaskOp(socket, message))
+          break
         case 'ping':
           reply(true, { pong: Date.now() })
           break
@@ -897,7 +1149,497 @@ export class TerminalDaemon {
           reply(false, { error: `unknown op: ${op}` })
       }
     } catch (error) {
-      reply(false, { error: error instanceof Error ? error.message : String(error) })
+      reply(false, {
+        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof TaskAuthorityError ? { code: error.code } : {})
+      })
+    }
+  }
+
+  // -- task authority command surface -----------------------------------------
+  // Every mutation routes through the single in-process Task Authority.
+  // Worker identity always comes from a daemon-issued per-session credential
+  // bound to the authenticated connection; the profile-global runtime token
+  // never upgrades itself into worker authority.
+
+  private taskConnectionKey(socket: Socket): string {
+    const key = this.taskConnections.get(socket)
+    if (key === undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task commands require an authenticated daemon connection')
+    return key
+  }
+
+  private taskAdminConnection(socket: Socket): AuthenticatedAuthorityConnection {
+    return { connectionId: this.taskConnectionKey(socket), role: 'administrator' }
+  }
+
+  private daemonWorkerOwnerId(): string {
+    return this.publication?.owner.ownerId ?? '00000000-0000-4000-8000-000000000000'
+  }
+
+  private daemonWorkerConnection(projectId: string): AuthenticatedAuthorityConnection {
+    return { connectionId: 'daemon-worker', role: 'worker', ownerId: this.daemonWorkerOwnerId(), authorizedProjectIds: [projectId] }
+  }
+
+  private issueTaskWorkerCredential(socket: Socket, message: Record<string, unknown>): Record<string, unknown> {
+    const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+    const credentialId = randomUUID()
+    const token = newAuthToken()
+    const ownerId = randomUUID()
+    this.taskWorkerCredentials.set(credentialId, { token, ownerId, connectionKey: this.taskConnectionKey(socket), projectIds: [projectId] })
+    return { credentialId, ownerId, token }
+  }
+
+  private bindTaskWorker(socket: Socket, message: Record<string, unknown>, projectId: string): AuthenticatedAuthorityConnection {
+    const rawCredential = message['credential']
+    if (typeof rawCredential !== 'object' || rawCredential === null || Array.isArray(rawCredential)) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'a daemon-issued task worker credential is required')
+    }
+    const credential = rawCredential as Record<string, unknown>
+    const credentialId = taskWireUuid(credential['credentialId'], 'credential.credentialId')
+    const token = taskWireRequiredString(credential['token'], 'credential.token', 256)
+    const binding = this.taskWorkerCredentials.get(credentialId)
+    if (!binding || !sameToken(binding.token, token)) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task worker credential is missing, stale, or invalid')
+    }
+    if (binding.connectionKey !== this.taskConnectionKey(socket)) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task worker credential belongs to a different authenticated session')
+    }
+    if (!binding.projectIds.includes(projectId)) {
+      throw new TaskAuthorityError('PROJECT_SCOPE_MISMATCH', 'task worker credential is not authorized for this project')
+    }
+    return { connectionId: credentialId, role: 'worker', ownerId: binding.ownerId, authorizedProjectIds: [projectId] }
+  }
+
+  private launchClaimedTask(claim: ClaimResult, specification: TaskExecutionSpecificationInput, runtime: TaskChildRuntime, connection: AuthenticatedAuthorityConnection): void {
+    void this.taskCoordinator.launch(claim, specification, connection, runtime).catch(error => {
+      logger.warn({ err: error, taskId: claim.task.taskId, attemptId: claim.attempt.attemptId }, 'task launch coordination failed')
+    })
+  }
+
+  private resumeClaimedTask(claim: ClaimResult, connection: AuthenticatedAuthorityConnection): void {
+    try {
+      const specification = this.taskAuthority.readExecutionSpecification(claim.task.projectId, claim.attempt.specificationId)
+      this.launchClaimedTask(claim, specification, 'finite-job', connection)
+    } catch (error) {
+      logger.warn({ err: error, taskId: claim.task.taskId }, 'task resume after transfer failed')
+    }
+  }
+
+  private async reconcileTaskAuthority(): Promise<void> {
+    const events = await this.taskCoordinator.reconcileStartup(identity => this.identity.verify(identity))
+    for (const event of events) logger.info({ taskAuthority: event }, 'task-authority:startup-reconciled')
+  }
+
+  private runTaskSchedulerTick(): void {
+    const pump = this.taskSchedulerPump
+    if (!pump) return
+    const result = pump.tick()
+    for (const failure of result.failures) logger.warn({ scope: failure.scope, error: failure.error }, 'task scheduler tick rejected one enqueue or claim')
+    for (const entry of result.claimed) {
+      this.launchClaimedTask(entry.claim, entry.specification, 'finite-job', this.daemonWorkerConnection(entry.claim.task.projectId))
+    }
+  }
+
+  private handleTaskOp(socket: Socket, message: Record<string, unknown>): Record<string, unknown> {
+    const op = String(message['op'] ?? '')
+    if (!WORKER_TASK_OPS.has(op) && message['credential'] !== undefined) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'administrator task commands do not accept a worker credential')
+    }
+    switch (op) {
+      case 'task.credential.issue':
+        return { credential: this.issueTaskWorkerCredential(socket, message) }
+      case 'task.query': {
+        const status = taskWireString(message['status'], 'status', 32)
+        if (status !== undefined && !TASK_STATUSES.includes(status as TaskStatus)) {
+          throw new TaskAuthorityValidationError('status', 'must be a known task status')
+        }
+        const limit = taskWireInteger(message['limit'], 'limit', 1, TASK_AUTHORITY_MAX_PAGE)
+        const runnableOnly = taskWireBoolean(message['runnableOnly'], 'runnableOnly')
+        const cursor = taskWireString(message['cursor'], 'cursor')
+        const projectId = taskWireString(message['projectId'], 'projectId')
+        return this.taskAuthority.query({
+          connection: this.taskAdminConnection(socket),
+          ...(projectId === undefined ? {} : { projectId }),
+          ...(status === undefined ? {} : { status: status as TaskStatus }),
+          ...(runnableOnly === undefined ? {} : { runnableOnly }),
+          ...(cursor === undefined ? {} : { cursor }),
+          ...(limit === undefined ? {} : { limit })
+        }) as unknown as Record<string, unknown>
+      }
+      case 'task.create': {
+        const status = taskWireString(message['status'], 'status', 16)
+        if (status !== undefined && status !== 'todo' && status !== 'blocked') throw new TaskAuthorityValidationError('status', 'must be todo or blocked')
+        const priority = taskWireInteger(message['priority'], 'priority', 0, 1_000_000)
+        const body = taskWireString(message['body'], 'body', TASK_AUTHORITY_MAX_USER_TEXT)
+        const repositoryId = taskWireString(message['repositoryId'], 'repositoryId')
+        const workspaceRoot = taskWireString(message['workspaceRoot'], 'workspaceRoot')
+        return {
+          task: this.taskAuthority.createTask({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            ...(repositoryId === undefined ? {} : { repositoryId }),
+            ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+            externalTaskId: taskWireRequiredString(message['externalTaskId'], 'externalTaskId'),
+            title: taskWireRequiredString(message['title'], 'title', 512),
+            ...(body === undefined ? {} : { body }),
+            ...(priority === undefined ? {} : { priority }),
+            ...(status === undefined ? {} : { status: status as 'todo' | 'blocked' })
+          })
+        }
+      }
+      case 'task.update': {
+        const status = taskWireString(message['status'], 'status', 16)
+        if (status !== undefined && status !== 'todo' && status !== 'blocked') throw new TaskAuthorityValidationError('status', 'must be todo or blocked')
+        const priority = taskWireInteger(message['priority'], 'priority', 0, 1_000_000)
+        const title = taskWireString(message['title'], 'title', 512)
+        const body = taskWireString(message['body'], 'body', TASK_AUTHORITY_MAX_USER_TEXT)
+        return {
+          task: this.taskAuthority.updateTask({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            ...(title === undefined ? {} : { title }),
+            ...(body === undefined ? {} : { body }),
+            ...(priority === undefined ? {} : { priority }),
+            ...(status === undefined ? {} : { status: status as 'todo' | 'blocked' })
+          })
+        }
+      }
+      case 'task.dependencies.set': {
+        const dependsOnTaskIds = message['dependsOnTaskIds']
+        if (!Array.isArray(dependsOnTaskIds)) throw new TaskAuthorityValidationError('dependsOnTaskIds', 'must be an array of task ids')
+        return {
+          task: this.taskAuthority.setDependencies({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            dependsOnTaskIds: dependsOnTaskIds.map((id, index) => assertAuthorityUuid(typeof id === 'string' ? id : '', `dependsOnTaskIds[${index}]`))
+          })
+        }
+      }
+      case 'task.schedule.create': {
+        const nextRunAt = taskWireString(message['nextRunAt'], 'nextRunAt', 64)
+        if (nextRunAt !== undefined && Number.isNaN(Date.parse(nextRunAt))) throw new TaskAuthorityValidationError('nextRunAt', 'must be an ISO 8601 timestamp')
+        const enabled = taskWireBoolean(message['enabled'], 'enabled')
+        const repositoryId = taskWireString(message['repositoryId'], 'repositoryId')
+        const workspaceRoot = taskWireString(message['workspaceRoot'], 'workspaceRoot')
+        return {
+          schedule: this.taskAuthority.createSchedule({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            ...(repositoryId === undefined ? {} : { repositoryId }),
+            ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+            spec: taskWireScheduleSpec(message['spec']),
+            ...(enabled === undefined ? {} : { enabled }),
+            ...(nextRunAt === undefined ? {} : { nextRunAt })
+          })
+        }
+      }
+      case 'task.schedule.update': {
+        const nextRunAtRaw = message['nextRunAt']
+        const spec = message['spec'] === undefined ? undefined : taskWireScheduleSpec(message['spec'])
+        const enabled = taskWireBoolean(message['enabled'], 'enabled')
+        const nextRunAt = nextRunAtRaw === null ? null : taskWireString(nextRunAtRaw, 'nextRunAt', 64)
+        if (nextRunAt !== null && nextRunAt !== undefined && Number.isNaN(Date.parse(nextRunAt))) {
+          throw new TaskAuthorityValidationError('nextRunAt', 'must be an ISO 8601 timestamp or null')
+        }
+        return {
+          schedule: this.taskAuthority.updateSchedule({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            scheduleId: taskWireUuid(message['scheduleId'], 'scheduleId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            ...(spec === undefined ? {} : { spec }),
+            ...(enabled === undefined ? {} : { enabled }),
+            ...(nextRunAtRaw === undefined ? {} : { nextRunAt })
+          })
+        }
+      }
+      case 'task.schedule.duplicate':
+        return {
+          schedule: this.taskAuthority.duplicateSchedule({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            scheduleId: taskWireUuid(message['scheduleId'], 'scheduleId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.schedule.delete':
+        return {
+          schedule: this.taskAuthority.deleteSchedule({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            scheduleId: taskWireUuid(message['scheduleId'], 'scheduleId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.schedule.execution.enqueue-due': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const scheduleId = taskWireUuid(message['scheduleId'], 'scheduleId')
+        const schedule = this.taskAuthority.readSchedule(projectId, scheduleId)
+        return {
+          execution: this.taskAuthority.enqueueDueSchedule({
+            connection: { connectionId: this.taskConnectionKey(socket), role: 'daemon-scheduler', authorizedProjectIds: [projectId], authorizedProfileIds: [schedule.profileId] },
+            projectId,
+            scheduleId,
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            expectedNextRunAt: taskWireRequiredString(message['expectedNextRunAt'], 'expectedNextRunAt', 64)
+          })
+        }
+      }
+      case 'task.schedule.execution.enqueue':
+        return {
+          execution: this.taskAuthority.enqueueManualScheduleExecution({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            scheduleId: taskWireUuid(message['scheduleId'], 'scheduleId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            requestId: taskWireRequiredString(message['requestId'], 'requestId')
+          })
+        }
+      case 'task.schedule.executions.list': {
+        const state = taskWireString(message['state'], 'state', 16)
+        if (state !== undefined && !['queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed'].includes(state)) {
+          throw new TaskAuthorityValidationError('state', 'must be a known schedule execution state')
+        }
+        const limit = taskWireInteger(message['limit'], 'limit', 1, TASK_AUTHORITY_MAX_PAGE)
+        const projectId = taskWireString(message['projectId'], 'projectId')
+        const scheduleId = message['scheduleId'] === undefined ? undefined : taskWireUuid(message['scheduleId'], 'scheduleId')
+        const cursor = taskWireString(message['cursor'], 'cursor')
+        return this.taskAuthority.listScheduleExecutions({
+          connection: this.taskAdminConnection(socket),
+          ...(projectId === undefined ? {} : { projectId }),
+          ...(scheduleId === undefined ? {} : { scheduleId }),
+          ...(state === undefined ? {} : { state: state as 'queued' | 'running' | 'cancelling' | 'cancelled' | 'succeeded' | 'failed' }),
+          ...(cursor === undefined ? {} : { cursor }),
+          ...(limit === undefined ? {} : { limit })
+        }) as unknown as Record<string, unknown>
+      }
+      case 'task.schedule.execution.cancel':
+        return {
+          execution: this.taskAuthority.cancelScheduleExecution({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            scheduleId: taskWireUuid(message['scheduleId'], 'scheduleId'),
+            executionId: taskWireUuid(message['executionId'], 'executionId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.run-group.create': {
+        const concurrency = taskWireInteger(message['concurrency'], 'concurrency', 1, 1_000_000)
+        if (concurrency === undefined) throw new TaskAuthorityValidationError('concurrency', 'is required')
+        return {
+          runGroup: this.taskAuthority.createRunGroup({
+            connection: this.taskAdminConnection(socket),
+            profileId: taskWireRequiredString(message['profileId'], 'profileId'),
+            name: taskWireRequiredString(message['name'], 'name', 512),
+            concurrency,
+            members: taskWireMemberList(message['members'], 'members')
+          })
+        }
+      }
+      case 'task.run-group.cancel':
+        return {
+          runGroup: this.taskAuthority.cancelRunGroup({
+            connection: this.taskAdminConnection(socket),
+            profileId: taskWireRequiredString(message['profileId'], 'profileId'),
+            runGroupId: taskWireUuid(message['runGroupId'], 'runGroupId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.run-group.delete':
+        return {
+          runGroup: this.taskAuthority.deleteRunGroup({
+            connection: this.taskAdminConnection(socket),
+            profileId: taskWireRequiredString(message['profileId'], 'profileId'),
+            runGroupId: taskWireUuid(message['runGroupId'], 'runGroupId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.run-group.retry': {
+        const memberTaskIds = message['memberTaskIds']
+        if (!Array.isArray(memberTaskIds)) throw new TaskAuthorityValidationError('memberTaskIds', 'must be an array of members')
+        return {
+          runGroup: this.taskAuthority.retryRunGroup({
+            connection: this.taskAdminConnection(socket),
+            runGroupId: taskWireUuid(message['runGroupId'], 'runGroupId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            requestId: taskWireRequiredString(message['requestId'], 'requestId'),
+            ownerId: taskWireUuid(message['ownerId'], 'ownerId'),
+            memberTaskIds: memberTaskIds.map((entry, index) => {
+              if (typeof entry !== 'object' || entry === null) throw new TaskAuthorityValidationError(`memberTaskIds[${index}]`, 'must be an object')
+              const record = entry as Record<string, unknown>
+              return { projectId: taskWireRequiredString(record['projectId'], `memberTaskIds[${index}].projectId`), taskId: taskWireUuid(record['taskId'], `memberTaskIds[${index}].taskId`) }
+            })
+          })
+        }
+      }
+      case 'task.cancel':
+        return {
+          task: this.taskAuthority.requestCancellation({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion'])
+          })
+        }
+      case 'task.retry': {
+        const specification = message['specification'] === undefined ? undefined : parseTaskExecutionSpecification(message['specification'])
+        const leaseTtlMs = taskWireInteger(message['leaseTtlMs'], 'leaseTtlMs', 1000, 600_000)
+        return {
+          claim: this.taskAuthority.retryFailedTask({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            expectedEntityVersion: taskWireEntityVersion(message['expectedEntityVersion']),
+            ownerId: taskWireUuid(message['ownerId'], 'ownerId'),
+            ...(specification === undefined ? {} : { specification }),
+            ...(leaseTtlMs === undefined ? {} : { leaseTtlMs })
+          })
+        }
+      }
+      case 'task.adopt-artifact':
+        return {
+          task: this.taskAuthority.adoptArtifact({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            artifactId: taskWireUuid(message['artifactId'], 'artifactId'),
+            reviewReceiptSha256: taskWireRequiredString(message['reviewReceiptSha256'], 'reviewReceiptSha256', 64)
+          })
+        }
+      case 'task.claim': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        const specification = parseTaskExecutionSpecification(message['specification'], 'specification')
+        const taskId = message['taskId'] === undefined ? undefined : taskWireUuid(message['taskId'], 'taskId')
+        const externalTaskId = message['externalTaskId'] === undefined ? undefined : taskWireRequiredString(message['externalTaskId'], 'externalTaskId')
+        if (taskId === undefined && externalTaskId === undefined) throw new TaskAuthorityValidationError('claim', 'taskId or externalTaskId is required')
+        const leaseTtlMs = taskWireInteger(message['leaseTtlMs'], 'leaseTtlMs', 1000, 600_000)
+        const result = this.taskAuthority.claim({
+          connection,
+          projectId,
+          ...(taskId === undefined ? { externalTaskId: externalTaskId as string } : { taskId }),
+          specification,
+          ...(leaseTtlMs === undefined ? {} : { leaseTtlMs })
+        })
+        this.launchClaimedTask(result, specification, 'finite-job', connection)
+        return { task: result.task, attempt: result.attempt, token: result.token }
+      }
+      case 'task.write': {
+        const token = taskWireLeaseToken(message['token'])
+        const connection = this.bindTaskWorker(socket, message, token.projectId)
+        const kind = taskWireRequiredString(message['kind'], 'kind', 32)
+        switch (kind) {
+          case 'heartbeat': {
+            const ttlMs = taskWireInteger(message['ttlMs'], 'ttlMs', 1000, 600_000)
+            return { task: this.taskAuthority.write({ kind: 'heartbeat', connection, token, ttlMs: ttlMs ?? 30_000 }) }
+          }
+          case 'progress': {
+            const detail = taskWireRequiredString(message['detail'], 'detail', TASK_AUTHORITY_MAX_USER_TEXT)
+            return { task: this.taskAuthority.write({ kind: 'progress', connection, token, detail }) }
+          }
+          case 'attach-artifact':
+            return { task: this.taskAuthority.write({ kind: 'attach-artifact', connection, token, artifact: parseVerificationArtifact(message['artifact']) }) }
+          case 'complete': {
+            const summary = taskWireRequiredString(message['summary'], 'summary', TASK_AUTHORITY_MAX_USER_TEXT)
+            return { task: this.taskAuthority.write({ kind: 'complete', connection, token, result: { summary } }) }
+          }
+          case 'fail': {
+            const error = taskWireRequiredString(message['error'], 'error', TASK_AUTHORITY_MAX_ERROR_TEXT)
+            return { task: this.taskAuthority.write({ kind: 'fail', connection, token, error }) }
+          }
+          default:
+            throw new TaskAuthorityError('AUTHORIZATION_DENIED', `task write kind "${kind}" is reserved for daemon coordination or is unknown`)
+        }
+      }
+      case 'task.handoff.offer': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        return {
+          offer: this.taskAuthority.offerHandoff({
+            connection,
+            projectId,
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            attemptId: taskWireUuid(message['attemptId'], 'attemptId'),
+            leaseId: taskWireUuid(message['leaseId'], 'leaseId'),
+            generation: taskWireEntityVersion(message['generation'], 'generation'),
+            targetOwnerId: taskWireUuid(message['targetOwnerId'], 'targetOwnerId'),
+            ...(taskWireInteger(message['ttlMs'], 'ttlMs', 1000, 600_000) === undefined ? {} : { ttlMs: taskWireInteger(message['ttlMs'], 'ttlMs', 1000, 600_000) })
+          })
+        }
+      }
+      case 'task.handoff.cancel': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        return {
+          offer: this.taskAuthority.cancelHandoff({
+            connection,
+            projectId,
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            attemptId: taskWireUuid(message['attemptId'], 'attemptId'),
+            leaseId: taskWireUuid(message['leaseId'], 'leaseId'),
+            generation: taskWireEntityVersion(message['generation'], 'generation'),
+            offerId: taskWireUuid(message['offerId'], 'offerId')
+          })
+        }
+      }
+      case 'task.handoff.accept': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        const result = this.taskAuthority.acceptHandoff({
+          connection,
+          projectId,
+          taskId: taskWireUuid(message['taskId'], 'taskId'),
+          attemptId: taskWireUuid(message['attemptId'], 'attemptId'),
+          offerId: taskWireUuid(message['offerId'], 'offerId')
+        })
+        this.resumeClaimedTask(result, connection)
+        return { task: result.task, attempt: result.attempt, token: result.token }
+      }
+      case 'task.takeover': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        const result = this.taskAuthority.takeOverExpired({
+          connection,
+          projectId,
+          taskId: taskWireUuid(message['taskId'], 'taskId'),
+          attemptId: taskWireUuid(message['attemptId'], 'attemptId'),
+          leaseId: taskWireUuid(message['leaseId'], 'leaseId'),
+          generation: taskWireEntityVersion(message['generation'], 'generation'),
+          ...(taskWireInteger(message['leaseTtlMs'], 'leaseTtlMs', 1000, 600_000) === undefined ? {} : { leaseTtlMs: taskWireInteger(message['leaseTtlMs'], 'leaseTtlMs', 1000, 600_000) })
+        })
+        this.resumeClaimedTask(result, connection)
+        return { task: result.task, attempt: result.attempt, token: result.token }
+      }
+      case 'task.mailbox.append': {
+        const projectId = taskWireRequiredString(message['projectId'], 'projectId')
+        const connection = this.bindTaskWorker(socket, message, projectId)
+        const kind = taskWireRequiredString(message['kind'], 'kind', 16)
+        if (kind !== 'attention' && kind !== 'progress' && kind !== 'artifact' && kind !== 'system') {
+          throw new TaskAuthorityValidationError('kind', 'must be a known mailbox kind')
+        }
+        const payload = message['payload']
+        if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+          throw new TaskAuthorityValidationError('payload', 'must be an object')
+        }
+        return {
+          mailboxEntry: this.taskAuthority.appendMailbox({ connection, projectId, taskId: taskWireUuid(message['taskId'], 'taskId'), kind: kind as 'attention' | 'progress' | 'artifact' | 'system', payload: payload as Record<string, unknown> })
+        }
+      }
+      case 'task.mailbox.acknowledge':
+        return {
+          mailboxEntry: this.taskAuthority.acknowledgeAttention({
+            connection: this.taskAdminConnection(socket),
+            projectId: taskWireRequiredString(message['projectId'], 'projectId'),
+            taskId: taskWireUuid(message['taskId'], 'taskId'),
+            mailboxEntryId: taskWireUuid(message['mailboxEntryId'], 'mailboxEntryId')
+          })
+        }
+      default:
+        throw new TaskAuthorityError('DAEMON_UPGRADE_REQUIRED', `unknown task op: ${op}`)
     }
   }
 }

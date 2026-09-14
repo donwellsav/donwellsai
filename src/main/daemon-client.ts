@@ -27,11 +27,33 @@ import {
 } from '@shared/attention-inbox'
 import type { TerminalSession } from '@shared/types'
 import type { TerminalReplayChunk } from '@shared/terminal-stream'
+import type { ProcessIdentity } from '@shared/child-process/process-spec'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
 import { reconcileRuntimeOwner } from './runtime-ownership'
+import type {
+  AttemptSnapshot,
+  ClaimResult,
+  HandoffOffer,
+  LeaseSnapshot,
+  LeaseToken,
+  RunGroupSnapshot,
+  ScheduleExecutionSnapshot,
+  ScheduleSnapshot,
+  TaskExecutionSpecificationInput,
+  TaskMailboxEntry,
+  TaskProjection,
+  TaskScheduleCadence,
+  TaskScheduleSpec,
+  TaskSnapshot,
+  TaskStatus,
+  VerificationArtifactInput
+} from '@shared/task-authority'
+
+/** Daemon protocol capability that activates the task authority command surface. */
+const TASK_AUTHORITY = 'task-authority-v1'
 /** App-side transport for the detached terminal daemon. */
 
 export type DaemonEvents = {
@@ -87,6 +109,24 @@ const ONESHOT_JOBS = 'oneshot-jobs'
 const AGENT_RUNS = 'agent-runs-v1'
 const AGENT_INPUT = 'agent-input-v1'
 const MAX_TRANSPORT_BUFFER_BYTES = 2 * 1024 * 1024
+
+/** Sanitized liveness facts about an older daemon that blocks task authority activation. */
+export type SanitizedDaemonStatus = Readonly<{ pid: number | null; idle: boolean; sessionCount: number; liveSessionCount: number }>
+
+/** Daemon-issued per-session worker credential forwarded by worker clients. */
+export type TaskWorkerCredential = Readonly<{ credentialId: string; token: string }>
+
+/** Raised when an older authenticated daemon owns live sessions and must exit before task authority activation. */
+export class DaemonUpgradeRequiredError extends Error {
+  readonly code = 'DAEMON_UPGRADE_REQUIRED'
+  readonly status: SanitizedDaemonStatus
+
+  constructor(status: SanitizedDaemonStatus) {
+    super(`terminal daemon owns live sessions and blocks task authority activation until they exit (pid=${status.pid ?? 'unknown'}, sessions=${status.sessionCount}, live=${status.liveSessionCount})`)
+    this.name = 'DaemonUpgradeRequiredError'
+    this.status = status
+  }
+}
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -161,6 +201,299 @@ function requireRunningAgent(value: unknown): RunningAgent {
   return { ...structuredClone(value), ...(value.task === undefined ? {} : { task: parseAgentTaskIntent(value.task) }), ...(value.launch === undefined ? {} : { launch: parseAgentExecutable(value.launch) }) }
 }
 
+function parseWireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value as Record<string, unknown>
+}
+
+function parseWireString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value
+}
+
+function parseWireStringOrNull(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null
+  return parseWireString(value, label)
+}
+
+function parseWireInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value
+}
+
+function parseWireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value
+}
+
+function parseWireStringArray(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value)) throw new Error(`terminal daemon returned an invalid ${label}`)
+  return value.map((entry, index) => parseWireString(entry, `${label}[${index}]`))
+}
+
+function parseWireEnum<T extends string>(value: unknown, label: string, allowed: readonly T[]): T {
+  const parsed = parseWireString(value, label)
+  if (!allowed.includes(parsed as T)) throw new Error(`terminal daemon returned an invalid ${label}`)
+  return parsed as T
+}
+
+const ATTEMPT_STATES = ['claimed', 'launching', 'running', 'cancelling', 'cancelled', 'exited', 'completed', 'failed', 'quarantined'] as const
+const TASK_STATUSES = ['todo', 'blocked', 'in-progress', 'cancelling', 'cancelled', 'done', 'failed', 'quarantined'] as const
+const LAUNCH_INTENT_STATES = ['planned', 'spawning', 'reconciling-no-spawn', 'stopped'] as const
+const LAUNCH_STOP_STATES = ['none', 'requested', 'exited'] as const
+const RESERVATION_STATES = ['reserved', 'quarantined', 'released'] as const
+const HANDOFF_STATUSES = ['pending', 'accepted', 'cancelled', 'expired'] as const
+const EXECUTION_STATES = ['queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed'] as const
+const RUN_GROUP_STATES = ['active', 'cancelling', 'cancelled', 'completed'] as const
+const RUN_MEMBER_STATES = ['queued', 'claimed', 'launching', 'running', 'cancelling', 'cancelled', 'completed', 'failed', 'quarantined'] as const
+const MAILBOX_KINDS = ['attention', 'progress', 'artifact', 'system'] as const
+
+function parseLeaseTokenWire(value: unknown): LeaseToken {
+  const record = parseWireRecord(value, 'lease token')
+  return {
+    projectId: parseWireString(record['projectId'], 'token.projectId'),
+    taskId: parseWireString(record['taskId'], 'token.taskId'),
+    attemptId: parseWireString(record['attemptId'], 'token.attemptId'),
+    ownerId: parseWireString(record['ownerId'], 'token.ownerId'),
+    leaseId: parseWireString(record['leaseId'], 'token.leaseId'),
+    generation: parseWireInteger(record['generation'], 'token.generation'),
+    expiresAt: parseWireString(record['expiresAt'], 'token.expiresAt')
+  }
+}
+
+function parseLeaseSnapshotWire(value: unknown): LeaseSnapshot {
+  const record = parseWireRecord(value, 'lease snapshot')
+  return {
+    leaseId: parseWireString(record['leaseId'], 'lease.leaseId'),
+    ownerId: parseWireString(record['ownerId'], 'lease.ownerId'),
+    generation: parseWireInteger(record['generation'], 'lease.generation'),
+    issuedAt: parseWireString(record['issuedAt'], 'lease.issuedAt'),
+    expiresAt: parseWireString(record['expiresAt'], 'lease.expiresAt'),
+    expiresAtMs: parseWireInteger(record['expiresAtMs'], 'lease.expiresAtMs')
+  }
+}
+
+function parseProcessIdentityWire(value: unknown): ProcessIdentity | null {
+  if (value === null || value === undefined) return null
+  const record = parseWireRecord(value, 'process identity')
+  const family = parseWireString(record['family'], 'processIdentity.family')
+  if (family !== 'donwells-app' && family !== 'terminal-daemon' && family !== 'acp-agent') {
+    throw new Error('terminal daemon returned an invalid processIdentity.family')
+  }
+  return {
+    pid: parseWireInteger(record['pid'], 'processIdentity.pid'),
+    bootId: parseWireString(record['bootId'], 'processIdentity.bootId'),
+    startedAt: parseWireString(record['startedAt'], 'processIdentity.startedAt'),
+    executablePath: parseWireString(record['executablePath'], 'processIdentity.executablePath'),
+    family,
+    capturedAt: parseWireString(record['capturedAt'], 'processIdentity.capturedAt'),
+    ...(record['generation'] === undefined ? {} : { generation: parseWireString(record['generation'], 'processIdentity.generation') })
+  }
+}
+
+function parseAttemptSnapshotWire(value: unknown): AttemptSnapshot {
+  const record = parseWireRecord(value, 'attempt snapshot')
+  let runtime: AttemptSnapshot['runtime'] = null
+  if (record['runtime'] !== null && record['runtime'] !== undefined) {
+    const runtimeRecord = parseWireRecord(record['runtime'], 'attempt.runtime')
+    const launchState = runtimeRecord['launchState']
+    runtime = {
+      sessionId: parseWireStringOrNull(runtimeRecord['sessionId'], 'attempt.runtime.sessionId'),
+      processIdentity: parseProcessIdentityWire(runtimeRecord['processIdentity']),
+      launchIntentId: parseWireStringOrNull(runtimeRecord['launchIntentId'], 'attempt.runtime.launchIntentId'),
+      launchState: launchState === null || launchState === undefined ? null : parseWireEnum(launchState, 'attempt.runtime.launchState', LAUNCH_INTENT_STATES),
+      stopState: runtimeRecord['stopState'] === null || runtimeRecord['stopState'] === undefined ? null : parseWireEnum(runtimeRecord['stopState'], 'attempt.runtime.stopState', LAUNCH_STOP_STATES)
+    }
+  }
+  let reservation: AttemptSnapshot['reservation'] = null
+  if (record['reservation'] !== null && record['reservation'] !== undefined) {
+    const reservationRecord = parseWireRecord(record['reservation'], 'attempt.reservation')
+    reservation = {
+      resourceKey: parseWireString(reservationRecord['resourceKey'], 'attempt.reservation.resourceKey'),
+      canonicalResourceKey: parseWireString(reservationRecord['canonicalResourceKey'], 'attempt.reservation.canonicalResourceKey'),
+      state: parseWireEnum(reservationRecord['state'], 'attempt.reservation.state', RESERVATION_STATES)
+    }
+  }
+  return {
+    projectId: parseWireString(record['projectId'], 'attempt.projectId'),
+    taskId: parseWireString(record['taskId'], 'attempt.taskId'),
+    attemptId: parseWireString(record['attemptId'], 'attempt.attemptId'),
+    sequence: parseWireInteger(record['sequence'], 'attempt.sequence'),
+    retryOfAttemptId: parseWireStringOrNull(record['retryOfAttemptId'], 'attempt.retryOfAttemptId'),
+    provenance: parseWireEnum(record['provenance'], 'attempt.provenance', ['native', 'imported-legacy'] as const),
+    state: parseWireEnum(record['state'], 'attempt.state', ATTEMPT_STATES),
+    specificationId: parseWireString(record['specificationId'], 'attempt.specificationId'),
+    currentLease: record['currentLease'] === null || record['currentLease'] === undefined ? null : parseLeaseSnapshotWire(record['currentLease']),
+    runtime,
+    reservation,
+    lastProgress: parseWireStringOrNull(record['lastProgress'], 'attempt.lastProgress'),
+    startedAt: parseWireString(record['startedAt'], 'attempt.startedAt'),
+    finishedAt: parseWireStringOrNull(record['finishedAt'], 'attempt.finishedAt')
+  }
+}
+
+function parseTaskSnapshotWire(value: unknown): TaskSnapshot {
+  const record = parseWireRecord(value, 'task snapshot')
+  const status = parseWireEnum(record['status'], 'task.status', TASK_STATUSES)
+  return {
+    projectId: parseWireString(record['projectId'], 'task.projectId'),
+    taskId: parseWireString(record['taskId'], 'task.taskId'),
+    externalTaskId: parseWireString(record['externalTaskId'], 'task.externalTaskId'),
+    title: parseWireString(record['title'], 'task.title'),
+    body: parseWireString(record['body'], 'task.body'),
+    status,
+    priority: parseWireInteger(record['priority'], 'task.priority'),
+    dependencies: parseWireStringArray(record['dependencies'], 'task.dependencies'),
+    dependencyBlocked: parseWireBoolean(record['dependencyBlocked'], 'task.dependencyBlocked'),
+    runnable: parseWireBoolean(record['runnable'], 'task.runnable'),
+    cancelState: parseWireEnum(record['cancelState'], 'task.cancelState', ['none', 'requested'] as const),
+    currentAttempt: record['currentAttempt'] === null || record['currentAttempt'] === undefined ? null : parseAttemptSnapshotWire(record['currentAttempt']),
+    entityVersion: parseWireInteger(record['entityVersion'], 'task.entityVersion'),
+    createdAt: parseWireString(record['createdAt'], 'task.createdAt'),
+    updatedAt: parseWireString(record['updatedAt'], 'task.updatedAt')
+  }
+}
+
+function parseTaskProjectionWire(value: unknown): TaskProjection {
+  const record = parseWireRecord(value, 'task projection')
+  if (!Array.isArray(record['tasks'])) throw new Error('terminal daemon returned an invalid task projection')
+  return { tasks: record['tasks'].map(parseTaskSnapshotWire), nextCursor: parseWireStringOrNull(record['nextCursor'], 'projection.nextCursor') }
+}
+
+function parseClaimResultWire(value: unknown): ClaimResult {
+  const record = parseWireRecord(value, 'claim result')
+  return { task: parseTaskSnapshotWire(record['task']), attempt: parseAttemptSnapshotWire(record['attempt']), token: parseLeaseTokenWire(record['token']) }
+}
+
+function parseScheduleSnapshotWire(value: unknown): ScheduleSnapshot {
+  const record = parseWireRecord(value, 'schedule snapshot')
+  const cadenceRecord = parseWireRecord(record['cadence'], 'schedule.cadence')
+  const cadence: TaskScheduleCadence = cadenceRecord['kind'] === 'interval'
+    ? { kind: 'interval', minutes: parseWireInteger(cadenceRecord['minutes'], 'schedule.cadence.minutes') }
+    : { kind: 'daily', time: parseWireString(cadenceRecord['time'], 'schedule.cadence.time'), timeZone: parseWireString(cadenceRecord['timeZone'], 'schedule.cadence.timeZone') }
+  const commandRecord = parseWireRecord(record['command'], 'schedule.command')
+  const targetRecord = parseWireRecord(record['target'], 'schedule.target')
+  const verificationRecord = parseWireRecord(record['verification'], 'schedule.verification')
+  if (!Array.isArray(verificationRecord['requiredArtifacts'])) throw new Error('terminal daemon returned an invalid schedule verification')
+  const spec: TaskScheduleSpec = {
+    profileId: parseWireString(record['profileId'], 'schedule.profileId'),
+    taskTitle: parseWireString(record['taskTitle'], 'schedule.taskTitle'),
+    cadence,
+    command: {
+      program: parseWireString(commandRecord['program'], 'schedule.command.program'),
+      args: parseWireStringArray(commandRecord['args'], 'schedule.command.args'),
+      ...(commandRecord['cwd'] === undefined ? {} : { cwd: parseWireString(commandRecord['cwd'], 'schedule.command.cwd') })
+    },
+    target: targetRecord['kind'] === 'local'
+      ? { kind: 'local', root: parseWireString(targetRecord['root'], 'schedule.target.root'), label: parseWireString(targetRecord['label'], 'schedule.target.label') }
+      : { kind: 'remote', connectionId: parseWireString(targetRecord['connectionId'], 'schedule.target.connectionId'), root: parseWireString(targetRecord['root'], 'schedule.target.root'), label: parseWireString(targetRecord['label'], 'schedule.target.label') },
+    verification: {
+      requiredArtifacts: verificationRecord['requiredArtifacts'].map((artifact, index) => {
+        const artifactRecord = parseWireRecord(artifact, `schedule.verification.requiredArtifacts[${index}]`)
+        return {
+          path: parseWireString(artifactRecord['path'], `schedule.verification[${index}].path`),
+          relationship: parseWireEnum(artifactRecord['relationship'], `schedule.verification[${index}].relationship`, ['attached-reference', 'observed-during-run'] as const)
+        }
+      })
+    }
+  }
+  return {
+    scheduleId: parseWireString(record['scheduleId'], 'schedule.scheduleId'),
+    projectId: parseWireString(record['projectId'], 'schedule.projectId'),
+    profileId: spec.profileId,
+    taskTitle: spec.taskTitle,
+    cadence: spec.cadence,
+    command: spec.command,
+    target: spec.target,
+    verification: spec.verification,
+    enabled: parseWireBoolean(record['enabled'], 'schedule.enabled'),
+    entityVersion: parseWireInteger(record['entityVersion'], 'schedule.entityVersion'),
+    nextRunAt: parseWireStringOrNull(record['nextRunAt'], 'schedule.nextRunAt'),
+    createdAt: parseWireString(record['createdAt'], 'schedule.createdAt'),
+    updatedAt: parseWireString(record['updatedAt'], 'schedule.updatedAt')
+  }
+}
+
+function parseScheduleExecutionWire(value: unknown): ScheduleExecutionSnapshot {
+  const record = parseWireRecord(value, 'schedule execution')
+  return {
+    projectId: parseWireString(record['projectId'], 'execution.projectId'),
+    scheduleId: parseWireString(record['scheduleId'], 'execution.scheduleId'),
+    executionId: parseWireString(record['executionId'], 'execution.executionId'),
+    trigger: parseWireEnum(record['trigger'], 'execution.trigger', ['due', 'manual'] as const),
+    idempotencyKey: parseWireString(record['idempotencyKey'], 'execution.idempotencyKey'),
+    intentSha256: parseWireString(record['intentSha256'], 'execution.intentSha256'),
+    taskId: parseWireString(record['taskId'], 'execution.taskId'),
+    attemptId: parseWireStringOrNull(record['attemptId'], 'execution.attemptId'),
+    dueAt: parseWireStringOrNull(record['dueAt'], 'execution.dueAt'),
+    state: parseWireEnum(record['state'], 'execution.state', EXECUTION_STATES),
+    entityVersion: parseWireInteger(record['entityVersion'], 'execution.entityVersion'),
+    createdAt: parseWireString(record['createdAt'], 'execution.createdAt')
+  }
+}
+
+function parseRunGroupWire(value: unknown): RunGroupSnapshot {
+  const record = parseWireRecord(value, 'run group')
+  if (!Array.isArray(record['members'])) throw new Error('terminal daemon returned an invalid run group')
+  return {
+    runGroupId: parseWireString(record['runGroupId'], 'runGroup.runGroupId'),
+    profileId: parseWireString(record['profileId'], 'runGroup.profileId'),
+    name: parseWireString(record['name'], 'runGroup.name'),
+    retryOfRunGroupId: parseWireStringOrNull(record['retryOfRunGroupId'], 'runGroup.retryOfRunGroupId'),
+    concurrency: parseWireInteger(record['concurrency'], 'runGroup.concurrency'),
+    state: parseWireEnum(record['state'], 'runGroup.state', RUN_GROUP_STATES),
+    entityVersion: parseWireInteger(record['entityVersion'], 'runGroup.entityVersion'),
+    members: record['members'].map((member, index) => {
+      const memberRecord = parseWireRecord(member, `runGroup.members[${index}]`)
+      return {
+        projectId: parseWireString(memberRecord['projectId'], `runGroup.members[${index}].projectId`),
+        taskId: parseWireString(memberRecord['taskId'], `runGroup.members[${index}].taskId`),
+        attemptId: parseWireStringOrNull(memberRecord['attemptId'], `runGroup.members[${index}].attemptId`),
+        ordinal: parseWireInteger(memberRecord['ordinal'], `runGroup.members[${index}].ordinal`),
+        state: parseWireEnum(memberRecord['state'], `runGroup.members[${index}].state`, RUN_MEMBER_STATES)
+      }
+    }),
+    createdAt: parseWireString(record['createdAt'], 'runGroup.createdAt'),
+    updatedAt: parseWireString(record['updatedAt'], 'runGroup.updatedAt')
+  }
+}
+
+function parseHandoffOfferWire(value: unknown): HandoffOffer {
+  const record = parseWireRecord(value, 'handoff offer')
+  return {
+    offerId: parseWireString(record['offerId'], 'offer.offerId'),
+    projectId: parseWireString(record['projectId'], 'offer.projectId'),
+    taskId: parseWireString(record['taskId'], 'offer.taskId'),
+    attemptId: parseWireString(record['attemptId'], 'offer.attemptId'),
+    sourceOwnerId: parseWireString(record['sourceOwnerId'], 'offer.sourceOwnerId'),
+    targetOwnerId: parseWireString(record['targetOwnerId'], 'offer.targetOwnerId'),
+    sourceLeaseId: parseWireString(record['sourceLeaseId'], 'offer.sourceLeaseId'),
+    sourceGeneration: parseWireInteger(record['sourceGeneration'], 'offer.sourceGeneration'),
+    status: parseWireEnum(record['status'], 'offer.status', HANDOFF_STATUSES),
+    expiresAt: parseWireString(record['expiresAt'], 'offer.expiresAt'),
+    createdAt: parseWireString(record['createdAt'], 'offer.createdAt'),
+    resolvedAt: parseWireStringOrNull(record['resolvedAt'], 'offer.resolvedAt')
+  }
+}
+
+function parseMailboxEntryWire(value: unknown): TaskMailboxEntry {
+  const record = parseWireRecord(value, 'mailbox entry')
+  const payload = record['payload']
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('terminal daemon returned an invalid mailbox payload')
+  return {
+    entryId: parseWireString(record['entryId'], 'mailbox.entryId'),
+    projectId: parseWireString(record['projectId'], 'mailbox.projectId'),
+    taskId: parseWireString(record['taskId'], 'mailbox.taskId'),
+    attemptId: parseWireStringOrNull(record['attemptId'], 'mailbox.attemptId'),
+    leaseId: parseWireStringOrNull(record['leaseId'], 'mailbox.leaseId'),
+    generation: record['generation'] === null || record['generation'] === undefined ? null : parseWireInteger(record['generation'], 'mailbox.generation'),
+    kind: parseWireEnum(record['kind'], 'mailbox.kind', MAILBOX_KINDS),
+    payload: payload as Record<string, unknown>,
+    acknowledgedAt: parseWireStringOrNull(record['acknowledgedAt'], 'mailbox.acknowledgedAt'),
+    createdAt: parseWireString(record['createdAt'], 'mailbox.createdAt')
+  }
+}
+
 export class DaemonClient {
   private socket: Socket | null = null
   private pending = new Map<string, Pending>()
@@ -168,6 +501,7 @@ export class DaemonClient {
   private connecting: Promise<void> | null = null
   private spawnedChild: ChildProcess | null = null
   private capabilities = new Set<string>()
+  private connectedEndpoint: string | null = null
   private readonly requestTimeoutMs: number
   private readonly handshakeTimeoutMs: number
   constructor(
@@ -329,6 +663,7 @@ export class DaemonClient {
         : []
       this.capabilities = new Set(capabilities)
       this.socket = socket
+      this.connectedEndpoint = socketPath
       this.wireSocket(socket, buffer, decoder)
       completion.resolve(true)
     }
@@ -423,6 +758,7 @@ export class DaemonClient {
     if (this.socket !== socket) return
     this.socket = null
     this.buffer = ''
+    this.connectedEndpoint = null
     this.capabilities.clear()
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer)
@@ -460,9 +796,61 @@ export class DaemonClient {
   private async requireCapability(capability: string, operation: string): Promise<void> {
     await this.connect()
     if (this.capabilities.has(capability)) return
+    if (capability === TASK_AUTHORITY) {
+      await this.upgradeTaskAuthorityDaemon(operation)
+      return
+    }
     throw new Error(
       `terminal daemon upgrade required for ${operation}; existing daemon and its sessions were left running`
     )
+  }
+
+  /**
+   * An older authenticated daemon predates `task-authority-v1`. When it is
+   * provably idle it is shut down, its Stage 1 ownership and endpoint are
+   * awaited, and the packaged daemon is spawned. When it owns live sessions,
+   * activation is blocked with their sanitized status until they exit; an old
+   * daemon is never treated as an empty authority.
+   */
+  private async upgradeTaskAuthorityDaemon(operation: string): Promise<void> {
+    let status: DaemonStatus
+    try {
+      status = await this.request<DaemonStatus>('daemon.status')
+    } catch {
+      this.disconnect()
+      throw new DaemonUpgradeRequiredError({ pid: null, idle: false, sessionCount: 0, liveSessionCount: 0 })
+    }
+    if (!status.idle || status.sessionCount !== 0 || status.liveSessionCount !== 0) {
+      this.disconnect()
+      throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: false, sessionCount: status.sessionCount, liveSessionCount: status.liveSessionCount })
+    }
+    const stopped = await this.request<{ stopped: boolean }>('daemon.shutdown').catch(() => ({ stopped: false }))
+    if (stopped.stopped !== true) {
+      this.disconnect()
+      throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: true, sessionCount: 0, liveSessionCount: 0 })
+    }
+    this.disconnect()
+    await this.awaitDaemonEndpointCleanup()
+    await this.connectInner()
+    if (!this.capabilities.has(TASK_AUTHORITY)) {
+      throw new Error(`terminal daemon upgrade for ${operation} did not reach ${TASK_AUTHORITY}`)
+    }
+  }
+
+  private async awaitDaemonEndpointCleanup(): Promise<void> {
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
+    const previousEndpoint = this.connectedEndpoint
+    const deadline = Date.now() + 5_000
+    while (Date.now() <= deadline) {
+      const record = readRuntimeRecord(paths.runtimeFile)
+      // Shutdown unpublishes the locator; a replacement daemon publishes a new
+      // one. Either is cleanup progress; an unchanged record means the old
+      // daemon is still tearing down.
+      if (record.status === 'missing') return
+      if (previousEndpoint !== null && record.status === 'current' && record.record.socketPath !== previousEndpoint) return
+      await delay(100)
+    }
+    throw new Error('terminal daemon shutdown did not clear its runtime record')
   }
 
   private async request<T = Record<string, unknown>>(
@@ -751,6 +1139,207 @@ export class DaemonClient {
     if (!status.idle || status.sessionCount !== 0 || status.liveSessionCount !== 0) return false
     const response = await this.request<{ stopped: boolean }>('daemon.shutdown')
     return response.stopped === true
+  }
+
+  // -- typed task authority intents -------------------------------------------
+  // Responses pass through strict wire parsers; renderer-facing surfaces must
+  // never forward the lease tokens these methods return.
+
+  async taskIssueWorkerCredential(projectId: string): Promise<{ credentialId: string; ownerId: string; token: string }> {
+    await this.requireCapability(TASK_AUTHORITY, 'issuing a task worker credential')
+    const response = await this.request<{ credential: { credentialId: string; ownerId: string; token: string } }>('task.credential.issue', { projectId })
+    const credential = parseWireRecord(response.credential, 'task worker credential')
+    return {
+      credentialId: parseWireString(credential['credentialId'], 'credential.credentialId'),
+      ownerId: parseWireString(credential['ownerId'], 'credential.ownerId'),
+      token: parseWireString(credential['token'], 'credential.token')
+    }
+  }
+
+  async taskQuery(input: Readonly<{ projectId?: string; status?: TaskStatus; runnableOnly?: boolean; cursor?: string; limit?: number }> = {}): Promise<TaskProjection> {
+    await this.requireCapability(TASK_AUTHORITY, 'querying task authority')
+    return parseTaskProjectionWire(await this.request('task.query', { ...input }))
+  }
+
+  async taskCreate(input: Readonly<{ projectId: string; externalTaskId: string; title: string; body?: string; priority?: number; status?: 'todo' | 'blocked'; repositoryId?: string; workspaceRoot?: string }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'creating a task')
+    const response = await this.request<{ task: unknown }>('task.create', { ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskUpdate(input: Readonly<{ projectId: string; taskId: string; expectedEntityVersion: number; title?: string; body?: string; priority?: number; status?: 'todo' | 'blocked' }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'updating a task')
+    const response = await this.request<{ task: unknown }>('task.update', { ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskSetDependencies(input: Readonly<{ projectId: string; taskId: string; expectedEntityVersion: number; dependsOnTaskIds: readonly string[] }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'setting task dependencies')
+    const response = await this.request<{ task: unknown }>('task.dependencies.set', { ...input, dependsOnTaskIds: [...input.dependsOnTaskIds] })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskScheduleCreate(input: Readonly<{ projectId: string; spec: TaskScheduleSpec; enabled?: boolean; nextRunAt?: string; repositoryId?: string; workspaceRoot?: string }>): Promise<ScheduleSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'creating a task schedule')
+    const response = await this.request<{ schedule: unknown }>('task.schedule.create', { ...input })
+    return parseScheduleSnapshotWire(response.schedule)
+  }
+
+  async taskScheduleUpdate(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number; spec?: TaskScheduleSpec; enabled?: boolean; nextRunAt?: string | null }>): Promise<ScheduleSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'updating a task schedule')
+    const response = await this.request<{ schedule: unknown }>('task.schedule.update', { ...input })
+    return parseScheduleSnapshotWire(response.schedule)
+  }
+
+  async taskScheduleDuplicate(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number }>): Promise<ScheduleSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'duplicating a task schedule')
+    const response = await this.request<{ schedule: unknown }>('task.schedule.duplicate', { ...input })
+    return parseScheduleSnapshotWire(response.schedule)
+  }
+
+  async taskScheduleDelete(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number }>): Promise<ScheduleSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'deleting a task schedule')
+    const response = await this.request<{ schedule: unknown }>('task.schedule.delete', { ...input })
+    return parseScheduleSnapshotWire(response.schedule)
+  }
+
+  async taskScheduleExecutionEnqueueDue(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number; expectedNextRunAt: string }>): Promise<ScheduleExecutionSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'enqueuing a due schedule occurrence')
+    const response = await this.request<{ execution: unknown }>('task.schedule.execution.enqueue-due', { ...input })
+    return parseScheduleExecutionWire(response.execution)
+  }
+
+  async taskScheduleExecutionEnqueue(input: Readonly<{ projectId: string; scheduleId: string; expectedEntityVersion: number; requestId: string }>): Promise<ScheduleExecutionSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'enqueuing a manual schedule execution')
+    const response = await this.request<{ execution: unknown }>('task.schedule.execution.enqueue', { ...input })
+    return parseScheduleExecutionWire(response.execution)
+  }
+
+  async taskScheduleExecutions(input: Readonly<{ projectId?: string; scheduleId?: string; state?: string; cursor?: string; limit?: number }> = {}): Promise<{ executions: readonly ScheduleExecutionSnapshot[]; nextCursor: string | null }> {
+    await this.requireCapability(TASK_AUTHORITY, 'listing schedule executions')
+    const response = await this.request<Record<string, unknown>>('task.schedule.executions.list', { ...input })
+    if (!Array.isArray(response['executions'])) throw new Error('terminal daemon returned an invalid schedule execution list')
+    return { executions: response['executions'].map(parseScheduleExecutionWire), nextCursor: parseWireStringOrNull(response['nextCursor'], 'executions.nextCursor') }
+  }
+
+  async taskScheduleExecutionCancel(input: Readonly<{ projectId: string; scheduleId: string; executionId: string; expectedEntityVersion: number }>): Promise<ScheduleExecutionSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'cancelling a schedule execution')
+    const response = await this.request<{ execution: unknown }>('task.schedule.execution.cancel', { ...input })
+    return parseScheduleExecutionWire(response.execution)
+  }
+
+  async taskRunGroupCreate(input: Readonly<{ profileId: string; name: string; concurrency: number; members: readonly Readonly<{ projectId: string; taskId: string }>[] }>): Promise<RunGroupSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'creating a run group')
+    const response = await this.request<{ runGroup: unknown }>('task.run-group.create', { ...input, members: input.members.map(member => ({ ...member })) })
+    return parseRunGroupWire(response.runGroup)
+  }
+
+  async taskRunGroupCancel(input: Readonly<{ profileId: string; runGroupId: string; expectedEntityVersion: number }>): Promise<RunGroupSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'cancelling a run group')
+    const response = await this.request<{ runGroup: unknown }>('task.run-group.cancel', { ...input })
+    return parseRunGroupWire(response.runGroup)
+  }
+
+  async taskRunGroupDelete(input: Readonly<{ profileId: string; runGroupId: string; expectedEntityVersion: number }>): Promise<RunGroupSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'deleting a run group')
+    const response = await this.request<{ runGroup: unknown }>('task.run-group.delete', { ...input })
+    return parseRunGroupWire(response.runGroup)
+  }
+
+  async taskRunGroupRetry(input: Readonly<{ runGroupId: string; expectedEntityVersion: number; requestId: string; ownerId: string; memberTaskIds: readonly Readonly<{ projectId: string; taskId: string }>[] }>): Promise<RunGroupSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'retrying a run group')
+    const response = await this.request<{ runGroup: unknown }>('task.run-group.retry', { ...input, memberTaskIds: input.memberTaskIds.map(member => ({ ...member })) })
+    return parseRunGroupWire(response.runGroup)
+  }
+
+  async taskCancel(input: Readonly<{ projectId: string; taskId: string; expectedEntityVersion: number }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'cancelling a task')
+    const response = await this.request<{ task: unknown }>('task.cancel', { ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskRetry(input: Readonly<{ projectId: string; taskId: string; expectedEntityVersion: number; ownerId: string; specification?: TaskExecutionSpecificationInput; leaseTtlMs?: number }>): Promise<ClaimResult> {
+    await this.requireCapability(TASK_AUTHORITY, 'retrying a failed task')
+    const response = await this.request<Record<string, unknown>>('task.retry', { ...input })
+    return parseClaimResultWire(response)
+  }
+
+  async taskAdoptArtifact(input: Readonly<{ projectId: string; taskId: string; artifactId: string; reviewReceiptSha256: string }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'adopting a reviewed artifact')
+    const response = await this.request<{ task: unknown }>('task.adopt-artifact', { ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskClaim(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId?: string; externalTaskId?: string; specification: TaskExecutionSpecificationInput; leaseTtlMs?: number }>): Promise<ClaimResult> {
+    await this.requireCapability(TASK_AUTHORITY, 'claiming a task')
+    const response = await this.request<Record<string, unknown>>('task.claim', { ...input })
+    return parseClaimResultWire(response)
+  }
+
+  async taskWriteHeartbeat(input: Readonly<{ credential: TaskWorkerCredential; token: LeaseToken; ttlMs?: number }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'renewing a task lease')
+    const response = await this.request<{ task: unknown }>('task.write', { kind: 'heartbeat', ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskWriteProgress(input: Readonly<{ credential: TaskWorkerCredential; token: LeaseToken; detail: string }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'recording task progress')
+    const response = await this.request<{ task: unknown }>('task.write', { kind: 'progress', ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskWriteAttachArtifact(input: Readonly<{ credential: TaskWorkerCredential; token: LeaseToken; artifact: VerificationArtifactInput }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'attaching task evidence')
+    const response = await this.request<{ task: unknown }>('task.write', { kind: 'attach-artifact', ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskWriteComplete(input: Readonly<{ credential: TaskWorkerCredential; token: LeaseToken; summary: string }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'completing a task')
+    const response = await this.request<{ task: unknown }>('task.write', { kind: 'complete', ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskWriteFail(input: Readonly<{ credential: TaskWorkerCredential; token: LeaseToken; error: string }>): Promise<TaskSnapshot> {
+    await this.requireCapability(TASK_AUTHORITY, 'failing a task')
+    const response = await this.request<{ task: unknown }>('task.write', { kind: 'fail', ...input })
+    return parseTaskSnapshotWire(response.task)
+  }
+
+  async taskHandoffOffer(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId: string; attemptId: string; leaseId: string; generation: number; targetOwnerId: string; ttlMs?: number }>): Promise<HandoffOffer> {
+    await this.requireCapability(TASK_AUTHORITY, 'offering a task handoff')
+    const response = await this.request<{ offer: unknown }>('task.handoff.offer', { ...input })
+    return parseHandoffOfferWire(response.offer)
+  }
+
+  async taskHandoffCancel(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId: string; attemptId: string; leaseId: string; generation: number; offerId: string }>): Promise<HandoffOffer> {
+    await this.requireCapability(TASK_AUTHORITY, 'cancelling a task handoff')
+    const response = await this.request<{ offer: unknown }>('task.handoff.cancel', { ...input })
+    return parseHandoffOfferWire(response.offer)
+  }
+
+  async taskHandoffAccept(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId: string; attemptId: string; offerId: string }>): Promise<ClaimResult> {
+    await this.requireCapability(TASK_AUTHORITY, 'accepting a task handoff')
+    const response = await this.request<Record<string, unknown>>('task.handoff.accept', { ...input })
+    return parseClaimResultWire(response)
+  }
+
+  async taskTakeover(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId: string; attemptId: string; leaseId: string; generation: number; leaseTtlMs?: number }>): Promise<ClaimResult> {
+    await this.requireCapability(TASK_AUTHORITY, 'taking over an expired task lease')
+    const response = await this.request<Record<string, unknown>>('task.takeover', { ...input })
+    return parseClaimResultWire(response)
+  }
+
+  async taskMailboxAppend(input: Readonly<{ credential: TaskWorkerCredential; projectId: string; taskId: string; kind: 'attention' | 'progress' | 'artifact' | 'system'; payload: Record<string, unknown> }>): Promise<TaskMailboxEntry> {
+    await this.requireCapability(TASK_AUTHORITY, 'appending a task mailbox entry')
+    const response = await this.request<{ mailboxEntry: unknown }>('task.mailbox.append', { ...input })
+    return parseMailboxEntryWire(response.mailboxEntry)
+  }
+
+  async taskMailboxAcknowledge(input: Readonly<{ projectId: string; taskId: string; mailboxEntryId: string }>): Promise<TaskMailboxEntry> {
+    await this.requireCapability(TASK_AUTHORITY, 'acknowledging task attention')
+    const response = await this.request<{ mailboxEntry: unknown }>('task.mailbox.acknowledge', { ...input })
+    return parseMailboxEntryWire(response.mailboxEntry)
   }
 
   disconnect(): void {

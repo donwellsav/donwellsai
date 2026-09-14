@@ -1,12 +1,64 @@
 import { RPC_COMMANDS } from '../shared/command-catalog.js'
 import { commandUsage, parseCliArguments } from './arguments.js'
-import { callRuntime, CliFailure, defaultUserData } from './rpc-client.js'
+import { callRuntime, callTerminalDaemon, CliFailure, defaultUserData, type RpcEnvelope } from './rpc-client.js'
 import { localRuntimePaths } from '../main/local-runtime.js'
 import { RuntimeOwnershipStore } from '../shared/runtime-ownership.js'
 import { inspectRuntimeRecovery, quarantineRuntime } from './runtime-recovery.js'
 import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { parseProjectMemoryMcpArguments, PROJECT_MEMORY_MCP_USAGE, runProjectMemoryMcp } from './project-memory-mcp.js'
 import { runtimeIdentityAuthority } from '../main/runtime-identity.js'
+
+/**
+ * Worker commands forward the daemon-issued per-session credential through
+ * the terminal-daemon call; administrator commands use the explicit
+ * administrator path and never upgrade the profile-global runtime token into
+ * worker authority.
+ */
+async function callTaskAuthority(method: string, params: Record<string, unknown>, userData: string, timeoutMs: number): Promise<RpcEnvelope> {
+  const credential = resolveWorkerCredential(params)
+  const { credential: _omitted, credentialFile: _omittedFile, ...rest } = params
+  if (method === 'task.progress') {
+    const { token, detail } = rest
+    if (typeof token !== 'object' || token === null || typeof detail !== 'string') {
+      throw new CliFailure('INVALID_ARGUMENTS', 'task.progress requires --token <json> and --detail <text>')
+    }
+    const projectId = typeof (token as Record<string, unknown>)['projectId'] === 'string' ? (token as Record<string, unknown>)['projectId'] as string : undefined
+    return callTerminalDaemon('task.write', { kind: 'progress', token, detail }, userData, timeoutMs, credential, credential === undefined ? projectId : undefined)
+  }
+  if (method === 'task.credential.issue') {
+    return callTerminalDaemon('task.credential.issue', rest, userData, timeoutMs)
+  }
+  const projectId = typeof rest['projectId'] === 'string' ? rest['projectId'] as string : undefined
+  return callTerminalDaemon(method, rest, userData, timeoutMs, credential, credential === undefined ? projectId : undefined)
+}
+
+function resolveWorkerCredential(params: Record<string, unknown>): { credentialId: string; token: string } | undefined {
+  const inline = params['credential']
+  if (inline !== undefined) {
+    if (typeof inline !== 'object' || inline === null) throw new CliFailure('INVALID_ARGUMENTS', '--credential must be a JSON object')
+    const record = inline as Record<string, unknown>
+    if (typeof record['credentialId'] !== 'string' || typeof record['token'] !== 'string') {
+      throw new CliFailure('INVALID_ARGUMENTS', '--credential requires credentialId and token strings')
+    }
+    return { credentialId: record['credentialId'], token: record['token'] }
+  }
+  const credentialFile = params['credentialFile']
+  if (credentialFile === undefined) return undefined
+  if (typeof credentialFile !== 'string' || credentialFile.length === 0) throw new CliFailure('INVALID_ARGUMENTS', '--credential-file requires a path')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(credentialFile, 'utf8'))
+  } catch (error) {
+    throw new CliFailure('INVALID_ARGUMENTS', 'credential file could not be read as JSON: ' + (error instanceof Error ? error.message : String(error)))
+  }
+  if (typeof parsed !== 'object' || parsed === null) throw new CliFailure('INVALID_ARGUMENTS', 'credential file must contain a JSON object')
+  const record = parsed as Record<string, unknown>
+  if (typeof record['credentialId'] !== 'string' || typeof record['token'] !== 'string') {
+    throw new CliFailure('INVALID_ARGUMENTS', 'credential file requires credentialId and token strings')
+  }
+  return { credentialId: record['credentialId'], token: record['token'] }
+}
 
 async function runMemoryMcp(argv: readonly string[]): Promise<number> {
   if (argv.includes('--help')) {
@@ -117,7 +169,14 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
     return 0
   }
   try {
-    const envelope = await callRuntime(parsed.command.method, parsed.params, parsed.userData ?? defaultUserData(), parsed.timeoutMs)
+    const userData = parsed.userData ?? defaultUserData()
+    if (parsed.command.method.startsWith('task.')) {
+      const envelope = await callTaskAuthority(parsed.command.method, parsed.params, userData, parsed.timeoutMs)
+      if (parsed.text && !envelope.ok) console.error((envelope.code ?? 'COMMAND_FAILED') + ': ' + envelope.error)
+      else console.log(JSON.stringify(parsed.text ? envelope.result : envelope, null, parsed.text ? 2 : undefined))
+      return envelope.ok ? 0 : 1
+    }
+    const envelope = await callRuntime(parsed.command.method, parsed.params, userData, parsed.timeoutMs)
     if (parsed.text && !envelope.ok) console.error(envelope.code + ': ' + envelope.error)
     else console.log(JSON.stringify(parsed.text ? envelope.result : envelope, null, parsed.text ? 2 : undefined))
     return envelope.ok ? 0 : 1

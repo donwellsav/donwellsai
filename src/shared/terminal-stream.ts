@@ -1,3 +1,5 @@
+import { OPERATIONAL_OUTPUT_LIMIT } from './operational-runs'
+
 type Listener<T> = (payload: T) => void
 export type TerminalReplayChunk = { data: string; cols: number; rows: number }
 
@@ -133,5 +135,42 @@ export class TerminalBus {
       next++
       data = listener.queued.get(next)
     }
+  }
+}
+
+/**
+ * Daemon-side bounded accumulator for one task child's output sequence. The
+ * coordinator pump appends every chunk; the retained tail is what fenced
+ * progress writes and the evidence port digest. Bounding matches the daemon
+ * scrollback discipline: the freshest output survives, `truncated` records
+ * that the head was dropped.
+ */
+export class SequencedTaskOutputPump {
+  private text = ''
+  private dropped = false
+
+  constructor(private readonly limitBytes: number = OPERATIONAL_OUTPUT_LIMIT) {
+    if (!Number.isSafeInteger(limitBytes) || limitBytes < 1) throw new Error('task output pump limit must be a positive integer')
+  }
+
+  append(data: string): void {
+    if (data.length === 0) return
+    this.text += data
+    if (this.text.length > this.limitBytes) {
+      this.text = this.text.slice(this.text.length - this.limitBytes)
+      this.dropped = true
+    }
+  }
+
+  get output(): string {
+    return this.text
+  }
+
+  get bytes(): number {
+    return this.text.length
+  }
+
+  get truncated(): boolean {
+    return this.dropped
   }
 }

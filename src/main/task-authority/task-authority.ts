@@ -1943,6 +1943,160 @@ export class SqliteTaskAuthority implements TaskAuthority {
     })
   }
 
+  // -- trusted daemon-internal surfaces (never exposed to request decoders) ---
+
+  /**
+   * Persists the exact session/process facts returned by the finite-job or
+   * agent-open port. Unlike `bind-runtime` this is not fenced: it must record
+   * what the child returned even when the original token has since been
+   * superseded, so a successor reconciliation sees the exact identity.
+   */
+  recordReturnedIdentity(input: Readonly<{ projectId: string; taskId: string; attemptId: string; sessionId: string; processIdentity: ProcessIdentity | null }>): void {
+    assertKnownFields(input, 'input', ['projectId', 'taskId', 'attemptId', 'sessionId', 'processIdentity'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const sessionId = boundedField(input?.['sessionId'], 'sessionId', 128)
+    const processIdentity = input?.['processIdentity']
+    if (processIdentity !== null && (typeof processIdentity !== 'object' || processIdentity === null)) {
+      throw new TaskAuthorityValidationError('processIdentity', 'must be a process identity object or null')
+    }
+    this.database.withImmediate(db => {
+      loadTaskRow(db, projectId, taskId)
+      loadAttemptRow(db, projectId, attemptId)
+      const intent = latestLaunchIntent(db, projectId, attemptId)
+      if (!intent || text(intent['state']) !== 'spawning') {
+        throw new TaskAuthorityError('STALE_AUTHORITY', `attempt ${attemptId} has no spawning launch intent to record returned identity on`)
+      }
+      db.prepare('UPDATE launch_intents SET session_id = ?, process_identity_json = ?, updated_at = ? WHERE project_id = ? AND id = ?')
+        .run(sessionId, processIdentity === null ? null : JSON.stringify(processIdentity), nowIso(), projectId, text(intent['id']))
+      appendTaskEvent(db, projectId, taskId, attemptId, 'runtime-facts-recorded', int(loadTaskRow(db, projectId, taskId)['entity_version']), { sessionId, launchIntentId: text(intent['id']) })
+    })
+  }
+
+  /** Audit-only record that a superseded generation's child exited late; never mutates state. */
+  recordStaleGenerationExit(input: Readonly<{ projectId: string; taskId: string; attemptId: string; leaseId: string; generation: number; exitCode: number | null; outputDigest: string }>): void {
+    assertKnownFields(input, 'input', ['projectId', 'taskId', 'attemptId', 'leaseId', 'generation', 'exitCode', 'outputDigest'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const leaseId = assertAuthorityUuid(input?.['leaseId'], 'leaseId')
+    const generation = entityVersion(input?.['generation'], 'generation')
+    const exitCode = input?.['exitCode']
+    if (exitCode !== null && (!Number.isSafeInteger(exitCode) || (exitCode as number) < 0 || (exitCode as number) > 255)) {
+      throw new TaskAuthorityValidationError('exitCode', 'must be an exit code from 0 to 255 or null')
+    }
+    const outputDigest = boundedField(input?.['outputDigest'], 'outputDigest', 64)
+    this.database.withImmediate(db => {
+      appendTaskEvent(db, projectId, taskId, attemptId, 'stale-generation-exit', int(loadTaskRow(db, projectId, taskId)['entity_version']), { leaseId, generation, exitCode, outputDigest })
+    })
+  }
+
+  /**
+   * Startup reconciliation for one nonterminal attempt with a recorded
+   * runtime binding. `valid` preserves ownership (event only); `stale` closes
+   * the attempt failed and releases its reservation; `indeterminate`
+   * quarantines it. Cancelling attempts with a confirmed-exited runtime are
+   * closed through the fenced `acknowledgeExit` path by the caller instead.
+   */
+  reconcileStartupAttempt(input: Readonly<{ projectId: string; taskId: string; attemptId: string; verdict: 'valid' | 'stale' | 'indeterminate'; reason: string }>): 'preserved' | 'closed' | 'quarantined' {
+    assertKnownFields(input, 'input', ['projectId', 'taskId', 'attemptId', 'verdict', 'reason'])
+    const projectId = boundedField(input?.['projectId'], 'projectId', 128)
+    const taskId = assertAuthorityUuid(input?.['taskId'], 'taskId')
+    const attemptId = assertAuthorityUuid(input?.['attemptId'], 'attemptId')
+    const verdict = input?.['verdict']
+    if (verdict !== 'valid' && verdict !== 'stale' && verdict !== 'indeterminate') {
+      throw new TaskAuthorityValidationError('verdict', 'must be a known reconciliation verdict')
+    }
+    const reason = boundedText(input?.['reason'], 'reason', TASK_AUTHORITY_MAX_ERROR_TEXT, false)
+    return this.database.withImmediate(db => {
+      const task = loadTaskRow(db, projectId, taskId)
+      const attempt = loadAttemptRow(db, projectId, attemptId)
+      const attemptState = text(attempt['state']) as AttemptState
+      if (TERMINAL_ATTEMPT_STATES[attemptState]) return attemptState === 'failed' ? 'closed' : 'preserved'
+      if (verdict === 'valid') {
+        appendTaskEvent(db, projectId, taskId, attemptId, 'startup-reconciled-preserved', int(task['entity_version']), { reason })
+        return 'preserved'
+      }
+      if (verdict === 'stale') {
+        db.prepare("UPDATE attempts SET state = 'failed', finished_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), projectId, attemptId)
+        stopLaunchIntent(db, projectId, attemptId, 'stopped', 'exited')
+        releaseReservation(db, projectId, attemptId)
+        const version = bumpTask(db, projectId, taskId, "status = 'failed'", [])
+        appendTaskEvent(db, projectId, taskId, attemptId, 'startup-reconciled-closed', version, { reason })
+        return 'closed'
+      }
+      quarantineAttempt(db, projectId, taskId, attemptId, reason)
+      return 'quarantined'
+    })
+  }
+
+  /** Expires pending handoff offers whose authority-time deadline passed; returns the count. */
+  expireDueHandoffOffers(): number {
+    return this.database.withImmediate(db => {
+      const nowMs = authorityNowMs(db)
+      const due = db.prepare("SELECT * FROM handoff_offers WHERE status = 'pending' AND expires_at_ms <= ?").all(nowMs) as Row[]
+      for (const offer of due) {
+        db.prepare("UPDATE handoff_offers SET status = 'expired', resolved_at = ? WHERE project_id = ? AND id = ?").run(nowIso(), text(offer['project_id']), text(offer['id']))
+        appendTaskEvent(db, text(offer['project_id']), text(offer['task_id']), text(offer['attempt_id']), 'handoff-offer-expired', int(loadTaskRow(db, text(offer['project_id']), text(offer['task_id']))['entity_version']), { offerId: text(offer['id']) })
+      }
+      return due.length
+    })
+  }
+
+  /** Enabled schedules whose next occurrence is due at or before the given authority time. */
+  listSchedulesDue(nowMs: number): ScheduleSnapshot[] {
+    if (!Number.isSafeInteger(nowMs) || nowMs < 0) throw new TaskAuthorityValidationError('nowMs', 'must be a non-negative integer')
+    return this.database.withReadOnly(db => {
+      const rows = db.prepare("SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at, project_id, id").all(new Date(nowMs).toISOString()) as Row[]
+      return rows.map(row => scheduleSnapshot(db, row))
+    })
+  }
+
+  /** Reads one schedule snapshot for daemon-side enqueue coordination. */
+  readSchedule(projectId: string, scheduleId: string): ScheduleSnapshot {
+    const boundedProjectId = boundedField(projectId, 'projectId', 128)
+    const id = assertAuthorityUuid(scheduleId, 'scheduleId')
+    return this.database.withReadOnly(db => scheduleSnapshot(db, loadSchedule(db, boundedProjectId, id)))
+  }
+
+  /** Queued members of active run groups, in deterministic dispatch order. */
+  listQueuedRunMembers(): Array<Readonly<{ runGroupId: string; profileId: string; projectId: string; taskId: string; ordinal: number }>> {
+    return this.database.withReadOnly(db => {
+      const rows = db.prepare(
+        "SELECT rm.run_group_id AS run_group_id, rg.profile_id AS profile_id, rm.project_id AS project_id, rm.task_id AS task_id, rm.ordinal AS ordinal FROM run_members rm JOIN run_groups rg ON rg.id = rm.run_group_id WHERE rm.state = 'queued' AND rg.state = 'active' ORDER BY rg.created_at, rm.ordinal, rm.project_id, rm.task_id"
+      ).all() as Row[]
+      return rows.map(row => ({
+        runGroupId: text(row['run_group_id']),
+        profileId: text(row['profile_id']),
+        projectId: text(row['project_id']),
+        taskId: text(row['task_id']),
+        ordinal: int(row['ordinal'])
+      }))
+    })
+  }
+
+  /** Nonterminal native attempts with their runtime bindings, in deterministic order. */
+  listNonterminalAttempts(): AttemptSnapshot[] {
+    return this.database.withReadOnly(db => {
+      const rows = db.prepare(
+        "SELECT * FROM attempts WHERE provenance_kind = 'native' AND state IN ('claimed','launching','running','cancelling') ORDER BY project_id, task_id, sequence"
+      ).all() as Row[]
+      return rows.map(row => attemptSnapshot(db, row))
+    })
+  }
+
+  /** Reads one committed immutable execution specification back for daemon coordination. */
+  readExecutionSpecification(projectId: string, specificationId: string): TaskExecutionSpecificationInput {
+    const boundedProjectId = boundedField(projectId, 'projectId', 128)
+    const id = assertAuthorityUuid(specificationId, 'specificationId')
+    return this.database.withReadOnly(db => {
+      const row = db.prepare('SELECT command_json, target_json, verification_json FROM execution_specifications WHERE project_id = ? AND id = ?').get(boundedProjectId, id) as Row | undefined
+      if (!row) throw new TaskAuthorityError('STALE_AUTHORITY', `specification ${id} was not found in project ${boundedProjectId}`)
+      return parseTaskExecutionSpecification({ command: parseJson(row['command_json']), target: parseJson(row['target_json']), verification: parseJson(row['verification_json']) })
+    })
+  }
+
   retryFailedTask(input: AdminRetryFailedTaskInput): ClaimResult {
     assertKnownFields(input, 'input', ['connection', 'projectId', 'taskId', 'expectedEntityVersion', 'ownerId', 'specification', 'leaseTtlMs'])
     const connection = parseAuthorityConnection(input?.['connection'])

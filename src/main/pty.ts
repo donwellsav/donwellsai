@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
 import type { AgentLiveness, AgentExecutable } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
+import type { ProcessIdentity, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { windowsSystem32Binary } from '@shared/child-process/windows-system-binary'
 import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-tree-termination'
@@ -35,6 +36,8 @@ type Session = {
   resolveExit: (exitCode: number) => void
   exitCode?: number
   settled: boolean
+  /** Stage 1 exact identity captured at spawn for finite daemon-owned jobs. */
+  processIdentity: ProcessIdentity | null
 }
 
 const OSC_TITLE_RE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g
@@ -54,13 +57,15 @@ export class PtyManager {
   private shellPath: string
   private jobShellPath: string
   private maxRetainedJobs: number
+  private readonly identity: RuntimeIdentityAuthority | null
 
   constructor(
     events: PtyEvents,
     shellPath = process.platform === 'win32'
       ? process.env.ComSpec || windowsSystem32Binary('cmd.exe')
       : process.env.SHELL || '/bin/bash',
-    maxRetainedJobs = MAX_RETAINED_JOBS
+    maxRetainedJobs = MAX_RETAINED_JOBS,
+    identity?: RuntimeIdentityAuthority
   ) {
     this.events = events
     this.shellPath = shellPath
@@ -70,6 +75,7 @@ export class PtyManager {
     this.maxRetainedJobs = Number.isSafeInteger(maxRetainedJobs) && maxRetainedJobs > 0
       ? maxRetainedJobs
       : MAX_RETAINED_JOBS
+    this.identity = identity ?? null
   }
 
   has(sessionId: string): boolean {
@@ -172,6 +178,14 @@ export class PtyManager {
       exited: false
     }
     const completion = deferred<number>()
+    let processIdentity: ProcessIdentity | null = null
+    if (this.identity !== null && options.kind === 'job') {
+      // Finite task jobs bind runtime only as acp-agent today; the Stage 5
+      // union expands the accepted families. No executable expectation: PTY
+      // shells are commonly symlinked, and the observed path is recorded in
+      // the identity itself.
+      processIdentity = this.identity.capture(proc.pid, { family: 'acp-agent' })
+    }
     this.sessions.set(id, {
       session,
       proc,
@@ -179,7 +193,8 @@ export class PtyManager {
       titleBuffer: '',
       exit: completion.promise,
       resolveExit: completion.resolve,
-      settled: false
+      settled: false,
+      processIdentity
     })
 
     proc.onData((data) => {
@@ -291,6 +306,11 @@ export class PtyManager {
     const session = this.sessions.get(sessionId)
     if (!session || session.kind !== 'job') throw new Error('unknown job: ' + sessionId)
     return { exited: session.settled, exitCode: session.settled ? session.exitCode : undefined }
+  }
+
+  /** Stage 1 exact identity captured at spawn; null for terminals and legacy callers. */
+  processIdentity(sessionId: string): ProcessIdentity | null {
+    return this.sessions.get(sessionId)?.processIdentity ?? null
   }
 
   dismissExited(sessionId: string): void {
