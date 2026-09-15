@@ -40,22 +40,23 @@ export function describeCommand(command: ProviderCommandSpec): string {
 
 /** Map A provider projection Onto Its display-only list item (Credential Material Already Stripped By The Daemon). */
 export function serializeInstanceView(instance: ProviderInstanceProjection): ProviderInstanceListItem {
+  const problem = instance.problem ?? ('problem' in instance.driver ? instance.driver.problem : undefined)
   return {
     instanceId: instance.id,
-    driverId: labelOfDriver(instance.driver),
+    driverId: driverIdOf(instance.driver),
     displayName: instance.displayName,
     commandLabel: describeCommand(instance.command),
     credentialMode: instance.credentialMode,
     accountLabel: instance.account ? instance.account.displayLabel : NO_ACCOUNT_LABEL,
     enabled: instance.enabled,
     availability: instance.availability,
-    ...(instance.problem === undefined ? {} : { problem: instance.problem }),
+    ...(problem === undefined ? {} : { problem }),
     credentialStatusLabel: credentialStatusLabel(instance)
   }
 }
 
-function labelOfDriver(driver: ProviderInstanceProjection['driver']): string {
-  if (driver.kind === 'known') return driver.displayName
+function driverIdOf(driver: ProviderInstanceProjection['driver']): string {
+  if (driver.kind === 'known') return driver.id
   // An Unregistered Driver Barely Maps; Fall Back To Its Raw Identifier.
   return driver.rawDriverId.split('/').at(-1) ?? driver.rawDriverId
 }

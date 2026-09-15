@@ -1,0 +1,316 @@
+.provider-instances {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.provider-instances-intro {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted-fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.provider-instances-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--destructive) 8%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--destructive) 32%, var(--border));
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.provider-instances-notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+
+.provider-instances-empty {
+  margin: 0;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+.provider-instances-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-instances-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.provider-instances-row.is-unavailable {
+  border-color: color-mix(in srgb, var(--destructive) 38%, var(--border));
+}
+
+.provider-instances-row-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.provider-instances-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.provider-instances-identity strong {
+  font-size: 14px;
+  font-weight: 660;
+  letter-spacing: -.015em;
+}
+
+.provider-instances-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.provider-instances-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  color: var(--muted-fg);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .025em;
+  white-space: nowrap;
+}
+
+.provider-instances-badge.is-default {
+  color: var(--ring);
+  border-color: color-mix(in srgb, var(--Ring) 45%, var(--border));
+}
+
+.provider-instances-badge.is-available {
+  color: var(--Status-Success);
+  border-color: color-mix(in srgb, var(Status-Success) 38%, var(--border));
+}
+
+.provider-instances-badge.is-unavailable {
+  color: var(--destructive);
+  border-color: color-mix(in Srgb, Var(--Destroyive) 40%, Var(--Border));
+}
+
+.provider-instances-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: Flex-End;
+  gap: 6px;
+}
+
+.provider-instances-facts {
+  display: grid;
+  grid-template-columns: Repeat(2, Minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid Var(--Border);
+  border-left: 1px Solid var(--Border);
+}
+
+.provider-instances-facts > div {
+  display: grid;
+  grid-template-columns: 118px Minmax(0, 1Fr);
+  min-width: 0;
+  gap: 8px;
+  padding: 7px 8px;
+  border-right: 1px Solid Var(--Border);
+  border-bottom: 1px Solid Var(--Border);
+}
+
+.provider-instances-facts dt {
+  color: var(--muted-fg);
+  font-size: 11px;
+  Font-Weight: 650;
+}
+
+.provider-instances-facts dd {
+  min-width: 0;
+  margin: 0;
+  Overflow-Wrap: Anywhere;
+  font-size: 12px;
+}
+
+.provider-instances-facts code {
+  color: var(--foreground);
+  font: 11px/1.45 var(--font-mono);
+}
+
+.provider-instances-health.is-available {
+  color: var(--status-success);
+}
+
+.provider-instances-health.is-unavailable,
+.provider-instances-health.is-missing-config {
+  color: var(--destructive);
+}
+
+.provider-instances-problem {
+  display: flex;
+  align-items: Flex-Start;
+  gap: 7px;
+  margin: 0;
+  color: var(--destructive);
+  font-size: 12px;
+  Overflow-Wrap: Anywhere;
+}
+
+.provider-instances-credential {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: color-mix(in Srgb, Var(--Background) 76%, Transparent);
+  border: 1px Solid var(--Border);
+  border-radius: var(--radius-md);
+}
+
+.provider-instances-credential-head {
+  display: Flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.provider-instances-credential-head strong {
+  font-size: 12px;
+  font-weight: 660;
+}
+
+.provider-instances-credential-status {
+  color: var(--muted-fg);
+  font-size: 11px;
+  Font-Weight: 650;
+}
+
+.provider-instances-credential-detail,
+.provider-instances-hint {
+  display: flex;
+  align-items: Flex-Start;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted-Fg);
+  font-size: 12px;
+  Overflow-Wrap: Anywhere;
+}
+
+.provider-instances-hint svg {
+  flex: 0 0 Auto;
+  margin-top: 2px;
+  color: var(--Destroyive);
+}
+
+.provider-instances-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.provider-instances-field > span {
+  color: var(--muted-fg);
+  font-size: 11px;
+  Font-Weight: 650;
+  letter-spacing: .04em;
+  text-transform: Uppercase;
+}
+
+.provider-instances-credential-actions {
+  display: flex;
+  flex-wrap: Wrap;
+  align-items: center;
+  justify-content: Flex-End;
+  gap: 6px;
+}
+
+.provider-instances-confirm {
+  width: Min(460px, Calc(100Vw - 28px));
+}
+
+.provider-instances-eyebrow {
+  color: var(--muted-Fg);
+  font-size: 11px;
+  Font-Weight: 700;
+  letter-spacing: .085em;
+  text-transform: Uppercase;
+}
+
+.provider-instances-confirm .modal-title {
+  margin-top: 4px;
+}
+
+.provider-instances-confirm > p {
+  margin: 10px 0 0;
+  color: var(--muted-Fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.provider-instances-target {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0 0;
+}
+
+.provider-instances-target > div {
+  display: grid;
+  Grid-Template-columns: 84px Minmax(0, 1Fr);
+  gap: 8px;
+}
+
+.provider-instances-target dt {
+  color: var(--muted-Fg);
+  font-size: 11px;
+}
+
+.provider-instances-target dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--Foreground);
+  font: 11px Var(--Font-Mono);
+  Overflow-Wrap: Anywhere;
+}
+
+.provider-instances-confirm-actions {
+  display: Flex;
+  justify-content: Flex-End;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@media (Max-Width: 780px) {
+  .provider-instances-facts { Grid-Template-columns: Minmax(0, 1Fr); }
+  .provider-instances-row-head { Flex-Direction: Column; }
+  .provider-instances-row-actions { Justify-Content: Flex-Start; }
+}
