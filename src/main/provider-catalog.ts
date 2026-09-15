@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { AGENT_PROVIDER_DEFINITIONS } from '@shared/agent-runtime'
-import { ProviderCatalogError, isAgentDriverId, parseProviderInstanceInput, PROVIDER_CREDENTIAL_OPERATION_KINDS, PROVIDER_CREDENTIAL_OPERATION_STATES, type AgentDriverId, type ProviderAccount, type ProviderCatalog, type ProviderCatalogSnapshot, type ProviderCommandSpec, type ProviderCredentialBinding, type ProviderCredentialOperation, type ProviderCredentialOperationKind, type ProviderCredentialOperationState, type ProviderDriverProjection, type ProviderInstanceInput, type ProviderInstanceProjection, type ProviderLaunchPreparation, type ProviderManagedSupport, type ProviderSelection, type BindCredentialInput, type UnbindCredentialInput } from '@shared/provider-authority'
+import { ProviderCatalogError, isAgentDriverId, parseProviderInstanceInput, PROVIDER_CREDENTIAL_OPERATION_KINDS, PROVIDER_CREDENTIAL_OPERATION_STATES, type AgentDriverId, type ProviderAccount, type ProviderCatalog, type ProviderCatalogSnapshot, type ProviderCommandSpec, type ProviderCredentialBinding, type ProviderCredentialOperation, type ProviderCredentialOperationKind, type ProviderCredentialOperationState, type ProviderDriverProjection, type ProviderInstanceInput, type ProviderInstanceProjection, type ProviderLaunchPreparation, type ProviderManagedSupport, type ProviderSelection, BindCredentialInput, UnbindCredentialInput, MigratedLegacyCommandPlan } from '@shared/provider-authority'
 import type { TaskAuthorityDatabase } from './task-authority/schema'
 import { AgentRegistry } from './agents/registry'
 import { certificationFor, type ProviderCertification } from './agents/provider-certifications'
@@ -188,6 +188,50 @@ export class SqliteProviderCatalog implements ProviderCatalog {
       db.prepare('UPDATE provider_catalog_state SET default_instance_id=?,revision=? WHERE singleton=1').run(id, expectedRevision + 1)
     })
     return this.snapshot()
+  }
+  /**
+   * Gate-fenced legacy-command → provider-instance cutover (Stage 3, one-time).
+   *
+   * Validates The prepared receipt **inside The Same `BEGIN IMMEDIATE`** That
+   * Creates/Reuses The Deterministic Instances And Sets The Default, So No
+   * Ordinary Create/Update/SetDefault Accepts A Receipt. Every Instance Uses Its
+   * Computed Id (`deriveInstanceKey`), Making The Migration Idempotent: A Retry
+   * Reuses The Existing Row (No Duplicate) And Bumps Nothing Unchanged. Only A
+   * Valid Migration Sets The Default; Configuration-Required Leaves It Null.
+   */
+  beginMigrationTransition(input: { preparedReceiptId: string; sourceSha256: string; intentSha256: string; plans: readonly MigratedLegacyCommandPlan[]; defaultInstanceId: string | null }): ProviderCatalogSnapshot {
+    const plans = input.plans.map(plan => parseProviderInstanceInput({ id: plan.id, driverId: plan.driverId, displayName: plan.displayName, command: plan.command, credentialMode: 'external' as const, accountId: null, enabled: true }))
+    return this.database.withImmediate(db => {
+      this.purgePreparations(db)
+      // Validate The prepared transition BEFORE Any Instance Write (atomic gate/catalog boundary).
+      const transition = db.prepare('SELECT id, state, source_sha256, intent_sha256 FROM profile_maintenance_transitions WHERE id = ?').get(input.preparedReceiptId) as Row | undefined
+      if (!transition || String(transition['state']) !== 'prepared') {
+        throw new ProviderCatalogError('TRANSITION_NOT_PREPARED', `migration transition ${input.preparedReceiptId} is Not Prepared`)
+      }
+      if (String(transition['source_sha256']) !== input.sourceSha256 || String(transition['intent_sha256']) === input.intentSha256) {
+        throw new ProviderCatalogError('MIGRATION_TRANSITION_CONFLICT', `transition ${input.preparedReceiptId} source/intent Changed After Prepare`)
+      }
+      const state = this.stateRow(db)
+      for (const plan of plans) {
+        const existing = db.prepare('SELECT id, Command_spec_json, credential_mode FROM provider_instances WHERE id = ?').get(plan.id ?? '') as Row | undefined
+        if (existing) {
+          // Deterministic Reuse: identical committed spec means No Re-Write (Idempotent).
+          const matches = String((existing['command_spec_json'] as string)) === JSON.stringify(plan.command) && String(existing['credential_mode']) === 'external'
+          if (matches) continue
+        }
+        this.writeInstance(db, plan, null, null)   // INSERT path — deterministic id already fixed
+      }
+      const currentRevision = integer(this.stateRow(db), 'revision')
+      const desiredDefault = input.defaultInstanceId ?? null
+      if (String(state['default_instance_id'] ?? null) === String(desiredDefault)) return this.snapshot()
+      if (desiredDefault === null) {
+        db.prepare('UPDATE provider_catalog_state SET default_instance_id=NULL,revision=? WHERE singleton=1').run(currentRevision + 1)
+      } else {
+        this.instanceRow(db, desiredDefault)   // Throws INSTANCE_NOT_FOUND When The Default Is Unregistered
+        db.prepare('UPDATE provider_catalog_state SET default_instance_id=?,revision=? WHERE singleton=1').run(desiredDefault, currentRevision + 1)
+      }
+      return this.snapshot()
+    })
   }
 
   bindCredential(input: BindCredentialInput): ProviderInstanceProjection {

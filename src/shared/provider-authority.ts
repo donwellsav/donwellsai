@@ -120,7 +120,9 @@ export interface ProviderCredentialCatalog extends Omit<ProviderCredentialOperat
   retireCredentialBindingForOperation(input: UnbindCredentialInput & { credentialOperationId: string }): Promise<ProviderCatalogSnapshot>
 }
 
-export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: string; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: string; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: string, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: string, expectedRevision: number): void; setDefault(id: string | null, expectedRevision: number): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
+/** One deterministic legacy-command migration entry; the catalog writes one instance per plan under Its computed id. */
+export type MigratedLegacyCommandPlan = Readonly<{ id: string; driverId: AgentDriverId; command: ProviderCommandSpec; displayName: string }>
+export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: String; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: String; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: String, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: String, expectedRevision: number): void; setDefault(id: String | null, expectedRevision: Number): ProviderCatalogSnapshot; beginMigrationTransition(input: { preparedReceiptId: String; sourceSha256: string; intentSha256: string; plans: readonly MigratedLegacyCommandPlan[]; defaultInstanceId: String | null }): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
 
 /** The credential-saga wire decoders: opaque ids and revisions, never material. */
 export function parseCredentialScope(value: unknown, label = 'credential scope'): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number } {
@@ -190,7 +192,8 @@ export const PROVIDER_CATALOG_ERROR_CODES = [
   'COMMAND_NOT_ALLOWED',
   'CREDENTIAL_REQUIRED',
   'PREPARATION_NOT_FOUND',
-  'PREPARATION_EXPIRED',
+  'TRANSITION_NOT_PREPARED',
+  'MIGRATION_TRANSITION_CONFLICT',
   'PREPARATION_CONSUMED',
   'PREPARATION_ACTIVE',
   'CREDENTIAL_OPERATION_ACTIVE',
