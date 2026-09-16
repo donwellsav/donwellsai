@@ -347,6 +347,14 @@ type AppState = {
 
   focusAgentSession(sessionId: string): Promise<boolean>
   runAgent(worktreePath: string, command: string | AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent): Promise<{ ok: true } | { ok: false; error: string }>
+  /**
+   * Starts an interactive agent from a selected provider instance.
+   *
+   * This is the launch authority after the Stage 3 cutover: the renderer names
+   * an instance and the daemon derives the worker identity, lease, Catalog
+   * preparation, and admission itself.
+   */
+  launchProviderInstance(worktreePath: string, providerInstanceId: string): Promise<{ ok: true } | { ok: false; error: string }>
   stopAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
   dismissAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
 
@@ -1840,6 +1848,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { ok: true as const }
     } catch (cause) {
       const error = 'Agent start failed: ' + (cause instanceof Error ? cause.message : String(cause))
+      set({ error })
+      return { ok: false as const, error }
+    }
+  },
+
+  /**
+   * Starts an interactive agent from a selected provider instance.
+   *
+   * Replaces command-text selection as launch authority: an instance is a
+   * durable identity with its own revision, account, and credential mode, and
+   * the daemon refuses the launch unless it can still be admitted exactly.
+   */
+  async launchProviderInstance(worktreePath: string, providerInstanceId: string) {
+    try {
+      const run = await window.donwells.providerInstanceLaunch(worktreePath, providerInstanceId)
+      set((state) => ({
+        runningAgents: { ...state.runningAgents, [run.sessionId]: run },
+        runsOpen: false,
+        error: null
+      }))
+      persistSessionSoon()
+      return { ok: true as const }
+    } catch (cause) {
+      const error = 'Provider launch failed: ' + (cause instanceof Error ? cause.message : String(cause))
       set({ error })
       return { ok: false as const, error }
     }

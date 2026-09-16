@@ -9,6 +9,7 @@ import {
 } from '@shared/agent-presentation'
 import type { AgentMemorySetupResult, RunningAgent } from '@shared/types'
 import { pinnedWorktree } from '../../commands'
+import { useProviderInstances } from '../../hooks/use-provider-instances'
 import { useAppStore } from '../../store'
 import { Icon } from '../Icon'
 import { CapabilityMatrix } from '../CapabilityMatrix'
@@ -39,6 +40,14 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
   const defaultCommand = useAppStore((state) => state.settings.agentCommand)
   const focusAgentSession = useAppStore((state) => state.focusAgentSession)
   const runAgent = useAppStore((state) => state.runAgent)
+  const launchProviderInstance = useAppStore((state) => state.launchProviderInstance)
+  // The provider catalog is the launch authority after the Stage 3 cutover.
+  const { snapshot: providerCatalog } = useProviderInstances()
+  const providerInstances = useMemo(
+    () => (providerCatalog?.instances ?? []).filter(instance => instance.enabled),
+    [providerCatalog]
+  )
+  const [providerInstanceId, setProviderInstanceId] = useState('')
   const stopAgent = useAppStore((state) => state.stopAgent)
   const dismissAgent = useAppStore((state) => state.dismissAgent)
   const invokingKey = activeWorktreePath ?? activeRepoId ?? ''
@@ -149,7 +158,28 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
 
   const launch = async (): Promise<void> => {
     const trimmed = command.trim()
-    if (!targetPath || !trimmed || launching || configuringMemory) return
+    if (!targetPath || launching || configuringMemory) return
+    // A selected provider instance is the launch authority; a command string is
+    // only the advanced escape hatch, and the daemon admits an instance exactly
+    // (its revision and account) while a command cannot be admitted at all.
+    if (providerInstanceId !== '') {
+      setLaunching(true)
+      setLaunchError(null)
+      try {
+        const result = await launchProviderInstance(targetPath, providerInstanceId)
+        if (!result.ok) {
+          setLaunchError(result.error)
+          return
+        }
+        useAppStore.setState({ agentComposerOpen: false })
+        agentDrafts.delete(draftKey)
+        setIntent(''); setFiles(''); setExternalId('')
+      } finally {
+        setLaunching(false)
+      }
+      return
+    }
+    if (!trimmed) return
     setLaunching(true)
     setLaunchError(null)
     try {
@@ -317,6 +347,19 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
 
         {availablePresets.length > 0 ? (
           <>
+            <label className="modal-field">Provider instance
+              <select className="input" aria-label="Provider instance" value={providerInstanceId} disabled={launching || providerInstances.length === 0} onChange={event => { setProviderInstanceId(event.target.value); setLaunchError(null) }}>
+                {providerInstances.length === 0 && <option value="">No provider instance is configured</option>}
+                {providerInstances.map(instance => (
+                  <option key={instance.id} value={instance.id}>
+                    {instance.displayName} · {instance.credentialMode}{providerCatalog?.defaultInstanceId === instance.id ? ' · default' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="agent-launcher-note" role="status">
+              <span>Instances are managed in Settings → Agents. A launch is admitted against the exact instance, its revision, and its account.</span>
+            </p>
             <label className="modal-field">Agent
               <select className="input" aria-label="Agent type" value={selectedPreset?.id ?? ''} onChange={event => {
                 const preset = availablePresets.find(item => item.id === event.target.value)
@@ -360,7 +403,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         </div>}
         {launchError && <p className="op-inline-error" role="alert"><strong>Agent did not start.</strong><span>{launchError}</span></p>}
         <div className="agent-launcher-actions">
-          <button type="submit" className="btn btn-primary" disabled={!targetPath || !command.trim() || launching || configuringMemory}>
+          <button type="submit" className="btn btn-primary" disabled={!targetPath || (providerInstanceId === '' && !command.trim()) || launching || configuringMemory}>
             <Icon name="terminal" size={14} />
             {launching ? 'Starting agent…' : 'Start agent & open terminal'}
           </button>
