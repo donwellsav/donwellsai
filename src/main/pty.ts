@@ -24,6 +24,16 @@ export type AgentPtyOptions = {
   launch?: AgentExecutable
   id: string
   env: NodeJS.ProcessEnv
+  /**
+   * When true, `env` IS the child's complete environment.
+   *
+   * A managed/none provider launch must not inherit the parent at all: the
+   * isolation contract is an allowlist, and merging the parent environment here
+   * would hand the child the real `HOME`, the app's own authority, and every
+   * credential variable the driver knows how to read. Interactive agent and job
+   * launches keep the merging default.
+   */
+  exactEnv?: boolean
 }
 
 type Session = {
@@ -137,7 +147,7 @@ export class PtyManager {
       )
     }
     const args = options?.launch?.args ?? (process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command])
-    const session = this.spawn(cwd, cols, rows, args, { kind, id: options?.id, env: options?.env, executable: options?.launch?.executable })
+    const session = this.spawn(cwd, cols, rows, args, { kind, id: options?.id, env: options?.env, executable: options?.launch?.executable, exactEnv: options?.exactEnv })
     this.retainedSessions++
     return session
   }
@@ -147,20 +157,24 @@ export class PtyManager {
     cols: number,
     rows: number,
     args: string[],
-    options: { kind: Session['kind']; id?: string; env?: NodeJS.ProcessEnv; executable?: string }
+    options: { kind: Session['kind']; id?: string; env?: NodeJS.ProcessEnv; executable?: string; exactEnv?: boolean }
   ): TerminalSession {
     const id = options.id ?? randomUUID()
-    const env = sanitizedProcessEnv(process.env, {
-      [AGENT_HOOK_ENV.socket]: undefined,
-      [AGENT_HOOK_ENV.runId]: undefined,
-      [AGENT_HOOK_ENV.sessionId]: undefined,
-      [AGENT_HOOK_ENV.token]: undefined,
-      ...(options.env ?? {}),
-      TERM: 'xterm-256color',
-      TERM_PROGRAM: 'donwells.ai',
-      TERM_PROGRAM_VERSION: undefined,
-      TERM_SESSION_ID: undefined
-    })
+    // An isolated provider launch supplies its complete environment; every
+    // other launch merges sanitized additions over the parent as before.
+    const env = options.exactEnv === true
+      ? { ...(options.env ?? {}) }
+      : sanitizedProcessEnv(process.env, {
+          [AGENT_HOOK_ENV.socket]: undefined,
+          [AGENT_HOOK_ENV.runId]: undefined,
+          [AGENT_HOOK_ENV.sessionId]: undefined,
+          [AGENT_HOOK_ENV.token]: undefined,
+          ...(options.env ?? {}),
+          TERM: 'xterm-256color',
+          TERM_PROGRAM: 'donwells.ai',
+          TERM_PROGRAM_VERSION: undefined,
+          TERM_SESSION_ID: undefined
+        })
     const executable = options.executable ?? (options.kind === 'terminal' ? this.shellPath : this.jobShellPath)
     const proc = pty.spawn(executable, args, {
       name: 'xterm-256color',
