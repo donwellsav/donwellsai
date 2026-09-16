@@ -975,6 +975,10 @@ void app.whenReady().then(async () => {
     credentialOwner(event)
     return terminalBus.providerCatalogSetDefault(instanceId, expectedRevision)
   })
+  ipcMain.handle('providerInstanceLaunch', (event, workspacePath: string, providerInstanceId: string) => {
+    credentialOwner(event)
+    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId)
+  })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
   void operationalRuns.resume().catch((error) => logger.error({ err: error }, 'Run recovery failed'))

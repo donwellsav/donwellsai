@@ -193,11 +193,11 @@ export class PtyManager {
     }
     const completion = deferred<number>()
     let processIdentity: ProcessIdentity | null = null
-    if (this.identity !== null && options.kind === 'job') {
-      // Finite task jobs bind runtime only as acp-agent today; the Stage 5
-      // union expands the accepted families. No executable expectation: PTY
-      // shells are commonly symlinked, and the observed path is recorded in
-      // the identity itself.
+    if (this.identity !== null && (options.kind === 'job' || options.kind === 'agent')) {
+      // Finite task jobs and provider-backed agent children bind runtime as
+      // acp-agent today; the Stage 5 union expands the accepted families. No
+      // executable expectation: PTY shells are commonly symlinked, and the
+      // observed path is recorded in the identity itself.
       processIdentity = this.identity.capture(proc.pid, { family: 'acp-agent' })
     }
     this.sessions.set(id, {

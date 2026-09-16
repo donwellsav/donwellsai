@@ -118,6 +118,13 @@ export interface ProviderChildPort {
     environment: NodeJS.ProcessEnv
     cols: number
     rows: number
+    /**
+     * The exact admitted selection. The child port needs it to record the run's
+     * provider provenance: the id, revision, and account are what the renderer
+     * shows instead of a command family, and they are already durable facts by
+     * the time the spawn is admitted.
+     */
+    selection: ProviderSelection
   }): OpenedTaskChild
   stop(sessionId: string): Promise<void>
   stopProcess(identity: ProcessIdentity): Promise<void>
@@ -146,7 +153,7 @@ export type ProviderLaunchPorts = Readonly<{
   child: ProviderChildPort
 }>
 
-export type ProviderLaunchDisposition = 'completed' | 'failed' | 'cancelled' | 'superseded' | 'secret-unavailable'
+export type ProviderLaunchDisposition = 'completed' | 'failed' | 'cancelled' | 'superseded' | 'secret-unavailable' | 'launched'
 
 export type ProviderLaunchOutcome = Readonly<{
   disposition: ProviderLaunchDisposition
@@ -295,6 +302,12 @@ export class TaskExecutionCoordinator {
     workspaceRoot: string
     selection: ProviderSelection
     connection: AuthenticatedAuthorityConnection
+    /**
+     * Interactive launches return as soon as the child is admitted and running,
+     * because their lifetime is the user's session. The default waits for exit,
+     * which is what a finite task child needs.
+     */
+    interactive?: boolean
   }>): Promise<ProviderLaunchOutcome> {
     const ports = this.provider
     if (!ports) return this.providerRejection(null, 'no provider-backed launch wiring is registered on this daemon')
@@ -413,7 +426,8 @@ export class TaskExecutionCoordinator {
         invocation,
         environment,
         cols: this.providerCols,
-        rows: this.providerRows
+        rows: this.providerRows,
+        selection: admission.selection
       })
     } catch (error) {
       releaseIsolation()
@@ -437,6 +451,12 @@ export class TaskExecutionCoordinator {
       this.authority.write({ kind: 'bind-runtime', connection: input.connection, token: input.lease, sessionId: opened.sessionId, processIdentity: opened.processIdentity })
     } catch {
       return this.convergeProviderLoss(input, admission, opened, isolationRoot, claim, 'runtime bind was refused after the provider child started')
+    }
+    // An interactive launch is complete once the child is bound and running: its
+    // lifetime is the user's session, so nothing here waits for exit. The daemon
+    // owns the child from this point.
+    if (input.interactive === true) {
+      return { disposition: 'launched', admission, sessionId: opened.sessionId, exitCode: null, reason: null }
     }
     return this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
   }

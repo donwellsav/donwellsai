@@ -2,9 +2,9 @@ import type { McpServer } from '@agentclientprotocol/sdk'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { abandonRuntimeOwner, claimRuntimeOwner, publishRuntimeOwner, reconcileRuntimeOwner, releaseRuntimeOwner, republishRuntimeOwner, type RuntimePublication, type RuntimeReleaseResult } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
-import { chmodSync, lstatSync, mkdirSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { logger } from '@shared/logger'
 import {
@@ -66,9 +66,11 @@ import {
   type AgentTaskIntent,
   type RunningAgent
 } from '@shared/agent-runtime'
-import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAPABILITY } from '@shared/provider-authority'
-import { PROVIDER_SECRET_BROKER_CAPABILITY, type ProviderLaunchAuthorization, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
+import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAPABILITY, type ProviderSelection } from '@shared/provider-authority'
+import { asCredentialRef, PROVIDER_SECRET_BROKER_CAPABILITY, type ProviderLaunchAuthorization, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
 import { ProviderSecretBrokerHost, SECRET_BROKER_REGISTER_OP, SECRET_BROKER_RESPOND_OP, SecretBrokerError } from './provider-secret-broker'
+import { AgentRegistry } from './agents/registry'
+import { SecretOutputBoundary } from './secret-output-redactor'
 import {
   ATTENTION_INBOX_CAPABILITY,
   parseAttentionAcknowledgeRequest
@@ -81,7 +83,8 @@ import { PtyManager, REAP_EXITED_MS } from './pty'
 import {
   createAgentLaunchPlan,
   type AgentHookBinding,
-  type AgentLaunchPlan
+  type AgentLaunchPlan,
+  type ResolvedProviderInvocation
 } from './agents/provider-hooks'
 import { localRuntimePaths, readRuntimeRecord, type LocalRuntimePaths } from './local-runtime'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
@@ -275,6 +278,10 @@ export class TerminalDaemon {
   private readonly authToken: string
   private publication: RuntimePublication | null = null
   private readonly paths: LocalRuntimePaths
+  /** The profile directory, used to read the published project registry directly. */
+  private readonly userDataDir: string
+  /** Test seam for the published project registry; production reads the profile file. */
+  private readonly projectRegistry?: () => Promise<readonly BacklogWorkspaceIdentity[]>
   private readonly baseEndpointPath: string
   private readonly emitterCommand: readonly string[]
   private readonly scrollback = new Map<string, string>()
@@ -285,6 +292,14 @@ export class TerminalDaemon {
   private readonly connections = new Set<Socket>()
   private readonly agentsBySession = new Map<string, AgentRecord>()
   private readonly agentsByRun = new Map<string, AgentRecord>()
+  /** One managed-output redactor per session; empty for external launches. */
+  private readonly providerBoundary = new SecretOutputBoundary()
+  /** Run records for admitted provider children, keyed by daemon session id. */
+  private readonly providerRuns = new Map<string, RunningAgent>()
+  /** Exit codes observed for provider children, so `output` never infers exit. */
+  private readonly providerExitCode = new Map<string, number>()
+  /** The driver registry: the only source of a driver's exact executable. */
+  private readonly registry = new AgentRegistry()
   private readonly acp: AcpSessions
   private readonly identity: RuntimeIdentityAuthority
   private readonly taskAuthority: SqliteTaskAuthority
@@ -328,6 +343,8 @@ export class TerminalDaemon {
     legacyAgentCommand?: () => Promise<readonly MigrateCommandInput[]> | readonly MigrateCommandInput[]
   }) {
     const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
+    this.userDataDir = userDataDir
+    this.projectRegistry = opts.projectRegistry
     this.authToken = opts.authToken
     this.identity = opts.identity ?? runtimeIdentityAuthority()
     this.paths = localRuntimePaths(userDataDir, 'terminal')
@@ -444,8 +461,107 @@ export class TerminalDaemon {
             return { output: '', totalBytes: 0, exited, exitCode: exited ? 0 : undefined }
           }
         }
+      },
+      /**
+       * The provider-backed launch seam, live.
+       *
+       * Until Task 4 this was deliberately absent, so `launchProviderBacked`
+       * returned a rejection and no production caller could reach it. Every port
+       * below is the daemon's own machinery: the shared maintenance gate, the
+       * daemon-owned Catalog, the driver registry, and the PTY that owns the
+       * child. Managed materialization still requires the Electron Secret
+       * Authority broker to be registered; without it a managed launch fails
+       * closed with `SECRET_AUTHORITY_UNAVAILABLE` and spawns nothing.
+       */
+      provider: {
+        maintenance: {
+          admit: async (participant, operationId) => {
+            const admission = await this.maintenanceGate.admit({ connectionId: 'daemon-launch' }, participant, operationId)
+            return { operationId: admission.operationId, epoch: admission.epoch, ownerConnectionId: admission.ownerConnectionId }
+          },
+          complete: async (operationId, epoch, ownerConnectionId, outcome) => {
+            await this.maintenanceGate.complete(
+              { connectionId: 'daemon-launch' },
+              { participant: 'provider-authority', operationId, epoch, ownerConnectionId },
+              outcome
+            )
+          }
+        },
+        catalog: { prepareLaunch: input => this.providerCatalog.prepareLaunch(input) },
+        driverExecutable: driverId => {
+          const definition = AGENT_PROVIDER_DEFINITIONS.find(candidate => candidate.id === driverId)
+          return definition === undefined ? undefined : this.registry.findExecutable(definition.command)
+        },
+        createIsolationRoot: sessionId => {
+          const root = join(this.paths.runtimeDir, 'provider-isolation', sessionId)
+          mkdirSync(root, { recursive: true, mode: 0o700 })
+          return root
+        },
+        removeIsolationRoot: root => { rmSync(root, { recursive: true, force: true }) },
+        secrets: {
+          materialize: authorization => this.secretBroker.materialize({
+            ...authorization,
+            // The coordinator carries the ref as opaque text; the broker is the
+            // one place that brands it for the Secret Authority.
+            credentialRef: asCredentialRef(authorization.credentialRef)
+          })
+        },
+        boundary: this.providerBoundary,
+        child: {
+          open: input => {
+            // The environment is exact: a managed/none launch must not inherit
+            // the daemon's own environment, which would defeat the allowlist.
+            const session = this.pty.openAgent(input.workspaceRoot, '', input.cols, input.rows, {
+              id: input.sessionId,
+              env: input.environment,
+              launch: { executable: input.invocation.program, args: [...input.invocation.args] },
+              exactEnv: true
+            })
+            this.sequence.set(session.id, 0)
+            this.publishProviderRun(input.sessionId, input.selection, input.workspaceRoot, input.invocation)
+            return { sessionId: session.id, processIdentity: this.pty.processIdentity(session.id) }
+          },
+          stop: sessionId => this.pty.stop(sessionId),
+          stopProcess: identity => stopProcessByIdentity(identity),
+          output: sessionId => ({
+            stdout: this.scrollback.get(sessionId) ?? '',
+            stderr: '',
+            exited: this.pty.liveness(sessionId) === 'exited',
+            exitCode: this.providerExitCode.get(sessionId)
+          })
+        }
       }
     })
+  }
+
+  /**
+   * Publishes the run record for one admitted provider child, so the renderer
+   * shows the exact driver/instance identity the launch was admitted for rather
+   * than a command family. Identity and display facts only: no credential ref,
+   * generation, or environment value is recorded here.
+   */
+  private publishProviderRun(sessionId: string, selection: ProviderSelection, workspaceRoot: string, invocation: ResolvedProviderInvocation): void {
+    const now = new Date().toISOString()
+    const run: RunningAgent = {
+      id: randomUUID(),
+      sessionId,
+      workspacePath: workspaceRoot,
+      command: [invocation.program, ...invocation.args].join(' '),
+      provider: {
+        driverId: selection.driverId,
+        providerInstanceId: selection.providerInstanceId,
+        providerInstanceRevision: selection.instanceRevision,
+        accountId: selection.accountId,
+        providerAccountRevision: selection.accountRevision
+      },
+      startedAt: now,
+      updatedAt: now,
+      liveness: 'live',
+      activity: 'working',
+      hook: { support: 'unavailable', events: [], reason: 'Provider-backed launches report liveness from the PTY only.', connected: false }
+    }
+    this.providerRuns.set(sessionId, run)
+    this.broadcast({ event: 'agent-changed', run })
   }
 
   hasLiveSessions(): boolean {
@@ -649,6 +765,21 @@ export class TerminalDaemon {
 
   private handlePtyExit(sessionId: string, exitCode: number): void {
     this.broadcast({ event: 'exit', sessionId, exitCode })
+    // A provider child's exit is a daemon-owned fact: the coordinator's output
+    // port reports it rather than inferring exit from transport loss.
+    const providerRun = this.providerRuns.get(sessionId)
+    if (providerRun) {
+      this.providerExitCode.set(sessionId, exitCode)
+      const updated: RunningAgent = {
+        ...providerRun,
+        liveness: 'exited',
+        activity: exitCode === 0 ? 'completed' : 'failed',
+        exitCode,
+        updatedAt: new Date().toISOString()
+      }
+      this.providerRuns.set(sessionId, updated)
+      this.broadcast({ event: 'agent-changed', run: updated })
+    }
     const record = this.agentsBySession.get(sessionId)
     if (record) {
       delete record.hookToken
@@ -674,6 +805,9 @@ export class TerminalDaemon {
       this.scrollback.delete(sessionId); this.replay.delete(sessionId)
       this.truncated.delete(sessionId)
       this.sequence.delete(sessionId)
+      this.providerRuns.delete(sessionId)
+      this.providerExitCode.delete(sessionId)
+      this.providerBoundary.close(sessionId)
     }, REAP_EXITED_MS).unref()
   }
 
@@ -1109,6 +1243,16 @@ export class TerminalDaemon {
         case 'agent.providers':
           reply(true, { snapshot: this.providerCatalog.snapshot() })
           break
+        case 'agent.providers.launch': {
+          // The renderer names an instance; the daemon derives the worker
+          // identity, lease, preparation, and admission itself. Nothing about a
+          // credential, lease, or preparation crosses this boundary.
+          const workspacePath = taskWireRequiredString(message['workspacePath'], 'workspacePath', 4096)
+          const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
+          const run = await this.launchProviderInstance(socket, workspacePath, providerInstanceId)
+          reply(true, { run })
+          break
+        }
         case 'agent.providers.create': {
           const input = parseProviderInstanceInput(message['input'])
           this.providerCatalog.create(input)
@@ -1323,6 +1467,9 @@ export class TerminalDaemon {
           this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
+          this.providerRuns.delete(sessionId)
+          this.providerExitCode.delete(sessionId)
+          this.providerBoundary.close(sessionId)
           this.broadcast({ event: 'agent-dismissed', sessionId })
           reply(true, {})
           break
@@ -1352,6 +1499,9 @@ export class TerminalDaemon {
           this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
+          this.providerRuns.delete(sessionId)
+          this.providerExitCode.delete(sessionId)
+          this.providerBoundary.close(sessionId)
           reply(true, {})
           break
         }
@@ -1549,6 +1699,82 @@ export class TerminalDaemon {
   /** One materialization round trip; the caller is the trusted launch path. */
   materializeProviderLaunch(authorization: ProviderLaunchAuthorization): Promise<ProviderLaunchSecrets> {
     return this.secretBroker.materialize(authorization)
+  }
+
+  /**
+   * Starts one interactive agent from a selected provider instance.
+   *
+   * This is the production provider-backed launch. The renderer names an
+   * instance; it never sees a lease, preparation, broker frame, credential ref,
+   * or maintenance admission. The daemon derives the authenticated worker
+   * identity and the full lease itself:
+   *
+   *   resolve project → create the launch's own task → claim it with the exact
+   *   selection → prepare the Catalog launch → admit it (which consumes the
+   *   preparation in one transaction) → run the coordinator's provider path.
+   *
+   * Every refusal before the spawn returns without a child. A managed launch
+   * additionally requires the registered Secret Authority broker; without one it
+   * fails closed and spawns nothing rather than falling back to inherited or file
+   * credentials.
+   */
+  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string): Promise<RunningAgent> {
+    const snapshot = this.providerCatalog.snapshot()
+    const instance = snapshot.instances.find(candidate => candidate.id === providerInstanceId)
+    if (!instance) throw new ProviderCatalogError('INSTANCE_NOT_FOUND', 'the selected provider instance no longer exists')
+    if (!instance.enabled) throw new ProviderCatalogError('INSTANCE_DISABLED', 'the selected provider instance is disabled')
+    if (instance.availability !== 'available') throw new ProviderCatalogError('DRIVER_UNAVAILABLE', 'the selected provider instance is unavailable')
+
+    const canonicalWorkspace = realpathSync.native(workspacePath)
+    const project = (await (this.projectRegistry ?? (async () => readRegisteredProjects(this.userDataDir)))())
+      .find(candidate => realpathSync.native(candidate.workspaceRoot) === canonicalWorkspace)
+    if (!project) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the workspace is not a registered project')
+    const projectId = project.projectId
+
+    const selection: ProviderSelection = {
+      driverId: (instance.driver.kind === 'known' ? instance.driver.id : 'custom-command'),
+      providerInstanceId: instance.id,
+      instanceRevision: instance.revision,
+      accountId: instance.account?.id ?? null,
+      accountRevision: instance.account?.revision ?? null
+    }
+
+    // The launch's own task: an interactive run is still an admitted attempt, so
+    // the immutable selection and the launch admission have a durable owner.
+    const connection = this.daemonWorkerConnection(projectId)
+    const externalTaskId = `interactive-${randomUUID()}`
+    this.taskAuthority.createTask({
+      connection: this.taskAdminConnection(socket),
+      projectId,
+      ...(project.repositoryId === undefined ? {} : { repositoryId: project.repositoryId }),
+      workspaceRoot: canonicalWorkspace,
+      externalTaskId,
+      title: `Interactive agent (${instance.displayName})`
+    })
+    const specification: TaskExecutionSpecificationInput = {
+      command: { program: instance.displayName, args: [], cwd: canonicalWorkspace },
+      target: { kind: 'local', root: canonicalWorkspace, label: project.repositoryId },
+      verification: { requiredArtifacts: [] }
+    }
+    const claim = this.taskAuthority.claim({ connection, projectId, externalTaskId, specification, providerSelection: selection })
+
+    const sessionId = randomUUID()
+    const outcome = await this.taskCoordinator.launchProviderBacked({
+      lease: claim.token,
+      attemptId: claim.attempt.attemptId,
+      sessionId,
+      workspaceRoot: canonicalWorkspace,
+      selection,
+      connection,
+      // An interactive agent outlives the launch call.
+      interactive: true
+    })
+    if (outcome.disposition !== 'launched' || outcome.sessionId === null) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', outcome.reason ?? 'the provider-backed launch was refused')
+    }
+    const run = this.providerRuns.get(outcome.sessionId)
+    if (!run) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the provider launch produced no run record')
+    return cloneRun(run)
   }
 
   private daemonWorkerConnection(projectId: string): AuthenticatedAuthorityConnection {

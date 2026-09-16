@@ -158,6 +158,7 @@ const api: IpcApi = {
   providerCatalogUpdate: (instanceId, expectedRevision, input) => ipcRenderer.invoke('providerCatalogUpdate', instanceId, expectedRevision, input),
   providerCatalogRemove: (instanceId, expectedRevision) => ipcRenderer.invoke('providerCatalogRemove', instanceId, expectedRevision),
   providerCatalogSetDefault: (instanceId, expectedRevision) => ipcRenderer.invoke('providerCatalogSetDefault', instanceId, expectedRevision),
+  providerInstanceLaunch: (workspacePath, providerInstanceId) => ipcRenderer.invoke('providerInstanceLaunch', workspacePath, providerInstanceId),
   skillPackagesList: (request) => ipcRenderer.invoke('skillPackagesList', request),
   skillPackagesPrepare: (request) => ipcRenderer.invoke('skillPackagesPrepare', request),
   skillPackagesApply: (request) => ipcRenderer.invoke('skillPackagesApply', request),

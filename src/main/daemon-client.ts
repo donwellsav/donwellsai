@@ -1265,6 +1265,17 @@ export class DaemonClient {
     const response = await this.request<{ snapshot: unknown }>('agent.providers.default', { instanceId: id, expectedRevision })
     return parseProviderCatalogSnapshot(response.snapshot)
   }
+  /**
+   * Starts an interactive agent from a selected provider instance.
+   *
+   * Only the workspace and the instance cross the wire: the daemon owns the
+   * lease, preparation, admission, and any credential materialization.
+   */
+  async providerInstanceLaunch(workspacePath: string, providerInstanceId: string): Promise<RunningAgent> {
+    await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'launching a provider instance')
+    const response = await this.request<{ run: unknown }>('agent.providers.launch', { workspacePath, providerInstanceId })
+    return requireRunningAgent(response.run)
+  }
   async providerCatalogCreateAccount(input: { driverId: ProviderAccount['driverId']; displayLabel: string }): Promise<ProviderCatalogSnapshot> {
     await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'creating provider account')
     const response = await this.request<{ snapshot: unknown }>('agent.providers.account.create', { input })

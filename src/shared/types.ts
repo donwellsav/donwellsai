@@ -531,6 +531,15 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   providerCatalogUpdate(instanceId: string, expectedRevision: number, input: import('./provider-authority').ProviderInstanceInput): Promise<import('./provider-authority').ProviderCatalogSnapshot>
   providerCatalogRemove(instanceId: string, expectedRevision: number): Promise<import('./provider-authority').ProviderCatalogSnapshot>
   providerCatalogSetDefault(instanceId: string | null, expectedRevision: number): Promise<import('./provider-authority').ProviderCatalogSnapshot>
+  /**
+   * Starts an interactive agent from a selected provider instance.
+   *
+   * The renderer names only the workspace and the instance: the daemon derives
+   * the authenticated worker identity, the lease, the Catalog preparation, and
+   * the launch admission itself, and no lease, preparation, broker frame,
+   * credential ref, or binding generation crosses this boundary.
+   */
+  providerInstanceLaunch(workspacePath: string, providerInstanceId: string): Promise<import('./agent-runtime').RunningAgent>
 
   // Auto-updater IPC surface
   autoUpdaterCheck(): Promise<boolean>
