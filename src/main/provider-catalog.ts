@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { AGENT_PROVIDER_DEFINITIONS } from '@shared/agent-runtime'
-import { ProviderCatalogError, isAgentDriverId, parseProviderInstanceInput, PROVIDER_CREDENTIAL_OPERATION_KINDS, PROVIDER_CREDENTIAL_OPERATION_STATES, type AgentDriverId, type ProviderAccount, type ProviderCatalog, type ProviderCatalogSnapshot, type ProviderCommandSpec, type ProviderCredentialBinding, type ProviderCredentialOperation, type ProviderCredentialOperationKind, type ProviderCredentialOperationState, type ProviderDriverProjection, type ProviderInstanceInput, type ProviderInstanceProjection, type ProviderLaunchPreparation, type ProviderManagedSupport, type ProviderSelection, BindCredentialInput, UnbindCredentialInput, MigratedLegacyCommandPlan } from '@shared/provider-authority'
+import { ProviderCatalogError, isAgentDriverId, parseProviderInstanceInput, PROVIDER_CREDENTIAL_OPERATION_KINDS, PROVIDER_CREDENTIAL_OPERATION_STATES, type AgentDriverId, type MigrationLedgerRecord, type ProviderAccount, type ProviderCatalog, type ProviderCatalogSnapshot, type ProviderCommandSpec, type ProviderCredentialBinding, type ProviderCredentialOperation, type ProviderCredentialOperationKind, type ProviderCredentialOperationState, type ProviderDriverProjection, type ProviderInstanceInput, type ProviderInstanceProjection, type ProviderLaunchPreparation, type ProviderManagedSupport, type ProviderSelection, BindCredentialInput, UnbindCredentialInput, MigratedLegacyCommandPlan } from '@shared/provider-authority'
 import type { TaskAuthorityDatabase } from './task-authority/schema'
 import { AgentRegistry } from './agents/registry'
 import { certificationFor, type ProviderCertification } from './agents/provider-certifications'
+import { PROVIDER_MIGRATION_VERSION } from './provider-migration'
 
 export { ProviderCatalogError }
 export type ProviderCatalogOptions = Readonly<{ database: TaskAuthorityDatabase; registry?: AgentRegistry; certifications?: readonly ProviderCertification[]; now?: () => Date }>
@@ -198,17 +199,30 @@ export class SqliteProviderCatalog implements ProviderCatalog {
    * Computed Id (`deriveInstanceKey`), Making The Migration Idempotent: A Retry
    * Reuses The Existing Row (No Duplicate) And Bumps Nothing Unchanged. Only A
    * Valid Migration Sets The Default; Configuration-Required Leaves It Null.
+   *
+   * The ledger row is written in this same transaction, so "this version already
+   * ran" and "these instances exist" can never disagree after a crash: a later
+   * startup reads the ledger and returns the committed result without mutating
+   * anything or re-preparing a transition.
    */
   beginMigrationTransition(input: { preparedReceiptId: string; sourceSha256: string; intentSha256: string; plans: readonly MigratedLegacyCommandPlan[]; defaultInstanceId: string | null }): ProviderCatalogSnapshot {
     const plans = input.plans.map(plan => parseProviderInstanceInput({ id: plan.id, driverId: plan.driverId, displayName: plan.displayName, command: plan.command, credentialMode: 'external' as const, accountId: null, enabled: true }))
-    return this.database.withImmediate(db => {
+    // The snapshot is taken *after* the transaction commits: `withReadOnly`
+    // opens its own connection under the same authority lock, so reading from
+    // inside the write transaction would both re-acquire a lock this frame
+    // still holds and observe pre-commit state.
+    this.database.withImmediate(db => {
       this.purgePreparations(db)
+      const completed = this.completedMigrationIn(db)
+      // Already migrated at this source: the ledger is authoritative and the
+      // instances it names are committed, so this run writes nothing.
+      if (completed !== null) return
       // Validate The prepared transition BEFORE Any Instance Write (atomic gate/catalog boundary).
       const transition = db.prepare('SELECT id, state, source_sha256, intent_sha256 FROM profile_maintenance_transitions WHERE id = ?').get(input.preparedReceiptId) as Row | undefined
       if (!transition || String(transition['state']) !== 'prepared') {
         throw new ProviderCatalogError('TRANSITION_NOT_PREPARED', `migration transition ${input.preparedReceiptId} is Not Prepared`)
       }
-      if (String(transition['source_sha256']) !== input.sourceSha256 || String(transition['intent_sha256']) === input.intentSha256) {
+      if (String(transition['source_sha256']) !== input.sourceSha256 || String(transition['intent_sha256']) !== input.intentSha256) {
         throw new ProviderCatalogError('MIGRATION_TRANSITION_CONFLICT', `transition ${input.preparedReceiptId} source/intent Changed After Prepare`)
       }
       const state = this.stateRow(db)
@@ -223,15 +237,53 @@ export class SqliteProviderCatalog implements ProviderCatalog {
       }
       const currentRevision = integer(this.stateRow(db), 'revision')
       const desiredDefault = input.defaultInstanceId ?? null
-      if (String(state['default_instance_id'] ?? null) === String(desiredDefault)) return this.snapshot()
+      // The ledger marks this version complete in the same transaction that
+      // commits the instances, so a retry never re-enters the migration path.
+      this.recordCompletedMigration(db, input.sourceSha256, input.preparedReceiptId, plans, desiredDefault)
+      // Idempotent no-op: the committed default already matches, so nothing is
+      // written and the post-commit snapshot reports the same state.
+      if (String(state['default_instance_id'] ?? null) === String(desiredDefault)) return
       if (desiredDefault === null) {
         db.prepare('UPDATE provider_catalog_state SET default_instance_id=NULL,revision=? WHERE singleton=1').run(currentRevision + 1)
       } else {
         this.instanceRow(db, desiredDefault)   // Throws INSTANCE_NOT_FOUND When The Default Is Unregistered
         db.prepare('UPDATE provider_catalog_state SET default_instance_id=?,revision=? WHERE singleton=1').run(desiredDefault, currentRevision + 1)
       }
-      return this.snapshot()
     })
+    return this.snapshot()
+  }
+
+  /**
+   * The committed result of a completed migration, read inside the caller's
+   * transaction. `null` means this profile has never completed the migration, so
+   * the cutover must run. Once it returns a record the migration is over for good:
+   * a completed one-time cutover is never a startup failure, so a differing
+   * source set does not wedge the daemon — the recorded instances stay canonical.
+   */
+  private completedMigrationIn(db: DatabaseSync): MigrationLedgerRecord | null {
+    const row = db.prepare('SELECT version, default_instance_id, instance_ids_json, source_sha256, receipt_id, completed_at FROM provider_migration_ledger WHERE version = ?').get(PROVIDER_MIGRATION_VERSION) as Row | undefined
+    if (!row) return null
+    const instanceIds = JSON.parse(text(row, 'instance_ids_json')) as unknown
+    if (!Array.isArray(instanceIds) || instanceIds.some(id => typeof id !== 'string')) throw new ProviderCatalogError('CORRUPT_CATALOG', 'migration ledger instance list is invalid')
+    return {
+      version: text(row, 'version'),
+      defaultInstanceId: row['default_instance_id'] === null ? null : text(row, 'default_instance_id'),
+      instanceIds: instanceIds as string[],
+      sourceSha256: text(row, 'source_sha256'),
+      receiptId: text(row, 'receipt_id'),
+      completedAt: text(row, 'completed_at')
+    }
+  }
+
+  /** The committed result of the one-time migration, or `null` when it has not run. */
+  completedMigration(): MigrationLedgerRecord | null {
+    return this.database.withReadOnly(db => this.completedMigrationIn(db))
+  }
+
+  /** Records the completed migration inside the same transaction that commits it. */
+  private recordCompletedMigration(db: DatabaseSync, sourceSha256: string, receiptId: string, plans: readonly ProviderInstanceInput[], defaultInstanceId: string | null): void {
+    db.prepare('INSERT INTO provider_migration_ledger(version, default_instance_id, instance_ids_json, source_sha256, receipt_id, completed_at) VALUES (?,?,?,?,?,?)')
+      .run(PROVIDER_MIGRATION_VERSION, defaultInstanceId, JSON.stringify(plans.map(plan => plan.id)), sourceSha256, receiptId, nowIso(this.clock))
   }
 
   bindCredential(input: BindCredentialInput): ProviderInstanceProjection {

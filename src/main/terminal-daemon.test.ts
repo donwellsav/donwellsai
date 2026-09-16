@@ -781,6 +781,47 @@ describe('terminal daemon provider catalog wire surface', () => {
     }
   })
 
+  it('migrates the legacy agent command at startup before serving provider reads', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-provider-migration-')))
+    const token = 'terminal-provider-migration-token-123456'
+    const daemon = new TerminalDaemon({
+      userDataDir: directory,
+      authToken: token,
+      legacyAgentCommand: () => [{ command: 'codex', displayName: 'Codex' }]
+    })
+    try {
+      await daemon.start()
+      const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+      if (locator.status !== 'current') throw new Error('terminal locator was not published')
+
+      // The startup cutover ran before the daemon served anything, so the very
+      // first provider read already reports the migrated instance and default.
+      const snapshot = (await callWireOp(locator.record.socketPath, token, 'agent.providers'))['snapshot'] as Record<string, unknown>
+      const instances = snapshot['instances'] as Array<Record<string, unknown>>
+      expect(instances).toHaveLength(1)
+      expect(instances[0]).toMatchObject({ credentialMode: 'external', availability: 'available' })
+      expect(snapshot['defaultInstanceId']).toBe(instances[0]?.['id'])
+      // The migration is external-only: no account or credential appears.
+      expect(snapshot['accounts']).toEqual([])
+    } finally {
+      await daemon.stopIfIdle().catch(() => undefined)
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves a profile without a legacy command unmigrated', async () => {
+    const started = await startDaemon()
+    try {
+      // No legacy command port was supplied, so startup must not invent an
+      // instance, a default, or a maintenance lease.
+      const snapshot = (await callWireOp(started.socketPath, started.token, 'agent.providers'))['snapshot'] as Record<string, unknown>
+      expect(snapshot).toMatchObject({ defaultInstanceId: null, instances: [], accounts: [] })
+    } finally {
+      await started.daemon.stopIfIdle().catch(() => undefined)
+      rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+
   it('returns typed codes for stale revisions and malformed frames', async () => {
     const started = await startDaemon()
     try {

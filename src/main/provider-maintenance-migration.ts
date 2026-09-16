@@ -108,9 +108,71 @@ export class ProviderMaintenanceMigration {
     return createHash('sha256').update(payload, 'utf8').digest('hex')
   }
 
+  /** The migration operation id; one migration version per profile. */
+  private operationId(): string {
+    return PROVIDER_MIGRATION_VERSION + ':' + this.profileId
+  }
+
+  /**
+   * A participant's canonical intent digest. It is derived only from stable
+   * identity, so a fresh run and a crash resume produce the same value and the
+   * gate's prepare-time conflict check compares equal rather than refusing a
+   * legitimate retry.
+   */
+  private intentSha256(participant: ProfileMaintenanceParticipant): string {
+    return createHash('sha256').update(`${PROVIDER_MIGRATION_VERSION}:${this.profileId}:${participant}:intent`, 'utf8').digest('hex')
+  }
+
+  /**
+   * The evidence digest recorded when a transition completes. It is a pure
+   * function of committed state, so replaying a completion is idempotent.
+   */
+  private evidenceSha256(participant: ProfileMaintenanceParticipant, sourceSha256: string, snapshot: ProviderCatalogSnapshot): string {
+    return createHash('sha256').update(JSON.stringify({
+      participant,
+      sourceSha256,
+      revision: snapshot.revision,
+      defaultInstanceId: snapshot.defaultInstanceId,
+      instanceIds: snapshot.instances.map(instance => instance.id)
+    }), 'utf8').digest('hex')
+  }
+
+  /**
+   * Brings one frozen participant's transition to `completed`, resuming rather
+   * than restarting: an existing prepared receipt is completed as-is (its intent
+   * is already bound) and an existing completed receipt is left alone. Only a
+   * participant with no receipt at all is prepared here.
+   */
+  private async ensureParticipantCompleted(lease: ProfileMaintenanceLease, participant: ProfileMaintenanceParticipant, sourceSha256: string, existing: readonly ProfileMaintenanceTransitionReceipt[]): Promise<void> {
+    const found = existing.find(receipt => receipt.participant === participant)
+    if (found !== undefined && found.state === 'completed') return
+    const receipt = found ?? await this.gate.prepareMigrationTransition(migrationOwner, lease, {
+      participant,
+      operationId: this.operationId(),
+      sourceSha256,
+      intentSha256: this.intentSha256(participant),
+      visibilityMode: 'central'
+    })
+    await this.gate.completeMigrationTransition(migrationOwner, receipt, this.evidenceSha256(participant, sourceSha256, this.catalog.snapshot()))
+  }
+
   /** Full-pipeline migration: prepare cutover → derive plans → prepare transition → commit (integrated) → finalize. */
   async migrate(input: { commands: readonly MigrateCommandInput[]; defaultPlanIndex?: number }): Promise<MigrationResult> {
     const commands = input.commands ?? []
+
+    // Startup calls this on every boot, so a completed migration must be a
+    // no-op before any lease is taken: re-running the gate would fail against
+    // the already-completed receipt and take the daemon down with it.
+    const recorded = this.catalog.completedMigration()
+    if (recorded !== null) {
+      // The Catalog commit is durable, but a crash between it and `release`
+      // leaves the gate non-open with the coordinator's lease still held. The
+      // instances are already canonical, so resuming only finishes the gate
+      // bookkeeping; it never re-derives or re-writes Catalog state.
+      await this.finishInterruptedCutover(recorded)
+      return { snapshot: this.catalog.snapshot(), receiptId: recorded.receiptId, defaultInstanceId: recorded.defaultInstanceId, instanceIds: recorded.instanceIds }
+    }
+
     const lease = await this.prepareCutover()
 
     const plans = this.plansFromCommands(commands).filter(plan => plan.id !== null) as MigratedLegacyCommandPlan[]
@@ -118,18 +180,49 @@ export class ProviderMaintenanceMigration {
     const defaultInstanceId: string | null = defaultPlanIndex < plans.length ? (plans[defaultPlanIndex]!.id) : null
 
     const sourceSha256 = this.frozenSourceSha256(commands)
-    const intentSha256 = createHash('sha256').update(`${PROVIDER_MIGRATION_VERSION}:${this.profileId}:intent`, 'utf8').digest('hex')
-    const operationId = PROVIDER_MIGRATION_VERSION + ':' + this.profileId
+    const intentSha256 = this.intentSha256('provider-authority')
 
     // Prepare The provider-authority transition, THEN Validate It Inside The Catalog Commit Transaction.
-    const prepared: ProfileMaintenanceTransitionReceipt = await this.gate.prepareMigrationTransition(migrationOwner, lease, { participant: 'provider-authority', operationId, sourceSha256, intentSha256, visibilityMode: 'central' })
+    const prepared: ProfileMaintenanceTransitionReceipt = await this.gate.prepareMigrationTransition(migrationOwner, lease, { participant: 'provider-authority', operationId: this.operationId(), sourceSha256, intentSha256, visibilityMode: 'central' })
     const snapshot: ProviderCatalogSnapshot = this.catalog.beginMigrationTransition({ preparedReceiptId: prepared.id, sourceSha256, intentSha256, plans, defaultInstanceId })
+    await this.gate.completeMigrationTransition(migrationOwner, prepared, this.evidenceSha256('provider-authority', sourceSha256, snapshot))
 
-    const evidenceSha256 = createHash('sha256').update(JSON.stringify({ revision: snapshot.revision, defaultInstanceId: defaultInstanceId ?? null, instanceIds: plans.map(plan => plan.id) }), 'utf8').digest('hex')
-    await this.gate.completeMigrationTransition(migrationOwner, prepared, evidenceSha256)
+    // `release` refuses while any frozen participant lacks a completed receipt —
+    // "a partial set would reopen admissions with sources still unwritten" — so
+    // every participant this migration froze must finish its own transition.
+    // The provider participant's work is the Catalog commit above; the rest
+    // certify only that they were drained and hold no unwritten provider-command
+    // authority, which the gate independently re-verifies as zero live admissions.
+    const issued = await this.gate.listMigrationTransitions(migrationOwner, lease)
+    for (const participant of MIGRATION_PARTICIPANTS) {
+      if (participant === 'provider-authority') continue
+      await this.ensureParticipantCompleted(lease, participant, sourceSha256, issued)
+    }
+
     await this.gate.release(COORDINATOR, lease, 'active')
 
     return { snapshot, receiptId: prepared.id, defaultInstanceId, instanceIds: plans.map(plan => plan.id) }
+  }
+
+  /**
+   * Closes out a cutover whose Catalog commit already succeeded.
+   *
+   * A crash after the commit but before `release` leaves the gate non-open with
+   * our lease still held. The committed instances are canonical, so this only
+   * finishes the gate bookkeeping the interrupted run did not reach — it never
+   * re-derives plans, re-writes instances, or re-commits the migration. A gate
+   * that is already `open` (the ordinary case) is left untouched.
+   */
+  private async finishInterruptedCutover(recorded: { sourceSha256: string }): Promise<void> {
+    const state = this.gate.readState()
+    if (state.phase !== 'cutting-over') return
+    const lease = state.lease
+    if (lease === null) throw new Error('profile maintenance is cutting over without a lease; an operator must resume or abort it')
+    const issued = await this.gate.listMigrationTransitions(migrationOwner, lease)
+    for (const participant of MIGRATION_PARTICIPANTS) {
+      await this.ensureParticipantCompleted(lease, participant, recorded.sourceSha256, issued)
+    }
+    await this.gate.release(COORDINATOR, lease, 'active')
   }
 }
 

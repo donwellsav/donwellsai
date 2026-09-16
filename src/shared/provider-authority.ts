@@ -122,7 +122,14 @@ export interface ProviderCredentialCatalog extends Omit<ProviderCredentialOperat
 
 /** One deterministic legacy-command migration entry; the catalog writes one instance per plan under Its computed id. */
 export type MigratedLegacyCommandPlan = Readonly<{ id: string; driverId: AgentDriverId; command: ProviderCommandSpec; displayName: string }>
-export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: String; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: String; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: String, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: String, expectedRevision: number): void; setDefault(id: String | null, expectedRevision: Number): ProviderCatalogSnapshot; beginMigrationTransition(input: { preparedReceiptId: String; sourceSha256: string; intentSha256: string; plans: readonly MigratedLegacyCommandPlan[]; defaultInstanceId: String | null }): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
+
+/**
+ * The durable record of a completed one-time migration. Its existence is what
+ * makes later startups no-ops: the instances and default it names are already
+ * committed, so nothing is re-derived and no revision moves.
+ */
+export type MigrationLedgerRecord = Readonly<{ version: string; defaultInstanceId: string | null; instanceIds: readonly string[]; sourceSha256: string; receiptId: string; completedAt: string }>
+export interface ProviderCatalog extends ProviderCredentialOperations { snapshot(): ProviderCatalogSnapshot; createAccount(input: { driverId: AgentDriverId; displayLabel: string }): ProviderAccount; updateAccount(input: { id: String; expectedRevision: number; displayLabel: string }): ProviderAccount; removeAccount(input: { id: String; expectedRevision: number }): void; create(input: ProviderInstanceInput): ProviderInstanceProjection; update(id: String, expectedRevision: number, input: ProviderInstanceInput): ProviderInstanceProjection; remove(id: String, expectedRevision: number): void; setDefault(id: String | null, expectedRevision: Number): ProviderCatalogSnapshot; completedMigration(): MigrationLedgerRecord | null; beginMigrationTransition(input: { preparedReceiptId: String; sourceSha256: string; intentSha256: string; plans: readonly MigratedLegacyCommandPlan[]; defaultInstanceId: String | null }): ProviderCatalogSnapshot; bindCredential(input: BindCredentialInput): ProviderInstanceProjection; prepareLaunch(input: PrepareProviderLaunchInput): ProviderLaunchPreparation }
 
 /** The credential-saga wire decoders: opaque ids and revisions, never material. */
 export function parseCredentialScope(value: unknown, label = 'credential scope'): { driverId: AgentDriverId; instanceRevision: number; accountRevision: number } {

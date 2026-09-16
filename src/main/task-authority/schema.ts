@@ -71,6 +71,7 @@ const REQUIRED_TABLES = [
   'profile_maintenance_transitions', 'profile_maintenance_retirements',
   'provider_accounts', 'provider_instances', 'provider_credential_bindings', 'provider_catalog_state',
   'provider_launch_preparations', 'provider_credential_operations', 'task_launch_admissions',
+  'provider_migration_ledger',
   'task_authority_migration_state', 'task_authority_migration_failure'
 ] as const
 
@@ -906,6 +907,14 @@ CREATE TABLE IF NOT EXISTS provider_credential_operations (
   CHECK ((operation_kind = 'create-replace') OR (prior_credential_ref IS NOT NULL AND prior_binding_generation IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound');
+CREATE TABLE IF NOT EXISTS provider_migration_ledger (
+  version TEXT PRIMARY KEY,
+  default_instance_id TEXT REFERENCES provider_instances(id),
+  instance_ids_json TEXT NOT NULL,
+  source_sha256 TEXT NOT NULL,
+  receipt_id TEXT NOT NULL,
+  completed_at TEXT NOT NULL
+);
 `
 // `task_launch_admissions` is created by `LAUNCH_ADMISSIONS_DDL` (v5): the
 // admission row is the trusted source of the complete broker authorization

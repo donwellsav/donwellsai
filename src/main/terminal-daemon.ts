@@ -49,6 +49,7 @@ import {
   type ProfileMaintenanceParticipant
 } from '@shared/profile-maintenance'
 import { SqliteProviderCatalog, ProviderCatalogError } from './provider-catalog'
+import { ProviderMaintenanceMigration, type MigrateCommandInput } from './provider-maintenance-migration'
 import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
   AGENT_PROVIDER_DEFINITIONS,
@@ -289,6 +290,8 @@ export class TerminalDaemon {
   private readonly providerCatalog: SqliteProviderCatalog
   private readonly migration: TaskAuthorityMigration
   private readonly maintenanceGate: SqliteProfileMaintenanceGate
+  private readonly providerMaintenanceMigration: ProviderMaintenanceMigration
+  private readonly legacyAgentCommand: () => Promise<readonly MigrateCommandInput[]>
   private readonly taskCoordinator: TaskExecutionCoordinator
   private taskSchedulerPump!: TaskSchedulerPump
   private readonly taskWorkerCredentials = new Map<string, { token: string; ownerId: string; connectionKey: string; projectIds: readonly string[] }>()
@@ -315,6 +318,12 @@ export class TerminalDaemon {
     projectRegistry?: () => Promise<readonly BacklogWorkspaceIdentity[]>
     /** Migration-only Backlog reader bound to the app's pinned CLI. */
     backlogPort?: () => BacklogMigrationReadPort
+    /**
+     * The legacy `agentCommand` this one-time migration imports, resolved by the
+     * app process that owns the settings file. Absent means the profile has no
+     * legacy command to migrate, so no instance is created.
+     */
+    legacyAgentCommand?: () => Promise<readonly MigrateCommandInput[]> | readonly MigrateCommandInput[]
   }) {
     const userDataDir = canonicalPrivateDirectory(opts.userDataDir, { create: true, requireCanonical: true })
     this.authToken = opts.authToken
@@ -374,6 +383,17 @@ export class TerminalDaemon {
       profileId: opts.userDataDir,
       onDiscardCandidateState: migrationId => this.discardAbortedMigration(migrationId)
     })
+    // The legacy `agentCommand` → provider-instance cutover runs under the very
+    // same gate, on the very same database, as the Stage 2 task authority.
+    this.providerMaintenanceMigration = new ProviderMaintenanceMigration({
+      gate: this.maintenanceGate,
+      catalog: this.providerCatalog,
+      profileId: opts.userDataDir
+    })
+    const legacyAgentCommand = opts.legacyAgentCommand
+    this.legacyAgentCommand = legacyAgentCommand === undefined
+      ? async () => []
+      : async () => legacyAgentCommand()
     this.taskCoordinator = new TaskExecutionCoordinator({
       authority: this.taskAuthority,
       evidence: new DaemonTaskEvidencePort(),
@@ -518,6 +538,11 @@ export class TerminalDaemon {
       // launch handler at all: the durable phase must be resumed or aborted
       // explicitly before affected work may restart.
       this.resolveMaintenancePhaseAtStartup()
+      // The one-time provider-authority cutover runs here — after the durable
+      // phase is resolved but before any affected handler registers — so the
+      // Catalog is migrated before provider selection can be observed or used.
+      // A completed migration is a no-op; an interrupted one resumes its lease.
+      await this.runProviderMaintenanceMigration()
       this.taskSchedulerPump = new TaskSchedulerPump(this.taskAuthority, this.daemonWorkerOwnerId(), { connectionId: 'daemon-scheduler' })
       await this.reconcileTaskAuthority()
       this.scheduleTaskSchedulerTick()
@@ -1585,6 +1610,25 @@ export class TerminalDaemon {
     if (state.phase !== 'open') {
       logger.warn({ phase: state.phase, migrationId: state.lease?.migrationId ?? null }, 'profile maintenance lease is held; affected admissions stay frozen')
     }
+  }
+
+  /**
+   * Runs the one-time legacy `agentCommand` → provider-instance cutover.
+   *
+   * The app process resolves the legacy command; the daemon owns the Catalog and
+   * the gate, so the migration is driven here, under the same durable lease as
+   * the Stage 2 task authority. A completed migration is a pure no-op, and an
+   * interrupted cutover resumes its own lease rather than starting a new one.
+   */
+  private async runProviderMaintenanceMigration(): Promise<void> {
+    const commands = await this.legacyAgentCommand()
+    if (commands.length === 0 && this.providerCatalog.completedMigration() === null) {
+      // Nothing to migrate and no committed migration: a profile that never set
+      // a legacy command must not acquire an empty lease or a spurious default.
+      return
+    }
+    const result = await this.providerMaintenanceMigration.migrate({ commands })
+    logger.info({ instances: result.instanceIds, defaultInstanceId: result.defaultInstanceId }, 'provider-authority:startup-migrated')
   }
 
   private async reconcileTaskAuthority(): Promise<void> {
