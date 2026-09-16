@@ -77,9 +77,36 @@ export function agentIsInProgress(run: RunningAgent): boolean {
   return agentPresentation(run).inProgress
 }
 
+/**
+ * Display-only provenance for a run recorded before provider instances existed.
+ *
+ * A pre-Stage-3 run carries a command family, not an admitted provider
+ * identity, so it can only ever be shown. It is never launch authority: nothing
+ * resolves an instance, driver, account, or executable from this text.
+ */
+export function legacyProviderDisplayName(value: string): string {
+  const trimmed = value.trim()
+  return `legacy provider: ${trimmed === '' ? 'unknown' : trimmed}`
+}
+
+/**
+ * The provider name shown for one run.
+ *
+ * An admitted run names its driver directly. Anything recorded before provider
+ * instances existed is shown as legacy provenance and is never resolved back
+ * into a launch identity.
+ */
 export function agentProviderName(run: RunningAgent): string {
-  if (!run.presetId) return 'Custom command'
-  return AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.id === run.presetId)?.name ?? run.presetId
+  if (run.provider) {
+    return AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.id === run.provider!.driverId)?.name
+      ?? run.provider.driverId
+  }
+  if (run.presetId) {
+    return legacyProviderDisplayName(
+      AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.id === run.presetId)?.name ?? run.presetId
+    )
+  }
+  return legacyProviderDisplayName(run.command)
 }
 
 /** Prefer a live session for a workspace, then an attention state, then the latest retained outcome. */

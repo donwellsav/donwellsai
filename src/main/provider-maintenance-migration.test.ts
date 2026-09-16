@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -240,5 +240,107 @@ describe('legacy command migration through the gate and catalog', () => {
     expect(catalog.snapshot().instances).toEqual([])
     // The record of what the migration committed survives the removal.
     expect(catalog.completedMigration()).toMatchObject({ instanceIds: [instanceId] })
+  })
+
+  it('maps an absolute known executable and an unknown bare program through the real gate without basename authority', async () => {
+    const { migration, catalog } = harness()
+
+    await migration.migrate({ commands: [{ command: '/usr/local/bin/codex', displayName: 'Absolute' }] })
+    await migration.migrate({ commands: [{ command: '/usr/local/bin/codex', displayName: 'Absolute' }] })
+
+    expect(catalog.snapshot().instances).toHaveLength(1)
+    const [instance] = catalog.snapshot().instances
+    // The basename resembles the `codex` driver, which is exactly the authority
+    // a migration must never claim: the exact string is the program.
+    expect(instance?.driver).toMatchObject({ kind: 'known', id: 'custom-command' })
+    expect(instance?.command).toEqual({ kind: 'external-shell', program: '/usr/local/bin/codex' })
+    expect(instance?.credentialMode).toBe('external')
+    // No account, binding, or attempt is created by importing a command.
+    expect(catalog.snapshot().accounts).toEqual([])
+  })
+
+  it('is deterministic across a fresh database: the same command yields the same instance id', async () => {
+    const first = harness('profile-determinism')
+    const second = harness('profile-determinism')
+
+    const a = await first.migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+    const b = await second.migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+
+    // A deterministic id is what makes an interrupted retry reuse rather than
+    // duplicate, so this identity is part of the migration's contract.
+    expect(a.instanceIds).toEqual(b.instanceIds)
+    expect(a.defaultInstanceId).toBe(b.defaultInstanceId)
+  })
+
+  it('imports the exact legacy command string and never reads a decoy credential file or environment', async () => {
+    const { migration, catalog } = harness()
+    // A decoy in the temp area the migration could plausibly be tempted to read.
+    writeFileSync(join(tmpdir(), 'provider-migration-decoy-secrets.enc.json'), JSON.stringify({ keys: ['sk-decoy-marker-0123456789'] }), { mode: 0o600 })
+    process.env['DONWELLS_DECOY_CREDENTIAL'] = 'sk-env-decoy-marker-0123456789'
+
+    await migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+
+    // Only the exact legacy command becomes a program; no credential material
+    // from any decoy source may appear anywhere in the committed catalog.
+    const serialized = JSON.stringify(catalog.snapshot())
+    expect(serialized).not.toContain('sk-decoy-marker')
+    expect(serialized).not.toContain('sk-env-decoy-marker')
+    expect(serialized).not.toContain('secrets.enc.json')
+    expect(catalog.snapshot().accounts).toEqual([])
+    delete process.env['DONWELLS_DECOY_CREDENTIAL']
+    rmSync(join(tmpdir(), 'provider-migration-decoy-secrets.enc.json'), { force: true })
+  })
+
+  it('resumes a cutover that crashed before the catalog commit and creates exactly one instance', async () => {
+    const { migration, catalog, gate } = harness()
+    const owner = { connectionId: 'migration-owner', ownerStage: 'stage-3' } as const
+
+    // The crash position with no ledger row: the lease was taken and frozen but
+    // the Catalog commit never ran, so `completedMigration()` is still null and
+    // the gate is not open. The daemon that restarts is the same one that owns
+    // the lease, so startup must resume it rather than refuse its own lease —
+    // otherwise the profile could never boot again.
+    await gate.acquire(owner, {
+      migrationId: `${PROVIDER_MIGRATION_VERSION}:profile-migration`,
+      ownerStage: 'stage-3',
+      participants: ['task-authority', 'provider-authority'],
+      expectedRevision: gate.readState().revision
+    })
+    const held = gate.readState().lease
+    if (held === null) throw new Error('expected a held lease')
+    await gate.freeze(owner, held)
+
+    const resumed = await migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+
+    // Legacy authority is replaced by exactly one deterministic instance, and
+    // the interrupted lease is released rather than left fencing the profile.
+    expect(resumed.instanceIds).toHaveLength(1)
+    expect(resumed.defaultInstanceId).toBe(resumed.instanceIds[0])
+    expect(catalog.snapshot().instances).toHaveLength(1)
+    expect(catalog.completedMigration()).toMatchObject({ instanceIds: resumed.instanceIds })
+    expect(gate.readState()).toMatchObject({ phase: 'open', lease: null })
+
+    // A retry after the resumed run is a pure no-op: still exactly one instance.
+    const again = await migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+    expect(again.instanceIds).toEqual(resumed.instanceIds)
+    expect(catalog.snapshot().instances).toHaveLength(1)
+  })
+
+  it('never resumes a lease owned by a different migration', async () => {
+    const { migration, catalog, gate } = harness()
+    const owner = { connectionId: 'other-owner', ownerStage: 'stage-4' } as const
+
+    // Another stage's migration legitimately holds the profile: this coordinator
+    // must not steal it, and must not claim a result it did not produce.
+    await gate.acquire(owner, {
+      migrationId: 'stage-4-other-migration:profile-migration',
+      ownerStage: 'stage-4',
+      participants: ['provider-authority'],
+      expectedRevision: gate.readState().revision
+    })
+
+    await expect(migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })).rejects.toThrow()
+    expect(catalog.snapshot().instances).toEqual([])
+    expect(catalog.completedMigration()).toBeNull()
   })
 })

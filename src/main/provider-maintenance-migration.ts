@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ProviderCatalog, ProviderCatalogSnapshot, MigratedLegacyCommandPlan, AgentDriverId, ProviderCommandSpec } from '@shared/provider-authority'
 import {
+  ProfileMaintenanceError,
   parseProfileMaintenanceParticipantSet,
   type ProfileMaintenanceLease,
   type ProfileMaintenanceParticipant,
@@ -66,10 +67,34 @@ export class ProviderMaintenanceMigration {
    * participants, freezes Ordinary Admissions, Drains/Reconciles Exact pre-freeze
    * Work (Both Acknowledgements), And Calls `beginCutover`. An Unacknowledged
    * Participant OR Unresolved Admission Holds The Cutover (Retry Resumes It).
+   *
+   * A run that crashed before the Catalog commit left no ledger row, so there is
+   * nothing to resume from and `acquire` would refuse the still-held lease —
+   * permanently, since it is the same daemon that restarts. This therefore
+   * resumes its OWN interrupted lease instead of taking a new one. A lease held
+   * by a different migration is never resumed: that migration owns it and must
+   * be resolved by its own coordinator.
    */
   async prepareCutover(): Promise<ProfileMaintenanceLease> {
+    const interrupted = this.gate.readState()
+    if (interrupted.phase !== 'open') {
+      const held = interrupted.lease
+      if (held === null) throw new ProfileMaintenanceError('GATE_PHASE_INVALID', `profile maintenance phase "${interrupted.phase}" has no lease to resume`)
+      if (held.migrationId !== this.migrationId() || held.ownerStage !== 'stage-3') {
+        throw new ProfileMaintenanceError('GATE_LEASED', `migration ${held.migrationId} holds the profile maintenance lease; only its own coordinator may resume it`)
+      }
+      // Freeze and both drain acknowledgements are idempotent, and `beginCutover`
+      // returns early when the phase already reached it.
+      await this.gate.freeze(COORDINATOR, held)
+      for (const participant of MIGRATION_PARTICIPANTS) {
+        await this.gate.acknowledgeDrained(participantContext(participant, COORDINATOR.connectionId), held.migrationId)
+      }
+      await this.gate.beginCutover(COORDINATOR, held)
+      return held
+    }
+
     const lease = await this.gate.acquire(COORDINATOR, {
-      migrationId: PROVIDER_MIGRATION_VERSION + ':' + this.profileId,
+      migrationId: this.migrationId(),
       ownerStage: 'stage-3',
       participants: parseProfileMaintenanceParticipantSet([...MIGRATION_PARTICIPANTS]),
       expectedRevision: this.gate.readState().revision
@@ -111,6 +136,11 @@ export class ProviderMaintenanceMigration {
   /** The migration operation id; one migration version per profile. */
   private operationId(): string {
     return PROVIDER_MIGRATION_VERSION + ':' + this.profileId
+  }
+
+  /** The profile-scoped migration id this coordinator leases and owns. */
+  private migrationId(): string {
+    return this.operationId()
   }
 
   /**
