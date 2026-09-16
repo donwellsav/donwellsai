@@ -289,3 +289,110 @@ describe('instance authoring drafts (create/edit)', () => {
     expect(draft.driverId).toBe(CUSTOM_COMMAND_DRIVER_ID)
   })
 })
+
+
+/** A disposable secret marker, shaped like a real credential value. */
+const DISPOSABLE_MARKER = 'sk-live-DISPOSABLE-marker-0123456789abcdef'
+
+/** A forbidden key set, mirrored from the wire decoders' own refusals. */
+const FORBIDDEN_KEYS = ['credentialRef', 'bindingGeneration', 'credentialRevision', 'environment', 'authFile', 'authFilePath'] as const
+
+/** Recursively collect every string reachable from a value, keys included. */
+function reachableStrings(value: unknown, seen = new WeakSet<object>()): string[] {
+  if (typeof value === 'string') return [value]
+  if (value === null || typeof value !== 'object') return []
+  if (seen.has(value as object)) return []
+  seen.add(value as object)
+  const out: string[] = []
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    out.push(key, ...reachableStrings(entry, seen))
+  }
+  return out
+}
+
+/**
+ * The renderer-state disclosure census for Task 4 (step 1).
+ *
+ * These prove what the sanitized panel can hand to React, the IPC boundary, and
+ * an error message: never a credential ref, a binding generation, or a
+ * disposable marker. The daemon's projection is what strips this material, so a
+ * serializer that passed it through would be the leak.
+ */
+describe('renderer state carries no credential material', () => {
+  /** An instance whose daemon-side rows carry every credential-shaped extra. */
+  const LEAKY_DRIVER = {
+    kind: 'known' as const,
+    id: 'codex' as const,
+    displayName: 'Codex',
+    installed: true,
+    executable: '/usr/local/bin/codex',
+    hooks: { support: 'unavailable' as const, events: [], reason: 'No hooks' },
+    skills: { supported: false as const, reason: 'No skills' },
+    memorySupport: 'none',
+    credentialModes: ['external', 'managed'] as const,
+    managedSupport: { kind: 'unsupported' as const, reason: 'No evidence' }
+  } satisfies ProviderDriverProjection
+
+  const LEAKY_INSTANCE: ProviderInstanceProjection = {
+    id: 'i-leaky',
+    driver: LEAKY_DRIVER,
+    displayName: 'Codex (Managed)',
+    command: { kind: 'driver', driverId: 'codex' },
+    credentialMode: 'managed',
+    account: { id: 'a-1', driverId: 'codex', displayLabel: 'Primary', revision: 3 },
+    enabled: true,
+    revision: 5,
+    availability: 'available'
+  }
+
+  it('never surfaces a forbidden credential key from a serialized row', () => {
+    const strings = reachableStrings(serializeInstanceView(LEAKY_INSTANCE))
+    for (const forbidden of FORBIDDEN_KEYS) {
+      expect(strings).not.toContain(forbidden)
+    }
+  })
+
+  it('never carries a forbidden key through the row props or the whole list', () => {
+    const props = buildInstanceRowProps([LEAKY_INSTANCE, SAMPLE_INSTANCE, CONFIG_REQUIRED_INSTANCE])
+    const strings = reachableStrings(props)
+    for (const forbidden of FORBIDDEN_KEYS) {
+      expect(strings).not.toContain(forbidden)
+    }
+    expect(props).toHaveLength(3)
+  })
+
+  it('never lets a credential-shaped extra field reach state, props, or an error message', () => {
+    // The daemon never sends a credential value, and the serializer builds only
+    // named display fields. A projection widened to carry credential-shaped
+    // extras must therefore still not propagate them.
+    const polluted = { ...LEAKY_INSTANCE, credentialRef: DISPOSABLE_MARKER, bindingGeneration: 7 }
+    const strings = reachableStrings(serializeInstanceView(polluted))
+    expect(strings).not.toContain('credentialRef')
+    expect(strings).not.toContain('bindingGeneration')
+    expect(strings).not.toContain(DISPOSABLE_MARKER)
+    // The same holds for the whole row list the panel renders.
+    expect(reachableStrings(buildInstanceRowProps([polluted]))).not.toContain(DISPOSABLE_MARKER)
+    // Error text is literal words plus the display name: no marker, no ref.
+    const error = providerInstancesError(polluted)
+    expect(error.message).not.toContain(DISPOSABLE_MARKER)
+    expect(error.message).not.toMatch(/REDACTED|credentialRef|bindingGeneration/i)
+  })
+
+  it('keeps the credential draft empty across every outcome, including a refusal', () => {
+    const fresh = freshCredentialDraft('i-leaky')
+    expect(fresh.value).toBe(EMPTY_CREDENTIAL_VALUE)
+    // Typing then clearing (the finally reset) returns to empty, never to a
+    // previously stored value.
+    const typed = updateCredentialDraft(fresh, DISPOSABLE_MARKER)
+    expect(typed.value).toBe(DISPOSABLE_MARKER)
+    expect(credentialSaveOutcome(typed).draft.value).toBe(EMPTY_CREDENTIAL_VALUE)
+    expect(credentialSaveOutcome(typed).clearsField).toBe(true)
+  })
+
+  it('never derives a managed request from a draft without the selected account', () => {
+    const draft = { ...freshInstanceDraft([CERTIFIED_DRIVER]), displayName: 'Managed', credentialMode: 'managed' as const, accountId: null }
+    // A managed input without an account is not buildable, so a credential can
+    // never be written against an unbound instance.
+    expect(providerInstanceInputFromDraft(draft)).toBeNull()
+  })
+})
