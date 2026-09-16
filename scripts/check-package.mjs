@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { access, readFile, stat, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { constants, existsSync, readdirSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
@@ -170,6 +170,29 @@ if (values.resources) {
     .filter(entry => entry.isFile() && entry.name !== '.DS_Store')
     .map(entry => resolve(entry.parentPath, entry.name).slice(resolve(root, directory).length + 1));
   assert(!asar.listPackage(archive).some(name => name.startsWith('/node_modules/@napi-rs/canvas')), 'Unused Node canvas binaries must not ship');
+  // Provider credentials live only in the per-profile encrypted store, which the
+  // app creates at runtime. A secret-bearing file inside the archive would ship
+  // the same bytes to every installation, so any such member fails the gate.
+  const secretBearing = /(provider-secrets|secrets\.enc\.json|\.credentials\.json|auth\.json)$/
+  const leaked = asar.listPackage(archive).filter(name => secretBearing.test(name))
+  assert(leaked.length === 0, `Secret-bearing files must not ship in the archive: ${leaked.join(', ')}`);
+  // The same rule applies to everything actually shipped outside the archive.
+  // The packaged tree is scanned directly rather than only its sources, because
+  // an entry may name a file, and a loose file that reached Resources by any
+  // route is exactly what this must catch.
+  const packagedNames = await readdir(packaged, { recursive: true, withFileTypes: true })
+    .then(entries => entries.filter(entry => entry.isFile()).map(entry => entry.name))
+  const packagedLeaked = packagedNames.filter(name => secretBearing.test(name))
+  assert(packagedLeaked.length === 0, `Secret-bearing files must not ship in resources: ${packagedLeaked.join(', ')}`);
+  for (const { from } of config.extraResources) {
+    const source = resolve(root, from)
+    const names = (await stat(source)).isDirectory()
+      ? await readdir(source, { recursive: true, withFileTypes: true }).then(entries => entries.filter(entry => entry.isFile()).map(entry => entry.name))
+      : [basename(source)]
+    for (const name of names) {
+      assert(!secretBearing.test(name), `Secret-bearing resource must not ship: ${from}/${name}`);
+    }
+  }
   const built = await files('out');
   const shipped = asar.listPackage(archive).filter(name => name.startsWith('/out/') && !asar.statFile(archive, name.slice(1)).files).map(name => name.slice(5));
   assert(JSON.stringify(built.sort()) === JSON.stringify(shipped.sort()), 'Packaged application file list differs from the current build');
