@@ -24,7 +24,6 @@ import type { AppSettings, PersistedState, Repo, SettingKey, SettingsResetReques
 const FILE = 'donwells-data.json'
 
 const LEGACY_DEFAULT_SETTINGS: Record<string, unknown> = {
-  agentCommand: 'codex',
   theme: 'dark',
   fontSize: 13,
   fontFamily: '',
@@ -41,7 +40,6 @@ const LEGACY_DEFAULT_SETTINGS: Record<string, unknown> = {
 }
 
 const LEGACY_SETTING_KEYS: Record<string, true> = {
-  agentCommand: true,
   theme: true,
   fontSize: true,
   fontFamily: true,
@@ -139,7 +137,6 @@ function migrateLegacySettings(value: unknown, path: string): Partial<AppSetting
   }
   try {
     return sparseSettings(resolveSettings({
-      agentCommand: effective.agentCommand,
       theme: 'dark',
       terminalFontSize: effective.fontSize,
       terminalFontFamily: effective.fontFamily,
@@ -214,19 +211,29 @@ export class Store {
     if (schemaVersion === 1) {
       settings = migrateLegacySettings(envelope.settings, this.path)
     } else {
-      // The language key was retired with the English-only cutover.
-      // Trim it up front, then validate strictly: every unknown key other
-      // than the retired one still fails closed.
-      const retiredLanguage = typeof envelope.settings === 'object'
+      // Retired keys are trimmed up front, then validation stays strict: every
+      // other unknown key still fails closed.
+      //
+      // `language` was retired with the English-only cutover. `agentCommand`
+      // was retired when provider instances became launch authority: the daemon
+      // removes it as the migration's settings publication, and this trims it
+      // for a profile the migration has not reached yet, so the strict decoder
+      // below is never asked about a key this version no longer defines.
+      const RETIRED_SETTING_KEYS = ['language', 'agentCommand'] as const
+      const settingsRecord = typeof envelope.settings === 'object'
         && envelope.settings !== null
         && !Array.isArray(envelope.settings)
-        && 'language' in (envelope.settings as Record<string, unknown>)
+        ? { ...(envelope.settings as Record<string, unknown>) }
+        : null
       let settingsInput: unknown = envelope.settings
-      if (retiredLanguage) {
-        const settingsRecord = { ...(envelope.settings as Record<string, unknown>) }
-        delete settingsRecord.language
+      if (settingsRecord !== null) {
+        for (const key of RETIRED_SETTING_KEYS) {
+          if (key in settingsRecord) {
+            delete settingsRecord[key]
+            migrated = true
+          }
+        }
         settingsInput = settingsRecord
-        migrated = true
       }
       try {
         settings = sparseSettings(resolveSettings(settingsInput))

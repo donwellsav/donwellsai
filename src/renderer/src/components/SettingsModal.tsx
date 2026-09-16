@@ -89,7 +89,7 @@ function SettingControlView({
   if (control.type === 'text' || control.type === 'number') {
     return (
       <div className="settings-control-stack">
-        <SettingsDraftInput metadata={metadata} control={control} value={value} revision={revision} onCommit={onCommit} suggestions={metadata.key === 'agentCommand' ? availableAgents.map(agent => ({ value: agent.command, label: agent.name })) : undefined} />
+        <SettingsDraftInput metadata={metadata} control={control} value={value} revision={revision} onCommit={onCommit} />
         {saving && <span className="settings-save-status" role="status">Saving preference…</span>}
         {error && (
           <div className="settings-inline-error" role="alert">

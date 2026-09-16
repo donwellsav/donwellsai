@@ -7,3 +7,4 @@ dist-cli
 resources/native/
 storybook-static
 test-results
+playwright-report/

@@ -42,7 +42,6 @@ const pdfFitModes = ['page', 'width', 'actual'] as const
 const statusPollIntervals = [0, 2000, 5000, 10000] as const
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
-  agentCommand: 'codex',
   theme: 'dark',
   uiScale: 1,
   interfaceFont: 'geist',
@@ -151,12 +150,6 @@ const booleanValue = (value: unknown): value is boolean => typeof value === 'boo
 const stringOptions = (values: readonly string[]): readonly SettingOption[] => values.map((value) => ({ value, label: value }))
 
 export const SETTING_DEFINITIONS: SettingDefinitions = {
-  agentCommand: {
-    key: 'agentCommand', section: 'agents', label: 'Default agent command',
-    description: 'Command used when starting an agent in a new session.',
-    default: DEFAULT_SETTINGS.agentCommand, lifecycle: 'new-session', scope: 'global',
-    control: { type: 'text', maxLength: 4096, placeholder: 'codex' }, validate: isAgentCommand
-  },
   theme: {
     key: 'theme', section: 'appearance', label: 'Theme',
     description: 'Follow the system, or choose light or dark.',

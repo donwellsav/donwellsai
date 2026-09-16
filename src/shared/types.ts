@@ -192,7 +192,6 @@ export type AttentionState = {
 export type PreviewMode = 'edit' | 'preview'
 
 export type AppSettings = {
-  agentCommand: string
   theme: 'system' | 'dark' | 'light'
   uiScale: number
   interfaceFont: 'geist' | 'system'

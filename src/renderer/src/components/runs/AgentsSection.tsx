@@ -37,7 +37,9 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
   const repos = useAppStore((state) => state.repos)
   const activeRepoId = useAppStore((state) => state.activeRepoId)
   const activeWorktreePath = useAppStore((state) => state.activeWorktreePath)
-  const defaultCommand = useAppStore((state) => state.settings.agentCommand)
+  // The provider instance is the launch target; the command field is the
+  // advanced escape hatch and no longer seeds from a retired global setting.
+  const defaultCommand = ''
   const focusAgentSession = useAppStore((state) => state.focusAgentSession)
   const runAgent = useAppStore((state) => state.runAgent)
   const launchProviderInstance = useAppStore((state) => state.launchProviderInstance)
