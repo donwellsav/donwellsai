@@ -84,7 +84,7 @@ function startFakeTaskDaemon(endpoint: string, token: string): FakeTaskDaemon {
             : { id, ok: false }) + '\n')
           continue
         }
-        const reply = (payload: Record<string, unknown>): void => socket.write(JSON.stringify({ id, ...payload }) + '\n')
+        const reply = (payload: Record<string, unknown>): void => { socket.write(JSON.stringify({ id, ...payload }) + '\n') }
         ops.push(String(message['op']))
         const bindWorker = (): { credentialId: string } | { error: string; code: string } => {
           const rawCredential = message['credential']
