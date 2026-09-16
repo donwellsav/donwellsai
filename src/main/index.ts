@@ -955,6 +955,26 @@ void app.whenReady().then(async () => {
     return providerCredentials.revoke(parseProviderCredentialRevokeRequest(request))
       .catch(error => { throw credentialFailure(error) })
   })
+  ipcMain.handle('providerCatalogRead', (event) => {
+    credentialOwner(event)
+    return terminalBus.providerCatalogSnapshot()
+  })
+  ipcMain.handle('providerCatalogCreate', async (event, input: Parameters<DaemonClient['providerCatalogCreate']>[0]) => {
+    credentialOwner(event)
+    return terminalBus.providerCatalogCreate(input)
+  })
+  ipcMain.handle('providerCatalogUpdate', async (event, instanceId: string, expectedRevision: number, input: Parameters<DaemonClient['providerCatalogUpdate']>[2]) => {
+    credentialOwner(event)
+    return terminalBus.providerCatalogUpdate(instanceId, expectedRevision, input)
+  })
+  ipcMain.handle('providerCatalogRemove', async (event, instanceId: string, expectedRevision: number) => {
+    credentialOwner(event)
+    return terminalBus.providerCatalogRemove(instanceId, expectedRevision)
+  })
+  ipcMain.handle('providerCatalogSetDefault', async (event, instanceId: string | null, expectedRevision: number) => {
+    credentialOwner(event)
+    return terminalBus.providerCatalogSetDefault(instanceId, expectedRevision)
+  })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
   void operationalRuns.resume().catch((error) => logger.error({ err: error }, 'Run recovery failed'))

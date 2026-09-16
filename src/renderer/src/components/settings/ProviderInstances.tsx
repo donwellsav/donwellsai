@@ -1,3 +1,4 @@
+import { useProviderInstances } from '../../hooks/use-provider-instances'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ProviderCatalogSnapshot, ProviderInstanceProjection } from '@shared/provider-authority'
 import type { CredentialStatus } from '@shared/provider-secret-broker'
@@ -84,7 +85,7 @@ function withoutKey(record: Record<string, string>, key: string): Record<string,
 function rowHealth(instance: ProviderInstanceProjection): ProviderInstancesError {
   const health = providerInstancesError(instance)
   if (health.kind === 'missing-config' && instance.credentialMode !== 'managed') {
-    return { kind: 'available', message: 'External Authentication; No Managed Account Is Required' }
+    return { kind: 'available', message: 'External authentication; no managed account is required' }
   }
   return health
 }
@@ -170,7 +171,7 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
     if (busy !== null || draft.value === EMPTY_CREDENTIAL_VALUE) return
     const account = snapshotRef.current.accounts.find(candidate => candidate.id === accountId)
     if (!account) {
-      setRowErrors(current => ({ ...current, [key]: 'This Account Is No Longer In The Provider Catalog. Refresh provider instances And Try Again.' }))
+      setRowErrors(current => ({ ...current, [key]: 'This account is no longer in the provider catalog. Refresh provider instances and try again.' }))
       return
     }
     setBusy(key)
@@ -205,7 +206,7 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
     const key = credentialKey(instance.id, accountId)
     const account = snapshotRef.current.accounts.find(candidate => candidate.id === accountId)
     if (!account) {
-      setRevocationError('This Account Is No Longer In The Provider Catalog. Close This Confirmation And Refresh provider instances.')
+      setRevocationError('This account is no longer in the provider catalog. Close this confirmation and refresh provider instances.')
       return
     }
     setBusy(key)
@@ -234,21 +235,21 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
   return (
     <section className="provider-instances" aria-label="Provider instances">
       <p className="provider-instances-intro">
-        Instances Come From The Daemon-Owned Provider Catalog. This View Shows Its Sanitized Projection Only:
-        A Stored Credential Value Is Never Sent To This Window And Never Rendered Here.
+        Instances come from the daemon-owned provider catalog. This view shows its sanitized projection only:
+        a stored credential value is never sent to this window and never rendered here.
       </p>
 
       {unavailableDefault && (
         <p className="provider-instances-notice" role="status">
           <Icon name="alert" size={14} />
           <span>
-            The Default Instance <strong>{unavailableDefault.displayName}</strong> Is Available.
-            Launch Stays Blocked Until It Is Repaired; No Other Instance Was Selected For You.
+            The default instance <strong>{unavailableDefault.displayName}</strong> is unavailable.
+            Launch stays blocked until it is repaired; no other instance was selected for you.
           </span>
         </p>
       )}
 
-      {rows.length === 0 && <p className="provider-instances-empty" role="status">No provider instances Are Configured.</p>}
+      {rows.length === 0 && <p className="provider-instances-empty" role="status">No provider instances are configured.</p>}
 
       {rows.length > 0 && (
         <ul className="provider-instances-list">
@@ -280,21 +281,21 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
                       type="button"
                       className="btn btn-secondary btn-sm"
                       disabled={busy === key || !onEdit}
-                      title={onEdit ? 'Edit ' + item.displayName : 'Provider catalog editing Is Not Available In This Build'}
+                      title={onEdit ? 'Edit ' + item.displayName : 'Provider catalog editing is not available in this build'}
                       onClick={() => onEdit?.(instance)}
                     >Edit</button>
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm"
                       disabled={busy === key || !onSetDefault || isDefault}
-                      title={onSetDefault ? (isDefault ? 'Already The Default Instance' : 'Make ' + item.displayName + ' The Default') : 'Provider catalog selection Is Not Available In This Build'}
+                      title={onSetDefault ? (isDefault ? 'Already the default instance' : 'Make ' + item.displayName + ' the default') : 'Provider catalog selection is not available in this build'}
                       onClick={() => onSetDefault?.(instance)}
                     >Set as default</button>
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
                       disabled={busy === key || !onRemove}
-                      title={onRemove ? 'Remove ' + item.displayName : 'Provider catalog removal Is Not Available In This Build'}
+                      title={onRemove ? 'Remove ' + item.displayName : 'Provider catalog removal is not available in this build'}
                       onClick={() => onRemove?.(instance)}
                     >Remove</button>
                   </div>
@@ -356,8 +357,8 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
                           className="btn btn-danger btn-sm"
                           disabled={busy === key || status?.state !== 'present'}
                           title={status?.state === 'present'
-                            ? 'Revoke The Stored Credential For ' + item.displayName + ' (' + account.id + ')'
-                            : 'No Stored Credential To Revoke'}
+                            ? 'Revoke the stored credential for ' + item.displayName + ' (' + account.id + ')'
+                            : 'No stored credential to revoke'}
                           onClick={() => {
                             setRevocationError(null)
                             setRevocation({ instance, driverId: item.driverId, accountId: account.id, accountLabel: item.accountLabel })
@@ -370,12 +371,12 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
                   {managed && account === null && (
                     <p className="provider-instances-hint">
                       <Icon name="alert" size={13} />
-                      <span>Link An Account Before Storing A Managed Credential For This Instance.</span>
+                      <span>Link an account before storing a managed credential for this instance.</span>
                     </p>
                   )}
                   {!managed && (
                     <p className="provider-instances-hint">
-                      <span>External Authentication: This Instance Signs In With Its Own Credentials, So None Is Stored Here.</span>
+                      <span>External authentication: this instance signs in with its own credentials, so none is stored here.</span>
                     </p>
                   )}
                 </div>
@@ -392,10 +393,10 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
           onClose={() => { if (busy === null) { setRevocation(null); setRevocationError(null) } }}
         >
           <span className="provider-instances-eyebrow">Confirm credential revocation</span>
-          <h3 id="provider-instance-revoke-title" className="modal-title">Revoke This Stored Credential?</h3>
+          <h3 id="provider-instance-revoke-title" className="modal-title">Revoke this stored credential?</h3>
           <p>
-            The Next Launch Of Exactly This Instance And Account Is Blocked Until A New Credential Is Saved.
-            Every Other Instance And Account Is Unaffected.
+            The next launch of exactly this instance and account is blocked until a new credential is saved.
+            Every other instance and account is unaffected.
           </p>
           <dl className="provider-instances-target">
             <div><dt>Provider</dt><dd>{revocation.instance.displayName}</dd></div>
@@ -422,5 +423,25 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
         </ModalDialog>
       )}
     </section>
+  )
+}
+/** Mounts the daemon-backed provider catalog and wires the panel refresh/remove/setDefault handlers (task-4 step 4). */
+export function ProviderInstancesState() {
+  const { snapshot, error, refresh, remove, setDefault } = useProviderInstances()
+  if (error !== null) {
+    return (
+      <p className="provider-instances-problem" role="alert">
+        <span>{error}</span>
+      </p>
+    )
+  }
+  if (!snapshot) return <p className="provider-instances-empty" role="status">Loading provider instances…</p>
+  return (
+    <ProviderInstances
+      snapshot={snapshot}
+      onSnapshot={refresh}
+      onRemove={(i) => void remove(i.id, i.revision)}
+      onSetDefault={(i) => void setDefault(i.id, i.revision)}
+    />
   )
 }

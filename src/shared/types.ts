@@ -525,6 +525,12 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   providerCredentialWrite(request: import('./provider-secret-broker').ProviderCredentialWriteRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
   providerCredentialStatus(request: import('./provider-secret-broker').ProviderCredentialStatusRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
   providerCredentialRevoke(request: import('./provider-secret-broker').ProviderCredentialRevokeRequest): Promise<import('./provider-secret-broker').ProviderCredentialResult>
+  /** Sanitized, main-process managed provider catalog. The renderer reads the current snapshot + issues mutations; each returns a fresh sanitized snapshot (credential refs are daemon-owned, never exposed). */
+  providerCatalogRead(): Promise<import('./provider-authority').ProviderCatalogSnapshot>
+  providerCatalogCreate(input: import('./provider-authority').ProviderInstanceInput): Promise<import('./provider-authority').ProviderCatalogSnapshot>
+  providerCatalogUpdate(instanceId: string, expectedRevision: number, input: import('./provider-authority').ProviderInstanceInput): Promise<import('./provider-authority').ProviderCatalogSnapshot>
+  providerCatalogRemove(instanceId: string, expectedRevision: number): Promise<import('./provider-authority').ProviderCatalogSnapshot>
+  providerCatalogSetDefault(instanceId: string | null, expectedRevision: number): Promise<import('./provider-authority').ProviderCatalogSnapshot>
 
   // Auto-updater IPC surface
   autoUpdaterCheck(): Promise<boolean>

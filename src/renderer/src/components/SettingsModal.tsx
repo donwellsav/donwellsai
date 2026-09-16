@@ -28,6 +28,7 @@ import { ShortcutEditor } from './settings/ShortcutEditor'
 import { SkillsManager } from './settings/SkillsManager'
 import { PluginMarketplace } from './PluginMarketplace'
 import { ProjectToolsSettings } from './settings/ProjectToolsSettings'
+import { ProviderInstancesState } from './settings/ProviderInstances'
 
 type ResetConfirmation = { kind: 'section'; section: SettingsSection; label: string } | { kind: 'all' }
 type NativeFacts = {
@@ -415,6 +416,7 @@ export function SettingsModal({ open }: { open: boolean }) {
         }} /><details className="project-settings-group"><summary>Agent skills</summary><SkillsManager /></details><details className="project-settings-group"><summary>Manage plugins</summary><PluginMarketplace /></details><details className="project-settings-group"><summary>Backup and restore</summary><ProjectKitSettings key={useAppStore.getState().activeWorktreePath} /></details></>}
         {target === 'privacy' && <PrivacySection />}
         {target === 'advanced' && <><ProjectMemoryStorage onChanged={useProjectMemoryEditor.getState().refresh} /><AdvancedFacts facts={facts} onRetry={loadFacts} /></>}
+        {target === 'agents' && <ProviderInstancesState />}
       </div>
     )
   }
