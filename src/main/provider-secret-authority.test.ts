@@ -871,7 +871,11 @@ describe('ProviderCredentialAuthority', () => {
     await credentials.revoke({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision })
     const bytes = profileBytes(directory)
     expect(bytes).not.toContain(MARKER)
-    const launched: ProviderLaunchSecrets | undefined = await credentials.status({ providerInstanceId: instance.id, accountId: account.id }).then(result => (result.status.state === 'present' ? undefined : undefined))
-    expect(launched).toBeUndefined()
+    // Revocation destroys the material: the revoked credential is gone from the
+    // store, so status reports absence rather than a retained value, and there
+    // is no path that returns the secret for that exact instance/account again.
+    const after = await credentials.status({ providerInstanceId: instance.id, accountId: account.id })
+    expect(after.status.state).toBe('absent')
+    expect(JSON.stringify(after)).not.toContain(MARKER)
   })
 })
