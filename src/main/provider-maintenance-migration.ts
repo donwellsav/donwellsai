@@ -12,6 +12,7 @@ import {
   type AuthenticatedProfileMaintenanceParticipantContext
 } from '@shared/profile-maintenance'
 import { migrateLegacyToInstance, MIGRATED_CREDENTIAL_MODE, PROVIDER_MIGRATION_VERSION, EXTERNAL_COMMAND_DRIVER_ID } from './provider-migration'
+import { publishLegacyCommandRemoval } from './legacy-agent-command-removal'
 import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
 
 /**
@@ -36,7 +37,17 @@ const migrationOwner: AuthenticatedProfileMaintenanceMigrationContext = { connec
 /** Builds The exact-epoch participant drain context. */
 const participantContext = (name: ProfileMaintenanceParticipant, connectionId: string): AuthenticatedProfileMaintenanceParticipantContext => ({ connectionId, participant: name })
 
-export type ProviderMaintenanceMigrationOptions = Readonly<{ gate: SqliteProfileMaintenanceGate; catalog: ProviderCatalog; profileId?: string }>
+export type ProviderMaintenanceMigrationOptions = Readonly<{
+  gate: SqliteProfileMaintenanceGate
+  catalog: ProviderCatalog
+  profileId?: string
+  /**
+   * The profile directory whose settings envelope is published to. Absent in
+   * tests that drive the Catalog and gate without a filesystem, in which case
+   * the settings publication is skipped rather than invented.
+   */
+  userDataDir?: string
+}>
 
 /** One legacy command to migrate; The renderer Supplies A Display Name + The Original Command String. */
 export type MigrateCommandInput = Readonly<{ command: string; displayName: string }>
@@ -55,11 +66,13 @@ export class ProviderMaintenanceMigration {
   private readonly gate: SqliteProfileMaintenanceGate
   private readonly catalog: ProviderCatalog
   private readonly profileId: string
+  private readonly userDataDir: string | undefined
 
   constructor(options: ProviderMaintenanceMigrationOptions) {
     this.gate = options.gate
     this.catalog = options.catalog
     this.profileId = options.profileId ?? 'default'
+    this.userDataDir = options.userDataDir
   }
 
   /**
@@ -200,6 +213,10 @@ export class ProviderMaintenanceMigration {
       // instances are already canonical, so resuming only finishes the gate
       // bookkeeping; it never re-derives or re-writes Catalog state.
       await this.finishInterruptedCutover(recorded)
+      // The settings publication is the last step of the transfer and is
+      // idempotent, so a resume that crashed between the commit and here still
+      // removes the legacy setting rather than leaving two authorities live.
+      this.publishRemovalIfRequested()
       return { snapshot: this.catalog.snapshot(), receiptId: recorded.receiptId, defaultInstanceId: recorded.defaultInstanceId, instanceIds: recorded.instanceIds }
     }
 
@@ -217,6 +234,11 @@ export class ProviderMaintenanceMigration {
     const snapshot: ProviderCatalogSnapshot = this.catalog.beginMigrationTransition({ preparedReceiptId: prepared.id, sourceSha256, intentSha256, plans, defaultInstanceId })
     await this.gate.completeMigrationTransition(migrationOwner, prepared, this.evidenceSha256('provider-authority', sourceSha256, snapshot))
 
+    // The Catalog commit made the instance authoritative; this publishes that
+    // decision to the settings envelope and removes the legacy command, so the
+    // profile stops carrying two launch authorities.
+    this.publishRemovalIfRequested()
+
     // `release` refuses while any frozen participant lacks a completed receipt —
     // "a partial set would reopen admissions with sources still unwritten" — so
     // every participant this migration froze must finish its own transition.
@@ -232,6 +254,18 @@ export class ProviderMaintenanceMigration {
     await this.gate.release(COORDINATOR, lease, 'active')
 
     return { snapshot, receiptId: prepared.id, defaultInstanceId, instanceIds: plans.map(plan => plan.id) }
+  }
+
+  /**
+   * Removes the legacy setting once the Catalog is authoritative.
+   *
+   * Only a profile with a directory and an actual migration to perform reaches
+   * here, and the removal itself is idempotent, so a resumed run and a first run
+   * take the same path.
+   */
+  private publishRemovalIfRequested(): void {
+    if (this.userDataDir === undefined) return
+    publishLegacyCommandRemoval(this.userDataDir)
   }
 
   /**

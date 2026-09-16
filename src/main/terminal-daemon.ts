@@ -407,7 +407,10 @@ export class TerminalDaemon {
     this.providerMaintenanceMigration = new ProviderMaintenanceMigration({
       gate: this.maintenanceGate,
       catalog: this.providerCatalog,
-      profileId: opts.userDataDir
+      profileId: opts.userDataDir,
+      // The settings publication removes the legacy command once the Catalog is
+      // authoritative, so the profile stops carrying two launch authorities.
+      userDataDir: opts.userDataDir
     })
     const legacyAgentCommand = opts.legacyAgentCommand
     // Default to reading the app's settings file: a constructor that fell back to
