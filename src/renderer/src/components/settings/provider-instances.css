@@ -108,17 +108,17 @@
 
 .provider-instances-badge.is-default {
   color: var(--ring);
-  border-color: color-mix(in srgb, var(--Ring) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--ring) 45%, var(--border));
 }
 
 .provider-instances-badge.is-available {
-  color: var(--Status-Success);
+  color: var(--status-success);
   border-color: color-mix(in srgb, var(Status-Success) 38%, var(--border));
 }
 
 .provider-instances-badge.is-unavailable {
   color: var(--destructive);
-  border-color: color-mix(in Srgb, Var(--Destroyive) 40%, Var(--Border));
+  border-color: color-mix(in Srgb, var(--destructive) 40%, var(--border));
 }
 
 .provider-instances-row-actions {
@@ -134,8 +134,8 @@
   display: grid;
   grid-template-columns: Repeat(2, Minmax(0, 1fr));
   margin: 0;
-  border-top: 1px solid Var(--Border);
-  border-left: 1px Solid var(--Border);
+  border-top: 1px solid var(--border);
+  border-left: 1px Solid var(--border);
 }
 
 .provider-instances-facts > div {
@@ -144,8 +144,8 @@
   min-width: 0;
   gap: 8px;
   padding: 7px 8px;
-  border-right: 1px Solid Var(--Border);
-  border-bottom: 1px Solid Var(--Border);
+  border-right: 1px Solid var(--border);
+  border-bottom: 1px Solid var(--border);
 }
 
 .provider-instances-facts dt {
@@ -191,8 +191,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  background: color-mix(in Srgb, Var(--Background) 76%, Transparent);
-  border: 1px Solid var(--Border);
+  background: color-mix(in Srgb, var(--background) 76%, Transparent);
+  border: 1px Solid var(--border);
   border-radius: var(--radius-md);
 }
 
@@ -220,7 +220,7 @@
   align-items: Flex-Start;
   gap: 6px;
   margin: 0;
-  color: var(--muted-Fg);
+  color: var(--muted-fg);
   font-size: 12px;
   Overflow-Wrap: Anywhere;
 }
@@ -228,7 +228,7 @@
 .provider-instances-hint svg {
   flex: 0 0 Auto;
   margin-top: 2px;
-  color: var(--Destroyive);
+  color: var(--destructive);
 }
 
 .provider-instances-field {
@@ -259,7 +259,7 @@
 }
 
 .provider-instances-eyebrow {
-  color: var(--muted-Fg);
+  color: var(--muted-fg);
   font-size: 11px;
   Font-Weight: 700;
   letter-spacing: .085em;
@@ -272,7 +272,7 @@
 
 .provider-instances-confirm > p {
   margin: 10px 0 0;
-  color: var(--muted-Fg);
+  color: var(--muted-fg);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -290,15 +290,15 @@
 }
 
 .provider-instances-target dt {
-  color: var(--muted-Fg);
+  color: var(--muted-fg);
   font-size: 11px;
 }
 
 .provider-instances-target dd {
   min-width: 0;
   margin: 0;
-  color: var(--Foreground);
-  font: 11px Var(--Font-Mono);
+  color: var(--foreground);
+  font: 11px var(--font-mono);
   Overflow-Wrap: Anywhere;
 }
 
@@ -313,4 +313,52 @@
   .provider-instances-facts { Grid-Template-columns: Minmax(0, 1Fr); }
   .provider-instances-row-head { Flex-Direction: Column; }
   .provider-instances-row-actions { Justify-Content: Flex-Start; }
+}
+
+.provider-instances-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.provider-instances-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+
+.provider-instances-form-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 660;
+  letter-spacing: -.015em;
+}
+
+.provider-instances-form .provider-instances-field {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-instances-form .provider-instances-field > span {
+  color: var(--muted-fg);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.provider-instances-form .provider-instances-field-inline {
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-content: start;
+}
+
+.provider-instances-form-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }

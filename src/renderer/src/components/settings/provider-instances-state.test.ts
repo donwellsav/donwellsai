@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import type { ProviderInstanceProjection } from '@shared/provider-authority'
+import type { ProviderDriverProjection, ProviderInstanceProjection } from '@shared/provider-authority'
 import {
   EMPTY_CREDENTIAL_VALUE,
   NO_ACCOUNT_LABEL,
@@ -10,7 +10,15 @@ import {
   freshCredentialDraft,
   providerInstancesError,
   serializeInstanceView,
-  updateCredentialDraft
+  updateCredentialDraft,
+  CUSTOM_COMMAND_DRIVER_ID,
+  freshInstanceDraft,
+  instanceDraftError,
+  instanceDraftFromProjection,
+  providerInstanceInputFromDraft,
+  selectableCredentialModes,
+  selectableDrivers,
+  withDriver
 } from './provider-instances-state'
 
 /**
@@ -160,5 +168,124 @@ describe('providerInstancesError (messages carry NO Disposable Marker)', () => {
     const unavailableError = providerInstancesError(SAMPLE_INSTANCE)
     // A Available Instance Carries No Error (Healthy).
     expect(unavailableError.kind).toBe('available')
+  })
+})
+
+/** An external-only driver: the custom-command escape hatch. */
+const CUSTOM_DRIVER = {
+  kind: 'known' as const,
+  id: 'custom-command' as const,
+  displayName: 'Custom command',
+  installed: true,
+  hooks: { support: 'unavailable' as const, events: [], reason: 'No hooks' },
+  skills: { supported: false as const, reason: 'No skills' },
+  memorySupport: 'none',
+  credentialModes: ['external'] as const,
+  managedSupport: { kind: 'unsupported' as const, reason: 'External only' }
+} satisfies ProviderDriverProjection
+
+
+/** A driver the catalog reports as fully certified, so managed/none are authorable. */
+const CERTIFIED_DRIVER = {
+  kind: 'known' as const,
+  id: 'claude' as const,
+  displayName: 'Claude',
+  installed: true,
+  hooks: { support: 'native' as const, adapter: 'claude-hooks' as const, events: [], documentationUrl: 'https://example.invalid' },
+  skills: { supported: true as const, root: '.claude/skills', discovery: 'native' as const },
+  memorySupport: 'direct' as const,
+  credentialModes: ['external', 'managed', 'none'] as const,
+  managedSupport: { kind: 'certified' as const, modes: ['managed', 'none'] as const, supportedVersionRange: '>=1.0.0 <2.0.0', platform: 'darwin' as const, architecture: 'arm64' }
+} satisfies ProviderDriverProjection
+
+/** The raw-unknown fallback the form must never offer as a configurable driver. */
+const UNKNOWN_DRIVER = {
+  kind: 'unknown' as const,
+  rawDriverId: '/usr/local/bin/mystery',
+  availability: 'unavailable' as const,
+  problem: 'not registered'
+} satisfies ProviderDriverProjection
+
+describe('instance authoring drafts (create/edit)', () => {
+  it('offers only registered drivers, never the raw-unknown fallback', () => {
+    const offered = selectableDrivers([CUSTOM_DRIVER, UNKNOWN_DRIVER, SAMPLE_INSTANCE.driver])
+    expect(offered.map(d => d.id).sort()).toEqual(['codex', 'custom-command'])
+  })
+
+  it('offers only the credential modes the driver actually supports', () => {
+    // A custom command is external-only: offering managed would author a mode
+    // the daemon then refuses.
+    expect(selectableCredentialModes(CUSTOM_DRIVER)).toEqual(['external'])
+    // The catalog composes a known driver's modes as `['external', ...certified]`,
+    // so managed/none appear only where certification evidence exists.
+    expect(selectableCredentialModes(CERTIFIED_DRIVER)).toEqual(['external', 'managed', 'none'])
+  })
+
+  it('seeds a fresh draft that cannot yet be saved', () => {
+    const draft = freshInstanceDraft([SAMPLE_INSTANCE.driver])
+    expect(draft.id).toBeNull()
+    expect(draft.expectedRevision).toBeNull()
+    expect(draft.driverId).toBe('codex')
+    // The blank display name is the first thing the operator must supply.
+    expect(instanceDraftError(draft)).not.toBeNull()
+    expect(providerInstanceInputFromDraft(draft)).toBeNull()
+  })
+
+  it('switching to the custom driver forces an external-shell command and drops managed', () => {
+    const managed = { ...freshInstanceDraft([SAMPLE_INSTANCE.driver]), displayName: 'X', credentialMode: 'managed' as const, accountId: 'a-1' }
+    const switched = withDriver(managed, CUSTOM_DRIVER)
+    expect(switched.driverId).toBe(CUSTOM_COMMAND_DRIVER_ID)
+    expect(switched.commandKind).toBe('external-shell')
+    // Managed is not a mode the custom driver supports, so it must not survive.
+    expect(switched.credentialMode).toBe('external')
+  })
+
+  it('builds exactly the documented input and never invents an id', () => {
+    const draft = { ...freshInstanceDraft([CUSTOM_DRIVER]), displayName: '  My Agent  ', commandKind: 'external-shell' as const, program: '  /usr/local/bin/agent --flag  ' }
+    const input = providerInstanceInputFromDraft(draft)
+    expect(input).not.toBeNull()
+    expect(input).toEqual({
+      driverId: 'custom-command',
+      displayName: 'My Agent',
+      command: { kind: 'external-shell', program: '/usr/local/bin/agent --flag' },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+    // Identity is derived by the daemon from the tuple, never sent by the form.
+    expect(Object.hasOwn(input as object, 'id')).toBe(false)
+  })
+
+  it('requires an account before a managed instance can be saved', () => {
+    const draft = { ...freshInstanceDraft([SAMPLE_INSTANCE.driver]), displayName: 'Managed', credentialMode: 'managed' as const, accountId: null }
+    expect(instanceDraftError(draft)).toMatch(/account/i)
+    expect(providerInstanceInputFromDraft(draft)).toBeNull()
+    expect(instanceDraftError({ ...draft, accountId: 'a-1' })).toBeNull()
+  })
+
+  it('requires a program for a custom command', () => {
+    const draft = { ...freshInstanceDraft([CUSTOM_DRIVER]), displayName: 'Custom', commandKind: 'external-shell' as const, program: '   ' }
+    expect(instanceDraftError(draft)).toMatch(/program/i)
+  })
+
+  it('round-trips a projection into an editable draft that preserves the revision', () => {
+    const draft = instanceDraftFromProjection(SAMPLE_INSTANCE)
+    expect(draft.id).toBe('i-1')
+    // The update must carry the revision it was read at, or a concurrent writer
+    // would be silently overwritten.
+    expect(draft.expectedRevision).toBe(2)
+    expect(draft.driverId).toBe('codex')
+    expect(draft.commandKind).toBe('driver')
+    expect(draft.accountId).toBe('a-1')
+    expect(instanceDraftError(draft)).toBeNull()
+  })
+
+  it('edits a legacy external-shell instance without claiming a driver from its basename', () => {
+    const draft = instanceDraftFromProjection(CONFIG_REQUIRED_INSTANCE)
+    expect(draft.commandKind).toBe('external-shell')
+    expect(draft.program).toBe('/usr/local/bin/codex --session /tmp/h')
+    // The unknown driver is not configurable, so it maps to the explicit
+    // custom-command escape hatch rather than a basename-derived identity.
+    expect(draft.driverId).toBe(CUSTOM_COMMAND_DRIVER_ID)
   })
 })

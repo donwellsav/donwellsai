@@ -1,17 +1,26 @@
 import { useProviderInstances } from '../../hooks/use-provider-instances'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ProviderCatalogSnapshot, ProviderInstanceProjection } from '@shared/provider-authority'
+import type { ProviderAccount, ProviderCatalogSnapshot, ProviderCredentialMode, ProviderDriverProjection, ProviderInstanceProjection } from '@shared/provider-authority'
 import type { CredentialStatus } from '@shared/provider-secret-broker'
 import { Icon } from '../Icon'
 import { ModalDialog } from '../ModalDialog'
 import {
+  CUSTOM_COMMAND_DRIVER_ID,
   EMPTY_CREDENTIAL_VALUE,
   buildInstanceRowProps,
   credentialSaveOutcome,
   freshCredentialDraft,
+  freshInstanceDraft,
+  instanceDraftError,
+  instanceDraftFromProjection,
+  providerInstanceInputFromDraft,
   providerInstancesError,
+  selectableCredentialModes,
+  selectableDrivers,
   updateCredentialDraft,
+  withDriver,
   type CredentialPasswordDraft,
+  type ProviderInstanceDraft,
   type ProviderInstancesError,
   type ProviderInstancesRowProps
 } from './provider-instances-state'
@@ -425,10 +434,154 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
     </section>
   )
 }
-/** Mounts the daemon-backed provider catalog and wires the panel refresh/remove/setDefault handlers (task-4 step 4). */
+/**
+ * The create/edit form (Task 4, step 3).
+ *
+ * It authors exactly the documented `ProviderInstanceInput` fields through the
+ * pure draft helpers, so validation and the request body are unit-testable
+ * without a DOM. A refusal from the daemon is shown here rather than replacing
+ * the list, and the form stays open so the operator can correct it.
+ */
+export function ProviderInstanceForm({ draft, drivers, accounts, saving, error, onChange, onSubmit, onCancel }: {
+  readonly draft: ProviderInstanceDraft
+  readonly drivers: readonly ProviderDriverProjection[]
+  readonly accounts: readonly ProviderAccount[]
+  readonly saving: boolean
+  readonly error: string | null
+  onChange(draft: ProviderInstanceDraft): void
+  onSubmit(): void
+  onCancel(): void
+}) {
+  const selectable = selectableDrivers(drivers)
+  const selectedDriver = selectable.find(driver => driver.id === draft.driverId)
+  const modes = selectableCredentialModes(selectedDriver)
+  const invalid = instanceDraftError(draft) !== null
+  const editing = draft.id !== null
+
+  return (
+    <section className="provider-instances-form" aria-label={editing ? 'Edit provider instance' : 'New provider instance'}>
+      <h3 className="provider-instances-form-title">{editing ? 'Edit provider instance' : 'New provider instance'}</h3>
+
+      <label className="provider-instances-field">
+        <span>Driver</span>
+        <select
+          className="settings-select"
+          value={draft.driverId}
+          disabled={saving}
+          onChange={event => onChange(withDriver(draft, selectable.find(driver => driver.id === event.currentTarget.value)))}
+        >
+          {selectable.map(driver => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}
+          {selectable.length === 0 && <option value={CUSTOM_COMMAND_DRIVER_ID}>Custom command</option>}
+        </select>
+      </label>
+
+      <label className="provider-instances-field">
+        <span>Display name</span>
+        <input
+          className="input"
+          type="text"
+          maxLength={256}
+          disabled={saving}
+          value={draft.displayName}
+          aria-label="Instance display name"
+          onChange={event => onChange({ ...draft, displayName: event.currentTarget.value })}
+        />
+      </label>
+
+      <label className="provider-instances-field">
+        <span>Credential mode</span>
+        <select
+          className="settings-select"
+          value={draft.credentialMode}
+          disabled={saving}
+          onChange={event => onChange({ ...draft, credentialMode: event.currentTarget.value as ProviderCredentialMode })}
+        >
+          {modes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+        </select>
+      </label>
+
+      {draft.commandKind === 'external-shell' && (
+        <label className="provider-instances-field">
+          <span>Program</span>
+          <input
+            className="input"
+            type="text"
+            maxLength={4096}
+            disabled={saving}
+            value={draft.program}
+            aria-label="Custom command program"
+            placeholder="e.g. /usr/local/bin/my-agent --flag"
+            onChange={event => onChange({ ...draft, program: event.currentTarget.value })}
+          />
+        </label>
+      )}
+
+      {draft.credentialMode === 'managed' && (
+        <label className="provider-instances-field">
+          <span>Account</span>
+          <select
+            className="settings-select"
+            value={draft.accountId ?? ''}
+            disabled={saving}
+            onChange={event => onChange({ ...draft, accountId: event.currentTarget.value === '' ? null : event.currentTarget.value })}
+          >
+            <option value="">Select an account</option>
+            {accounts.map(account => <option key={account.id} value={account.id}>{account.displayLabel}</option>)}
+          </select>
+        </label>
+      )}
+
+      <label className="provider-instances-field provider-instances-field-inline">
+        <input
+          type="checkbox"
+          checked={draft.enabled}
+          disabled={saving}
+          aria-label="Instance enabled"
+          onChange={event => onChange({ ...draft, enabled: event.currentTarget.checked })}
+        />
+        <span>Enabled</span>
+      </label>
+
+      {instanceDraftError(draft) !== null && <p className="provider-instances-hint" role="status">{instanceDraftError(draft)}</p>}
+      {error !== null && <p className="provider-instances-problem" role="alert">{error}</p>}
+
+      <div className="provider-instances-form-actions">
+        <button type="button" className="btn btn-secondary" disabled={saving} onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn btn-primary" disabled={saving || invalid} onClick={onSubmit}>
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Create instance'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/** Mounts the daemon-backed provider catalog and wires the panel's authoring/refresh/remove/setDefault handlers (task-4 steps 3-4). */
 export function ProviderInstancesState() {
-  const { snapshot, error, refresh, remove, setDefault } = useProviderInstances()
-  if (error !== null) {
+  const { snapshot, error, refresh, create, update, remove, setDefault } = useProviderInstances()
+  const [draft, setDraft] = useState<ProviderInstanceDraft | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const submit = async (): Promise<void> => {
+    if (!snapshot || draft === null) return
+    const input = providerInstanceInputFromDraft(draft)
+    if (input === null) return
+    setSaving(true)
+    setFormError(null)
+    try {
+      // A create never invents an id; the daemon derives it from the tuple. An
+      // edit sends the revision it was read at, so a concurrent writer loses.
+      if (draft.id === null) await create(input)
+      else await update(draft.id, draft.expectedRevision ?? 1, input)
+      setDraft(null)
+    } catch (caught) {
+      setFormError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (error !== null && snapshot === null) {
     return (
       <p className="provider-instances-problem" role="alert">
         <span>{error}</span>
@@ -436,12 +589,39 @@ export function ProviderInstancesState() {
     )
   }
   if (!snapshot) return <p className="provider-instances-empty" role="status">Loading provider instances…</p>
+
+  if (draft !== null) {
+    return (
+      <ProviderInstanceForm
+        draft={draft}
+        drivers={snapshot.drivers}
+        accounts={snapshot.accounts}
+        saving={saving}
+        error={formError}
+        onChange={next => setDraft(next)}
+        onSubmit={() => void submit()}
+        onCancel={() => { setDraft(null); setFormError(null) }}
+      />
+    )
+  }
+
   return (
-    <ProviderInstances
-      snapshot={snapshot}
-      onSnapshot={refresh}
-      onRemove={(i) => void remove(i.id, i.revision)}
-      onSetDefault={(i) => void setDefault(i.id, i.revision)}
-    />
+    <>
+      <div className="provider-instances-toolbar">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => { setFormError(null); setDraft(freshInstanceDraft(snapshot.drivers)) }}
+        >New provider instance</button>
+      </div>
+      <ProviderInstances
+        snapshot={snapshot}
+        onSnapshot={refresh}
+        onEdit={(instance) => { setFormError(null); setDraft(instanceDraftFromProjection(instance)) }}
+        onRemove={(instance) => { void remove(instance.id, instance.revision).catch(caught => setFormError(caught instanceof Error ? caught.message : String(caught))) }}
+        onSetDefault={(instance) => { void setDefault(instance.id, instance.revision).catch(caught => setFormError(caught instanceof Error ? caught.message : String(caught))) }}
+      />
+      {formError !== null && <p className="provider-instances-problem" role="alert">{formError}</p>}
+    </>
   )
 }
