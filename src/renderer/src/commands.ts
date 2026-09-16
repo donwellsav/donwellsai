@@ -15,7 +15,7 @@ import { openProjectSetup } from './project-setup'
 import { openAttentionInbox } from './attention-inbox'
 
 export type CommandContext = Pick<ReturnType<typeof useAppStore.getState>,
-  'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'> & Partial<Pick<ReturnType<typeof useAppStore.getState>, 'previews'>>
+  'repos' | 'activeRepoId' | 'activeWorktreePath' | 'panes' | 'activePane' | 'runsOpen' | 'settings'> & Partial<Pick<ReturnType<typeof useAppStore.getState>, 'previews' | 'providerCatalog'>>
 
 /** A global action never targets a workspace outside the selected project. */
 export function pinnedWorktree(state: CommandContext = useAppStore.getState()): string | null {
@@ -37,8 +37,13 @@ export function commandUnavailableReason(id: AppCommandId, state: CommandContext
     case 'new-terminal':
     case 'split-terminal':
       return target ? undefined : 'Select a registered workspace first.'
-    case 'run-agent':
-      return !target ? 'Select a registered workspace first.' : !state.settings.agentCommand.trim() ? 'Configure a default agent in Settings.' : undefined
+    case 'run-agent': {
+      // Availability now depends on an admitted default instance, not on a
+      // configured command string.
+      if (!target) return 'Select a registered workspace first.'
+      if ((state.providerCatalog?.defaultInstanceId ?? null) === null) return 'Choose a default provider instance in Settings → Agents.'
+      return undefined
+    }
     case 'global-navigator':
       return state.repos.length > 0 ? undefined : 'Add a project to search across workspaces.'
     case 'navigate-back':
@@ -240,7 +245,11 @@ export function dispatchAppCommand(action: string): void {
     }
     case 'run-agent': {
       const worktreePath = pinnedWorktree()
-      if (worktreePath) void state.runAgent(worktreePath, state.settings.agentCommand)
+      // The default provider instance is the launch authority after the Stage 3
+      // cutover. A missing default is a configuration-required state, not a
+      // reason to fall back to a command string.
+      const defaultInstanceId = state.providerCatalog?.defaultInstanceId ?? null
+      if (worktreePath && defaultInstanceId !== null) void state.launchProviderInstance(worktreePath, defaultInstanceId)
       break
     }
     case 'refresh-workspace':

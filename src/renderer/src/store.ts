@@ -1,6 +1,7 @@
 import { restoreProjectMemoryDraft } from './project-memory-editor'
 import { restoreGuiDrafts } from './gui-drafts'
 import type { AgentExecutable } from '@shared/agent-runtime'
+import type { ProviderCatalogSnapshot } from '@shared/provider-authority'
 import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
 import { projectRemovalBlockers } from './project-removal'
@@ -255,6 +256,8 @@ type AppState = {
   /** agents launched into worktree terminals, session-scoped */
   runningAgents: Record<string, RunningAgent>
   agents: AgentPreset[]
+  /** The daemon-owned provider catalog: launch authority after the Stage 3 cutover. */
+  providerCatalog: ProviderCatalogSnapshot | null
   settings: AppSettings
   /** Monotonic renderer revision used to reject drafts based on stale RPC state. */
   settingsRevision: number
@@ -575,6 +578,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsSection: 'agents',
   runningAgents: {},
   agents: [],
+  providerCatalog: null,
 
   async load() {
     set({ loading: true, initializationError: null })
@@ -582,18 +586,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       await restoreGuiDrafts()
       restoreProjectMemoryDraft()
       const settingsRevision = get().settingsRevision
-      const [repos, agents, agentRuns, settings, wsSession] = await Promise.all([
+      const [repos, agents, agentRuns, settings, wsSession, providerCatalog] = await Promise.all([
         window.donwells.listRepos(),
         window.donwells.listAgents(),
         window.donwells.agentList(),
         window.donwells.getSettings(),
-        window.donwells.getWorkspaceSession()
+        window.donwells.getWorkspaceSession(),
+        window.donwells.providerCatalogRead()
       ])
       const currentSettingsRevision = get().settingsRevision
       const acceptLoadedSettings = currentSettingsRevision === settingsRevision
       const state: Partial<AppState> = {
         repos,
         agents,
+        providerCatalog,
         runningAgents: Object.fromEntries(agentRuns.map((run) => [run.sessionId, run])),
         workspaceNavigation: normalizeWorkspaceNavigation(wsSession?.workspaceNav, repos),
         settings: acceptLoadedSettings ? resolveSettings(settings) : get().settings,
