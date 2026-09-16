@@ -909,7 +909,11 @@ CREATE TABLE IF NOT EXISTS provider_credential_operations (
 CREATE UNIQUE INDEX IF NOT EXISTS provider_credential_operations_live ON provider_credential_operations(provider_instance_id, account_id) WHERE state IN ('pending','catalog-bound');
 CREATE TABLE IF NOT EXISTS provider_migration_ledger (
   version TEXT PRIMARY KEY,
-  default_instance_id TEXT REFERENCES provider_instances(id),
+  -- Deliberately NOT a foreign key: this is a historical record of what the
+  -- migration committed, not a live reference. An FK here would pin the
+  -- migrated default instance permanently, so removing it (which the
+  -- management UI must allow) would fail with a foreign-key violation.
+  default_instance_id TEXT,
   instance_ids_json TEXT NOT NULL,
   source_sha256 TEXT NOT NULL,
   receipt_id TEXT NOT NULL,

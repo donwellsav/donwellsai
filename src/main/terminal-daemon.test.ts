@@ -809,6 +809,35 @@ describe('terminal daemon provider catalog wire surface', () => {
     }
   })
 
+  it('migrates the legacy agent command from the profile settings file when no port is injected', async () => {
+    // This is the production path: the daemon reads donwells-data.json itself,
+    // because the entry process injects no port. A constructor fallback of
+    // "no commands" would record an empty migration and strand the user's real
+    // agent command forever, so the default must be the file reader.
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-provider-file-')))
+    writeFileSync(join(directory, 'donwells-data.json'), JSON.stringify({ schemaVersion: 2, repos: [], settings: { agentCommand: 'claude --print' } }), { mode: 0o600 })
+    const token = 'terminal-provider-file-token-1234567'
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: token })
+    try {
+      await daemon.start()
+      const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
+      if (locator.status !== 'current') throw new Error('terminal locator was not published')
+
+      const snapshot = (await callWireOp(locator.record.socketPath, token, 'agent.providers'))['snapshot'] as Record<string, unknown>
+      const instances = snapshot['instances'] as Array<Record<string, unknown>>
+      expect(instances).toHaveLength(1)
+      // An argument-bearing command is never a basename-derived driver.
+      expect(instances[0]).toMatchObject({
+        credentialMode: 'external',
+        command: { kind: 'external-shell', program: 'claude --print' }
+      })
+      expect(snapshot['defaultInstanceId']).toBe(instances[0]?.['id'])
+    } finally {
+      await daemon.stopIfIdle().catch(() => undefined)
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('leaves a profile without a legacy command unmigrated', async () => {
     const started = await startDaemon()
     try {

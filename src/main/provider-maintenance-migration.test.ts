@@ -179,4 +179,66 @@ describe('legacy command migration through the gate and catalog', () => {
     expect(catalog.snapshot().defaultInstanceId).toBe('instance-crashed')
     expect(catalog.completedMigration()).toMatchObject({ instanceIds: ['instance-crashed'] })
   })
+
+  it('resumes a cutover that crashed after the provider transition completed but before release', async () => {
+    const { migration, catalog, gate } = harness()
+    const owner = { connectionId: 'migration-owner', ownerStage: 'stage-3' } as const
+
+    await gate.acquire(owner, {
+      migrationId: `${PROVIDER_MIGRATION_VERSION}:profile-migration`,
+      ownerStage: 'stage-3',
+      participants: ['task-authority', 'provider-authority'],
+      expectedRevision: gate.readState().revision
+    })
+    const lease = gate.readState().lease
+    if (lease === null) throw new Error('expected a held lease')
+    await gate.freeze(owner, lease)
+    for (const participant of ['task-authority', 'provider-authority'] as const) {
+      await gate.acknowledgeDrained({ connectionId: 'migration-owner', participant }, lease.migrationId)
+    }
+    await gate.beginCutover(owner, lease)
+
+    const commands = [{ command: 'codex', displayName: 'Crashed' }]
+    const source = createHash('sha256').update(JSON.stringify({ version: PROVIDER_MIGRATION_VERSION, profileId: 'profile-migration', commands }), 'utf8').digest('hex')
+    const intent = createHash('sha256').update(`${PROVIDER_MIGRATION_VERSION}:profile-migration:provider-authority:intent`, 'utf8').digest('hex')
+    const prepared = await gate.prepareMigrationTransition(owner, lease, {
+      participant: 'provider-authority', operationId: `${PROVIDER_MIGRATION_VERSION}:profile-migration`, sourceSha256: source, intentSha256: intent, visibilityMode: 'central'
+    })
+    catalog.beginMigrationTransition({
+      preparedReceiptId: prepared.id,
+      sourceSha256: source,
+      intentSha256: intent,
+      plans: [{ id: 'instance-late-crash', driverId: 'custom-command', command: { kind: 'external-shell', program: 'codex' }, displayName: 'Crashed' }],
+      defaultInstanceId: 'instance-late-crash'
+    })
+    // Provider's transition completed, task-authority's was never prepared, and
+    // the lease was never released: the second crash position.
+    await gate.completeMigrationTransition(owner, prepared, createHash('sha256').update('provider-evidence').digest('hex'))
+
+    const resumed = await migration.migrate({ commands })
+
+    // Recovery must not re-complete the provider receipt with different evidence
+    // (the gate refuses that); it fills only the gap and releases.
+    expect(gate.readState()).toMatchObject({ phase: 'open', lease: null })
+    expect(resumed.instanceIds).toEqual(['instance-late-crash'])
+    expect(catalog.snapshot().defaultInstanceId).toBe('instance-late-crash')
+  })
+
+  it('keeps the migrated default instance removable despite the historical ledger', async () => {
+    const { migration, catalog } = harness()
+
+    const migrated = await migration.migrate({ commands: [{ command: 'codex', displayName: 'Codex' }] })
+    const instanceId = migrated.defaultInstanceId
+    if (instanceId === null) throw new Error('expected a migrated default')
+
+    // The ledger is a historical record, not a live reference: it must not pin
+    // the instance the migration created, or the management UI could never
+    // remove it. Removal is allowed once the default moves off it.
+    catalog.setDefault(null, catalog.snapshot().revision)
+    catalog.remove(instanceId, 1)
+
+    expect(catalog.snapshot().instances).toEqual([])
+    // The record of what the migration committed survives the removal.
+    expect(catalog.completedMigration()).toMatchObject({ instanceIds: [instanceId] })
+  })
 })

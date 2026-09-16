@@ -50,6 +50,7 @@ import {
 } from '@shared/profile-maintenance'
 import { SqliteProviderCatalog, ProviderCatalogError } from './provider-catalog'
 import { ProviderMaintenanceMigration, type MigrateCommandInput } from './provider-maintenance-migration'
+import { readLegacyAgentCommand } from './legacy-agent-command'
 import { TaskExecutionCoordinator, TaskSchedulerPump, type TaskChildRuntime } from './task-authority/task-execution-coordinator'
 import {
   AGENT_PROVIDER_DEFINITIONS,
@@ -319,9 +320,10 @@ export class TerminalDaemon {
     /** Migration-only Backlog reader bound to the app's pinned CLI. */
     backlogPort?: () => BacklogMigrationReadPort
     /**
-     * The legacy `agentCommand` this one-time migration imports, resolved by the
-     * app process that owns the settings file. Absent means the profile has no
-     * legacy command to migrate, so no instance is created.
+     * The legacy `agentCommand` this one-time migration imports. Absent, the
+     * daemon reads the app's own settings file — the same shape as
+     * `readRegisteredProjects` below, so production never depends on an
+     * injected port and the migration is available on a real first boot.
      */
     legacyAgentCommand?: () => Promise<readonly MigrateCommandInput[]> | readonly MigrateCommandInput[]
   }) {
@@ -391,8 +393,12 @@ export class TerminalDaemon {
       profileId: opts.userDataDir
     })
     const legacyAgentCommand = opts.legacyAgentCommand
+    // Default to reading the app's settings file: a constructor that fell back to
+    // "no commands" would record an empty migration as complete on a real first
+    // boot, permanently no-op'ing every later startup and stranding the user's
+    // actual agent command.
     this.legacyAgentCommand = legacyAgentCommand === undefined
-      ? async () => []
+      ? async () => readLegacyAgentCommand(opts.userDataDir)
       : async () => legacyAgentCommand()
     this.taskCoordinator = new TaskExecutionCoordinator({
       authority: this.taskAuthority,
