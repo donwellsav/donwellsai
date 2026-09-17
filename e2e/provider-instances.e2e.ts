@@ -151,6 +151,20 @@ test('the edit affordance is wired and saves against the revision it read', asyn
   expect(snapshot.instances[0]?.revision).toBe(2)
 })
 
+test('provider draft survives settings navigation and close until cancelled', async () => {
+  openSettingsSection('agents')
+  await page.getByRole('button', { name: 'New provider instance', exact: true }).click()
+  const form = page.getByRole('region', { name: 'New provider instance', exact: true })
+  await form.getByLabel('Instance display name').fill('Unsaved provider draft')
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Appearance', exact: true }).click()
+  await expect(form.getByLabel('Instance display name')).toHaveValue('Unsaved provider draft')
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click()
+  await expect(form.getByLabel('Instance display name')).toHaveValue('Unsaved provider draft')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).not.toBeVisible()
+})
+
 test('no disposable credential marker reaches the DOM, renderer state, or any profile file', async () => {
   openSettingsSection('agents')
   await expect(page.locator('section[aria-label="Provider instances"]')).toBeVisible({ timeout: 20_000 })

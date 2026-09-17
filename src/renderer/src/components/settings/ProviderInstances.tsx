@@ -459,7 +459,7 @@ export function ProviderInstanceForm({ draft, drivers, accounts, saving, error, 
   const editing = draft.id !== null
 
   return (
-    <section className="provider-instances-form" aria-label={editing ? 'Edit provider instance' : 'New provider instance'}>
+    <section className="provider-instances-form" data-settings-dirty="true" aria-label={editing ? 'Edit provider instance' : 'New provider instance'}>
       <h3 className="provider-instances-form-title">{editing ? 'Edit provider instance' : 'New provider instance'}</h3>
 
       <label className="provider-instances-field">
