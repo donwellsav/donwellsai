@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -418,4 +418,38 @@ describe('provider instance launch over the daemon wire', () => {
     expect(launched['ok']).toBe(false)
     expect(String(launched['error'])).toMatch(/disabled/i)
   })
+
+  it('applies a selected session template env to an external instance launch', async () => {
+    const { root, project } = workspace()
+    const markerFile = join(root, 'template-marker.out')
+    const script = join(root, 'child.cjs')
+    writeFileSync(script, `require('fs').writeFileSync(process.argv[2], String(process.env.TEMPLATE_MARKER ?? 'missing'))`, { mode: 0o600 })
+    const started = await startDaemon([project])
+    const instanceId = await createInstance(started, {
+      driverId: 'custom-command',
+      displayName: 'Template probe',
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script, markerFile] } },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+
+    // The renderer resolves the template in trusted main and sends the resolved
+    // environment alongside the intent, the same shape the native path uses.
+    const launched = await callWireOp(started.socketPath, started.token, 'agent.providers.launch', {
+      workspacePath: root,
+      providerInstanceId: instanceId,
+      task: { intent: 'template probe', files: [], templateId: 'saved-review' },
+      env: { TEMPLATE_MARKER: 'applied' }
+    })
+    if (launched['ok'] !== true) throw new Error('launch refused: ' + JSON.stringify({ error: launched['error'], code: launched['code'] }))
+
+    let observed: string | null = null
+    for (let attempt = 0; attempt < 100 && observed === null; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      try { observed = readFileSync(markerFile, 'utf8') } catch { /* child has not run yet */ }
+    }
+    expect(observed).toBe('applied')
+  })
+
 })

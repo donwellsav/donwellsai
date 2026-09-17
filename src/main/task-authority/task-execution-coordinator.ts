@@ -338,6 +338,13 @@ export class TaskExecutionCoordinator {
      * ignored for every other command kind so it cannot become an argv channel.
      */
     driverArguments?: readonly string[]
+    /**
+     * A caller-resolved session-template environment, validated at the wire
+     * boundary. It is merged after the driver/broker values so it can add keys
+     * but never strip the daemon's own authority values. The coordinator applies
+     * it in both credential modes.
+     */
+    requestedEnvironment?: Readonly<Record<string, string>>
   }>): Promise<ProviderLaunchOutcome> {
     const ports = this.provider
     if (!ports) return this.providerRejection(null, 'no provider-backed launch wiring is registered on this daemon')
@@ -424,13 +431,13 @@ export class TaskExecutionCoordinator {
     const isolationRoot = admission.credentialMode === 'external' ? null : ports.createIsolationRoot(input.sessionId)
     let environment: NodeJS.ProcessEnv
     if (isolationRoot === null) {
-      environment = { ...process.env }
+      environment = { ...process.env, ...(input.requestedEnvironment ?? {}) }
     } else {
       environment = isolatedProviderEnvironment({
         isolationRoot,
         inherited: process.env,
         driverEnvironment: ports.driverEnvironment?.(admission.selection.driverId, isolationRoot) ?? {},
-        credentialEnvironment: secrets?.environment ?? {}
+        credentialEnvironment: { ...(secrets?.environment ?? {}), ...(input.requestedEnvironment ?? {}) }
       })
     }
     // Exactly the broker's own values become redaction patterns, and the last

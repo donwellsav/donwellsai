@@ -1203,9 +1203,12 @@ export class DaemonClient {
     await this.requireCapability(AGENT_RUNS, 'opening a native terminal')
     await this.requireCapability(SEQUENCED_OUTPUT, 'opening a native terminal')
 
-    // Session templates prepend a system prompt and carry an environment. The
-    // provider-backed path applies them in the daemon coordinator; here they are
-    // applied to the explicit launch the caller already named.
+    // Session templates prepend a system prompt and carry an environment. Trusted
+    // main resolves the template here and sends the concrete values: the prompt
+    // becomes argv (native opens are explicit launches the caller named) and the
+    // environment reaches the child through the daemon's validated merge. The
+    // provider-instance path applies only the environment: an arbitrary instance
+    // command cannot safely accept a leading prompt argument.
     let resolvedEnv: Record<string, string> | undefined
     let resolvedLaunch = launch
     if (task?.templateId) {
@@ -1277,11 +1280,26 @@ export class DaemonClient {
    */
   async providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArguments?: readonly string[]): Promise<RunningAgent> {
     await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'launching a provider instance')
+    // The session template's environment is resolved here, in trusted main, and
+    // sent alongside the intent; the daemon validates and merges it after its
+    // own hook and credential values. A template's systemPrompt is native-path
+    // only — an arbitrary instance command cannot accept a leading prompt.
+    let resolvedEnv: Record<string, string> | undefined
+    if (task?.templateId) {
+      try {
+        const { getServices } = await import('./services')
+        const template = await getServices().sessionTemplates.get(task.templateId)
+        if (template?.env) resolvedEnv = template.env
+      } catch (err) {
+        logger.warn({ err, templateId: task.templateId }, 'provider instance launch without session template')
+      }
+    }
     const response = await this.request<{ run: unknown }>('agent.providers.launch', {
       workspacePath,
       providerInstanceId,
       ...(task === undefined ? {} : { task: parseAgentTaskIntent(task) }),
-      ...(driverArguments === undefined ? {} : { driverArguments: [...driverArguments] })
+      ...(driverArguments === undefined ? {} : { driverArguments: [...driverArguments] }),
+      ...(resolvedEnv === undefined ? {} : { env: resolvedEnv })
     })
     return requireRunningAgent(response.run)
   }

@@ -1362,12 +1362,18 @@ export class TerminalDaemon {
           const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
           const rawTask = message['task']
           const rawDriverArgs = message['driverArguments']
+          const rawEnv = message['env']
+          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => typeof key !== 'string' || key.length > 256 || typeof value !== 'string' || value.length > 4096))) {
+            throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'invalid provider-launch environment')
+          }
+          const requestedEnv = rawEnv === undefined ? undefined : Object.fromEntries(Object.entries(rawEnv as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
           const run = await this.launchProviderInstance(
             socket,
             workspacePath,
             providerInstanceId,
             rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask),
-            Array.isArray(rawDriverArgs) ? rawDriverArgs.map(String) : undefined
+            Array.isArray(rawDriverArgs) ? rawDriverArgs.map(String) : undefined,
+            requestedEnv
           )
           reply(true, { run })
           break
@@ -1867,12 +1873,11 @@ export class TerminalDaemon {
    *   selection → prepare the Catalog launch → admit it (which consumes the
    *   preparation in one transaction) → run the coordinator's provider path.
    *
-   * Every refusal before the spawn returns without a child. A managed launch
-   * additionally requires the registered Secret Authority broker; without one it
-   * fails closed and spawns nothing rather than falling back to inherited or file
-   * credentials.
+   * A caller-resolved session-template environment may accompany the launch; it
+   * is validated at the wire boundary and merged by the coordinator after the
+   * hook and credential values.
    */
-  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArgs?: readonly string[]): Promise<RunningAgent> {
+  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArgs?: readonly string[], requestedEnv?: Record<string, string>): Promise<RunningAgent> {
     // An interactive launch mints its own task, so it cannot adopt a caller's
     // task reference. Silently dropping one would start an agent the user
     // believes is linked to a daemon task, so this refuses instead — the same
@@ -1934,12 +1939,13 @@ export class TerminalDaemon {
       attemptId: claim.attempt.attemptId,
       sessionId,
       workspaceRoot: canonicalWorkspace,
+      ...(driverArgs === undefined ? {} : { driverArguments: driverArgs }),
+      ...(requestedEnv === undefined ? {} : { requestedEnvironment: requestedEnv }),
       selection,
       connection,
       // An interactive agent outlives the launch call.
       interactive: true,
-      ...(task === undefined ? {} : { task }),
-      ...(driverArgs === undefined ? {} : { driverArguments: driverArgs })
+      ...(task === undefined ? {} : { task })
     })
     if (outcome.disposition !== 'launched' || outcome.sessionId === null) {
       throw new TaskAuthorityError('AUTHORIZATION_DENIED', outcome.reason ?? 'the provider-backed launch was refused')
