@@ -236,13 +236,17 @@ export class SessionTemplateManager {
       const files = await readdir(this.options.userDir)
       for (const file of files) {
         if (!file.endsWith('.json')) continue
-        const content = await readFile(join(this.options.userDir, file), 'utf-8')
-        const template = JSON.parse(content) as SessionTemplate
-        this.templates.set(template.id, template)
+        try {
+          const content = await readFile(join(this.options.userDir, file), 'utf-8')
+          const template = JSON.parse(content) as SessionTemplate
+          this.templates.set(template.id, template)
+        } catch (error) {
+          logger.warn({ err: error, file }, 'session-templates: failed to load user template')
+        }
       }
     } catch (error) {
-      // Directory may not exist yet
-      logger.debug({ err: error }, 'session-templates: no user templates found')
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
+      throw error
     }
   }
 
