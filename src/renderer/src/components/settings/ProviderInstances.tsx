@@ -619,7 +619,7 @@ export function ProviderInstancesState() {
         onSnapshot={refresh}
         onEdit={(instance) => { setFormError(null); setDraft(instanceDraftFromProjection(instance)) }}
         onRemove={(instance) => { void remove(instance.id, instance.revision).catch(caught => setFormError(caught instanceof Error ? caught.message : String(caught))) }}
-        onSetDefault={(instance) => { void setDefault(instance.id, instance.revision).catch(caught => setFormError(caught instanceof Error ? caught.message : String(caught))) }}
+        onSetDefault={(instance) => { void setDefault(instance.id, snapshot.revision).catch(caught => setFormError(caught instanceof Error ? caught.message : String(caught))) }}
       />
       {formError !== null && <p className="provider-instances-problem" role="alert">{formError}</p>}
     </>

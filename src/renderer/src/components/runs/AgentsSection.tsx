@@ -347,21 +347,29 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
 
         {overlaps.length > 0 && <section aria-label="Overlapping session ownership"><p role="status"><strong>{overlaps.length} session(s) may overlap.</strong></p>{overlaps.map(run => <div key={run.sessionId}><p>{agentProviderName(run)}: {run.task?.intent || 'Intent unspecified'} · {run.task?.files.join(', ') || 'File scope unspecified'}</p><button type="button" className="btn btn-secondary btn-sm" onClick={() => void openTerminal(run)}>Open owner terminal</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'git')}>Review checkout changes</button><button type="button" className="btn btn-secondary btn-sm" onClick={() => reviewSessionWork(run, 'memory')}>Review or save handoff</button></div>)}</section>}
 
+        {/* The provider selector is the launch authority, so it is offered
+            regardless of whether a built-in preset was found: a custom-command
+            instance is a valid target on a machine with no agent CLI installed. */}
+        <label className="modal-field">Provider instance
+          <select className="input" aria-label="Provider instance" value={providerInstanceId} disabled={launching || providerInstances.length === 0} onChange={event => { setProviderInstanceId(event.target.value); setLaunchError(null) }}>
+            {/* The empty option is what makes this state honest: without it the
+                browser displays the first instance while application state stays
+                empty, and with a single instance there is no other choice to
+                trigger a change. */}
+            <option value="">{providerInstances.length === 0 ? 'No provider instance is configured' : 'Select a provider instance'}</option>
+            {providerInstances.map(instance => (
+              <option key={instance.id} value={instance.id}>
+                {instance.displayName} · {instance.credentialMode}{providerCatalog?.defaultInstanceId === instance.id ? ' · default' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="agent-launcher-note" role="status">
+          <span>Instances are managed in Settings → Agents. A launch is admitted against the exact instance, its revision, and its account.</span>
+        </p>
+
         {availablePresets.length > 0 ? (
           <>
-            <label className="modal-field">Provider instance
-              <select className="input" aria-label="Provider instance" value={providerInstanceId} disabled={launching || providerInstances.length === 0} onChange={event => { setProviderInstanceId(event.target.value); setLaunchError(null) }}>
-                {providerInstances.length === 0 && <option value="">No provider instance is configured</option>}
-                {providerInstances.map(instance => (
-                  <option key={instance.id} value={instance.id}>
-                    {instance.displayName} · {instance.credentialMode}{providerCatalog?.defaultInstanceId === instance.id ? ' · default' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="agent-launcher-note" role="status">
-              <span>Instances are managed in Settings → Agents. A launch is admitted against the exact instance, its revision, and its account.</span>
-            </p>
             <label className="modal-field">Agent
               <select className="input" aria-label="Agent type" value={selectedPreset?.id ?? ''} onChange={event => {
                 const preset = availablePresets.find(item => item.id === event.target.value)

@@ -358,6 +358,15 @@ type AppState = {
    * preparation, and admission itself.
    */
   launchProviderInstance(worktreePath: string, providerInstanceId: string): Promise<{ ok: true } | { ok: false; error: string }>
+  /**
+   * Adopts a catalog snapshot the settings surface just fetched.
+   *
+   * The launch authority is read from this field, so a mutation made in
+   * Settings must reach it: otherwise setting the first default would leave the
+   * command unavailable until reload, and changing the default would keep
+   * launching the previous instance.
+   */
+  setProviderCatalog(catalog: ProviderCatalogSnapshot): void
   stopAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
   dismissAgent(sessionId: string): Promise<{ ok: true } | { ok: false; error: string }>
 
@@ -1866,6 +1875,10 @@ export const useAppStore = create<AppState>((set, get) => ({
    * durable identity with its own revision, account, and credential mode, and
    * the daemon refuses the launch unless it can still be admitted exactly.
    */
+  setProviderCatalog(catalog: ProviderCatalogSnapshot) {
+    set({ providerCatalog: catalog })
+  },
+
   async launchProviderInstance(worktreePath: string, providerInstanceId: string) {
     try {
       const run = await window.donwells.providerInstanceLaunch(worktreePath, providerInstanceId)

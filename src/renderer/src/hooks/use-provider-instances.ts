@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ProviderCatalogSnapshot, ProviderInstanceInput } from '@shared/provider-authority'
+import { useAppStore } from '../store'
 
 /** Provider catalog hook. */
 export function useProviderInstances() {
@@ -14,6 +15,9 @@ export function useProviderInstances() {
   const adopt = useCallback((next: ProviderCatalogSnapshot): void => {
     setSnapshot(next)
     setError(null)
+    // The run-agent command reads the launch authority from the app store, so a
+    // mutation made here must reach it rather than waiting for a reload.
+    useAppStore.getState().setProviderCatalog(next)
   }, [])
 
   const refresh = useCallback(() => {
