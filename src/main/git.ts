@@ -230,8 +230,11 @@ export class WorktreeScanCache {
     if (existing) return existing
     const p = scan().then((worktrees) => {
       this.entries.set(repoPath, { worktrees, fingerprint, scannedAt: Date.now() })
-      this.inflight.delete(repoPath)
       return worktrees
+    }, (error) => {
+      throw error
+    }).finally(() => {
+      if (this.inflight.get(repoPath) === p) this.inflight.delete(repoPath)
     })
     this.inflight.set(repoPath, p)
     return p
