@@ -1120,7 +1120,8 @@ export class TerminalDaemon {
     requestedLaunch: AgentExecutable,
     cols: number,
     rows: number,
-    task?: AgentTaskIntent
+    task?: AgentTaskIntent,
+    requestedEnv?: Record<string, string>
   ): { run: RunningAgent; session: TerminalSession } {
     const launch = parseAgentExecutable(requestedLaunch)
     const command = [launch.executable, ...launch.args].join(' ').trim()
@@ -1153,6 +1154,10 @@ export class TerminalDaemon {
       runtimeDir: this.paths.runtimeDir,
       inheritedEnv: process.env
     })
+    // A session template's environment arrives from the trusted main client,
+    // which resolved the template; it is merged after the hook variables so a
+    // malicious template cannot strip daemon authority, only add its own keys.
+    const env = requestedEnv === undefined ? launchPlan.env : { ...launchPlan.env, ...requestedEnv }
     const now = new Date().toISOString()
     const run: RunningAgent = {
       ...(task ? { task: parseAgentTaskIntent(task) } : {}),
@@ -1183,7 +1188,7 @@ export class TerminalDaemon {
     try {
       const session = this.pty.openAgent(cwd, launchPlan.command, cols, rows, {
         id: sessionId,
-        env: launchPlan.env,
+        env,
         launch: launchPlan.launch
       })
       this.sequence.set(session.id, 0)
@@ -1325,6 +1330,11 @@ export class TerminalDaemon {
           const rawTask = message['task']
           const task = rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask)
           if (task?.externalId !== undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task-linked native opens must use the task coordinator claim and launch-intent path')
+          const rawEnv = message['env']
+          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => typeof key !== 'string' || key.length > 256 || typeof value !== 'string' || value.length > 4096))) {
+            throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'invalid native-open environment')
+          }
+          const requestedEnv = rawEnv === undefined ? undefined : Object.fromEntries(Object.entries(rawEnv as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
           const rawLaunch = message['launch']
           if (rawLaunch === undefined) throw new Error('native opens require an explicit launch')
           const result = this.openNativeTerminal(
@@ -1332,7 +1342,8 @@ export class TerminalDaemon {
             parseAgentExecutable(rawLaunch),
             Number(message['cols'] ?? 100),
             Number(message['rows'] ?? 30),
-            task
+            task,
+            requestedEnv
           )
           reply(true, result)
           break
