@@ -1862,6 +1862,13 @@ export class TerminalDaemon {
    * credentials.
    */
   private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArgs?: readonly string[]): Promise<RunningAgent> {
+    // An interactive launch mints its own task, so it cannot adopt a caller's
+    // task reference. Silently dropping one would start an agent the user
+    // believes is linked to a daemon task, so this refuses instead — the same
+    // invariant the command path enforced with TaskLinkedAgentOpenError.
+    if (task?.externalId !== undefined) {
+      throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'a task-linked launch must use the task coordinator claim and launch-intent path; it cannot be started as an interactive session')
+    }
     // Driver-owned arguments (the project-memory MCP patch) come from the trusted
     // main process, never from the renderer: the renderer names an instance and
     // nothing else. They are applied only to a `driver` command, and only after

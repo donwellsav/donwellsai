@@ -27,7 +27,7 @@ function workspaceName(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || path
 }
 
-type AgentDraft = { command: string; directLaunch: boolean; args: string[]; commandTouched: boolean; intent: string; files: string; externalId: string }
+type AgentDraft = { command: string; directLaunch: boolean; args: string[]; commandTouched: boolean; intent: string; files: string }
 const agentDrafts = guiDraftMap<AgentDraft>('agent-launches')
 const agentTargets = guiDraftMap<string>('agent-targets')
 
@@ -89,17 +89,16 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
 
   const [intent, setIntent] = useState(draft?.intent ?? '')
   const [files, setFiles] = useState(draft?.files ?? '')
-  const [externalId, setExternalId] = useState(draft?.externalId ?? '')
   const [taskState, setTaskState] = useState<ProjectTasksInspection | null>(null)
   const [taskRefresh, setTaskRefresh] = useState(0)
   const [taskSaving, setTaskSaving] = useState(false)
   useEffect(() => {setTaskState(null)}, [targetPath])
-  useEffect(() => { agentDrafts.set(draftKey, { command, directLaunch, args, commandTouched, intent, files, externalId }) }, [draftKey, command, directLaunch, args, commandTouched, intent, files, externalId])
+  useEffect(() => { agentDrafts.set(draftKey, { command, directLaunch, args, commandTouched, intent, files }) }, [draftKey, command, directLaunch, args, commandTouched, intent, files])
   const chooseTarget = (path: string): void => {
     const next = agentDrafts.get(path)
     setCommand(next?.command ?? defaultCommand); setDirectLaunch(next?.directLaunch ?? false)
     setArgs(next?.args ?? []); setCommandTouched(next?.commandTouched ?? false)
-    setIntent(next?.intent ?? ''); setFiles(next?.files ?? ''); setExternalId(next?.externalId ?? '')
+    setIntent(next?.intent ?? ''); setFiles(next?.files ?? '')
     setLaunchError(null); setChosenPath(path); agentTargets.set(invokingKey, path)
   }
   useEffect(() => {
@@ -171,7 +170,8 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         const result = await launchProviderInstance(targetPath, providerInstanceId, {
           intent: intent || '',
           files: intendedFiles,
-          ...(externalId ? { externalId } : {}),
+          // No task reference: an interactive launch mints its own task and the
+          // daemon refuses a caller's, so the composer does not send one.
           ...(selectedTemplateId ? { templateId: selectedTemplateId } : {})
         })
         if (!result.ok) {
@@ -180,7 +180,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         }
         useAppStore.setState({ agentComposerOpen: false })
         agentDrafts.delete(draftKey)
-        setIntent(''); setFiles(''); setExternalId('')
+        setIntent(''); setFiles('')
       } finally {
         setLaunching(false)
       }
@@ -201,7 +201,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         }
         useAppStore.setState({ agentComposerOpen: false })
         agentDrafts.delete(draftKey)
-        setIntent(''); setFiles(''); setExternalId('')
+        setIntent(''); setFiles('')
       } finally {
         setLaunching(false)
       }
@@ -441,7 +441,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
           {taskState?.tools.filter(tool=>tool.id!=='backlog').map(tool=><div key={tool.id}><button type="button" className="btn btn-secondary btn-sm" disabled={!tool.available} onClick={()=>void useAppStore.getState().openProjectTaskTool(targetPath,tool.id).catch(error=>setTaskError(String(error)))}>Open Lazygit</button><span> {tool.version} · {tool.available?'available':tool.problem}</span></div>)}
           {taskState?.problem && <p role="status">{taskState.problem}</p>}
         </details>}
-        {taskState?.authority && <label className="modal-field">Daemon task reference<select className="input" value={externalId} onChange={event=>setExternalId(event.target.value)}><option value="">No task reference</option>{taskState.tasks.map(task=><option key={task.id} value={task.id}>{task.id} · {task.title} · {task.status}</option>)}</select><small>Showing up to 100 tasks from the daemon projection.</small></label>}
+        {taskState?.authority && <p className="agent-launcher-note" role="status"><strong>Task-linked agents run through the scheduled/task lane.</strong><span> An interactive session cannot adopt a daemon task reference, so none is offered here. Task intent and files below are still recorded on this session.</span></p>}
         <label className="modal-field">Task intent<input className="input" value={intent} maxLength={2000} onChange={event => setIntent(event.target.value)} placeholder="What this session will work on"/></label>
         <label className="modal-field">Intended files or directories<textarea className="input" value={files} onChange={event => setFiles(event.target.value)} rows={2} placeholder="Project-relative paths, one per line"/></label>
 

@@ -307,6 +307,60 @@ describe('provider instance launch over the daemon wire', () => {
     expect(attempt).toBe('completed')
   })
 
+  it('refuses a task-linked interactive launch instead of silently dropping the reference', async () => {
+    const { root, project } = workspace()
+    const script = join(root, 'linked-child.cjs')
+    writeFileSync(script, 'setTimeout(() => {}, 5000)', { mode: 0o600 })
+    const started = await startDaemon([project])
+    const instanceId = await createInstance(started, {
+      driverId: 'custom-command',
+      displayName: 'Linked probe',
+      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+
+    // An interactive launch mints its own task, so a caller's task reference
+    // cannot be adopted. Refusing is the point: silently dropping it would start
+    // an agent the user believes is linked to a daemon task.
+    const launched = await callWireOp(started.socketPath, started.token, 'agent.providers.launch', {
+      workspacePath: root,
+      providerInstanceId: instanceId,
+      task: { intent: 'linked work', files: [], externalId: 'TASK-1' }
+    })
+
+    expect(launched['ok']).toBe(false)
+    expect(String(launched['error'] ?? '')).toContain('task coordinator')
+    // The refusal happened before any admission or spawn: a launch that had
+    // registered an admission could not be drained, and the daemon reports no run.
+    const drained = await drainAcknowledgement(started)
+    expect(drained).not.toBeNull()
+    const agents = await callWireOp(started.socketPath, started.token, 'agent.list', {})
+    expect(agents['ok']).toBe(true)
+    expect(agents['runs']).toEqual([])
+  })
+
+  it('refuses a task-linked native open on the same rule as the provider path', async () => {
+    const { root, project } = workspace()
+    const script = join(root, 'native-linked.cjs')
+    writeFileSync(script, 'setTimeout(() => {}, 5000)', { mode: 0o600 })
+    const started = await startDaemon([project])
+
+    // The second interactive path enforces the identical rule: an interactive
+    // session mints its own task and cannot adopt a caller's reference.
+    const opened = await callWireOp(started.socketPath, started.token, 'agent.native.open', {
+      cwd: root,
+      launch: { executable: process.execPath, args: [script] },
+      task: { intent: 'linked work', files: [], externalId: 'TASK-2' }
+    })
+
+    expect(opened['ok']).toBe(false)
+    expect(String(opened['error'] ?? '')).toContain('task coordinator')
+    const agents = await callWireOp(started.socketPath, started.token, 'agent.list', {})
+    expect(agents['runs']).toEqual([])
+  })
+
   it('refuses a launch naming an instance that does not exist, creating no child', async () => {
     const { root, project } = workspace()
     const started = await startDaemon([project])
