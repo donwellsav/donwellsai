@@ -154,8 +154,14 @@ test('the edit affordance is wired and saves against the revision it read', asyn
 test('no disposable credential marker reaches the DOM, renderer state, or any profile file', async () => {
   openSettingsSection('agents')
   await expect(page.locator('section[aria-label="Provider instances"]')).toBeVisible({ timeout: 20_000 })
-  await page.evaluate(async marker => {
-    await window.donwells.providerCatalogCreate({
+
+  // A managed instance with a bound account is the only shape that can hold a
+  // credential, so this creates the account and instance, then submits the
+  // marker through the real credential-write bridge. Submitting it is what makes
+  // the absence assertions meaningful: a marker that was never sent proves
+  // nothing about whether the write path would leak it.
+  const submitted = await page.evaluate(async marker => {
+    const created = await window.donwells.providerCatalogCreate({
       driverId: 'custom-command',
       displayName: 'Marker probe',
       command: { kind: 'external-shell', program: '/bin/echo marker' },
@@ -163,10 +169,28 @@ test('no disposable credential marker reaches the DOM, renderer state, or any pr
       accountId: null,
       enabled: true
     })
-    // A renderer that could hold plaintext would show it here; this asserts the
-    // field stays empty and no bridge surface accepts a read-back.
-    void marker
+    const instance = created.instances[0]
+    if (!instance) return { submitted: false }
+    // An external instance refuses a managed credential, so the write is
+    // attempted and expected to be refused — the point is that the value was
+    // actually sent through the path and did not surface anywhere.
+    try {
+      await window.donwells.providerCredentialWrite({
+        providerInstanceId: instance.id,
+        accountId: 'account-probe',
+        expectedInstanceRevision: instance.revision,
+        expectedAccountRevision: 1,
+        secret: marker
+      })
+      return { submitted: true, refused: false }
+    } catch (error) {
+      return { submitted: true, refused: true, message: error instanceof Error ? error.message : String(error) }
+    }
   }, DISPOSABLE_MARKER)
+
+  expect(submitted.submitted).toBe(true)
+  // The refusal is typed and never echoes the submitted value.
+  expect(String(submitted.message ?? '')).not.toContain(DISPOSABLE_MARKER)
 
   const domText = await page.evaluate(() => document.documentElement.outerHTML)
   expect(domText).not.toContain(DISPOSABLE_MARKER)

@@ -5,17 +5,23 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 /**
- * The real protected backend round trip (Task 5, step 4), macOS.
+ * The real protected backend in the packaged app (Task 5, step 4), macOS.
  *
- * The credential write runs inside the actual Electron main process, so
- * `safeStorage` is the real platform backend rather than a fake. This drives one
- * managed instance through a write, proves the durable store holds ciphertext
- * rather than the plaintext, and proves the status the renderer receives
- * describes the backend actually used without ever carrying the value.
+ * SCOPE, stated precisely because the obvious overclaim is easy here. The
+ * shipped certification matrix is empty, so no built-in driver accepts
+ * `managed` and a packaged app cannot reach a successful managed credential
+ * write at all. The encrypt/decrypt round trip is therefore proved where it is
+ * reachable — the unit suite (`provider-secret-authority.test.ts`, 31 tests,
+ * including "round-trips put -> inspect -> materialize without exposing
+ * plaintext" and the ciphertext/disclosure assertions).
  *
- * What this deliberately does NOT claim: Keychain continuity across signed
- * updates, which needs two signed builds, and the Linux/Windows backends, which
- * need their own runners.
+ * What this file proves about the REAL app is the part that only the real app
+ * can: the platform backend exists and is selected in this process, and the
+ * reachable credential path is refused with a typed error that never echoes the
+ * submitted value, leaving nothing in the durable store or the sanitized
+ * projection. It deliberately does NOT claim Keychain continuity across signed
+ * updates (needs two signed builds) or the Linux/Windows backends (need those
+ * runners).
  */
 
 const DISPOSABLE_MARKER = 'sk-live-PROTECTED-backend-0123456789abcdef'
@@ -40,54 +46,56 @@ test.afterAll(async () => {
   rmSync(userData, { recursive: true, force: true })
 })
 
-test('a real backend round trip stores ciphertext and reports the backend it used', async () => {
+test('the packaged app has a real encryption backend and refuses an unauthorized credential write without echoing it', async () => {
   // Main-process truth: this is the real platform backend, not a fake. On macOS
   // an available backend means the Keychain-backed safeStorage is usable.
   const backend = await app.evaluate(async ({ safeStorage }) => ({
     available: safeStorage.isEncryptionAvailable(),
-    backend: safeStorage.getSelectedStorageBackend?.() ?? null
+    // Reported where the platform exposes it (Linux); null elsewhere.
+    selected: safeStorage.getSelectedStorageBackend?.() ?? null
   }))
   expect(backend.available).toBe(true)
 
-  // One instance created through the renderer's own bridge, so the whole chain
-  // (renderer → IPC → main → daemon catalog) runs rather than a shortcut.
-  const created = await page.evaluate(async () => window.donwells.providerCatalogCreate({
-    driverId: 'custom-command',
-    displayName: 'Backend probe',
-    command: { kind: 'external-shell', program: '/bin/echo probe' },
-    credentialMode: 'external',
-    accountId: null,
-    enabled: true
-  }))
-  const instance = created.instances[0]
-  expect(instance).toBeTruthy()
+  // No built-in driver is certified, so `managed` cannot be authored. This
+  // asserts the shipped matrix rather than assuming it.
+  const snapshot = await page.evaluate(() => window.donwells.providerCatalogRead())
+  for (const driver of snapshot.drivers) {
+    if (driver.kind !== 'known') continue
+    expect(driver.managedSupport.kind).toBe('unsupported')
+  }
 
-  // An external-mode instance must refuse a managed credential: the write path
-  // is gated on the instance's credential mode, and this is a real refusal.
-  const refused = await page.evaluate(async id => {
+  // The reachable credential path is an external instance, which must refuse a
+  // managed write with a typed error and never surface the value.
+  const refused = await page.evaluate(async marker => {
+    const created = await window.donwells.providerCatalogCreate({
+      driverId: 'custom-command',
+      displayName: 'Backend probe',
+      command: { kind: 'external-shell', program: '/bin/echo probe' },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+    const instance = created.instances[0]
+    if (!instance) return { refused: false, message: 'no instance was created' }
     try {
       await window.donwells.providerCredentialWrite({
-        providerInstanceId: id,
-        accountId: 'account-does-not-exist',
-        expectedInstanceRevision: 1,
+        providerInstanceId: instance.id,
+        accountId: 'account-probe',
+        expectedInstanceRevision: instance.revision,
         expectedAccountRevision: 1,
-        secret: 'sk-live-PROTECTED-backend-0123456789abcdef'
+        secret: marker
       })
-      return { refused: false }
+      return { refused: false, message: 'the write unexpectedly succeeded' }
     } catch (error) {
       return { refused: true, message: error instanceof Error ? error.message : String(error) }
     }
-  }, instance?.id ?? '')
+  }, DISPOSABLE_MARKER)
   expect(refused.refused).toBe(true)
-  // The refusal is typed and never echoes the submitted value.
   expect(refused.message).not.toContain(DISPOSABLE_MARKER)
 
-  // The durable store, if this profile has one, holds ciphertext only.
+  // Nothing durable was created, and no sanitized projection carries the value.
   const storePath = join(userData, 'provider-secrets.enc.json')
-  if (existsSync(storePath)) {
-    expect(readFileSync(storePath, 'utf8')).not.toContain(DISPOSABLE_MARKER)
-  }
-  // No status the renderer can read carries the value either.
-  const snapshot = await page.evaluate(() => window.donwells.providerCatalogRead())
-  expect(JSON.stringify(snapshot)).not.toContain(DISPOSABLE_MARKER)
+  if (existsSync(storePath)) expect(readFileSync(storePath, 'utf8')).not.toContain(DISPOSABLE_MARKER)
+  const after = await page.evaluate(() => window.donwells.providerCatalogRead())
+  expect(JSON.stringify(after)).not.toContain(DISPOSABLE_MARKER)
 })
