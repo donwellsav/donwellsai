@@ -27,6 +27,45 @@ const events: DaemonEvents = {
 }
 
 describe('daemon legacy reconnect', () => {
+  it.runIf(process.platform !== 'win32')('settles pending requests and notifies consumers exactly once on explicit disconnect', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-disconnect-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    const token = 'disconnect-token-1234567890'
+    writeFileSync(paths.runtimeFile, JSON.stringify({ socketPath: paths.socketPath, authToken: token }), { mode: 0o600 })
+    const received = Promise.withResolvers<void>()
+    let disconnected = 0
+    const server = createServer(socket => {
+      let buffer = ''
+      socket.setEncoding('utf8')
+      socket.on('data', chunk => {
+        buffer += chunk
+        let newline: number
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const message = JSON.parse(buffer.slice(0, newline)) as { id: string; op: string; authToken?: string }
+          buffer = buffer.slice(newline + 1)
+          if (message.op === 'hello') socket.write(JSON.stringify({ id: message.id, ok: message.authToken === token, protocolVersion: 3, capabilities: ['sequenced-output'] }) + '\n')
+          else received.resolve()
+        }
+      })
+    })
+    const client = new DaemonClient(directory, { ...events, disconnected: () => { disconnected += 1 } }, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
+    try {
+      await listen(server, paths.socketPath)
+      await client.connect()
+      const result = client.list().then(() => 'unexpected success', error => String(error))
+      await received.promise
+      client.disconnect()
+      client.disconnect()
+      expect(await result).toContain('terminal daemon transport closed')
+      expect(disconnected).toBe(1)
+    } finally {
+      client.disconnect()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it.runIf(process.platform !== 'win32')('uses an authenticated reachable legacy daemon without spawning a replacement', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-legacy-')))
     const paths = localRuntimePaths(directory, 'terminal')

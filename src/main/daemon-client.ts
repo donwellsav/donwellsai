@@ -947,22 +947,22 @@ export class DaemonClient {
       this.disconnect()
       throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: false, sessionCount: status.sessionCount, liveSessionCount: status.liveSessionCount })
     }
+    const previousEndpoint = this.connectedEndpoint
     const stopped = await this.request<{ stopped: boolean }>('daemon.shutdown').catch(() => ({ stopped: false }))
     if (stopped.stopped !== true) {
       this.disconnect()
       throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: true, sessionCount: 0, liveSessionCount: 0 })
     }
     this.disconnect()
-    await this.awaitDaemonEndpointCleanup()
+    await this.awaitDaemonEndpointCleanup(previousEndpoint)
     await this.connectInner()
     if (!this.capabilities.has(TASK_AUTHORITY)) {
       throw new Error(`terminal daemon upgrade for ${operation} did not reach ${TASK_AUTHORITY}`)
     }
   }
 
-  private async awaitDaemonEndpointCleanup(): Promise<void> {
+  private async awaitDaemonEndpointCleanup(previousEndpoint: string | null): Promise<void> {
     const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
-    const previousEndpoint = this.connectedEndpoint
     const deadline = Date.now() + 5_000
     while (Date.now() <= deadline) {
       const record = readRuntimeRecord(paths.runtimeFile)
@@ -1899,7 +1899,10 @@ export class DaemonClient {
   disconnect(): void {
     const socket = this.socket
     if (!socket) return
-    this.socket = null
-    socket.destroy()
+    try {
+      this.resetTransport(socket, new Error('terminal daemon transport closed'))
+    } finally {
+      socket.destroy()
+    }
   }
 }
