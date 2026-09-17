@@ -125,6 +125,15 @@ export interface ProviderChildPort {
      * the time the spawn is admitted.
      */
     selection: ProviderSelection
+    /**
+     * The credential mode the admission bound.
+     *
+     * It decides how the child's environment is treated: an isolated mode
+     * supplies a complete allowlist environment, while `external` inherits the
+     * process environment minus this app's own authority. The port cannot infer
+     * this from the selection alone.
+     */
+    credentialMode: ProviderCredentialMode
   }): OpenedTaskChild
   stop(sessionId: string): Promise<void>
   stopProcess(identity: ProcessIdentity): Promise<void>
@@ -427,7 +436,8 @@ export class TaskExecutionCoordinator {
         environment,
         cols: this.providerCols,
         rows: this.providerRows,
-        selection: admission.selection
+        selection: admission.selection,
+        credentialMode: admission.credentialMode
       })
     } catch (error) {
       releaseIsolation()
@@ -452,10 +462,17 @@ export class TaskExecutionCoordinator {
     } catch {
       return this.convergeProviderLoss(input, admission, opened, isolationRoot, claim, 'runtime bind was refused after the provider child started')
     }
-    // An interactive launch is complete once the child is bound and running: its
-    // lifetime is the user's session, so nothing here waits for exit. The daemon
-    // owns the child from this point.
+    // An interactive launch returns as soon as the child is bound and running,
+    // because its lifetime is the user's session. Its lifecycle obligations are
+    // NOT skipped, though: a background pump settles them when the child exits —
+    // flushing and closing the output boundary, releasing the isolation root,
+    // closing the maintenance admission, and recording the attempt's terminal
+    // result. Without that, every interactive launch would leak a live
+    // admission, which fences every later migration and keeps the attempt
+    // running forever.
     if (input.interactive === true) {
+      void this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
+        .catch(() => undefined)
       return { disposition: 'launched', admission, sessionId: opened.sessionId, exitCode: null, reason: null }
     }
     return this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)

@@ -117,6 +117,60 @@ async function createInstance(started: { socketPath: string; token: string }, in
   return id
 }
 
+/**
+ * Waits until the launched child reports a terminal state.
+ *
+ * This observes through `agent.list`, which reads daemon state and changes
+ * nothing. Acquiring the maintenance lease to probe would itself adopt the
+ * launch's admission into the probe migration, so a probe that runs while the
+ * pump still needs to complete would break the very thing it measures.
+ */
+async function waitForRunExit(started: { socketPath: string; token: string }, sessionId: string): Promise<boolean> {
+  // The PTY defers exit settlement by 250ms after the OS exit, so this must
+  // outlast that documented delay.
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const listed = await callWireOp(started.socketPath, started.token, 'agent.list', {})
+    const runs = listed['runs']
+    if (Array.isArray(runs)) {
+      for (const entry of runs) {
+        if (typeof entry !== 'object' || entry === null) continue
+        const record = entry as Record<string, unknown>
+        if (record['sessionId'] === sessionId && record['liveness'] === 'exited') return true
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  return false
+}
+
+/**
+ * Checks once whether the frozen participant can acknowledge its drain.
+ *
+ * `acknowledgeDrained` refuses with `GATE_ADMISSION_UNRESOLVED` while any
+ * admission for that participant is still live, which is exactly the consequence
+ * of a leaked launch admission: every later freeze/cutover would stall. This runs
+ * only after the child has already exited, so it cannot race the pump.
+ */
+async function drainAcknowledgement(started: { socketPath: string; token: string }): Promise<Record<string, unknown> | null> {
+  const state = await callWireOp(started.socketPath, started.token, 'maintenance.state', {})
+  const snapshot = state['state'] as Record<string, unknown> | undefined
+  if (snapshot?.['phase'] !== 'open' || snapshot['lease'] !== null) return null
+  const acquired = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', {
+    migrationId: 'admission-probe',
+    ownerStage: 'stage-3',
+    participants: ['provider-authority'],
+    expectedRevision: snapshot['revision']
+  })
+  const lease = acquired['lease'] as Record<string, unknown> | undefined
+  if (acquired['ok'] !== true || lease === undefined) return null
+  const drained = await callWireOp(started.socketPath, started.token, 'maintenance.drained', {
+    migrationId: 'admission-probe',
+    participant: 'provider-authority'
+  })
+  await callWireOp(started.socketPath, started.token, 'maintenance.release', { lease, outcome: 'active' })
+  return drained
+}
+
 describe('provider instance launch over the daemon wire', () => {
   it('launches an external instance as a real child with instance provenance', async () => {
     const { root, project } = workspace()
@@ -148,6 +202,44 @@ describe('provider instance launch over the daemon wire', () => {
     expect(provider).not.toHaveProperty('credentialRef')
     expect(provider).not.toHaveProperty('bindingGeneration')
     expect(run['liveness']).toBe('live')
+  })
+
+  it('settles the maintenance admission after an interactive child exits', async () => {
+    const { root, project } = workspace()
+    // A short-lived child, so the launch's own lifecycle obligations settle
+    // while this test is still watching them.
+    const script = join(root, 'child.cjs')
+    writeFileSync(script, 'process.exit(0)', { mode: 0o600 })
+    const started = await startDaemon([project])
+    const instanceId = await createInstance(started, {
+      driverId: 'custom-command',
+      displayName: 'Admission probe',
+      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+
+    const launched = await callWireOp(started.socketPath, started.token, 'agent.providers.launch', {
+      workspacePath: root,
+      providerInstanceId: instanceId
+    })
+    expect(launched['ok']).toBe(true)
+    const run = launched['run'] as Record<string, unknown>
+    const sessionId = String(run['sessionId'])
+
+    // The child exits on its own; the launch's background pump must then settle
+    // its lifecycle obligations rather than leaving them behind.
+    expect(await waitForRunExit(started, sessionId)).toBe(true)
+
+    // A leaked admission is what fences every later freeze/cutover:
+    // `acknowledgeDrained` refuses with GATE_ADMISSION_UNRESOLVED while one is
+    // still live. Acquiring the lease alone proves nothing, because `acquire`
+    // adopts outstanding admissions rather than refusing them — so this is
+    // checked only after the child has already exited.
+    const drained = await drainAcknowledgement(started)
+    expect(drained).not.toBeNull()
+    expect(drained).toMatchObject({ ok: true })
   })
 
   it('refuses a launch naming an instance that does not exist, creating no child', async () => {

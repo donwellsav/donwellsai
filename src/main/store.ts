@@ -12,6 +12,7 @@ import {
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import {
+  SETTING_DEFINITIONS,
   SETTINGS_SCHEMA_VERSION,
   resolveSettings,
   settingsKeysForSection,
@@ -40,6 +41,10 @@ const LEGACY_DEFAULT_SETTINGS: Record<string, unknown> = {
 }
 
 const LEGACY_SETTING_KEYS: Record<string, true> = {
+  // Accepted because a schema-v1 envelope may carry it; it is the provider
+  // migration's source, so it is tolerated here and carried forward to disk
+  // rather than mapped into the current settings shape.
+  agentCommand: true,
   theme: true,
   fontSize: true,
   fontFamily: true,
@@ -210,16 +215,20 @@ export class Store {
     let settings: Partial<AppSettings>
     if (schemaVersion === 1) {
       settings = migrateLegacySettings(envelope.settings, this.path)
+      // A schema-v1 envelope predates provider instances, so its own command
+      // field is not the migration's source and is retired with the envelope.
     } else {
-      // Retired keys are trimmed up front, then validation stays strict: every
-      // other unknown key still fails closed.
-      //
-      // `language` was retired with the English-only cutover. `agentCommand`
-      // was retired when provider instances became launch authority: the daemon
-      // removes it as the migration's settings publication, and this trims it
-      // for a profile the migration has not reached yet, so the strict decoder
-      // below is never asked about a key this version no longer defines.
-      const RETIRED_SETTING_KEYS = ['language', 'agentCommand'] as const
+      // `language` was retired with the English-only cutover, and this store is
+      // its removal authority: trimming it and persisting the result IS the
+      // retirement.
+      const RETIRED_AND_REMOVED_HERE = ['language'] as const
+      // `agentCommand` is different: the daemon removes it as the provider
+      // migration's settings publication, and that migration reads the persisted
+      // file. Trimming it here would delete the migration's own source before it
+      // could run — this store is constructed before the daemon connects — so it
+      // is tolerated in memory and deliberately NOT persisted. The daemon's
+      // removal is what takes it off disk.
+      const RETIRED_ELSEWHERE = ['agentCommand'] as const
       const settingsRecord = typeof envelope.settings === 'object'
         && envelope.settings !== null
         && !Array.isArray(envelope.settings)
@@ -227,12 +236,15 @@ export class Store {
         : null
       let settingsInput: unknown = envelope.settings
       if (settingsRecord !== null) {
-        for (const key of RETIRED_SETTING_KEYS) {
+        for (const key of RETIRED_AND_REMOVED_HERE) {
           if (key in settingsRecord) {
             delete settingsRecord[key]
             migrated = true
           }
         }
+        // Dropped from the in-memory view only.  carries whatever the
+        // file still holds forward, so the owning authority decides when it goes.
+        for (const key of RETIRED_ELSEWHERE) delete settingsRecord[key]
         settingsInput = settingsRecord
       }
       try {
@@ -249,11 +261,51 @@ export class Store {
     return { state, migrated }
   }
 
+  /**
+   * The keys in the persisted envelope that this version does not define.
+   *
+   * Read from disk at write time so a removal performed by the owning authority
+   * is honoured rather than undone. A missing or unparseable file yields none:
+   * there is nothing to carry forward.
+   */
+  private foreignSettingsOnDisk(): Record<string, unknown> {
+    let raw: string
+    try {
+      raw = readFileSync(this.path, 'utf8')
+    } catch {
+      return {}
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return {}
+    }
+    if (typeof parsed !== 'object' || parsed === null) return {}
+    const settings = (parsed as Record<string, unknown>)['settings']
+    if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) return {}
+    const foreign: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
+      // Anything this version defines is the store's own business; only the
+      // remainder belongs to another authority.
+      if (!Object.hasOwn(SETTING_DEFINITIONS, key) && key !== 'language') foreign[key] = value
+    }
+    return foreign
+  }
+
   /** Write a complete next snapshot before publishing it to in-memory readers. */
   private writeState(next: PersistedState): void {
     const dir = dirname(this.path)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     const tmp = `${this.path}.${process.pid}.${randomUUID()}.tmp`
+    // Keys owned by another authority are carried through from the CURRENT file
+    // rather than from memory: the daemon removes one of them as its migration's
+    // publication, and re-adding a stale copy would resurrect it. Reading at
+    // write time makes the removal stick without this store having to be told.
+    const foreign = this.foreignSettingsOnDisk()
+    const serialized = Object.keys(foreign).length === 0
+      ? next
+      : { ...next, settings: { ...foreign, ...next.settings } }
     let fd: number | undefined
     try {
       fd = openSync(tmp, 'wx', 0o600)

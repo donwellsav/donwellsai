@@ -70,6 +70,7 @@ import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAP
 import { asCredentialRef, PROVIDER_SECRET_BROKER_CAPABILITY, type ProviderLaunchAuthorization, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
 import { ProviderSecretBrokerHost, SECRET_BROKER_REGISTER_OP, SECRET_BROKER_RESPOND_OP, SecretBrokerError } from './provider-secret-broker'
 import { AgentRegistry } from './agents/registry'
+import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { SecretOutputBoundary } from './secret-output-redactor'
 import {
   ATTENTION_INBOX_CAPABILITY,
@@ -512,11 +513,26 @@ export class TerminalDaemon {
         boundary: this.providerBoundary,
         child: {
           open: input => {
-            // The environment is exact: a managed/none launch must not inherit
-            // the daemon's own environment, which would defeat the allowlist.
+            // A managed/none launch supplies a complete allowlist environment
+            // and is used exactly. An external launch inherits the process
+            // environment — that is what external authentication means — but
+            // must not inherit THIS app's authority: the daemon runs with a
+            // private token and the Electron runtime-mode variable, and the
+            // coordinator builds the external environment from `process.env`.
+            // Sanitizing here (rather than relying on the PTY's merge, which
+            // applies its additions after stripping) is what actually removes
+            // them, and both modes then supply a complete environment.
+            const environment = input.credentialMode === 'external'
+              // The ordinary PTY merge would re-add anything this sanitizer just
+              // removed, because the coordinator's external environment IS a copy
+              // of `process.env`. Sanitizing the additions themselves and using
+              // them exactly is what actually strips the daemon's authority,
+              // while keeping the terminal variables an interactive CLI needs.
+              ? sanitizedProcessEnv(input.environment, { TERM: 'xterm-256color', TERM_PROGRAM: 'donwells.ai' })
+              : input.environment
             const session = this.pty.openAgent(input.workspaceRoot, '', input.cols, input.rows, {
               id: input.sessionId,
-              env: input.environment,
+              env: environment,
               launch: { executable: input.invocation.program, args: [...input.invocation.args] },
               exactEnv: true
             })
@@ -1241,7 +1257,7 @@ export class TerminalDaemon {
           break
         }
         case 'agent.list':
-          reply(true, { runs: [...this.agentsBySession.values()].map((record) => cloneRun(record.run)) })
+          reply(true, { runs: [...this.agentsBySession.values()].map((record) => cloneRun(record.run)).concat([...this.providerRuns.values()].map(cloneRun)) })
           break
         case 'agent.providers':
           reply(true, { snapshot: this.providerCatalog.snapshot() })
