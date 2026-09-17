@@ -156,6 +156,22 @@ jobs:
           src/main/runtime-identity.test.ts
           src/main/runtime-ownership.test.ts
 
+      - name: Provider Authority catalog, secrets, launch, and migration proofs
+        run: >-
+          pnpm exec vitest run
+          src/main/provider-catalog.test.ts
+          src/main/provider-secret-broker.test.ts
+          src/main/provider-secret-authority.test.ts
+          src/main/provider-launch.test.ts
+          src/main/provider-instance-launch.test.ts
+          src/main/provider-migration.test.ts
+          src/main/provider-maintenance-migration.test.ts
+          src/main/agents/provider-certifications.test.ts
+          src/renderer/src/components/settings/provider-instances-state.test.ts
+          src/main/disclosure-census.test.ts
+          src/main/secret-output-redactor.test.ts
+          src/main/project-temporal-knowledge.test.ts
+
       - name: Build directory package
         run: pnpm run package:dir
 
@@ -169,5 +185,10 @@ jobs:
           fi
           printf 'DONWELLS_ELECTRON_EXECUTABLE=%s/%s\n' "$PWD" "$executable" >> "$GITHUB_ENV"
 
-      - name: Run packaged Electron live smoke proof
-        run: pnpm exec playwright test e2e/smoke.e2e.ts
+      - name: Run packaged Electron smoke and provider backend evidence
+        if: matrix.platform != 'linux'
+        run: pnpm exec playwright test e2e/smoke.e2e.ts e2e/provider-backend.e2e.ts
+
+      - name: Run packaged Electron smoke and provider backend evidence on Linux
+        if: matrix.platform == 'linux'
+        run: dbus-run-session -- xvfb-run --auto-servernum pnpm exec playwright test e2e/smoke.e2e.ts e2e/provider-backend.e2e.ts

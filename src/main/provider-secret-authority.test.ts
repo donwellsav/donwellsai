@@ -18,6 +18,7 @@ import { AgentRegistry } from './agents/registry'
 import { SqliteProviderCatalog } from './provider-catalog'
 import { ProviderCredentialAuthority, ProviderSecretAuthority, localProviderCredentialCatalog, type ProviderSecretEncryption } from './provider-secret-authority'
 import { openTaskAuthorityDatabase, type TaskAuthorityDatabase } from './task-authority/schema'
+import { assertNoDisclosure } from './test-utils/disclosure-census'
 
 const MARKER = 'disposable-provider-marker-0123456789'
 const directories: string[] = []
@@ -134,8 +135,14 @@ function profileBytes(directory: string): string {
 }
 
 afterEach(() => {
-  while (databases.length) databases.pop()?.close()
-  while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true })
+  try {
+    for (const directory of directories) {
+      assertNoDisclosure(directory, [MARKER, 'replacement-marker', 'second-marker', 'staged-marker', 'other-marker'])
+    }
+  } finally {
+    while (databases.length) databases.pop()?.close()
+    while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true })
+  }
 })
 
 describe('ProviderSecretAuthority', () => {

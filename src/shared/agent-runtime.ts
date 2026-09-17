@@ -802,7 +802,7 @@ function decodeAgentRunProviderIdentity(value: unknown, label: string): AgentRun
 
 function acpRunningAgent(value: unknown, label: string): RunningAgent {
   const input = acpRecord(value, label)
-  acpExactKeys(input, ['id', 'sessionId', 'workspacePath', 'command', 'startedAt', 'updatedAt', 'liveness', 'activity', 'hook'], ['task', 'launch', 'presetId', 'provider', 'detail', 'exitCode', 'stopRequestedAt'], label)
+  acpExactKeys(input, ['id', 'sessionId', 'workspacePath', 'command', 'startedAt', 'updatedAt', 'liveness', 'activity', 'hook'], ['task', 'launch', 'provider', 'detail', 'exitCode', 'stopRequestedAt'], label)
   const parsed: AcpUnknownRecord = {
     id: acpWireString(input['id'], label + '.id', 128),
     sessionId: acpWireString(input['sessionId'], label + '.sessionId', 256),
@@ -816,7 +816,6 @@ function acpRunningAgent(value: unknown, label: string): RunningAgent {
   }
   if (Object.hasOwn(input, 'task')) parsed['task'] = parseAgentTaskIntent(input['task'])
   if (Object.hasOwn(input, 'launch')) parsed['launch'] = parseAgentExecutable(input['launch'])
-  if (Object.hasOwn(input, 'presetId')) parsed['presetId'] = acpEnum(input['presetId'], label + '.presetId', AGENT_PROVIDER_IDS)
   if (Object.hasOwn(input, 'provider')) parsed['provider'] = decodeAgentRunProviderIdentity(input['provider'], label + '.provider')
   const detail = acpOptionalString(input, 'detail', label + '.detail', 2_048)
   if (detail !== undefined) parsed['detail'] = detail
@@ -955,7 +954,6 @@ export type RunningAgent = {
   sessionId: string
   workspacePath: string
   command: string
-  presetId?: AgentProviderId
   /**
    * The exact provider identity this run was admitted for. Present only for a
    * provider-backed launch; it is identity and display metadata only. A

@@ -1,3 +1,4 @@
+import { agentProviderName } from '@shared/agent-presentation'
 import { useAppStore } from '../store'
 import { pathBasename } from '../workspace-navigation'
 import { Icon } from './Icon'
@@ -28,7 +29,7 @@ export function TerminalCloseDialog() {
       <dl className="terminal-close-details">
         <div><dt>Workspace</dt><dd title={request.worktreePath}>{workspaceName}</dd></div>
         <div><dt>Session</dt><dd>{request.sessionId.slice(0, 12)}</dd></div>
-        {agent && <div><dt>Agent</dt><dd>{agent.presetId ?? agent.command} · {agent.activity}</dd></div>}
+        {agent && <div><dt>Agent</dt><dd>{agentProviderName(agent)} · {agent.activity}</dd></div>}
       </dl>
       <div className="modal-actions">
         <button className="btn" onClick={cancel}>Keep terminal</button>

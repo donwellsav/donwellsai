@@ -10,6 +10,7 @@ import type { KnowledgeSelection } from '@shared/project-knowledge'
 import type { GraphitiConfiguration } from '@shared/project-temporal-knowledge'
 import type { ProjectToolScope } from '@shared/project-tools'
 import { ProjectTemporalKnowledge, type GraphitiProcessRunner } from './project-temporal-knowledge'
+import { assertNoDisclosure } from './test-utils/disclosure-census'
 
 const MARKER = 'graphiti-disposable-password-marker-9876543210'
 const directories: string[] = []
@@ -49,11 +50,15 @@ function owner(profileDir: string, password: () => string | null, spawnWorker?: 
 const selection: KnowledgeSelection[] = []
 
 /** Records every spec it is asked to run, then reports a valid worker response. */
-function recordingRunner(group: string) {
+function recordingRunner() {
   const specs: ProcessSpec[] = []
   const runner: GraphitiProcessRunner = async spec => {
     specs.push(spec)
-    return { code: 0, signal: null, stdout: JSON.stringify({ group, receipts: [] }), stderr: '', durationMs: 1 } satisfies ProcessResult
+    const requestPath = spec.args?.at(-1)
+    if (!requestPath) throw new Error('Missing Graphiti request path')
+    const request: { group: string } = JSON.parse(readFileSync(requestPath, 'utf8'))
+    assertNoDisclosure(spec.cwd!, [MARKER])
+    return { code: 0, signal: null, stdout: JSON.stringify({ group: request.group, receipts: [] }), stderr: '', durationMs: 1 } satisfies ProcessResult
   }
   return { specs, runner }
 }
@@ -61,11 +66,11 @@ function recordingRunner(group: string) {
 describe('Graphiti worker password channel', () => {
   it('delivers the password only through the child stdin pipe', async () => {
     const directory = profile('graphiti-stdin-')
-    const { specs, runner } = recordingRunner('group')
+    const { specs, runner } = recordingRunner()
     const knowledge = owner(directory, () => MARKER, runner)
-    // Only the worker path is exercised; a scope failure never reaches it.
-    await knowledge.reconcile(directory, selection).catch(() => undefined)
-    expect(specs.length).toBeGreaterThan(0)
+    const result = await knowledge.reconcile(directory, selection)
+    expect(result.stale).toBe(false)
+    expect(specs).toHaveLength(1)
     const spec = specs[0]!
     // The password is on the anonymous stdin pipe, and nowhere else.
     expect(spec.input).toBe(MARKER)
@@ -75,15 +80,12 @@ describe('Graphiti worker password channel', () => {
     expect(Object.keys(spec.env ?? {})).not.toContain('DONWELLS_NEO4J_PASSWORD')
     expect(spec.cwd).not.toContain(MARKER)
     // The request document on disk never contains it either.
-    for (const entry of readdirSync(directory, { recursive: true }) as string[]) {
-      const path = join(directory, entry)
-      try { if (readFileSync(path).includes(MARKER)) throw new Error(`plaintext password found in ${entry}`) } catch { /* directories */ }
-    }
+    assertNoDisclosure(directory, [MARKER])
   })
 
   it('refuses to spawn without a stored password', async () => {
     const directory = profile('graphiti-missing-')
-    const { specs, runner } = recordingRunner('group')
+    const { specs, runner } = recordingRunner()
     const knowledge = owner(directory, () => null, runner)
     await expect(knowledge.reconcile(directory, selection)).rejects.toThrowError(/stored Neo4j password/)
     expect(specs).toEqual([])
@@ -91,7 +93,7 @@ describe('Graphiti worker password channel', () => {
 
   it('refuses a password that is not a valid one-line secret', async () => {
     const directory = profile('graphiti-invalid-')
-    const { specs, runner } = recordingRunner('group')
+    const { specs, runner } = recordingRunner()
     const knowledge = owner(directory, () => 'line\nbreak', runner)
     await expect(knowledge.reconcile(directory, selection)).rejects.toThrowError(/valid one-line secret/)
     expect(specs).toEqual([])
@@ -135,12 +137,10 @@ describe('Graphiti worker password channel', () => {
   it('never stores the password in the temporal ledger', async () => {
     const directory = profile('graphiti-ledger-')
     mkdirSync(join(directory, 'project-knowledge'), { recursive: true, mode: 0o700 })
-    const { runner } = recordingRunner('group')
+    const { runner } = recordingRunner()
     const knowledge = owner(directory, () => MARKER, runner)
-    await knowledge.reconcile(directory, selection).catch(() => undefined)
-    for (const entry of readdirSync(join(directory, 'project-knowledge'))) {
-      const bytes = readFileSync(join(directory, 'project-knowledge', entry))
-      expect(bytes.includes(MARKER)).toBe(false)
-    }
+    const result = await knowledge.reconcile(directory, selection)
+    expect(result.generation).toMatch(/^donwells-project-key-/)
+    assertNoDisclosure(directory, [MARKER])
   })
 })

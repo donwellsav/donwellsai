@@ -101,11 +101,6 @@ export function agentProviderName(run: RunningAgent): string {
     return AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.id === run.provider!.driverId)?.name
       ?? run.provider.driverId
   }
-  if (run.presetId) {
-    return legacyProviderDisplayName(
-      AGENT_PROVIDER_DEFINITIONS.find((provider) => provider.id === run.presetId)?.name ?? run.presetId
-    )
-  }
   return legacyProviderDisplayName(run.command)
 }
 

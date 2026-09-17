@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt } from './agent-runtime'
+import { parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, type RunningAgent } from './agent-runtime'
+import { agentProviderName } from './agent-presentation'
 
 const processIdentity = {
   pid: 1234,
@@ -36,6 +37,22 @@ function observation(update: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
+function nativeRun(): RunningAgent {
+  return {
+    id: 'run-test', sessionId: 'session-test', workspacePath: '/tmp/acp-test', command: '/opt/tools/native-agent',
+    startedAt: '2026-09-13T00:00:00.000Z', updatedAt: '2026-09-13T00:00:00.000Z',
+    liveness: 'live', activity: 'working', hook: { support: 'unavailable', events: [], connected: false, reason: 'hook support is not configured in this fixture' }
+  }
+}
+
+function nativeReceipt(run: RunningAgent) {
+  return {
+    requestId: 'request-1', workspacePath: run.workspacePath, sessionId: run.sessionId,
+    target: 'native', state: 'completed', continuity: 'same-history',
+    native: { run, session: { id: run.sessionId, worktreePath: run.workspacePath, title: run.command, createdAt: run.startedAt, exited: false } }
+  }
+}
+
 describe('strict ACP wire decoders', () => {
   it('rejects wrong capability scalar types', () => {
     expect(() => parseAcpAgentSnapshot(snapshot({ capabilities: { loadSession: 'yes' } }))).toThrow(/loadSession/)
@@ -58,6 +75,28 @@ describe('strict ACP wire decoders', () => {
   it('rejects malformed native mode switch results', () => {
     const receipt = { requestId: 'request-1', workspacePath: '/tmp/acp-test', sessionId: 'session-test', target: 'native', state: 'completed', continuity: 'same-history', native: {} }
     expect(() => parseAgentModeSwitchReceipt(receipt)).toThrow(/native.*missing field.*run/)
+  })
+
+  it('rejects obsolete preset identity on otherwise valid runs', () => {
+    const run = nativeRun()
+    expect(parseAgentModeSwitchReceipt(nativeReceipt(run)).native?.run).toEqual(run)
+    expect(() => parseAgentModeSwitchReceipt(nativeReceipt({ ...run, ...{ presetId: 'codex' } }))).toThrow(/unknown field: presetId/)
+  })
+
+  it('preserves admitted provider provenance across wire decoding for display', () => {
+    const run = {
+      ...nativeRun(),
+      provider: { driverId: 'claude', providerInstanceId: 'instance-work', providerInstanceRevision: 7, accountId: 'account-work', providerAccountRevision: 3 }
+    }
+    const parsed = parseAgentModeSwitchReceipt(nativeReceipt(run)).native!.run
+    expect(parsed.provider).toEqual(run.provider)
+    expect(agentProviderName(parsed)).toBe('Claude Code')
+  })
+
+  it('displays custom driver provenance without inventing a provider for native commands', () => {
+    const run = nativeRun()
+    expect(agentProviderName(run)).toBe('legacy provider: /opt/tools/native-agent')
+    expect(agentProviderName({ ...run, provider: { driverId: 'custom-command', providerInstanceId: 'instance-custom', providerInstanceRevision: 1, accountId: null, providerAccountRevision: null } })).toBe('custom-command')
   })
   it('rejects prompt fields that contradict their state', () => {
     expect(() => parseAcpPromptRecord({ requestId: 'request-1', state: 'completed' })).toThrow(/completed.*result/)

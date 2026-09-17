@@ -13,7 +13,8 @@ import { ProviderCatalogError, SqliteProviderCatalog } from './provider-catalog'
 import type { TaskAuthorityDatabase } from './task-authority/schema'
 import { openTaskAuthorityDatabase } from './task-authority/schema'
 
-const STUB_CONTENT = '#!/bin/sh\nexit 0\n'
+const STUB_EXTENSION = process.platform === 'win32' ? '.CMD' : ''
+const STUB_CONTENT = process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n'
 const STUB_SHA256 = createHash('sha256').update(STUB_CONTENT).digest('hex')
 const CERTIFICATION_PLATFORM = isProviderCertificationPlatform(process.platform) ? process.platform : undefined
 
@@ -26,7 +27,7 @@ function profile(prefix: string): { directory: string; bin: string } {
   directories.push(directory)
   const bin = join(directory, 'bin')
   mkdirSync(bin, { recursive: true, mode: 0o700 })
-  for (const driver of ['codex', 'claude']) writeFileSync(join(bin, driver), STUB_CONTENT, { mode: 0o755 })
+  for (const driver of ['codex', 'claude']) writeFileSync(join(bin, driver + STUB_EXTENSION), STUB_CONTENT, { mode: 0o755 })
   return { directory, bin }
 }
 /**
@@ -81,7 +82,7 @@ function certificationForStub(bin: string, driverId: 'codex' | 'claude', overrid
   return Object.freeze({
     driverId,
     modes: ['managed', 'none'] as const,
-    executablePath: join(bin, driverId),
+    executablePath: join(bin, driverId + STUB_EXTENSION),
     supportedVersionRange: '>=1.0.0 <2.0.0',
     platform: CERTIFICATION_PLATFORM,
     architecture: process.arch,

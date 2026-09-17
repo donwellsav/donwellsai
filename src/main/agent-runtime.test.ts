@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { AgentRuntime, TaskLinkedAgentOpenError } from './agent-runtime'
 import type { AgentExecutable, AgentStartResult, AgentTaskIntent, RunningAgent } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
+import { AttentionInboxService } from './attention-inbox-service'
+import { AttentionInboxStore } from './attention-inbox-store'
 
 function result(workspacePath: string, task?: AgentTaskIntent): AgentStartResult {
   const now = new Date().toISOString()
@@ -88,6 +90,42 @@ describe('AgentRuntime native terminal opens', () => {
       await expect(runtime.openNative(workspace, { executable: join(workspace, 'absent-tool'), args: [] }))
         .rejects.toThrow('Agent executable is unavailable')
       expect(opens).toBe(0)
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('run provider provenance in durable attention', () => {
+  it('retains the admitted known driver instead of deriving identity from the command', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'agent-attention-'))
+    try {
+      const run = result(workspace).run
+      run.command = '/opt/tools/native-agent'
+      run.activity = 'waiting'
+      run.provider = { driverId: 'claude', providerInstanceId: 'instance-work', providerInstanceRevision: 7, accountId: 'account-work', providerAccountRevision: 3 }
+      const service = new AttentionInboxService(new AttentionInboxStore(workspace))
+      service.observe(run)
+      const event = new AttentionInboxStore(workspace).snapshot().events[0]
+      expect(event).toMatchObject({ runId: run.id, providerId: 'claude', command: run.command, kind: 'waiting' })
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves command metadata without inventing enum identity for native or custom-driver runs', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'agent-attention-'))
+    try {
+      const native = { ...result(workspace).run, command: 'claude', activity: 'waiting' as const }
+      const custom = { ...native, id: 'run-custom', sessionId: 'session-custom', command: '/opt/tools/custom-agent', provider: { driverId: 'custom-command', providerInstanceId: 'instance-custom', providerInstanceRevision: 1, accountId: null, providerAccountRevision: null } }
+      const service = new AttentionInboxService(new AttentionInboxStore(workspace))
+      service.observe(native)
+      service.observe(custom)
+      const events = new AttentionInboxStore(workspace).snapshot().events
+      expect(events.map(({ runId, command, providerId }) => ({ runId, command, providerId }))).toEqual([
+        { runId: native.id, command: 'claude', providerId: undefined },
+        { runId: custom.id, command: '/opt/tools/custom-agent', providerId: undefined }
+      ])
     } finally {
       rmSync(workspace, { recursive: true, force: true })
     }

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,7 @@ import { AgentRegistry } from './agents/registry'
 import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
 import { SecretOutputBoundary } from './secret-output-redactor'
 import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
+import { assertNoDisclosure } from './test-utils/disclosure-census'
 import {
   SECRET_AUTHORITY_UNAVAILABLE,
   TaskExecutionCoordinator,
@@ -93,20 +94,32 @@ function profile(): Profile {
   mkdirSync(isolation, { recursive: true, mode: 0o700 })
   // The certification binds the exact path the registry resolves for `codex`,
   // so an accepted tuple and a drifted tuple are compared against one real file.
-  // The stub execs the payload each test writes, so a real-mode child port runs
-  // precisely the invocation the coordinator resolved rather than a shortcut.
-  const driver = join(bin, 'codex')
-  writeFileSync(driver, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(workspace, 'child.cjs'))} \"$@\"\n`, { mode: 0o755 })
-  chmodSync(driver, 0o755)
+  // POSIX resolves through a shell stub that execs the payload each test
+  // writes; Windows has no shebang execution, so it gets a native Node copy
+  // and the payload arrives through the trusted driver-argument seam instead.
+  const driver = join(bin, process.platform === 'win32' ? 'codex.EXE' : 'codex')
+  if (process.platform === 'win32') {
+    copyFileSync(process.execPath, driver)
+  } else {
+    writeFileSync(driver, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(workspace, 'child.cjs'))} "$@"\n`, { mode: 0o755 })
+    chmodSync(driver, 0o755)
+  }
   const entry: Profile = { directory, bin, workspace, isolation, driver, databasePath: join(directory, 'authority.sqlite') }
   profiles.push(entry)
   return entry
 }
 
 afterEach(() => {
-  while (catalogs.length > 0) catalogs.pop()
-  while (authorities.length > 0) authorities.pop()?.close()
-  while (profiles.length > 0) rmSync(profiles.pop()!.directory, { recursive: true, force: true })
+  try {
+    // Read live database/WAL bytes before close can checkpoint or delete them.
+    for (const entry of profiles) {
+      assertNoDisclosure(entry.directory, [MARKER_ALPHA, MARKER_BETA], [join('real-home', '.fake-provider', 'auth.json')])
+    }
+  } finally {
+    while (catalogs.length > 0) catalogs.pop()
+    while (authorities.length > 0) authorities.pop()?.close()
+    while (profiles.length > 0) rmSync(profiles.pop()!.directory, { recursive: true, force: true })
+  }
 })
 
 function openAuthority(entry: Profile): SqliteTaskAuthority {
@@ -697,7 +710,8 @@ describe('provider driver provenance and mode isolation', () => {
     })
 
     const outcome = await coordinator.launchProviderBacked({
-      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-real', workspaceRoot: entry.workspace, selection, connection: worker()
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-real', workspaceRoot: entry.workspace, selection, connection: worker(),
+      ...(process.platform === 'win32' ? { driverArguments: [join(entry.workspace, 'child.cjs')] } : {})
     })
     expect(outcome.disposition).toBe('completed')
     const report = child.report<Record<string, unknown>>()!
@@ -1080,7 +1094,8 @@ describe('provider launch: the output boundary against a real child', () => {
     })
 
     const outcome = await coordinator.launchProviderBacked({
-      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-redact', workspaceRoot: entry.workspace, selection, connection: worker()
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-redact', workspaceRoot: entry.workspace, selection, connection: worker(),
+      ...(process.platform === 'win32' ? { driverArguments: [join(entry.workspace, 'child.cjs')] } : {})
     })
 
     expect(outcome.disposition).toBe('completed')

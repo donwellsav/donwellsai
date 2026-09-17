@@ -202,7 +202,7 @@ async function waitForAttemptState(started: { socketPath: string; token: string 
 describe('provider instance launch over the daemon wire', () => {
   it('launches an external instance as a real child with instance provenance', async () => {
     const { root, project } = workspace()
-    // An external shell program: no credential and no broker, so this proves the
+    // An external argv invocation: no credential and no broker, so this proves the
     // lease/preparation/admission/spawn path without Secret Authority.
     const script = join(root, 'child.cjs')
     writeFileSync(script, 'setTimeout(() => {}, 5000)', { mode: 0o600 })
@@ -210,7 +210,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Explicit child',
-      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script] } },
       credentialMode: 'external',
       accountId: null,
       enabled: true
@@ -242,7 +242,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Admission probe',
-      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script] } },
       credentialMode: 'external',
       accountId: null,
       enabled: true
@@ -278,7 +278,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Dismiss probe',
-      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script] } },
       credentialMode: 'external',
       accountId: null,
       enabled: true
@@ -315,7 +315,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Linked probe',
-      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script] } },
       credentialMode: 'external',
       accountId: null,
       enabled: true
@@ -382,7 +382,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Child',
-      command: { kind: 'external-shell', program: process.execPath },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [] } },
       credentialMode: 'external',
       accountId: null,
       enabled: true
@@ -404,7 +404,7 @@ describe('provider instance launch over the daemon wire', () => {
     const instanceId = await createInstance(started, {
       driverId: 'custom-command',
       displayName: 'Disabled child',
-      command: { kind: 'external-shell', program: process.execPath },
+      command: { kind: 'external-argv', executable: { executable: process.execPath, args: [] } },
       credentialMode: 'external',
       accountId: null,
       enabled: false

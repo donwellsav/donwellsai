@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { agentPresentation, type AgentPresentationStatus } from '@shared/agent-presentation'
-import type { AgentLiveness, RunningAgent } from '@shared/agent-runtime'
+import { AGENT_PROVIDER_DEFINITIONS, type AgentLiveness, type RunningAgent } from '@shared/agent-runtime'
 import {
   ATTENTION_ACKNOWLEDGED_HISTORY_LIMIT,
   ATTENTION_INBOX_SCHEMA_VERSION,
@@ -88,6 +88,9 @@ export class AttentionInboxService {
     let event: AttentionEvent | undefined
     const events = current.events.slice()
     if (kind) {
+      const provider = run.provider
+        ? AGENT_PROVIDER_DEFINITIONS.find((definition) => definition.id === run.provider!.driverId)
+        : undefined
       event = {
         id: randomUUID(),
         version: revision,
@@ -95,7 +98,7 @@ export class AttentionInboxService {
         sessionId: run.sessionId,
         workspacePath: run.workspacePath,
         command: run.command,
-        ...(run.presetId ? { providerId: run.presetId } : {}),
+        ...(provider ? { providerId: provider.id } : {}),
         kind,
         detail: presentation.description.slice(0, 512),
         occurredAt: this.now().toISOString(),

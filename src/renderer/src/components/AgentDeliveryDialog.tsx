@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { AgentAttachmentDraft } from '@shared/agent-delivery'
 import type { RunningAgent } from '@shared/agent-runtime'
+import { agentProviderName } from '@shared/agent-presentation'
 import { ModalDialog } from './ModalDialog'
 import './agent-delivery.css'
 
@@ -71,7 +72,7 @@ export function AgentDeliveryDialog({ attachment, onClose }: Props) {
         <span>Destination agent</span>
         <select className="input" id={targetId} value={sessionId} disabled={busy || !!receipt} onChange={(event) => setSessionId(event.target.value)}>
           <option value="">{loading ? 'Loading live agents…' : 'Select a live agent in this workspace'}</option>
-          {targets.map((run) => <option key={run.sessionId} value={run.sessionId}>{run.presetId ?? run.command} · {run.activity} · {run.sessionId.slice(0, 8)}</option>)}
+          {targets.map((run) => <option key={run.sessionId} value={run.sessionId}>{agentProviderName(run)} · {run.activity} · {run.sessionId.slice(0, 8)}</option>)}
         </select>
       </label>
       {!loading && targets.length === 0 && <p className="agent-delivery-caption">No eligible live agent. Start one in this workspace first. Permission prompts must be handled directly in its terminal.</p>}
