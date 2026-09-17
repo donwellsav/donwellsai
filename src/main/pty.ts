@@ -104,6 +104,22 @@ export class PtyManager {
     return session.session.exited ? 'exited' : 'live'
   }
 
+  /**
+   * The settled exit fact for any session kind, or null while it is running.
+   *
+   * `liveness` reports an exit as soon as the OS reports one, but the exit code
+   * and the trailing output are only complete after the deferred settlement
+   * (node-pty#72: data can arrive after exit fires). A consumer that reads
+   * `liveness` and then the exit code can therefore observe "exited" with no
+   * code yet and record a failure for a clean exit, so callers that need the
+   * result must use this instead.
+   */
+  settledExit(sessionId: string): { exited: boolean; exitCode?: number } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { exited: true }
+    return { exited: session.settled, exitCode: session.settled ? session.exitCode : undefined }
+  }
+
   isRetained(sessionId: string): boolean {
     const kind = this.sessions.get(sessionId)?.kind
     return kind === 'job' || kind === 'agent'

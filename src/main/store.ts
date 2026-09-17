@@ -309,7 +309,7 @@ export class Store {
     let fd: number | undefined
     try {
       fd = openSync(tmp, 'wx', 0o600)
-      writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+      writeFileSync(fd, `${JSON.stringify(serialized, null, 2)}\n`, 'utf8')
       fsyncSync(fd)
       closeSync(fd)
       fd = undefined

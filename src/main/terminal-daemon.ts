@@ -542,15 +542,72 @@ export class TerminalDaemon {
           },
           stop: sessionId => this.pty.stop(sessionId),
           stopProcess: identity => stopProcessByIdentity(identity),
-          output: sessionId => ({
-            stdout: this.scrollback.get(sessionId) ?? '',
-            stderr: '',
-            exited: this.pty.liveness(sessionId) === 'exited',
-            exitCode: this.providerExitCode.get(sessionId)
-          })
+          output: sessionId => {
+            // The settled fact, not raw liveness: `liveness` reports an exit as
+            // soon as the OS does, but the code and trailing output only become
+            // complete at the deferred settlement. Reading liveness here would
+            // let the pump record "exited with code null" for a clean exit.
+            const settled = this.pty.settledExit(sessionId)
+            return {
+              stdout: this.scrollback.get(sessionId) ?? '',
+              stderr: '',
+              exited: settled.exited,
+              exitCode: settled.exitCode
+            }
+          }
         }
       }
     })
+  }
+
+  /**
+   * Stops one provider child through the PTY the daemon owns it with.
+   *
+   * Provider runs carry no `AgentRecord`, so they take the same PTY operations
+   * as an ordinary agent but none of its launch-plan bookkeeping.
+   */
+  private async stopProviderRun(sessionId: string, run: RunningAgent): Promise<RunningAgent> {
+    if (run.liveness !== 'exited') {
+      const stopping: RunningAgent = { ...run, activity: 'stopping', stopRequestedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      this.providerRuns.set(sessionId, stopping)
+      this.broadcast({ event: 'agent-changed', run: stopping })
+    }
+    await this.pty.stop(sessionId)
+    return cloneRun(this.providerRuns.get(sessionId) ?? run)
+  }
+
+  /** Sends an interrupt to one live provider child; liveness still comes from the PTY. */
+  private interruptProviderRun(sessionId: string, run: RunningAgent): RunningAgent {
+    if (run.liveness === 'exited') return cloneRun(run)
+    if (!this.pty.has(sessionId)) {
+      const unverifiable: RunningAgent = { ...run, liveness: 'unverifiable', updatedAt: new Date().toISOString() }
+      this.providerRuns.set(sessionId, unverifiable)
+      this.broadcast({ event: 'agent-changed', run: unverifiable })
+      throw new Error('agent process ownership is unverifiable')
+    }
+    this.pty.interrupt(sessionId)
+    const stopRequestedAt = new Date().toISOString()
+    const interrupted: RunningAgent = {
+      ...run,
+      detail: 'Interrupt sent; the native process may remain open.',
+      stopRequestedAt,
+      updatedAt: stopRequestedAt
+    }
+    this.providerRuns.set(sessionId, interrupted)
+    this.broadcast({ event: 'agent-changed', run: interrupted })
+    return cloneRun(interrupted)
+  }
+
+  /** Releases one exited provider run and everything the daemon retains for it. */
+  private dismissProviderRun(sessionId: string): void {
+    this.pty.dismissExited(sessionId)
+    this.providerRuns.delete(sessionId)
+    this.providerExitCode.delete(sessionId)
+    this.providerBoundary.close(sessionId)
+    this.scrollback.delete(sessionId); this.replay.delete(sessionId)
+    this.truncated.delete(sessionId)
+    this.sequence.delete(sessionId)
+    this.broadcast({ event: 'agent-dismissed', sessionId })
   }
 
   /**
@@ -1435,13 +1492,31 @@ export class TerminalDaemon {
           break
         }
         case 'agent.get': {
-          const record = this.agentsBySession.get(String(message['sessionId']))
-          if (!record) throw new Error('unknown agent session')
-          reply(true, { run: cloneRun(record.run) })
+          const sessionId = String(message['sessionId'])
+          const record = this.agentsBySession.get(sessionId)
+          if (record) { reply(true, { run: cloneRun(record.run) }); break }
+          const provider = this.providerRuns.get(sessionId)
+          if (!provider) throw new Error('unknown agent session')
+          reply(true, { run: cloneRun(provider) })
           break
         }
         case 'agent.write': {
           const sessionId = String(message['sessionId'])
+          // A provider child is a PTY the daemon owns, so input reaches it the
+          // same way; only the bookkeeping differs, since provider runs have no
+          // AgentRecord.
+          const provider = this.providerRuns.get(sessionId)
+          if (provider) {
+            const ownerLiveness = this.pty.liveness(sessionId)
+            if (provider.liveness !== 'live' || ownerLiveness !== 'live') {
+              throw new Error('agent input rejected because process liveness is ' + ownerLiveness)
+            }
+            const data = message['data']
+            if (typeof data !== 'string' || data.length === 0) throw new Error('agent input must be a non-empty string')
+            this.pty.writeAgent(sessionId, data)
+            reply(true, {})
+            break
+          }
           const record = this.agentsBySession.get(sessionId)
           if (!record) throw new Error('unknown agent session')
           if (this.acp.isSwitching(sessionId)) throw new Error('Agent is switching modes')
@@ -1461,19 +1536,34 @@ export class TerminalDaemon {
           break
         }
         case 'agent.stop': {
-          const record = this.agentsBySession.get(String(message['sessionId']))
+          const sessionId = String(message['sessionId'])
+          const provider = this.providerRuns.get(sessionId)
+          if (provider) { reply(true, { run: await this.stopProviderRun(sessionId, provider) }); break }
+          const record = this.agentsBySession.get(sessionId)
           if (!record) throw new Error('unknown agent session')
           reply(true, { run: await this.stopAgent(record) })
           break
         }
         case 'agent.interrupt': {
-          const record = this.agentsBySession.get(String(message['sessionId']))
+          const sessionId = String(message['sessionId'])
+          const provider = this.providerRuns.get(sessionId)
+          if (provider) { reply(true, { run: this.interruptProviderRun(sessionId, provider) }); break }
+          const record = this.agentsBySession.get(sessionId)
           if (!record) throw new Error('unknown agent session')
           reply(true, { run: this.interruptAgent(record) })
           break
         }
         case 'agent.dismiss': {
           const sessionId = String(message['sessionId'])
+          const provider = this.providerRuns.get(sessionId)
+          if (provider) {
+            if (provider.liveness !== 'exited' || this.pty.liveness(sessionId) !== 'exited') {
+              throw new Error('agent session is still live or unverifiable and cannot be dismissed')
+            }
+            this.dismissProviderRun(sessionId)
+            reply(true, {})
+            break
+          }
           const record = this.agentsBySession.get(sessionId)
           if (!record) throw new Error('unknown agent session')
           if (record.run.liveness !== 'exited' || this.pty.liveness(sessionId) !== 'exited') {
