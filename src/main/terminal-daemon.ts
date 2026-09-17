@@ -1088,7 +1088,11 @@ export class TerminalDaemon {
   }
 
   private nativeOwnsHistory(workspacePath: string, history: string): boolean {
-    return [...this.agentsBySession.values()].some(({ run }) => run.workspacePath === workspacePath && run.presetId === 'opencode' && run.launch?.args.some((arg, index, args) => (arg === '--session' || arg === '-s') ? args[index + 1] === history : arg === '--session=' + history) && this.pty.liveness(run.sessionId) !== 'exited')
+    // Identity comes from the run's explicit launch executable, not from a
+    // recorded `presetId`: the native open records no provider identity, so
+    // reading one here would always be undefined and the ownership guard would
+    // never fire, letting two sessions own one history.
+    return [...this.agentsBySession.values()].some(({ run }) => run.workspacePath === workspacePath && agentProviderForExecutable(run.launch?.executable ?? '')?.id === 'opencode' && run.launch?.args.some((arg, index, args) => (arg === '--session' || arg === '-s') ? args[index + 1] === history : arg === '--session=' + history) && this.pty.liveness(run.sessionId) !== 'exited')
   }
 
   private async stopAgent(record: AgentRecord): Promise<RunningAgent> {
@@ -1346,7 +1350,14 @@ export class TerminalDaemon {
           const workspacePath = taskWireRequiredString(message['workspacePath'], 'workspacePath', 4096)
           const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
           const rawTask = message['task']
-          const run = await this.launchProviderInstance(socket, workspacePath, providerInstanceId, rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask))
+          const rawDriverArgs = message['driverArguments']
+          const run = await this.launchProviderInstance(
+            socket,
+            workspacePath,
+            providerInstanceId,
+            rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask),
+            Array.isArray(rawDriverArgs) ? rawDriverArgs.map(String) : undefined
+          )
           reply(true, { run })
           break
         }
@@ -1850,7 +1861,16 @@ export class TerminalDaemon {
    * fails closed and spawns nothing rather than falling back to inherited or file
    * credentials.
    */
-  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent): Promise<RunningAgent> {
+  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArgs?: readonly string[]): Promise<RunningAgent> {
+    // Driver-owned arguments (the project-memory MCP patch) come from the trusted
+    // main process, never from the renderer: the renderer names an instance and
+    // nothing else. They are applied only to a `driver` command, and only after
+    // this daemon has bounded them, so they cannot become an argv channel.
+    if (driverArgs !== undefined) {
+      if (!Array.isArray(driverArgs) || driverArgs.length > 32 || driverArgs.some(arg => typeof arg !== 'string' || arg.length > 4096 || arg.includes('\0'))) {
+        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'invalid driver arguments')
+      }
+    }
     const snapshot = this.providerCatalog.snapshot()
     const instance = snapshot.instances.find(candidate => candidate.id === providerInstanceId)
     if (!instance) throw new ProviderCatalogError('INSTANCE_NOT_FOUND', 'the selected provider instance no longer exists')
@@ -1900,7 +1920,8 @@ export class TerminalDaemon {
       connection,
       // An interactive agent outlives the launch call.
       interactive: true,
-      ...(task === undefined ? {} : { task })
+      ...(task === undefined ? {} : { task }),
+      ...(driverArgs === undefined ? {} : { driverArguments: driverArgs })
     })
     if (outcome.disposition !== 'launched' || outcome.sessionId === null) {
       throw new TaskAuthorityError('AUTHORIZATION_DENIED', outcome.reason ?? 'the provider-backed launch was refused')

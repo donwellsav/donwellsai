@@ -332,6 +332,12 @@ export class TaskExecutionCoordinator {
      * never reaches the child environment.
      */
     task?: AgentTaskIntent
+    /**
+     * Driver-owned arguments for a `driver` command (the project-memory MCP
+     * patch). Supplied by the trusted main process, never by the renderer, and
+     * ignored for every other command kind so it cannot become an argv channel.
+     */
+    driverArguments?: readonly string[]
   }>): Promise<ProviderLaunchOutcome> {
     const ports = this.provider
     if (!ports) return this.providerRejection(null, 'no provider-backed launch wiring is registered on this daemon')
@@ -363,6 +369,13 @@ export class TaskExecutionCoordinator {
     let invocation: ResolvedProviderInvocation
     try {
       invocation = resolveProviderLaunchInvocation(admission.command, admission.credentialMode, ports.driverExecutable)
+      // Driver-owned arguments append only to a driver-resolved invocation: a
+      // custom command is the user's own argv and stays exactly as authored.
+      if (input.driverArguments !== undefined && invocation.kind === 'driver' && input.driverArguments.length > 0) {
+        const launch = invocation.launch
+        if (launch === undefined) throw new ProviderInvocationError('EXECUTABLE_UNRESOLVED', 'driver invocation resolved no executable')
+        invocation = { ...invocation, args: [...invocation.args, ...input.driverArguments], launch: { executable: launch.executable, args: [...launch.args, ...input.driverArguments] } }
+      }
     } catch (error) {
       await this.failProviderAttempt(input, admission, `provider invocation refused: ${describeFailure(error)}`)
       await this.closeProviderMaintenance(claim, 'cancelled')

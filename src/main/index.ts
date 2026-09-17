@@ -860,6 +860,36 @@ void app.whenReady().then(async () => {
       ...summary.worktrees.map<AgentWorkspaceRegistration>((worktree) => ({ path: worktree.path, host: { kind: 'local' } }))
     ])
   })
+  /**
+   * Driver-owned launch arguments for one provider instance.
+   *
+   * The project-memory MCP patch is part of a driver's argument policy for
+   * codex and claude, which take it on the command line and write no config file:
+   * without it their launches silently lose project memory. It is computed here
+   * because it needs workspace and app paths the daemon does not have, and it is
+   * keyed on the instance's driver identity — never on a command string or a
+   * filename. Any failure degrades to no arguments rather than blocking a launch.
+   */
+  const providerDriverLaunchArguments = async (workspacePath: string, providerInstanceId: string): Promise<readonly string[]> => {
+    try {
+      const snapshot = await terminalBus.providerCatalogSnapshot()
+      const instance = snapshot.instances.find(candidate => candidate.id === providerInstanceId)
+      const driver = instance?.driver
+      if (driver === undefined || driver.kind !== 'known') return []
+      if (!['codex', 'claude'].includes(driver.id)) return []
+      const launch = instance?.command
+      if (launch?.kind !== 'driver') return []
+      const setup = await configureAgentMemory({
+        files: git, workspacePath, provider: driver.id, userDataDir: app.getPath('userData'),
+        executable: process.execPath, cliPath: join(appResourcesRoot(), 'cli', 'donwells.mjs')
+      })
+      return setup.launchArgs ?? []
+    } catch (error) {
+      logger.warn({ err: error, providerInstanceId }, 'provider launch without driver arguments')
+      return []
+    }
+  }
+
   ipcMain.handle('projectTasksInspect', (_e, path: string) => projectTasks.inspect(path))
   /**
    * The detached daemon cannot read this process's repository registry, so the
@@ -975,9 +1005,14 @@ void app.whenReady().then(async () => {
     credentialOwner(event)
     return terminalBus.providerCatalogSetDefault(instanceId, expectedRevision)
   })
-  ipcMain.handle('providerInstanceLaunch', (event, workspacePath: string, providerInstanceId: string, task?: Parameters<DaemonClient['providerInstanceLaunch']>[2]) => {
+  ipcMain.handle('providerInstanceLaunch', async (event, workspacePath: string, providerInstanceId: string, task?: Parameters<DaemonClient['providerInstanceLaunch']>[2]) => {
     credentialOwner(event)
-    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId, task)
+    // Driver-owned launch arguments are computed here, in the trusted main
+    // process, because the project-memory patch needs workspace and app paths the
+    // daemon does not have. They are derived from the instance's own driver
+    // identity — never from a command string — and the renderer supplies neither.
+    const driverArguments = await providerDriverLaunchArguments(workspacePath, providerInstanceId)
+    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId, task, driverArguments)
   })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 

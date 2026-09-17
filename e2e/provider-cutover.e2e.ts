@@ -88,7 +88,9 @@ test('an interactive launch is admitted from a provider instance and records its
     enabled: true
   } as never)
 
-  const instance = (created as { instances: Array<{ id: string }> }).instances.at(-1)
+  // Select by identity: the catalog snapshot is not ordered by insertion, so a
+  // positional pick would launch whichever instance happens to sort last.
+  const instance = (created as { instances: Array<{ id: string; displayName: string }> }).instances.find(candidate => candidate.displayName === 'E2E cutover instance')
   expect(instance).toBeDefined()
 
   // The real launch: instance named, nothing else. The daemon derives the lease,
@@ -128,4 +130,36 @@ test('the native open is not a provider launch and records no provider identity'
   expect(result.run.provider).toBeUndefined()
   expect(result.run.presetId).toBeUndefined()
   expect(result.run.sessionId).toBeTruthy()
+})
+
+test('a custom-command instance carries no driver-owned arguments', async () => {
+  // The project-memory MCP patch is a codex/claude driver argument that exists
+  // only on the command line: those drivers write no config file, so losing it
+  // silently disables project memory. It is computed in main from the instance's
+  // driver and appended to the driver-resolved invocation.
+  //
+  // codex itself is not installed on every machine, so this asserts the argument
+  // policy through a custom-command instance's launch instead: the recorded run
+  // command shows exactly what the daemon resolved, and a custom command must
+  // carry none of the driver's arguments.
+  const created = await page.evaluate(async () => {
+    return await window.donwells.providerCatalogCreate({
+      driverId: 'custom-command',
+      displayName: 'E2E argv policy instance',
+      command: { kind: 'external-shell', program: '/bin/echo policy-probe' },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    } as never)
+  }) as { instances: Array<{ id: string; displayName: string }> }
+
+  const instance = created.instances.find(candidate => candidate.displayName === 'E2E argv policy instance')!
+  const run = await page.evaluate(async ({ workspacePath, providerInstanceId }) => {
+    return await window.donwells.providerInstanceLaunch(workspacePath, providerInstanceId)
+  }, { workspacePath: repository, providerInstanceId: instance.id }) as { command?: string }
+
+  // A custom-command instance runs exactly its own spec: no driver argument is
+  // injected, so an instance can never become an argv channel.
+  expect(run.command).toContain('policy-probe')
+  expect(run.command).not.toContain('mcp_servers.donwells-project-memory')
 })

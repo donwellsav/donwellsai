@@ -302,6 +302,73 @@ function prepared(authority: SqliteTaskAuthority, catalog: ProviderCatalog, entr
   return { account, instance: bound, selection, claimed, marker }
 }
 
+describe('driver-owned launch arguments', () => {
+  it('appends them to a driver invocation so a codex launch keeps project memory', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    const { selection, claimed } = prepared(authority, catalog, entry, 'ARGS-1', 'external')
+    const gate = new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT })
+    const maintenance = maintenancePort(gate)
+    const child = childPort({ identity: IDENTITY() })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const driverArguments = ['-c', 'mcp_servers.donwells-project-memory={command=\"node\"}']
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-args',
+      workspaceRoot: entry.workspace, selection, connection: worker(), driverArguments
+    })
+
+    expect(outcome.disposition).toBe('completed')
+    expect(child.calls).toHaveLength(1)
+    // The driver's own executable stays first; the memory patch follows it.
+    expect(child.calls[0]!.program).toBe(entry.driver)
+    expect(child.calls[0]!.args).toEqual(driverArguments)
+  })
+
+  it('ignores them for a custom command so an instance never becomes an argv channel', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    // A custom-command instance is explicit external argv, not driver-owned.
+    const instance = catalog.create({
+      driverId: 'custom-command',
+      displayName: 'custom external',
+      command: { kind: 'external-shell', program: '/bin/echo hello' },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+    // The selection must name the instance's own driver, or admission refuses it.
+    const selection: ProviderSelection = { driverId: 'custom-command', providerInstanceId: instance.id, instanceRevision: instance.revision, accountId: null, accountRevision: null }
+    const claimed = claimWith(authority, 'ARGS-2', entry, selection)
+    const gate = new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT })
+    const maintenance = maintenancePort(gate)
+    const child = childPort({ identity: IDENTITY() })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-args-2',
+      workspaceRoot: entry.workspace, selection, connection: worker(),
+      driverArguments: ['--injected-by-caller']
+    })
+
+    expect(outcome.disposition).toBe('completed')
+    // The user's own program runs unchanged; no caller argument is appended.
+    expect(child.calls[0]!.args.join(' ')).not.toContain('--injected-by-caller')
+  })
+})
+
 describe('provider selection binding', () => {
   it('records an immutable selection on the attempt and refuses a provider-free attempt for provider admission', () => {
     const entry = profile()

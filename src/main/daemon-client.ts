@@ -1275,12 +1275,13 @@ export class DaemonClient {
    * Only the workspace and the instance cross the wire: the daemon owns the
    * lease, preparation, admission, and any credential materialization.
    */
-  async providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent): Promise<RunningAgent> {
+  async providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArguments?: readonly string[]): Promise<RunningAgent> {
     await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'launching a provider instance')
     const response = await this.request<{ run: unknown }>('agent.providers.launch', {
       workspacePath,
       providerInstanceId,
-      ...(task === undefined ? {} : { task: parseAgentTaskIntent(task) })
+      ...(task === undefined ? {} : { task: parseAgentTaskIntent(task) }),
+      ...(driverArguments === undefined ? {} : { driverArguments: [...driverArguments] })
     })
     return requireRunningAgent(response.run)
   }
