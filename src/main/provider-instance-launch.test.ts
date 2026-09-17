@@ -171,6 +171,34 @@ async function drainAcknowledgement(started: { socketPath: string; token: string
   return drained
 }
 
+/**
+ * Waits for the launched attempt to reach a terminal state, reading the durable
+ * Task Authority record rather than the daemon's in-memory run.
+ *
+ * This is the fact the launch is actually responsible for: an interactive
+ * launch whose lifecycle pump read a released session would record the attempt
+ * as failed, and only the persisted state shows that.
+ */
+async function waitForAttemptState(started: { socketPath: string; token: string }, projectId: string, expected: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const queried = await callWireOp(started.socketPath, started.token, 'task.query', { projectId })
+    // The op answers with the task list directly.
+    const tasks = queried['tasks']
+    if (Array.isArray(tasks)) {
+      for (const entry of tasks) {
+        if (typeof entry !== 'object' || entry === null) continue
+        const record = entry as Record<string, unknown>
+        const current = record['currentAttempt']
+        if (typeof current !== 'object' || current === null) continue
+        const state = (current as Record<string, unknown>)['state']
+        if (state === expected) return expected
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  return null
+}
+
 describe('provider instance launch over the daemon wire', () => {
   it('launches an external instance as a real child with instance provenance', async () => {
     const { root, project } = workspace()
@@ -240,6 +268,43 @@ describe('provider instance launch over the daemon wire', () => {
     const drained = await drainAcknowledgement(started)
     expect(drained).not.toBeNull()
     expect(drained).toMatchObject({ ok: true })
+  })
+
+  it('records a clean exit even when the run is dismissed right after it exits', async () => {
+    const { root, project } = workspace()
+    const script = join(root, 'child.cjs')
+    writeFileSync(script, 'process.exit(0)', { mode: 0o600 })
+    const started = await startDaemon([project])
+    const instanceId = await createInstance(started, {
+      driverId: 'custom-command',
+      displayName: 'Dismiss probe',
+      command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+      credentialMode: 'external',
+      accountId: null,
+      enabled: true
+    })
+
+    const launched = await callWireOp(started.socketPath, started.token, 'agent.providers.launch', {
+      workspacePath: root,
+      providerInstanceId: instanceId
+    })
+    expect(launched['ok']).toBe(true)
+    const sessionId = String((launched['run'] as Record<string, unknown>)['sessionId'])
+
+    expect(await waitForRunExit(started, sessionId)).toBe(true)
+    // Dismissing immediately after the exit exercises the shutdown order: the
+    // lifecycle pump reads the PTY's settled exit and final output, and the
+    // daemon joins that pump before releasing either. This asserts the durable
+    // result stays correct; it does not deterministically reproduce the narrow
+    // window (the pump polls every 10ms, so it usually wins the wire round trip).
+    const dismissed = await callWireOp(started.socketPath, started.token, 'agent.dismiss', { sessionId })
+    expect(dismissed['ok']).toBe(true)
+
+    // The durable result is what actually matters: the attempt must be recorded
+    // as completed rather than failed with a null exit code, which is what the
+    // pump would write if it read a released session.
+    const attempt = await waitForAttemptState(started, project.projectId, 'completed')
+    expect(attempt).toBe('completed')
   })
 
   it('refuses a launch naming an instance that does not exist, creating no child', async () => {

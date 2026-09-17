@@ -171,6 +171,13 @@ export type ProviderLaunchOutcome = Readonly<{
   exitCode: number | null
   /** Why a pre-spawn rejection produced no child; never secret material. */
   reason: string | null
+  /**
+   * Present for an interactive launch: resolves when the child's lifecycle pump
+   * has settled. A caller that releases the child's retained state must await
+   * this first, or the pump can read a deleted session and record a clean exit
+   * as a failure.
+   */
+  completion?: Promise<void>
 }>
 
 /** Typed, retryable marker for a launch that no broker could authorize. */
@@ -471,9 +478,10 @@ export class TaskExecutionCoordinator {
     // admission, which fences every later migration and keeps the attempt
     // running forever.
     if (input.interactive === true) {
-      void this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
+      const completion = this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
+        .then(() => undefined)
         .catch(() => undefined)
-      return { disposition: 'launched', admission, sessionId: opened.sessionId, exitCode: null, reason: null }
+      return { disposition: 'launched', admission, sessionId: opened.sessionId, exitCode: null, reason: null, completion }
     }
     return this.pumpProviderToExit(input, admission, opened, isolationRoot, claim)
   }

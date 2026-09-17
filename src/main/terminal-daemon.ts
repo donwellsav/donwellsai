@@ -299,6 +299,14 @@ export class TerminalDaemon {
   private readonly providerRuns = new Map<string, RunningAgent>()
   /** Exit codes observed for provider children, so `output` never infers exit. */
   private readonly providerExitCode = new Map<string, number>()
+  /**
+   * The lifecycle pump for each provider child.
+   *
+   * Dismissal must join this before releasing the child's state: the pump reads
+   * the PTY's settled exit and final output, and deleting them first would let a
+   * clean exit be recorded as a failure with its trailing output dropped.
+   */
+  private readonly providerPumps = new Map<string, Promise<unknown>>()
   /** The driver registry: the only source of a driver's exact executable. */
   private readonly registry = new AgentRegistry()
   private readonly acp: AcpSessions
@@ -599,9 +607,15 @@ export class TerminalDaemon {
   }
 
   /** Releases one exited provider run and everything the daemon retains for it. */
-  private dismissProviderRun(sessionId: string): void {
+  private async dismissProviderRun(sessionId: string): Promise<void> {
+    // Join the lifecycle pump first: it reads the PTY's settled exit and final
+    // output, so releasing either before it finishes would let a clean exit be
+    // recorded as a failure with its trailing output dropped.
+    await this.providerPumps.get(sessionId)?.catch(() => undefined)
+    this.providerPumps.delete(sessionId)
     this.pty.dismissExited(sessionId)
     this.providerRuns.delete(sessionId)
+    this.providerPumps.delete(sessionId)
     this.providerExitCode.delete(sessionId)
     this.providerBoundary.close(sessionId)
     this.scrollback.delete(sessionId); this.replay.delete(sessionId)
@@ -882,6 +896,7 @@ export class TerminalDaemon {
       this.truncated.delete(sessionId)
       this.sequence.delete(sessionId)
       this.providerRuns.delete(sessionId)
+      this.providerPumps.delete(sessionId)
       this.providerExitCode.delete(sessionId)
       this.providerBoundary.close(sessionId)
     }, REAP_EXITED_MS).unref()
@@ -1560,7 +1575,7 @@ export class TerminalDaemon {
             if (provider.liveness !== 'exited' || this.pty.liveness(sessionId) !== 'exited') {
               throw new Error('agent session is still live or unverifiable and cannot be dismissed')
             }
-            this.dismissProviderRun(sessionId)
+            await this.dismissProviderRun(sessionId)
             reply(true, {})
             break
           }
@@ -1577,6 +1592,7 @@ export class TerminalDaemon {
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           this.providerRuns.delete(sessionId)
+          this.providerPumps.delete(sessionId)
           this.providerExitCode.delete(sessionId)
           this.providerBoundary.close(sessionId)
           this.broadcast({ event: 'agent-dismissed', sessionId })
@@ -1609,6 +1625,7 @@ export class TerminalDaemon {
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
           this.providerRuns.delete(sessionId)
+          this.providerPumps.delete(sessionId)
           this.providerExitCode.delete(sessionId)
           this.providerBoundary.close(sessionId)
           reply(true, {})
@@ -1883,6 +1900,9 @@ export class TerminalDaemon {
     }
     const run = this.providerRuns.get(outcome.sessionId)
     if (!run) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the provider launch produced no run record')
+    // Retain the pump so dismissal can join it before releasing the child's
+    // PTY state and scrollback.
+    if (outcome.completion !== undefined) this.providerPumps.set(outcome.sessionId, outcome.completion)
     return cloneRun(run)
   }
 
