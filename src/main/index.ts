@@ -478,7 +478,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('listAgents', () => agentRuntime.listAgents())
-  ipcMain.handle('agentStart', (_e, ...args: Parameters<IpcApi['agentStart']>) => agentRuntime.start(...args))
+  ipcMain.handle('agentNativeOpen', (_e, ...args: Parameters<IpcApi['agentNativeOpen']>) => agentRuntime.openNative(...args))
   ipcMain.handle('agentList', () => agentRuntime.list())
   ipcMain.handle('agentSwitchMode', (_e, ...args: Parameters<IpcApi['agentSwitchMode']>) => agentRuntime.switchMode(...args))
   ipcMain.handle('agentSwitchResult', (_e, ...args: Parameters<IpcApi['agentSwitchResult']>) => agentRuntime.modeSwitchResult(...args))
@@ -975,9 +975,9 @@ void app.whenReady().then(async () => {
     credentialOwner(event)
     return terminalBus.providerCatalogSetDefault(instanceId, expectedRevision)
   })
-  ipcMain.handle('providerInstanceLaunch', (event, workspacePath: string, providerInstanceId: string) => {
+  ipcMain.handle('providerInstanceLaunch', (event, workspacePath: string, providerInstanceId: string, task?: Parameters<DaemonClient['providerInstanceLaunch']>[2]) => {
     credentialOwner(event)
-    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId)
+    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId, task)
   })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 

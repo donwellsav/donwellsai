@@ -71,7 +71,7 @@ type ModeSwitchAcp = {
 }
 type ModeSwitchProbe = {
   acp: ModeSwitchAcp
-  createAgent: (...args: unknown[]) => unknown
+  openNativeTerminal: (...args: unknown[]) => unknown
   handleOp: (socket: Socket, message: Record<string, unknown>) => Promise<void>
 }
 
@@ -262,7 +262,7 @@ async function stoppedModeSwitch(verdict: VerdictKind): Promise<unknown> {
       return { requestId, workspacePath, sessionId, target, state: 'accepted', continuity: 'same-history' }
     }
   }
-  probe.createAgent = () => ({ created: 'native-owner' })
+  probe.openNativeTerminal = () => ({ created: 'native-owner' })
   const socket = {
     destroyed: false,
     writableLength: 0,

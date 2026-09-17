@@ -149,33 +149,40 @@ export class AgentRuntime {
     this.cachedRuns.delete(sessionId)
   }
 
-  async start(workspacePath: string, command: string | AgentExecutable, task?: AgentTaskIntent): Promise<AgentStartResult> {
+  /**
+   * Opens one native terminal for an explicitly addressed local tool.
+   *
+   * This is deliberately NOT a provider launch. The caller names the exact
+   * executable and argv, the run records no driver or instance identity, and no
+   * provider is inferred from a command or executable name. It serves the two
+   * dynamic-arity native flows that cannot be an instance's static command spec:
+   * resuming an indexed conversation (`omp --resume <file>`), and the memory
+   * harness setup that runs a tool with computed arguments.
+   *
+   * Interactive agent launches go through the provider-instance path instead,
+   * where the daemon admits the exact instance, account, and revision.
+   */
+  async openNative(workspacePath: string, requested: AgentExecutable, task?: AgentTaskIntent): Promise<AgentStartResult> {
     const intent = task === undefined ? undefined : parseAgentTaskIntent(task)
-    let launch = typeof command === 'string' ? undefined : parseAgentExecutable(command)
-    if (launch) {
-      const executable = this.registry.findExecutable(launch.executable)
-      if (!executable) throw new Error('Agent executable is unavailable')
-      launch.executable = executable
-    }
-    const normalizedCommand = typeof command === 'string' ? command.trim() : JSON.stringify([launch!.executable, ...launch!.args])
+    const parsed = parseAgentExecutable(requested)
+    const executable = this.registry.findExecutable(parsed.executable)
+    if (!executable) throw new Error('Agent executable is unavailable')
+    let launch: AgentExecutable = { ...parsed, executable }
+    const normalizedCommand = [launch.executable, ...launch.args].join(' ')
     if (!normalizedCommand || normalizedCommand.includes('\0')) throw new Error('agent command is empty or invalid')
     if (normalizedCommand.length > MAX_AGENT_COMMAND_LENGTH) throw new Error('agent command exceeds limit')
     const registrations = await this.options.registeredWorkspaces()
     const cwd = validateAgentWorkspacePath(workspacePath, registrations)
     if (intent?.externalId !== undefined) throw new TaskLinkedAgentOpenError()
-    const provider = launch ? agentProviderForExecutable(launch.executable) : this.registry.providerForCommand(normalizedCommand)
-    if (!launch && provider && !this.registry.findExecutable(normalizedCommand)) {
-      throw new Error(`${provider.name} executable is unavailable`)
-    }
-
-
+    // Project-memory MCP injection is keyed on the exact executable's provider.
+    // Matching it installs hooks; it never becomes launch authority.
+    const provider = agentProviderForExecutable(launch.executable)
     if (provider && ['codex', 'claude'].includes(provider.id) && this.options.nativeMcpArgs) {
-      launch ??= { executable: this.registry.findExecutable(normalizedCommand)!, args: [] }
       const args = await this.options.nativeMcpArgs(cwd, provider.id, launch.args)
       launch = { ...launch, args: [...args, ...launch.args] }
       validateAgentWorkspacePath(workspacePath, await this.options.registeredWorkspaces())
     }
-    const result = intent ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch, 100, 30, intent) : launch ? await this.daemon.startAgent(cwd, normalizedCommand, provider?.id, launch) : await this.daemon.startAgent(cwd, normalizedCommand, provider?.id)
+    const result = await this.daemon.openNativeTerminal(cwd, launch, 100, 30, intent)
     this.observe(result.run)
     return structuredClone(result)
   }
@@ -229,11 +236,9 @@ export class AgentRuntime {
 }
 
 export type AgentRuntimeDaemonContract = Partial<Pick<DaemonClient, 'switchMode' | 'modeSwitchResult' | 'startAcp' | 'listAcp' | 'observeAcp' | 'promptAcp' | 'controlAcp'>> & {
-  startAgent: (
+  openNativeTerminal: (
     cwd: string,
-    command: string,
-    providerId?: AgentProviderId,
-    launch?: AgentExecutable,
+    launch: AgentExecutable,
     cols?: number,
     rows?: number,
     task?: AgentTaskIntent

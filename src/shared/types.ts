@@ -497,7 +497,8 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   projectTasksInspect(workspacePath: string): Promise<import('./agent-runtime').ProjectTasksInspection>
   projectTaskAuthority(workspacePath: string, enabled: boolean): Promise<void>
   projectTaskTool(workspacePath: string, tool: 'lazygit' | 'backlog'): Promise<TerminalSession>
-  agentStart(workspacePath: string, command: string | import('./agent-runtime').AgentExecutable, task?: import('./agent-runtime').AgentTaskIntent): Promise<AgentStartResult>
+  /** Opens a native PTY for an explicitly addressed local tool. Not a provider launch. */
+  agentNativeOpen(workspacePath: string, launch: import('./agent-runtime').AgentExecutable, task?: import('./agent-runtime').AgentTaskIntent): Promise<AgentStartResult>
   agentList(): Promise<RunningAgent[]>
   agentSwitchMode(workspacePath: string, sessionId: string, target: 'native' | 'acp', requestId: string, context?: string): Promise<import('./agent-runtime').AgentModeSwitchReceipt>
   agentSwitchResult(workspacePath: string, requestId: string): Promise<import('./agent-runtime').AgentModeSwitchReceipt>
@@ -538,7 +539,7 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
    * the launch admission itself, and no lease, preparation, broker frame,
    * credential ref, or binding generation crosses this boundary.
    */
-  providerInstanceLaunch(workspacePath: string, providerInstanceId: string): Promise<import('./agent-runtime').RunningAgent>
+  providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: import('./agent-runtime').AgentTaskIntent): Promise<import('./agent-runtime').RunningAgent>
 
   // Auto-updater IPC surface
   autoUpdaterCheck(): Promise<boolean>

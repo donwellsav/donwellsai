@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentExecutable } from '@shared/agent-runtime'
+import type { AgentExecutable, AgentTaskIntent } from '@shared/agent-runtime'
 import type { ProcessIdentity, ProcessIdentityVerdict } from '@shared/child-process/process-spec'
 import { isolatedProviderEnvironment } from '@shared/child-process/process-environment'
 import {
@@ -134,6 +134,8 @@ export interface ProviderChildPort {
      * this from the selection alone.
      */
     credentialMode: ProviderCredentialMode
+    /** Caller task metadata recorded on the run; never launch authority. */
+    task?: AgentTaskIntent
   }): OpenedTaskChild
   stop(sessionId: string): Promise<void>
   stopProcess(identity: ProcessIdentity): Promise<void>
@@ -324,6 +326,12 @@ export class TaskExecutionCoordinator {
      * which is what a finite task child needs.
      */
     interactive?: boolean
+    /**
+     * The caller's task metadata (intent, files, template). It is display and
+     * routing context recorded on the run; it is never launch authority and
+     * never reaches the child environment.
+     */
+    task?: AgentTaskIntent
   }>): Promise<ProviderLaunchOutcome> {
     const ports = this.provider
     if (!ports) return this.providerRejection(null, 'no provider-backed launch wiring is registered on this daemon')
@@ -444,7 +452,8 @@ export class TaskExecutionCoordinator {
         cols: this.providerCols,
         rows: this.providerRows,
         selection: admission.selection,
-        credentialMode: admission.credentialMode
+        credentialMode: admission.credentialMode,
+        ...(input.task === undefined ? {} : { task: input.task })
       })
     } catch (error) {
       releaseIsolation()

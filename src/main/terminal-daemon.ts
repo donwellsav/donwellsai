@@ -56,7 +56,6 @@ import {
   AGENT_PROVIDER_DEFINITIONS,
   AGENT_HOOK_CAPABILITY,
   ACP_DAEMON_CAPABILITY,
-  agentProviderForCommand,
   agentProviderForExecutable,
   parseAgentExecutable,
   parseAgentTaskIntent,
@@ -545,7 +544,7 @@ export class TerminalDaemon {
               exactEnv: true
             })
             this.sequence.set(session.id, 0)
-            this.publishProviderRun(input.sessionId, input.selection, input.workspaceRoot, input.invocation)
+            this.publishProviderRun(input.sessionId, input.selection, input.workspaceRoot, input.invocation, input.task)
             return { sessionId: session.id, processIdentity: this.pty.processIdentity(session.id) }
           },
           stop: sessionId => this.pty.stop(sessionId),
@@ -630,13 +629,14 @@ export class TerminalDaemon {
    * than a command family. Identity and display facts only: no credential ref,
    * generation, or environment value is recorded here.
    */
-  private publishProviderRun(sessionId: string, selection: ProviderSelection, workspaceRoot: string, invocation: ResolvedProviderInvocation): void {
+  private publishProviderRun(sessionId: string, selection: ProviderSelection, workspaceRoot: string, invocation: ResolvedProviderInvocation, task?: AgentTaskIntent): void {
     const now = new Date().toISOString()
     const run: RunningAgent = {
       id: randomUUID(),
       sessionId,
       workspacePath: workspaceRoot,
       command: [invocation.program, ...invocation.args].join(' '),
+      ...(task === undefined ? {} : { task: parseAgentTaskIntent(task) }),
       provider: {
         driverId: selection.driverId,
         providerInstanceId: selection.providerInstanceId,
@@ -1100,27 +1100,36 @@ export class TerminalDaemon {
     return cloneRun(record.run)
   }
 
-  private createAgent(
+  /**
+   * Opens a native PTY for one explicitly addressed local tool.
+   *
+   * This is not a provider launch and carries no provider authority: the caller
+   * names an exact executable and its arguments, and the run records no driver
+   * or instance identity. Provider identity is never inferred from an executable
+   * name or a command string here. It exists for the dynamic-arity native flows
+   * that cannot be an instance's static command spec — resuming an indexed
+   * conversation (`omp --resume <file>`, `dsh --profile tui --resume <id>`) and
+   * the ACP-to-native mode switch that resumes a protocol session.
+   */
+  private openNativeTerminal(
     cwd: string,
-    command: string,
-    requestedProviderId: AgentProviderId | undefined,
+    requestedLaunch: AgentExecutable,
     cols: number,
     rows: number,
-    launch?: AgentExecutable,
     task?: AgentTaskIntent
   ): { run: RunningAgent; session: TerminalSession } {
-    if (!command.trim() || command.includes('\0') || Buffer.byteLength(command) > MAX_AGENT_COMMAND_BYTES) {
-      throw new Error('agent command is empty or invalid')
+    const launch = parseAgentExecutable(requestedLaunch)
+    const command = [launch.executable, ...launch.args].join(' ').trim()
+    if (!command || command.includes('\0') || Buffer.byteLength(command) > MAX_AGENT_COMMAND_BYTES) {
+      throw new Error('native terminal command is empty or invalid')
     }
-    const inferredProvider = launch ? agentProviderForExecutable(launch.executable) : agentProviderForCommand(command)
-    if (requestedProviderId && inferredProvider?.id !== requestedProviderId) {
-      throw new Error('agent provider does not match the exact command')
-    }
-    const provider = requestedProviderId
-      ? AGENT_PROVIDER_DEFINITIONS.find((candidate) => candidate.id === requestedProviderId)
-      : inferredProvider
-    const historyArg = launch?.args.findIndex(arg => arg === '--session' || arg === '-s' || arg.startsWith('--session=')) ?? -1
-    const history = historyArg < 0 ? undefined : launch!.args[historyArg].startsWith('--session=') ? launch!.args[historyArg].slice(10) : launch!.args[historyArg + 1]
+    // Matching an exact executable to its hook adapter is not launch authority:
+    // it only decides which provider's hooks to install. No identity is recorded.
+    const provider = agentProviderForExecutable(launch.executable)
+    const historyArg = launch.args.findIndex(arg => arg === '--session' || arg === '-s' || arg.startsWith('--session='))
+    const history = historyArg < 0 ? undefined : launch.args[historyArg].startsWith('--session=') ? launch.args[historyArg].slice(10) : launch.args[historyArg + 1]
+    // Two sessions must never own one OpenCode history: an unverifiable or live
+    // owner refuses a second native open rather than racing it.
     if (provider?.id === 'opencode' && history && (this.acp.ownsHistory(cwd, history) || this.nativeOwnsHistory(cwd, history))) throw new Error('OpenCode history already has an active or unverifiable owner')
     const runId = randomUUID()
     const sessionId = randomUUID()
@@ -1133,7 +1142,7 @@ export class TerminalDaemon {
     }
     const launchPlan = createAgentLaunchPlan({
       command,
-      ...(launch ? { launch } : {}),
+      launch,
       provider,
       binding,
       emitterCommand: this.emitterCommand,
@@ -1143,12 +1152,11 @@ export class TerminalDaemon {
     const now = new Date().toISOString()
     const run: RunningAgent = {
       ...(task ? { task: parseAgentTaskIntent(task) } : {}),
-      ...(launch ? { launch: structuredClone(launch) } : {}),
+      launch: structuredClone(launch),
       id: runId,
       sessionId,
       workspacePath: cwd,
       command,
-      ...(provider ? { presetId: provider.id } : {}),
       startedAt: now,
       updatedAt: now,
       liveness: 'live',
@@ -1232,7 +1240,7 @@ export class TerminalDaemon {
               if (!['ready', 'exited'].includes(prior.state) || !prior.protocolSessionId) throw new Error('Finish or stop the current ACP turn before switching')
               const stopped = await this.acp.control(workspacePath, sessionId, 'stop')
               if (this.identity.verify(stopped.processIdentity).status !== 'stale') throw new Error('ACP process stop could not be verified')
-              return { native: this.createAgent(workspacePath, 'opencode', 'opencode', 100, 30, { executable, args: [workspacePath, '--session', prior.protocolSessionId] }) }
+              return { native: this.openNativeTerminal(workspacePath, { executable, args: [workspacePath, '--session', prior.protocolSessionId] }, 100, 30) }
             }
             const native = this.agentsBySession.get(sessionId)
             if (!native || native.run.workspacePath !== workspacePath) throw new Error('Native session is not owned by this workspace')
@@ -1304,26 +1312,23 @@ export class TerminalDaemon {
           })
           break
         }
-        case 'agent.open': {
+        case 'agent.native.open': {
+          // An explicitly addressed local tool, not a provider launch: the caller
+          // supplies the exact executable and argv, and no provider identity is
+          // inferred or recorded. Used by the dynamic-arity native flows (resume
+          // an indexed conversation, ACP-to-native switch) that cannot be an
+          // instance's static command spec.
           const rawTask = message['task']
-          if (rawTask !== undefined) {
-            const task = parseAgentTaskIntent(rawTask)
-            if (task.externalId !== undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task-linked agent.open must use the task coordinator claim and launch-intent path')
-          }
-          const rawProviderId = message['providerId']
-          const provider = typeof rawProviderId === 'string'
-            ? AGENT_PROVIDER_DEFINITIONS.find((candidate) => candidate.id === rawProviderId)
-            : undefined
-          if (rawProviderId !== undefined && !provider) throw new Error('unknown agent provider')
-          const providerId = provider?.id
-          const result = this.createAgent(
+          const task = rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask)
+          if (task?.externalId !== undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task-linked native opens must use the task coordinator claim and launch-intent path')
+          const rawLaunch = message['launch']
+          if (rawLaunch === undefined) throw new Error('native opens require an explicit launch')
+          const result = this.openNativeTerminal(
             String(message['cwd']),
-            String(message['command'] ?? ''),
-            providerId,
+            parseAgentExecutable(rawLaunch),
             Number(message['cols'] ?? 100),
             Number(message['rows'] ?? 30),
-            message['launch'] === undefined ? undefined : parseAgentExecutable(message['launch']),
-            undefined
+            task
           )
           reply(true, result)
           break
@@ -1340,7 +1345,8 @@ export class TerminalDaemon {
           // credential, lease, or preparation crosses this boundary.
           const workspacePath = taskWireRequiredString(message['workspacePath'], 'workspacePath', 4096)
           const providerInstanceId = taskWireRequiredString(message['providerInstanceId'], 'providerInstanceId')
-          const run = await this.launchProviderInstance(socket, workspacePath, providerInstanceId)
+          const rawTask = message['task']
+          const run = await this.launchProviderInstance(socket, workspacePath, providerInstanceId, rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask))
           reply(true, { run })
           break
         }
@@ -1844,7 +1850,7 @@ export class TerminalDaemon {
    * fails closed and spawns nothing rather than falling back to inherited or file
    * credentials.
    */
-  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string): Promise<RunningAgent> {
+  private async launchProviderInstance(socket: Socket, workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent): Promise<RunningAgent> {
     const snapshot = this.providerCatalog.snapshot()
     const instance = snapshot.instances.find(candidate => candidate.id === providerInstanceId)
     if (!instance) throw new ProviderCatalogError('INSTANCE_NOT_FOUND', 'the selected provider instance no longer exists')
@@ -1893,7 +1899,8 @@ export class TerminalDaemon {
       selection,
       connection,
       // An interactive agent outlives the launch call.
-      interactive: true
+      interactive: true,
+      ...(task === undefined ? {} : { task })
     })
     if (outcome.disposition !== 'launched' || outcome.sessionId === null) {
       throw new TaskAuthorityError('AUTHORIZATION_DENIED', outcome.reason ?? 'the provider-backed launch was refused')

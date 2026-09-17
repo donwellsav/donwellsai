@@ -2,7 +2,6 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import {
   AGENT_PROVIDER_DEFINITIONS,
-  agentProviderForCommand,
   type AgentPreset,
   type AgentProviderDefinition
 } from '@shared/agent-runtime'
@@ -58,9 +57,6 @@ export class AgentRegistry {
     })
   }
 
-  providerForCommand(command: string): AgentProviderDefinition | undefined {
-    return agentProviderForCommand(command)
-  }
 
   findExecutable(command: string): string | undefined {
     const extensions = executableExtensions(this.env, this.platform)

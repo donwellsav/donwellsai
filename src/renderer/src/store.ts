@@ -349,7 +349,15 @@ type AppState = {
   refreshScan(worktreePath: string): Promise<void>
 
   focusAgentSession(sessionId: string): Promise<boolean>
-  runAgent(worktreePath: string, command: string | AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent): Promise<{ ok: true } | { ok: false; error: string }>
+  /**
+   * Opens a native terminal for one explicitly addressed local tool.
+   *
+   * This is NOT a provider launch and carries no provider identity: it serves the
+   * dynamic-arity native flows (resuming an indexed conversation, harness memory
+   * setup) that cannot be an instance's static command spec. Interactive agent
+   * launches go through `launchProviderInstance`.
+   */
+  openNativeTerminal(worktreePath: string, launch: AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent): Promise<{ ok: true } | { ok: false; error: string }>
   /**
    * Starts an interactive agent from a selected provider instance.
    *
@@ -357,7 +365,7 @@ type AppState = {
    * an instance and the daemon derives the worker identity, lease, Catalog
    * preparation, and admission itself.
    */
-  launchProviderInstance(worktreePath: string, providerInstanceId: string): Promise<{ ok: true } | { ok: false; error: string }>
+  launchProviderInstance(worktreePath: string, providerInstanceId: string, task?: import('@shared/agent-runtime').AgentTaskIntent): Promise<{ ok: true } | { ok: false; error: string }>
   /**
    * Adopts a catalog snapshot the settings surface just fetched.
    *
@@ -1843,16 +1851,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async runAgent(worktreePath: string, command: string | AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent) {
-    const trimmed = typeof command === 'string' ? command.trim() : command
-    if (!trimmed) {
-      const error = 'Enter an agent command.'
+  async openNativeTerminal(worktreePath: string, requested: AgentExecutable, task?: import('@shared/agent-runtime').AgentTaskIntent) {
+    if (!requested.executable.trim()) {
+      const error = 'Enter a local tool to open.'
       set({ error })
       return { ok: false as const, error }
     }
     try {
-      const preset = typeof trimmed === 'string' ? get().agents.find(agent => agent.command === trimmed && agent.executablePath) : undefined
-      const result = await window.donwells.agentStart(worktreePath, preset?.executablePath ? { executable: preset.executablePath, args: [] } : trimmed, task)
+      const result = await window.donwells.agentNativeOpen(worktreePath, requested, task)
       set((state) => ({
         ...activateTerminalSession(state, result.session),
         runningAgents: { ...state.runningAgents, [result.run.sessionId]: result.run },
@@ -1862,12 +1868,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       persistSessionSoon()
       return { ok: true as const }
     } catch (cause) {
-      const error = 'Agent start failed: ' + (cause instanceof Error ? cause.message : String(cause))
+      const error = 'Opening the native terminal failed: ' + (cause instanceof Error ? cause.message : String(cause))
       set({ error })
       return { ok: false as const, error }
     }
   },
-
   /**
    * Starts an interactive agent from a selected provider instance.
    *
@@ -1879,9 +1884,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ providerCatalog: catalog })
   },
 
-  async launchProviderInstance(worktreePath: string, providerInstanceId: string) {
+  async launchProviderInstance(worktreePath: string, providerInstanceId: string, task?: import('@shared/agent-runtime').AgentTaskIntent) {
     try {
-      const run = await window.donwells.providerInstanceLaunch(worktreePath, providerInstanceId)
+      const run = await window.donwells.providerInstanceLaunch(worktreePath, providerInstanceId, task)
       set((state) => ({
         runningAgents: { ...state.runningAgents, [run.sessionId]: run },
         runsOpen: false,

@@ -1183,23 +1183,31 @@ export class DaemonClient {
     return response.session
   }
 
-  async startAgent(
+  /**
+   * Opens a native PTY for an explicitly addressed local tool.
+   *
+   * This is not a provider launch: the caller names the executable and argv, and
+   * the daemon records no provider identity. It serves the dynamic-arity native
+   * flows — resuming an indexed conversation and the ACP-to-native switch — that
+   * cannot be an instance's static command spec. Interactive agent launches go
+   * through `launchProviderInstance` instead.
+   */
+  async openNativeTerminal(
     cwd: string,
-    command: string,
-    providerId?: AgentProviderId,
-    launch?: AgentExecutable,
+    launch: AgentExecutable,
     cols = 100,
     rows = 30,
     task?: AgentTaskIntent
   ): Promise<AgentStartResult> {
     if (task) { task = parseAgentTaskIntent(task); await this.requireCapability('agent-task-intent-v1', 'retaining task intent') }
-    if (launch) await this.requireCapability('agent-argv-v1', 'starting an agent with explicit arguments')
-    await this.requireCapability(AGENT_RUNS, 'starting an agent run')
-    await this.requireCapability(SEQUENCED_OUTPUT, 'starting an agent run')
+    await this.requireCapability(AGENT_RUNS, 'opening a native terminal')
+    await this.requireCapability(SEQUENCED_OUTPUT, 'opening a native terminal')
 
-    // Resolve session template if specified
-    let resolvedCommand = command
+    // Session templates prepend a system prompt and carry an environment. The
+    // provider-backed path applies them in the daemon coordinator; here they are
+    // applied to the explicit launch the caller already named.
     let resolvedEnv: Record<string, string> | undefined
+    let resolvedLaunch = launch
     if (task?.templateId) {
       try {
         const { getServices } = await import('./services')
@@ -1207,27 +1215,23 @@ export class DaemonClient {
         if (templates) {
           const template = await templates.get(task.templateId)
           if (template?.systemPrompt) {
-            resolvedCommand = template.systemPrompt + '\n\n---\n\n' + command
+            resolvedLaunch = { ...resolvedLaunch, args: [template.systemPrompt + '\n\n---\n\n', ...resolvedLaunch.args] }
           }
-          if (template?.env) {
-            resolvedEnv = template.env
-          }
+          if (template?.env) resolvedEnv = template.env
         }
       } catch (err) {
-        // Template unresolved — the launch proceeds without it; record so the loss is visible.
-        logger.warn({ err, templateId: task.templateId }, 'agent launch without session template')
+        // Template unresolved — the open proceeds without it; record so the loss is visible.
+        logger.warn({ err, templateId: task.templateId }, 'native terminal open without session template')
       }
     }
 
-    const response = await this.request<{ run: unknown; session: TerminalSession }>('agent.open', {
+    const response = await this.request<{ run: unknown; session: TerminalSession }>('agent.native.open', {
       cwd,
-      command: resolvedCommand,
-      ...(providerId ? { providerId } : {}),
-      ...(launch ? { launch } : {}),
-      ...(task ? { task } : {}),
+      launch: resolvedLaunch,
       cols,
       rows,
-      ...(resolvedEnv ? { env: resolvedEnv } : {}),
+      ...(task ? { task } : {}),
+      ...(resolvedEnv ? { env: resolvedEnv } : {})
     })
     return { run: requireRunningAgent(response.run), session: response.session }
   }
@@ -1271,9 +1275,13 @@ export class DaemonClient {
    * Only the workspace and the instance cross the wire: the daemon owns the
    * lease, preparation, admission, and any credential materialization.
    */
-  async providerInstanceLaunch(workspacePath: string, providerInstanceId: string): Promise<RunningAgent> {
+  async providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent): Promise<RunningAgent> {
     await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'launching a provider instance')
-    const response = await this.request<{ run: unknown }>('agent.providers.launch', { workspacePath, providerInstanceId })
+    const response = await this.request<{ run: unknown }>('agent.providers.launch', {
+      workspacePath,
+      providerInstanceId,
+      ...(task === undefined ? {} : { task: parseAgentTaskIntent(task) })
+    })
     return requireRunningAgent(response.run)
   }
   async providerCatalogCreateAccount(input: { driverId: ProviderAccount['driverId']; displayLabel: string }): Promise<ProviderCatalogSnapshot> {

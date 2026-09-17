@@ -1164,13 +1164,6 @@ export function normalizeAgentHookMessage(value: unknown): AgentHookMessage | nu
   return detail ? { kind: value['kind'], detail } : { kind: value['kind'] }
 }
 
-/** Only an exact registry command or executable path receives provider-specific hooks. */
-export function agentProviderForCommand(command: string): AgentProviderDefinition | undefined {
-  const trimmed = command.trim()
-  if (!trimmed || /[\s;&|<>`$]/.test(trimmed)) return undefined
-  return agentProviderForExecutable(trimmed)
-}
-
 export function unavailableAgentHooks(reason: string): AgentHookSupport {
   return { support: 'unavailable', events: [], reason }
 }

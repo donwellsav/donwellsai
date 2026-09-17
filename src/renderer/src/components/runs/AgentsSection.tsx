@@ -41,7 +41,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
   // advanced escape hatch and no longer seeds from a retired global setting.
   const defaultCommand = ''
   const focusAgentSession = useAppStore((state) => state.focusAgentSession)
-  const runAgent = useAppStore((state) => state.runAgent)
+  const openNativeTerminal = useAppStore((state) => state.openNativeTerminal)
   const launchProviderInstance = useAppStore((state) => state.launchProviderInstance)
   // The provider catalog is the launch authority after the Stage 3 cutover.
   const { snapshot: providerCatalog } = useProviderInstances()
@@ -161,14 +161,19 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
   const launch = async (): Promise<void> => {
     const trimmed = command.trim()
     if (!targetPath || launching || configuringMemory) return
-    // A selected provider instance is the launch authority; a command string is
-    // only the advanced escape hatch, and the daemon admits an instance exactly
-    // (its revision and account) while a command cannot be admitted at all.
+    // A provider instance is the launch authority. The daemon admits the exact
+    // instance, its revision, and its account; a command string cannot be
+    // admitted at all, so it is no longer a way to start an agent.
     if (providerInstanceId !== '') {
       setLaunching(true)
       setLaunchError(null)
       try {
-        const result = await launchProviderInstance(targetPath, providerInstanceId)
+        const result = await launchProviderInstance(targetPath, providerInstanceId, {
+          intent: intent || '',
+          files: intendedFiles,
+          ...(externalId ? { externalId } : {}),
+          ...(selectedTemplateId ? { templateId: selectedTemplateId } : {})
+        })
         if (!result.ok) {
           setLaunchError(result.error)
           return
@@ -181,30 +186,28 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
       }
       return
     }
-    if (!trimmed) return
-    setLaunching(true)
-    setLaunchError(null)
-    try {
-      const result = await runAgent(
-        targetPath,
-        launchDirect ? { executable: trimmed, args: [...memoryLaunchArgs, ...args] } : trimmed,
-        {
-          intent: intent || '',
-          files: intendedFiles,
-          ...(externalId ? { externalId } : {}),
-          ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
+    if (launchDirect) {
+      // The advanced escape hatch opens one explicitly addressed local tool. It
+      // is not a provider launch: the run records no driver or instance identity,
+      // and the memory MCP arguments stay exactly the ones typed here.
+      if (!trimmed) return
+      setLaunching(true)
+      setLaunchError(null)
+      try {
+        const result = await openNativeTerminal(targetPath, { executable: trimmed, args: [...memoryLaunchArgs, ...args] })
+        if (!result.ok) {
+          setLaunchError(result.error)
+          return
         }
-      )
-      if (!result.ok) {
-        setLaunchError(result.error)
-        return
+        useAppStore.setState({ agentComposerOpen: false })
+        agentDrafts.delete(draftKey)
+        setIntent(''); setFiles(''); setExternalId('')
+      } finally {
+        setLaunching(false)
       }
-      useAppStore.setState({ agentComposerOpen: false })
-      agentDrafts.delete(draftKey)
-      setIntent(''); setFiles(''); setExternalId('')
-    } finally {
-      setLaunching(false)
+      return
     }
+    setLaunchError('Select a provider instance, or use Advanced to open a local tool.')
   }
 
   const openTerminal = async (run: RunningAgent): Promise<void> => {
@@ -227,7 +230,16 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
     setOperation(key)
     setSessionError(run.sessionId, null)
     try {
-      const result = await runAgent(run.workspacePath, run.launch ?? run.command, run.task)
+      // A run admitted for a provider instance is retried against that exact
+      // instance. A run recorded before provider instances existed has no
+      // instance to admit, and its command text is no longer launch authority,
+      // so retrying it would be a command launch by another name.
+      const instanceId = run.provider?.providerInstanceId
+      if (instanceId === undefined) {
+        setSessionError(run.sessionId, 'This session predates provider instances and cannot be retried. Start a new agent from a provider instance.')
+        return
+      }
+      const result = await launchProviderInstance(run.workspacePath, instanceId, run.task)
       if (!result.ok) {
         setSessionError(run.sessionId, result.error)
         return
@@ -399,7 +411,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
               const setup = await window.donwells.agentConfigureMemory(targetPath, selectedPreset.id, args, { action: 'preview' })
               if (setup.replacement) { setMemoryReplacement({ target: targetPath, provider: selectedPreset.id, args: [...args], setup }); return }
               if (setup.setupArgs) {
-                const result = await runAgent(targetPath, { executable: selectedPreset.executablePath ?? selectedPreset.command, args: setup.setupArgs })
+                const result = await openNativeTerminal(targetPath, { executable: selectedPreset.executablePath ?? selectedPreset.command, args: setup.setupArgs })
                 if (!result.ok) throw new Error(result.error)
                 setMemorySetup({ target, message: 'Complete the Hermes setup in its terminal, then start a new session.' })
                 return

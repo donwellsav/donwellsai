@@ -228,16 +228,19 @@ export function CommandPalette({ open }: { open: boolean }) {
       const label = 'Run agent: ' + agent.name
       const match = fuzzyMatch(label, normalizedQuery)
       if (!match) continue
+      // Agent identity is no longer a command string: a run starts from the
+      // default provider instance, exactly like the `run-agent` command.
+      const defaultInstanceId = useAppStore.getState().providerCatalog?.defaultInstanceId ?? null
       items.push({
         id: 'agent-preset:' + agent.name,
         label,
         hint: agent.command,
-        disabledReason: !agent.available ? `${agent.name} is not installed on this host.` : pinnedWorktree(context) ? undefined : 'Select a registered workspace first.',
+        disabledReason: !agent.available ? `${agent.name} is not installed on this host.` : defaultInstanceId === null ? 'Choose a default provider instance in Settings → Agents.' : pinnedWorktree(context) ? undefined : 'Select a registered workspace first.',
         score: match.score,
         hits: match.hits,
         run: () => {
           const worktreePath = pinnedWorktree()
-          if (worktreePath) void useAppStore.getState().runAgent(worktreePath, agent.command)
+          if (worktreePath && defaultInstanceId !== null) void useAppStore.getState().launchProviderInstance(worktreePath, defaultInstanceId)
         }
       })
     }

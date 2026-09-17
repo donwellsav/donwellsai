@@ -87,7 +87,7 @@ export type RpcDeps = {
   store: Store
   git: GitWorktrees
   terminals: DaemonClient
-  agents: Pick<AgentRuntime, 'listAgents' | 'start' | 'list' | 'interrupt' | 'stop' | 'dismiss'> & Partial<Pick<AgentRuntime, 'switchMode' | 'modeSwitchResult' | 'startAcp' | 'listAcp' | 'observeAcp' | 'promptAcp' | 'controlAcp'>>
+  agents: Pick<AgentRuntime, 'listAgents' | 'openNative' | 'list' | 'interrupt' | 'stop' | 'dismiss'> & Partial<Pick<AgentRuntime, 'switchMode' | 'modeSwitchResult' | 'startAcp' | 'listAcp' | 'observeAcp' | 'promptAcp' | 'controlAcp'>>
   deliverAgentAttachment: (request: AgentDeliveryRequest) => Promise<AgentDeliveryReceipt>
   skills: Pick<SkillPackagesManager, 'list' | 'prepare' | 'apply' | 'read' | 'prepareUpdate' | 'prepareRemove' | 'remove'>
   projectKit?: import('@shared/project-export').ProjectKitApi
@@ -583,7 +583,9 @@ export class RuntimeRpcServer {
       case 'project.task-authority': return this.deps.projectTasks.setAuthority(str('workspacePath'), params['enabled'] as boolean)
       case 'project.task-tool': return this.deps.projectTasks.openTool(str('workspacePath'), str('tool') as 'lazygit' | 'backlog')
       case 'agent.providers':
-        return { providers: this.deps.agents.listAgents() }
+        // The provider catalog is owned by the daemon; this surface forwards to it
+        // rather than reporting agent runs as if they were providers.
+        return { snapshot: await this.deps.terminals.providerCatalogSnapshot() }
       case 'agent.authenticate': {
         const identity = await this.deps.terminals.authenticateAgent(params['credential'] as AgentSessionCredential)
         if (realpathSync(identity.workspacePath) !== realpathSync(str('workspacePath'))) throw new Error('Agent credential belongs to another workspace')
@@ -612,9 +614,11 @@ export class RuntimeRpcServer {
         return this.deps.agents.controlAcp(str('workspacePath'), str('sessionId'), method.slice(10) as 'cancel' | 'stop' | 'permission' | 'dismiss', params['permissionId'] as string | undefined, params['optionId'] as string | undefined)
       case 'agent.list':
         return { agents: await this.deps.agents.list() }
-      case 'agent.start':
-        if ((params['launch'] !== undefined) === (params['command'] !== undefined)) throw new Error('Supply exactly one of command or launch')
-        return this.deps.agents.start(str('workspacePath'), params['launch'] === undefined ? str('command') : parseAgentExecutable(params['launch']), params['task'] === undefined ? undefined : parseAgentTaskIntent(params['task']))
+      case 'agent.native.open':
+        // An explicitly addressed local tool, never a provider launch: the caller
+        // names the exact executable and argv and no provider identity is inferred.
+        if (params['launch'] === undefined) throw new Error('Supply an explicit launch')
+        return this.deps.agents.openNative(str('workspacePath'), parseAgentExecutable(params['launch']), params['task'] === undefined ? undefined : parseAgentTaskIntent(params['task']))
       case 'agent.interrupt':
         return this.deps.agents.interrupt(str('sessionId'))
       case 'agent.stop':

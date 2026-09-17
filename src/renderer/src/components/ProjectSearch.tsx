@@ -311,7 +311,7 @@ export function ProjectSearch({ workspacePath, active = true }: { workspacePath:
       closeDocument()
       void window.donwells.projectSessionHistoryGet(workspacePath, id).then(async current => {
         if (!current.resume || useAppStore.getState().activeWorktreePath !== workspacePath) return
-        const result = await window.donwells.agentStart(workspacePath, current.resume)
+        const result = await window.donwells.agentNativeOpen(workspacePath, current.resume)
         if (useAppStore.getState().activeWorktreePath === workspacePath) await focusRetainedAgentSession(result.run.sessionId)
       }).catch(error => setError(String(error)))
     }}>Open native conversation</button>}<button className="btn btn-secondary btn-sm" onClick={closeDocument}>Close source</button></div></ModalDialog>}

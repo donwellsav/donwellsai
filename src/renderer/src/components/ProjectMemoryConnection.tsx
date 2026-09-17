@@ -45,7 +45,7 @@ export function ProjectMemoryConnection({ workspacePath, onClose }: { workspaceP
   const provider = providers.find(item => item.id === harness)
   const launch = async (args: string[]): Promise<void> => {
     if (!provider?.available) throw new Error('Install this harness before starting its native setup.')
-    const result = await useAppStore.getState().runAgent(workspacePath, { executable: provider.executablePath ?? provider.command, args })
+    const result = await useAppStore.getState().openNativeTerminal(workspacePath, { executable: provider.executablePath ?? provider.command, args })
     if (!result.ok) throw new Error(result.error)
     useAppStore.getState().setSettingsOpen(false)
     onClose()

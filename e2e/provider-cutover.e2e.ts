@@ -1,0 +1,131 @@
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+
+/**
+ * The provider-authority launch cutover in the real Electron app (Task 4, step 5).
+ *
+ * Runs against the actual main process, preload bridge, daemon, and renderer, in
+ * an isolated profile. It proves the two launch surfaces the cutover produced:
+ *
+ *  - an interactive agent launch is admitted from a provider instance and the
+ *    run carries that exact instance identity;
+ *  - the dynamic-arity native open (the resume/memory-setup flow) records no
+ *    provider identity at all — it is not a provider launch.
+ *
+ * The negative half is the point of the cutover: no surface may derive provider
+ * authority from a command string any more, so the bridge must no longer expose
+ * a command-based agent start.
+ */
+
+const ROOT = join(__dirname, '..')
+
+let app: ElectronApplication
+let page: Page
+let userData: string
+let repository: string
+
+test.beforeAll(async () => {
+  userData = realpathSync.native(mkdtempSync(join(tmpdir(), 'donwells-cutover-e2e-'), { encoding: 'utf8' }))
+  // DaemonClient validates this directory before it can create its runtime files.
+  mkdirSync(join(userData, 'terminal-daemon'), { recursive: true, mode: 0o700 })
+  repository = join(userData, 'fixture-repository')
+  mkdirSync(repository, { recursive: true, mode: 0o700 })
+  execFileSync('git', ['init', '--quiet', repository])
+  writeFileSync(join(repository, 'marker.txt'), 'fixture\n', { mode: 0o600 })
+  execFileSync('git', ['-C', repository, 'add', '.'])
+  execFileSync('git', ['-C', repository, '-c', 'user.email=e2e@example.com', '-c', 'user.name=E2E', 'commit', '--quiet', '-m', 'fixture'])
+
+  // The profile is seeded before boot: the app's store reads `donwells-data.json`
+  // and republishes the project registry the daemon resolves workspaces against.
+  // Only a repo opted into the `backlog.md` task authority is published, so the
+  // fixture must carry that field or the launch is refused as unregistered.
+  writeFileSync(join(userData, 'donwells-data.json'), JSON.stringify({
+    schemaVersion: 2,
+    repos: [{ id: 'e2e-cutover-repo', path: repository, addedAt: new Date().toISOString(), taskAuthority: 'backlog.md' }],
+    settings: {}
+  }, null, 2), { mode: 0o600 })
+
+  app = await electron.launch({
+    args: [join(ROOT, 'out/main/index.js')],
+    env: { ...process.env, DONWELLS_USER_DATA: userData, DONWELLS_E2E: '1', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' }
+  })
+  page = await app.firstWindow()
+})
+
+test.afterAll(async () => {
+  await app?.close().catch(() => undefined)
+  rmSync(userData, { recursive: true, force: true })
+})
+
+test('the renderer bridge no longer exposes a command-based agent start', async () => {
+  const surface = await page.evaluate(() => Object.keys(window.donwells))
+  // The cutover deleted `agentStart(workspacePath, command)`: a command string
+  // is no longer a way to start an agent. What remains is the explicit native
+  // open and the provider-instance launch.
+  expect(surface).not.toContain('agentStart')
+  expect(surface).toContain('agentNativeOpen')
+  expect(surface).toContain('providerInstanceLaunch')
+})
+
+test('an interactive launch is admitted from a provider instance and records its identity', async () => {
+  // A bounded external custom command stands in for a provider CLI.
+  const script = join(userData, 'instance-child.cjs')
+  writeFileSync(script, 'process.stdout.write("instance-child-ready\\n"); setInterval(() => {}, 1000)\n', { mode: 0o600 })
+  chmodSync(script, 0o600)
+
+  const created = await page.evaluate(async input => {
+    return await window.donwells.providerCatalogCreate(input)
+  }, {
+    driverId: 'custom-command',
+    displayName: 'E2E cutover instance',
+    command: { kind: 'external-shell', program: `${process.execPath} ${script}` },
+    credentialMode: 'external',
+    accountId: null,
+    enabled: true
+  } as never)
+
+  const instance = (created as { instances: Array<{ id: string }> }).instances.at(-1)
+  expect(instance).toBeDefined()
+
+  // The real launch: instance named, nothing else. The daemon derives the lease,
+  // preparation, and admission itself.
+  const run = await page.evaluate(async ({ workspacePath, providerInstanceId }) => {
+    return await window.donwells.providerInstanceLaunch(workspacePath, providerInstanceId)
+  }, { workspacePath: repository, providerInstanceId: instance!.id }) as {
+    sessionId: string
+    provider?: { driverId: string; providerInstanceId: string; providerInstanceRevision: number; accountId: string | null }
+    presetId?: string
+  }
+
+  // The run's identity is the admitted instance — not a command family, and no
+  // legacy `presetId` written beside it.
+  expect(run.provider).toMatchObject({
+    driverId: 'custom-command',
+    providerInstanceId: instance!.id,
+    accountId: null
+  })
+  expect(run.provider?.providerInstanceRevision).toBeGreaterThan(0)
+  expect(run.presetId).toBeUndefined()
+  expect(run.sessionId).toBeTruthy()
+})
+
+test('the native open is not a provider launch and records no provider identity', async () => {
+  const script = join(userData, 'native-child.cjs')
+  writeFileSync(script, 'process.stdout.write("native-child-ready\\n"); setInterval(() => {}, 1000)\n', { mode: 0o600 })
+
+  const result = await page.evaluate(async ({ workspacePath, executable }) => {
+    return await window.donwells.agentNativeOpen(workspacePath, { executable, args: ['--resume', 'fixture-session'] })
+  }, { workspacePath: repository, executable: process.execPath }) as {
+    run: { sessionId: string; provider?: unknown; presetId?: unknown }
+  }
+
+  // Explicit argv, no admission, and no provider identity derived from the
+  // executable name — this is the resume/memory-setup lane, not launch authority.
+  expect(result.run.provider).toBeUndefined()
+  expect(result.run.presetId).toBeUndefined()
+  expect(result.run.sessionId).toBeTruthy()
+})
