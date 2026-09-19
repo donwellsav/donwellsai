@@ -165,4 +165,22 @@ describe('SecretOutputBoundary', () => {
     boundary.register('managed', [MARKER_ALPHA])
     expect(() => boundary.register('managed', [MARKER_BETA])).toThrowError(/already has a managed output redactor/)
   })
+
+  it('keeps a closed registration and releases it only at terminal teardown', () => {
+    const boundary = new SecretOutputBoundary()
+    boundary.register('managed', [MARKER_ALPHA])
+    boundary.close('managed')
+    // Closing must NOT release the registration: `has` staying true is what makes
+    // output arriving after the child's pipes closed get dropped, not passed on.
+    expect(boundary.has('managed')).toBe(true)
+    expect(boundary.push('managed', 'stdout', MARKER_ALPHA)).toBe('')
+    expect(boundary.registeredSessions).toEqual(['managed'])
+    boundary.forget('managed')
+    expect(boundary.has('managed')).toBe(false)
+    expect(boundary.isClosed('managed')).toBe(false)
+    expect(boundary.registeredSessions).toEqual([])
+    // Idempotent: dismissal and the reap timer both reach a session.
+    boundary.forget('managed')
+    expect(boundary.registeredSessions).toEqual([])
+  })
 })

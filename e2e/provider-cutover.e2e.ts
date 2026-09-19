@@ -1,7 +1,7 @@
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test'
 import { _electron as electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -41,11 +41,10 @@ test.beforeAll(async () => {
 
   // The profile is seeded before boot: the app's store reads `donwells-data.json`
   // and republishes the project registry the daemon resolves workspaces against.
-  // Only a repo opted into the `backlog.md` task authority is published, so the
-  // fixture must carry that field or the launch is refused as unregistered.
+  // Interactive launches must work without opting into Backlog migration.
   writeFileSync(join(userData, 'donwells-data.json'), JSON.stringify({
     schemaVersion: 2,
-    repos: [{ id: 'e2e-cutover-repo', path: repository, addedAt: new Date().toISOString(), taskAuthority: 'backlog.md' }],
+    repos: [{ id: 'e2e-cutover-repo', path: repository, addedAt: new Date().toISOString() }],
     settings: {}
   }, null, 2), { mode: 0o600 })
 
@@ -162,4 +161,89 @@ test('a custom-command instance carries no driver-owned arguments', async () => 
   // injected, so an instance can never become an argv channel.
   expect(run.command).toContain('policy-probe')
   expect(run.command).not.toContain('mcp_servers.donwells-project-memory')
+})
+
+test('Advanced opens an explicit local tool with separately supplied arguments', async () => {
+  const marker = join(userData, 'native-tool-ui-marker')
+  await page.getByRole('button', { name: 'fixture-repository main Open', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Agents', exact: true }).click()
+  await page.getByRole('button', { name: 'New agent', exact: true }).click()
+  const setup = page.getByRole('dialog', { name: 'New agent', exact: true })
+  await setup.getByText('Advanced launch and integrations', { exact: true }).click()
+  await setup.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).check()
+  await setup.getByLabel('Executable', { exact: true }).fill('/usr/bin/touch')
+  await setup.getByRole('button', { name: 'Add argument', exact: true }).click()
+  await setup.getByLabel('Argument 1', { exact: true }).fill(marker)
+  await setup.getByRole('button', { name: 'Start agent & open terminal', exact: true }).click()
+  await expect.poll(() => existsSync(marker)).toBe(true)
+})
+
+test('template loading failures remain visible and recover after retry', async () => {
+  const templates = await page.evaluate(() => window.donwells.sessionTemplateList())
+  expect(templates[0]).toBeDefined()
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('sessionTemplate:list')
+    ipcMain.handle('sessionTemplate:list', () => { throw new Error('Template storage temporarily unavailable') })
+  })
+  try {
+    await page.reload()
+    await page.getByRole('button', { name: 'fixture-repository main', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Agents', exact: true }).click()
+    await page.getByRole('button', { name: 'New agent', exact: true }).click()
+    const setup = page.getByRole('dialog', { name: 'New agent', exact: true })
+    await expect(setup.getByRole('alert')).toContainText('Template storage temporarily unavailable')
+    await app.evaluate(({ ipcMain }, saved) => {
+      ipcMain.removeHandler('sessionTemplate:list')
+      ipcMain.handle('sessionTemplate:list', () => saved)
+    }, templates)
+    await setup.getByRole('button', { name: 'Retry templates', exact: true }).click()
+    await expect(setup.getByRole('button', { name: templates[0]!.name, exact: true })).toBeVisible()
+    await expect(setup.getByRole('alert')).not.toBeVisible()
+  } finally {
+    await app.evaluate(({ ipcMain }, saved) => {
+      ipcMain.removeHandler('sessionTemplate:list')
+      ipcMain.handle('sessionTemplate:list', () => saved)
+    }, templates)
+  }
+})
+
+test('unchecked shell commands cannot be submitted as native launches', async () => {
+  await page.reload()
+  await page.getByRole('button', { name: 'fixture-repository main', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Agents', exact: true }).click()
+  await page.getByRole('button', { name: 'New agent', exact: true }).click()
+  const setup = page.getByRole('dialog', { name: 'New agent', exact: true })
+  await expect(setup.getByLabel('Provider instance', { exact: true })).toHaveValue('')
+  await setup.getByText('Advanced launch and integrations', { exact: true }).click()
+  await setup.getByRole('checkbox', { name: 'Pass arguments separately', exact: true }).uncheck()
+  await setup.getByLabel('Shell command', { exact: true }).fill('/usr/bin/true')
+  await expect(setup.getByRole('button', { name: 'Start agent & open terminal', exact: true })).toBeDisabled()
+  await setup.getByRole('button', { name: 'Close agent setup', exact: true }).click()
+})
+
+test('templates remain available without installed agent presets', async () => {
+  const presets = await page.evaluate(() => window.donwells.listAgents())
+  const templates = await page.evaluate(() => window.donwells.sessionTemplateList())
+  expect(templates[0]).toBeDefined()
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('listAgents')
+    ipcMain.handle('listAgents', () => [])
+  })
+  try {
+    await page.reload()
+    await page.getByRole('button', { name: 'fixture-repository main', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Agents', exact: true }).click()
+    await page.getByRole('button', { name: 'New agent', exact: true }).click()
+    const setup = page.getByRole('dialog', { name: 'New agent', exact: true })
+    await expect(setup.getByText('No supported agent was found.', { exact: true })).toBeVisible()
+    await expect(setup.getByRole('button', { name: templates[0]!.name, exact: true })).toBeVisible()
+    await setup.getByRole('button', { name: templates[0]!.name, exact: true }).click()
+    await setup.getByRole('button', { name: 'No template', exact: true }).click()
+    await setup.getByRole('button', { name: 'Close agent setup', exact: true }).click()
+  } finally {
+    await app.evaluate(({ ipcMain }, saved) => {
+      ipcMain.removeHandler('listAgents')
+      ipcMain.handle('listAgents', () => saved)
+    }, presets)
+  }
 })

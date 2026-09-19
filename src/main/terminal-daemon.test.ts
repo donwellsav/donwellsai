@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { StringDecoder } from 'node:string_decoder'
 import { RuntimeOwnershipStore, type RuntimeOwner } from '@shared/runtime-ownership'
 import { DaemonClient, terminateSpawnedChild } from './daemon-client'
@@ -14,6 +14,8 @@ import { localRuntimePaths, readRuntimeRecord, writeRuntimeRecord } from './loca
 import { claimRuntimeOwner, freshRuntimeEndpoint, publishRuntimeOwner } from './runtime-ownership'
 import { TerminalDaemon } from './terminal-daemon'
 import { openTaskAuthorityRawConnection } from './task-authority/schema'
+import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
+import { REDACTED_SUBSTITUTE, SecretOutputBoundary } from './secret-output-redactor'
 
 /**
  * Sends one raw wire frame on a freshly authenticated connection and reads the
@@ -66,6 +68,8 @@ function callWireOp(socketPath: string, authToken: string, op: string, params: R
 }
 
 type DaemonLifecycleProbe = { activePublication: () => { owner: RuntimeOwner; store: { release: (owner: RuntimeOwner) => boolean } } | null }
+/** The daemon's own data sink, for driving chunk boundaries a PTY will not force. */
+type DaemonSinkProbe = { handlePtyData: (sessionId: string, data: string) => void }
 type DaemonConnectProbe = { tryConnect: (socketPath: string, authToken: string, expected: { ownerId: string; ownerGeneration: number; socketPath: string; authToken: string; processIdentity: unknown }) => Promise<boolean> }
 
 const events = {
@@ -148,6 +152,57 @@ describe('terminal runtime identity lifecycle', () => {
       expect(hello.capabilities).toContain('runtime-identity-v1')
     } finally {
       await daemon.stopIfIdle()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('repairs Electron profile permissions before connecting to the private daemon runtime', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-electron-profile-')))
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-profile-token-123456789' })
+    const client = new DaemonClient(directory, events, process.execPath)
+    try {
+      await daemon.start()
+      // Electron commonly creates its Application Support profile as 0755. The
+      // daemon client runs before the app runtime writer, so it must establish
+      // the existing private-profile policy instead of rejecting the profile.
+      chmodSync(directory, 0o755)
+      await client.connect()
+      expect(statSync(directory).mode & 0o077).toBe(0)
+    } finally {
+      chmodSync(directory, 0o700)
+      client.disconnect()
+      await daemon.stopIfIdle()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('waits for connection bookkeeping before shutdown completes', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-disconnect-drain-')))
+    const daemon = new TerminalDaemon({ userDataDir: directory, authToken: 'terminal-drain-token-123456789' })
+    const client = new DaemonClient(directory, events, process.execPath)
+    const release = Promise.withResolvers<void>()
+    const original = SqliteProfileMaintenanceGate.prototype.markConnectionDisconnected
+    const bookkeeping = vi.spyOn(SqliteProfileMaintenanceGate.prototype, 'markConnectionDisconnected').mockImplementation(async function (this: SqliteProfileMaintenanceGate, connectionId) {
+      await release.promise
+      await original.call(this, connectionId)
+    })
+    let stopping: Promise<boolean> | undefined
+    try {
+      await daemon.start()
+      await client.connect()
+      let stopped = false
+      stopping = daemon.stopIfIdle().then(result => { stopped = true; return result })
+      await new Promise<void>(resolve => setImmediate(resolve))
+      expect(stopped).toBe(false)
+      release.resolve()
+      expect(await stopping).toBe(true)
+      expect(bookkeeping).toHaveBeenCalled()
+    } finally {
+      release.resolve()
+      await stopping
+      client.disconnect()
+      await daemon.stopIfIdle()
+      bookkeeping.mockRestore()
       rmSync(directory, { recursive: true, force: true })
     }
   })
@@ -866,6 +921,196 @@ describe('terminal daemon provider catalog wire surface', () => {
     } finally {
       await started.daemon.stopIfIdle().catch(() => undefined)
       rmSync(started.directory, { recursive: true, force: true })
+    }
+  })
+})
+
+/**
+ * The managed-output sink contract (plan 13 Steps 3 and 5: a managed launch's
+ * exact credential values are settled before every PTY, event, log, error,
+ * crash, and support sink).
+ *
+ * The PTY sink is the only place that can honour that: it writes scrollback,
+ * the replay buffer, and the live `data` event every client shares, so a
+ * redaction left to the task-output pump would only ever be a post-hoc copy.
+ * These prove the whole path over a real daemon, a real PTY, and a real child:
+ *
+ * - the value is split across two PTY chunks, so only the carry can catch it;
+ * - its tail is shorter than the retain window, so only the exit-time flush can
+ *   release it;
+ * - the value also reaches the sinks inside an OSC title sequence, which is a
+ *   discrete string settled through its own stream.
+ *
+ * Nothing waits on a duration: the child emits each half only after the test's
+ * own acknowledged keystroke, and every assertion runs behind the daemon's exit
+ * event, which node-pty defers until trailing data is complete.
+ */
+describe('terminal daemon managed output sinks', () => {
+  it('settles an exact credential out of scrollback, the live stream, and the title event', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-sink-redaction-')))
+    const value = 'SECRET-VALUE'
+    const script = join(directory, 'halves.cjs')
+    // The child prints the value in two halves, and its own escape bytes are
+    // built from char codes so this fixture stays plain ASCII.
+    writeFileSync(script, [
+      "process.stdin.setEncoding('utf8')",
+      'let phase = 0',
+      "process.stdin.on('data', () => {",
+      '  phase += 1',
+      '  if (phase === 1) { process.stdout.write("SECRET-"); return }',
+      '  process.stdout.write("VALUE")',
+      '  process.stdout.write(String.fromCharCode(27) + "]0;SECRET-VALUE" + String.fromCharCode(7))',
+      '  process.stdout.write("AFTER")',
+      '  process.stdin.destroy()',
+      '  process.exitCode = 0',
+      '})',
+      ''
+    ].join('\n'), { mode: 0o600 })
+
+    const boundary = new SecretOutputBoundary()
+    const chunks: string[] = []
+    const titles: string[] = []
+    const exited = Promise.withResolvers<number>()
+    const client = new DaemonClient(directory, {
+      data: (_sessionId, data) => chunks.push(data),
+      exit: (_sessionId, exitCode) => exited.resolve(exitCode ?? 0),
+      title: (_sessionId, title) => titles.push(title),
+      agent: () => {},
+      agentDismissed: () => {}
+    }, process.execPath)
+    const daemon = new TerminalDaemon({
+      userDataDir: directory,
+      authToken: 'terminal-sink-token-123456789',
+      providerBoundary: boundary
+    })
+    try {
+      await daemon.start()
+      await client.connect()
+      const session = await client.openJob(directory, `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`)
+      // The child emits nothing until its first keystroke, so the redactor is
+      // registered before any output exists to settle.
+      boundary.register(session.id, [value])
+
+      // The first half is short: without the carry it would reach the sinks the
+      // moment the daemon read it.
+      await client.writeAcknowledged(session.id, 'one\n')
+      await client.writeAcknowledged(session.id, 'two\n')
+      expect(await exited.promise).toBe(0)
+
+      const stream = chunks.join('')
+      expect(stream).toContain(REDACTED_SUBSTITUTE)
+      // Only the exit-time flush can release a tail this short.
+      expect(stream).toContain('AFTER')
+      expect(stream.indexOf(REDACTED_SUBSTITUTE)).toBeLessThan(stream.indexOf('AFTER'))
+      // Neither half nor the whole value ever reached the live stream...
+      expect(stream).not.toContain('SECRET-')
+      expect(stream).not.toContain('VALUE')
+      expect(stream).not.toContain(value)
+      // ...and scrollback and replay ARE that same settled stream, not a second
+      // copy settled elsewhere.
+      const attached = await client.attach(session.id)
+      expect(attached.scrollback).toBe(stream)
+      expect(attached.replay?.map(chunk => chunk.data).join('')).toBe(stream)
+      // The title is a discrete string, settled before it is stored: the record
+      // `session.list`/`session.attach` serve must not keep a raw copy of what
+      // the event redacted.
+      expect(titles.join('')).not.toContain(value)
+      expect(titles.some(title => title.includes(REDACTED_SUBSTITUTE))).toBe(true)
+      const recordTitle = (await client.list()).find(candidate => candidate.id === session.id)?.title ?? ''
+      expect(recordTitle).not.toContain(value)
+      expect(recordTitle).toContain(REDACTED_SUBSTITUTE)
+
+      // The carry is proven at the daemon's own sink rather than by hoping the
+      // PTY split the child's writes: a chunk boundary the test cannot force
+      // would let a coalesced write redact in a single push. Feeding the two
+      // halves here reaches the real sinks (scrollback, replay, broadcast).
+      const probe = daemon as unknown as DaemonSinkProbe
+      const before = (await client.attach(session.id)).scrollback
+      probe.handlePtyData(session.id, value.slice(0, 7))
+      expect((await client.attach(session.id)).scrollback).toBe(before)
+      probe.handlePtyData(session.id, value.slice(7))
+      expect((await client.attach(session.id)).scrollback.slice(before.length)).toBe(REDACTED_SUBSTITUTE)
+      await client.close(session.id)
+    } finally {
+      client.disconnect()
+      await daemon.stopIfIdle().catch(() => undefined)
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  /**
+   * A provider session is the one session kind whose teardown is not
+   * `session.close`: its launch retains a lifecycle pump that reads the PTY's
+   * settled exit and final output, and releasing the PTY first would record a
+   * clean exit as a failure with its trailing output dropped. The wire op is
+   * therefore split by liveness — refused while the child is live, and routed
+   * through the same dismissal (which joins that pump) once it has exited.
+   */
+  it('refuses to close a live provider session and dismisses an exited one', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'terminal-provider-close-')))
+    const workspace = join(directory, 'workspace')
+    mkdirSync(workspace, { recursive: true, mode: 0o700 })
+    // A child that stays alive until the daemon stops it, so the close refusal
+    // is exercised against a genuinely live run.
+    const script = join(directory, 'lingering.cjs')
+    writeFileSync(script, 'setInterval(() => {}, 1_000)\n', { mode: 0o600 })
+
+    let launchedSessionId = ''
+    const exited = Promise.withResolvers<void>()
+    const boundary = new SecretOutputBoundary()
+    const client = new DaemonClient(directory, {
+      ...events,
+      agent: run => {
+        if (run.sessionId === launchedSessionId && run.liveness === 'exited') exited.resolve()
+      }
+    }, process.execPath)
+    const daemon = new TerminalDaemon({
+      userDataDir: directory,
+      authToken: 'terminal-provider-close-token-1234',
+      providerBoundary: boundary,
+      projectRegistry: async () => [{ projectId: 'project-close', repositoryId: 'repo-close', workspaceRoot: workspace }]
+    })
+    try {
+      await daemon.start()
+      await client.connect()
+      const created = await client.providerCatalogCreate({
+        driverId: 'custom-command',
+        displayName: 'Lingering child',
+        command: { kind: 'external-argv', executable: { executable: process.execPath, args: [script] } },
+        credentialMode: 'external',
+        accountId: null,
+        enabled: true
+      })
+      const instanceId = created.instances[0]?.id
+      if (instanceId === undefined) throw new Error('provider catalog created no instance')
+
+      const launched = await client.providerInstanceLaunch(workspace, instanceId)
+      launchedSessionId = launched.sessionId
+      expect(launched.liveness).toBe('live')
+
+      // Live: the pump still owns the child, so the session cannot be closed.
+      await expect(client.close(launched.sessionId)).rejects.toThrow(/agent\.stop/)
+      expect((await client.list()).some(session => session.id === launched.sessionId)).toBe(true)
+
+      await client.stopAgent(launched.sessionId)
+      await exited.promise
+      // The pump has already settled, which closed the boundary — exactly the
+      // production order — so this proves the dismissal drops a *closed*
+      // registration instead of only zeroizing it.
+      boundary.register(launched.sessionId, ['SECRET-VALUE'])
+      expect(boundary.registeredSessions).toEqual([launched.sessionId])
+
+      // Exited: the same teardown the UI's dismiss uses, pump joined.
+      await client.close(launched.sessionId)
+      expect((await client.list()).some(session => session.id === launched.sessionId)).toBe(false)
+      // Dismissal is the terminal teardown: the launch's registration is
+      // released there, so nothing accumulates for the daemon's life.
+      expect(boundary.registeredSessions).toEqual([])
+      await expect(client.agentStatus(launched.sessionId)).rejects.toThrow(/unknown agent session/)
+    } finally {
+      client.disconnect()
+      await daemon.stopIfIdle().catch(() => undefined)
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 })

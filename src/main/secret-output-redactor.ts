@@ -214,6 +214,8 @@ export class SecretOutputRedactor {
  * A closed session keeps its registration and returns nothing from `push`, so
  * output arriving after the child's pipes closed is dropped rather than emitted
  * unredacted. That is the fail-closed direction, and `isClosed` reports it.
+ * `forget` is the separate, terminal step: it drops the registration once the
+ * PTY is dismissed or reaped and nothing can arrive for that session again.
  */
 export class SecretOutputBoundary {
   private readonly redactors = new Map<string, SecretOutputRedactor>()
@@ -250,6 +252,19 @@ export class SecretOutputBoundary {
   /** Zeroizes patterns and carry; only valid once every child output pipe closed. */
   close(sessionId: string): void {
     this.redactors.get(sessionId)?.close()
+  }
+
+  /**
+   * Releases one session's registration at its terminal teardown — after the PTY
+   * was dismissed or reaped, when no data, title, or exit can arrive for it any
+   * more. Deliberately separate from `close`: a closed registration must keep
+   * `has` true so late output is dropped rather than passed through unredacted,
+   * so removing it inside `close` would trade a leak for an emission. Without
+   * this the map holds one entry per managed launch for the daemon's life.
+   */
+  forget(sessionId: string): void {
+    this.redactors.get(sessionId)?.close()
+    this.redactors.delete(sessionId)
   }
 
   closeAll(): void {

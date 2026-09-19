@@ -36,6 +36,27 @@ export function sanitizedProcessEnv(
   return clean
 }
 
+/**
+ * Remove app-private, hook, and isolation-root names from template additions.
+ * Compare reserved names case-insensitively because Windows folds env keys.
+ * Managed/none launches additionally restrict templates to the allowlist below.
+ */
+export function sanitizedTemplateEnvironment(
+  template: Readonly<Record<string, string>> | undefined
+): Record<string, string> {
+  if (template === undefined) return {}
+  const clean: Record<string, string> = {}
+  for (const [key, value] of Object.entries(template)) {
+    if (value === undefined) continue
+    if (key.includes('\0') || value.includes('\0')) continue
+    const normalized = key.toUpperCase()
+    if (PRIVATE_PROCESS_KEYS[normalized] === true || normalized.startsWith('DONWELLS_AGENT_HOOK_')) continue
+    if (PROVIDER_ISOLATION_ROOT_VARIABLES.some(root => root.toUpperCase() === normalized)) continue
+    clean[key] = value
+  }
+  return clean
+}
+
 // ---------------------------------------------------------------------------
 // Provider-isolated environments (Stage 3, managed/none launches)
 //
@@ -121,6 +142,12 @@ export type IsolatedProviderEnvironmentInput = Readonly<{
   /** Driver-declared variables already pointed inside the isolated root. */
   driverEnvironment?: NodeJS.ProcessEnv
   /**
+   * User-authored session-template values. Only allowlisted names are accepted,
+   * before isolation pins, driver settings, and the broker's exact overlay.
+   * Arbitrary variables (including auth/config keys) require external mode.
+   */
+  templateEnvironment?: Readonly<Record<string, string>>
+  /**
    * The exact broker result for a managed launch. These are the only values
    * that may carry credential material, and each one is overwritten rather than
    * merged, so an inherited value can never win.
@@ -145,7 +172,7 @@ export function isolatedProviderEnvironment(input: IsolatedProviderEnvironmentIn
   const inherited = input.inherited ?? process.env
   const environment: NodeJS.ProcessEnv = {}
   for (const key of PROVIDER_ISOLATION_ALLOWLIST) {
-    const value = inherited[key]
+    const value = input.templateEnvironment?.[key] ?? inherited[key]
     if (value !== undefined) environment[key] = value
   }
   const configRoot = join(root, 'config')

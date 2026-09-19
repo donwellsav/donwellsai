@@ -163,14 +163,14 @@ function createTask(authority: SqliteTaskAuthority, externalTaskId: string) {
   return authority.createTask({ connection: ADMIN, projectId: PROJECT, externalTaskId, title: `task ${externalTaskId}` })
 }
 
-function claimWith(authority: SqliteTaskAuthority, externalTaskId: string, entry: Profile, selection?: ProviderSelection): ClaimResult {
+function claimWith(authority: SqliteTaskAuthority, externalTaskId: string, entry: Profile, selection?: ProviderSelection, leaseTtlMs = 60_000): ClaimResult {
   createTask(authority, externalTaskId)
   return authority.claim({
     connection: worker(),
     projectId: PROJECT,
     externalTaskId,
     specification: SPEC(entry.workspace),
-    leaseTtlMs: 60_000,
+    leaseTtlMs,
     ...(selection === undefined ? {} : { providerSelection: selection })
   })
 }
@@ -244,11 +244,18 @@ function childPort(options: {
   exitCode?: number
   failOpen?: boolean
   boundary?: SecretOutputBoundary
+  /** Output polls that report a live child before it settles, so a pump loop can be driven. */
+  livePolls?: number
+  /** Fails the output port itself, as a reaped or unknown session does. */
+  failOutput?: boolean
 } = {}) {
   const calls: ChildCall[] = []
   const stopped: string[] = []
   const captured: Array<{ raw: string; safe: string }> = []
   const mode = options.mode ?? 'fake'
+  const livePolls = options.livePolls ?? 0
+  let polls = 0
+  let stopRequested = false
   const port: ProviderChildPort = {
     open: input => {
       if (options.failOpen) throw new Error('fake provider child refused to start')
@@ -265,9 +272,14 @@ function childPort(options: {
       }
       return { sessionId, processIdentity: options.identity === undefined ? IDENTITY(4000 + calls.length) : options.identity }
     },
-    stop: async sessionId => { stopped.push(sessionId) },
+    stop: async sessionId => { stopRequested = true; stopped.push(sessionId) },
     stopProcess: async () => { stopped.push('by-identity') },
     output: sessionId => {
+      if (options.failOutput) throw new Error(`unknown provider child session: ${sessionId}`)
+      polls += 1
+      // A live child keeps the pump looping, which is the only window in which a
+      // mid-run stop delivery or a lease renewal can happen.
+      if (polls <= livePolls && !stopRequested) return { stdout: '', stderr: '', exited: false }
       // In real mode the child already ran at open; report its captured bytes
       // once so the pump and the boundary see them.
       const entry = captured.shift()
@@ -278,7 +290,9 @@ function childPort(options: {
       const safe = boundary?.has(sessionId) === true ? boundary.push(sessionId, 'stdout', entry.raw) : entry.raw
       entry.safe = safe
       captured.push(entry)
-      return { stdout: entry.raw, stderr: '', exited: true, exitCode: options.exitCode ?? 0 }
+      // The daemon's PTY sink settles each chunk through the boundary before it
+      // reaches scrollback, so this port hands the pump already-redacted bytes.
+      return { stdout: safe, stderr: '', exited: true, exitCode: options.exitCode ?? 0 }
     }
   }
   return { port, calls, stopped, captured }
@@ -288,7 +302,10 @@ function makeCoordinator(authority: SqliteTaskAuthority, entry: Profile, provide
   return new TaskExecutionCoordinator({
     authority,
     ports: {
-      jobs: { openJob: () => ({ sessionId: randomUUID(), processIdentity: IDENTITY() }), stop: async () => undefined, output: () => ({ output: '', totalBytes: 0, exited: true, exitCode: 0 }) },
+      // In production both ports stop a session through the same PtyManager call,
+      // and a provider child is not registered in `childKinds`, so a cancellation
+      // that has to stop a running provider child arrives through the jobs port.
+      jobs: { openJob: () => ({ sessionId: randomUUID(), processIdentity: IDENTITY() }), stop: (sessionId: string) => provider.child.stop(sessionId), output: () => ({ output: '', totalBytes: 0, exited: true, exitCode: 0 }) },
       agents: null
     } as never,
     evidence: new DaemonTaskEvidencePort(),
@@ -304,14 +321,14 @@ function makeCoordinator(authority: SqliteTaskAuthority, entry: Profile, provide
 }
 
 /** One catalog instance prepared for a live launch, with its own task and lease. */
-function prepared(authority: SqliteTaskAuthority, catalog: ProviderCatalog, entry: Profile, externalTaskId: string, mode: 'external' | 'managed' | 'none', marker?: string) {
+function prepared(authority: SqliteTaskAuthority, catalog: ProviderCatalog, entry: Profile, externalTaskId: string, mode: 'external' | 'managed' | 'none', marker?: string, leaseTtlMs = 60_000) {
   const account = mode === 'managed' ? catalog.createAccount({ driverId: 'codex', displayLabel: 'alpha' }) : null
   const instance = fakeDriverInstance(catalog, mode, account?.id ?? null)
   const bound = account === null
     ? instance
     : catalog.bindCredential({ providerInstanceId: instance.id, accountId: account.id, expectedInstanceRevision: instance.revision, expectedAccountRevision: account.revision, credentialRef: `ref-${externalTaskId}`, expectedBindingGeneration: 0 })
   const selection = selectionFor(bound, account)
-  const claimed = claimWith(authority, externalTaskId, entry, selection)
+  const claimed = claimWith(authority, externalTaskId, entry, selection, leaseTtlMs)
   return { account, instance: bound, selection, claimed, marker }
 }
 
@@ -636,7 +653,8 @@ describe('provider driver provenance and mode isolation', () => {
     })
 
     const outcome = await coordinator.launchProviderBacked({
-      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-iso', workspaceRoot: entry.workspace, selection, connection: worker()
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-iso', workspaceRoot: entry.workspace, selection, connection: worker(),
+      requestedEnvironment: { LANG: 'fr', HOME: '/template', XDG_CONFIG_HOME: '/template/config', FAKE_PROVIDER_CREDENTIAL: 'template', OPENAI_API_KEY: 'template', DONWELLS_DAEMON_TOKEN: 'template' }
     })
 
     expect(outcome.disposition).toBe('completed')
@@ -644,6 +662,7 @@ describe('provider driver provenance and mode isolation', () => {
     const environment = child.calls[0]!.environment
     // Exactly the broker's declared variable reaches the child.
     expect(environment['FAKE_PROVIDER_CREDENTIAL']).toBe(MARKER_ALPHA)
+    expect(environment['LANG']).toBe('fr')
     // The child's home and every derived root resolve inside the isolated root.
     expect(environment['HOME']).toBe(join(entry.isolation, 'session-iso'))
     expect(environment['HOME']).not.toBe(process.env.HOME)
@@ -755,7 +774,8 @@ describe('provider driver provenance and mode isolation', () => {
     })
 
     const outcome = await coordinator.launchProviderBacked({
-      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-none', workspaceRoot: entry.workspace, selection, connection: worker()
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-none', workspaceRoot: entry.workspace, selection, connection: worker(),
+      requestedEnvironment: { HOME: '/template', FAKE_PROVIDER_CREDENTIAL: 'template' }
     })
     expect(outcome.disposition).toBe('completed')
     expect(secrets.authorizations).toHaveLength(0)
@@ -984,6 +1004,73 @@ describe('provider launch failure convergence', () => {
     expect(['quarantined', 'cancelled', 'failed']).toContain(attempt?.state)
   })
 
+  it('stops a running provider child when the cancellation is committed mid-run', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    const { selection, claimed } = prepared(authority, catalog, entry, 'CANCEL-MID-1', 'external')
+    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
+    // The child stays live across polls, so the cancellation lands while it runs.
+    const child = childPort({ identity: IDENTITY(), livePolls: 400 })
+    const bare = child.port.output
+    let polls = 0
+    child.port.output = (sessionId => {
+      polls += 1
+      // Committed from inside the run, exactly like a user cancellation arriving
+      // after the launch returned.
+      if (polls === 2) {
+        authority.requestCancellation({ connection: ADMIN, projectId: PROJECT, taskId: claimed.task.taskId, expectedEntityVersion: taskOf(authority, claimed.task.taskId).entityVersion })
+      }
+      return bare(sessionId)
+    }) as typeof child.port.output
+
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      secrets: null,
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-cancel-mid', workspaceRoot: entry.workspace, selection, connection: worker()
+    })
+
+    // The stop reached the still-running child instead of waiting for its
+    // natural exit, and the attempt settled terminally rather than as
+    // `superseded` behind a fenced write that was refused.
+    expect(child.stopped).toContain('session-cancel-mid')
+    expect(outcome.disposition).toBe('cancelled')
+    expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('cancelled')
+  })
+
+  it('renews an interactive lease once per window instead of on every pump poll', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    // A short TTL puts the renewal window open from the first poll.
+    const { selection, claimed } = prepared(authority, catalog, entry, 'RENEW-1', 'external', undefined, 1_500)
+    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
+    const child = childPort({ identity: IDENTITY(), livePolls: 200 })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      secrets: null,
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-renew', workspaceRoot: entry.workspace, selection, connection: worker()
+    })
+
+    expect(outcome.disposition).toBe('completed')
+    // The token's expiry is frozen at claim time, so every poll inside the window
+    // would otherwise write its own heartbeat row.
+    const renewals = rows<{ count: number }>(entry.databasePath, 'SELECT COUNT(*) AS count FROM lease_renewals WHERE lease_id = ?', claimed.token.leaseId)
+    expect(renewals[0]?.count).toBe(1)
+  })
+
   it('converges a refused runtime bind without disclosing anything and without claiming a rollback', async () => {
     const entry = profile()
     const authority = openAuthority(entry)
@@ -1030,6 +1117,97 @@ describe('provider launch failure convergence', () => {
     expect(outcome.sessionId).toBeNull()
     expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('failed')
     expect(maintenance.records.map(record => record.outcome)).toContain('cancelled')
+  })
+
+  it('releases a refused pre-spawn launch, when no PTY session ever exists to exit', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    const { selection, claimed } = prepared(authority, catalog, entry, 'PRE-SPAWN-1', 'managed')
+    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
+    const secrets = secretPort({ environment: { FAKE_PROVIDER_CREDENTIAL: MARKER_ALPHA }, credentialRevision: 1 })
+    const boundary = new SecretOutputBoundary()
+    // The managed launch registers exactly the broker's values, and the child
+    // then refuses to start. Nothing else can release that registration: the
+    // daemon creates the PTY inside `child.open`, so there is no session to exit,
+    // no dismissal to join, and nothing for the reap timer to fire on.
+    const child = childPort({ identity: IDENTITY(), failOpen: true })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      secrets: secrets.port,
+      boundary,
+      child: child.port
+    })
+
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-pre-spawn', workspaceRoot: entry.workspace, selection, connection: worker()
+    })
+
+    expect(outcome.sessionId).toBeNull()
+    expect(outcome.reason).toContain('provider child failed to start')
+    expect(child.calls).toHaveLength(0)
+    expect(boundary.registeredSessions).toEqual([])
+  })
+
+  it('converges when the output port itself fails mid-pump', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    const { selection, claimed } = prepared(authority, catalog, entry, 'PUMP-1', 'external')
+    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
+    // A reaped or unknown session makes the port throw after the spawn: the pump
+    // body is the launch's only remaining owner at that point.
+    const child = childPort({ identity: IDENTITY(), failOutput: true })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      secrets: null,
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const outcome = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-pump', workspaceRoot: entry.workspace, selection, connection: worker()
+    })
+
+    expect(outcome.disposition).toBe('cancelled')
+    expect(outcome.reason).toContain('provider output pump failed')
+    expect(child.stopped).toContain(outcome.sessionId)
+    // Quarantined, and the admission released: an escaped pump failure would
+    // leave the child live with the admission open and the attempt `running`.
+    expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('quarantined')
+    expect(maintenance.records.map(record => record.outcome)).toContain('completed')
+  })
+
+  it('releases an interactive launch when its swallowed pump fails', async () => {
+    const entry = profile()
+    const authority = openAuthority(entry)
+    const catalog = openCatalog(authority, entry)
+    const { selection, claimed } = prepared(authority, catalog, entry, 'PUMP-2', 'external')
+    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
+    const child = childPort({ identity: IDENTITY(), failOutput: true })
+    const coordinator = makeCoordinator(authority, entry, {
+      maintenance: maintenance.port,
+      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
+      secrets: null,
+      boundary: new SecretOutputBoundary(),
+      child: child.port
+    })
+
+    const launched = await coordinator.launchProviderBacked({
+      lease: claimed.token, attemptId: claimed.attempt.attemptId, sessionId: 'session-pump-interactive',
+      workspaceRoot: entry.workspace, selection, connection: worker(), interactive: true
+    })
+    expect(launched.disposition).toBe('launched')
+    // The caller swallows this promise, so it is the only place the launch can be
+    // released from; nothing may be left for a dismissal that never comes.
+    await launched.completion
+
+    expect(child.stopped).toContain(launched.sessionId)
+    expect(maintenance.records.map(record => record.outcome)).toContain('completed')
+    // Quarantine is the converged state, not a failed or superseded write.
+    expect(taskOf(authority, claimed.task.taskId).currentAttempt?.state).toBe('quarantined')
   })
 })
 

@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { logger } from '@shared/logger'
 import { EventStore } from './events/event-store'
-import { initPerfMonitor, getPerfStats } from '@shared/perf-monitor'
+import { initPerfMonitor } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
@@ -28,6 +28,7 @@ let services: DonwellsServices | undefined = undefined
 
 export function initServices(): DonwellsServices {
   if (services) return services
+  initPerfMonitor()
 
   logger.info('services: initializing')
 

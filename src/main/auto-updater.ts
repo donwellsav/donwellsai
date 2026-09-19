@@ -20,9 +20,9 @@ const CHECK_INTERVAL_MS = 30 * 60 * 1000
 let lastCheck = 0
 
 export function initAutoUpdater(window: Electron.BrowserWindow): void {
+  mainWindow = window
   if (initialized) return
   initialized = true
-  mainWindow = window
 
   // Default: silent. Opt into verbose logs via env.
   autoUpdater.logger = logger

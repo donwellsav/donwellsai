@@ -22,7 +22,7 @@ test.beforeAll(async () => {
   const packagedExecutable = process.env['DONWELLS_ELECTRON_EXECUTABLE']
   app = await electron.launch({
     ...(packagedExecutable === undefined ? { args: [join(__dirname, '../out/main/index.js')] } : { executablePath: packagedExecutable }),
-    env: { ...process.env, DONWELLS_USER_DATA: userData },
+    env: { ...process.env, DONWELLS_USER_DATA: userData, DONWELLS_PERF: '1' },
   })
   page = await app.firstWindow()
   await page.evaluate(async path => { await window.donwells.addRepo(path) }, repository)
@@ -52,9 +52,20 @@ test('app launches with isolated task-authority profile and disposable repositor
   expect(inspection.tools.map(tool => tool.id)).toEqual(expect.arrayContaining(['backlog', 'lazygit']))
 })
 
+test('opt-in performance monitoring counts completed IPC calls', async () => {
+  const counts = await page.evaluate(async () => {
+    const before = await window.donwells.perfGetStats()
+    await window.donwells.listRepos()
+    const after = await window.donwells.perfGetStats()
+    return { before: before.ipcCalls, after: after.ipcCalls }
+  })
+  expect(counts.after - counts.before).toBeGreaterThanOrEqual(2)
+})
+
 test('command palette opens on keyboard shortcut', async () => {
   await page.bringToFront()
-  await page.locator('body').click({ position: { x: 10, y: 10 } })
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Settings', exact: true }).focus()
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyP' : 'Control+Shift+KeyP')
   await expect(page.locator('dialog.palette-dialog')).toBeVisible()
 })

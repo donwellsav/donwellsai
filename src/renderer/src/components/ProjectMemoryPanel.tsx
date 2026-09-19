@@ -29,7 +29,9 @@ export function ProjectMemoryPanel({ workspacePath }: { workspacePath: string })
     const timer = window.setTimeout(() => {
       const selectedKind = PROJECT_MEMORY_KINDS.find((value) => value === kind)
       void window.donwells.projectMemoryList({ workspacePath, ...(query.trim() ? { query: query.trim() } : {}), includeArchived, limit: 100, offset, ...(selectedKind ? { kinds: [selectedKind] } : {}) }).then((value) => {
-        if (!cancelled) { if (offset > 0 && offset >= value.total) { setOffset(Math.max(0, Math.floor((value.total - 1) / 100) * 100)); return }; setResult(value); setLoading(false) }
+        if (cancelled) return
+        if (offset > 0 && offset >= value.total) { setOffset(Math.max(0, Math.floor((value.total - 1) / 100) * 100)); setLoading(false); return }
+        setResult(value); setLoading(false)
       }, (cause) => { if (!cancelled) { setError(String(cause)); setLoading(false) } })
     }, query ? 120 : 0)
     return () => { cancelled = true; window.clearTimeout(timer) }

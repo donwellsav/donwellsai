@@ -68,6 +68,7 @@ export class PtyManager {
   private jobShellPath: string
   private maxRetainedJobs: number
   private readonly identity: RuntimeIdentityAuthority | null
+  private readonly settleTitle: ((sessionId: string, title: string) => string) | null
 
   constructor(
     events: PtyEvents,
@@ -75,9 +76,17 @@ export class PtyManager {
       ? process.env.ComSpec || windowsSystem32Binary('cmd.exe')
       : process.env.SHELL || '/bin/bash',
     maxRetainedJobs = MAX_RETAINED_JOBS,
-    identity?: RuntimeIdentityAuthority
+    identity?: RuntimeIdentityAuthority,
+    /**
+     * Settles one OSC title before it is stored. A managed provider launch
+     * supplies the launch's output boundary here so the session record that
+     * `session.list`/`session.attach` serve carries exactly the bytes the title
+     * event carries — a record-only copy would be a second, unredacted sink.
+     */
+    settleTitle?: (sessionId: string, title: string) => string
   ) {
     this.events = events
+    this.settleTitle = settleTitle ?? null
     this.shellPath = shellPath
     this.jobShellPath = process.platform === 'win32'
       ? process.env.ComSpec || windowsSystem32Binary('cmd.exe')
@@ -379,8 +388,13 @@ export class PtyManager {
       if (OSC_TITLE_RE.lastIndex === match.index) OSC_TITLE_RE.lastIndex++
     }
     if (last?.trim()) {
-      session.session.title = last.trim()
-      this.events.title(id, session.session.title)
+      // Settled before the record, not only before the event: the session record
+      // is served by `session.list` and `session.attach`, so storing the raw
+      // payload would leave a second, unredacted copy of a managed launch's
+      // exact credential values.
+      const title = this.settleTitle ? this.settleTitle(id, last.trim()) : last.trim()
+      session.session.title = title
+      this.events.title(id, title)
     }
     // drop fully-consumed title sequences from the buffer to bound growth
     const clean = session.titleBuffer.replace(OSC_TITLE_RE, '')

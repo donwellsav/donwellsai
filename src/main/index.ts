@@ -62,7 +62,7 @@ import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from
 import { initServices, getServices } from './services'
 import { getPluginRegistry } from './plugins/plugin-registry'
 import type { AnalyticsEvent } from '@shared/analytics'
-import { initPerfMonitor, getPerfStats, startIpcTimer } from '@shared/perf-monitor'
+import { getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
 import { SessionTemplateManager } from './templates/session-template-manager'
 import { AutonomousAgent } from './autonomous/autonomous-agent'
@@ -154,6 +154,8 @@ let projectTools: ProjectDoctor | undefined
 let projectLanguage: ProjectLanguageTools | undefined
 let toolsClosed = false
 let closingTools: Promise<void> | undefined
+let daemonShutdownComplete = false
+let closingDaemon: Promise<void> | undefined
 const resolveRegisteredWorkspace = (path: string): Promise<string> => verifyWorktreePath(store, path)
 const workspacePreview = new WorkspacePreview(resolveRegisteredWorkspace)
 
@@ -413,7 +415,10 @@ function registerIpc(): void {
   ipcMain.handle('terminalSessions', () => terminalBus.list())
 
   ipcMain.handle('gitStatus', (_e, worktreePath: string) => git.status(worktreePath))
-  ipcMain.handle('scanWorktree', (_e, worktreePath: string) => scanWorktree(worktreePath))
+  // The scan attributes process and port ownership by path prefix, so the path
+  // must be a registered workspace or inside one; an arbitrary renderer-supplied
+  // directory would otherwise enumerate unrelated processes.
+  ipcMain.handle('scanWorktree', async (_e, worktreePath: string) => scanWorktree(await verifyWorkspaceDirectory(store, worktreePath)))
   ipcMain.handle('gitStage', (_e, worktreePath: string, paths: string[]) => git.stage(worktreePath, paths))
   ipcMain.handle('gitUnstage', (_e, worktreePath: string, paths: string[]) => git.unstage(worktreePath, paths))
   ipcMain.handle('gitDiscard', (_e, worktreePath: string, paths: string[]) => git.discard(worktreePath, paths))
@@ -721,6 +726,7 @@ function createWindow(): void {
   })
 
   const window = mainWindow
+  initAutoUpdater(window)
   if (saved?.maximized && process.env['DONWELLS_SMOKE'] !== '1') window.maximize()
   commandRouter.bind(window.webContents)
   browserViews = new BrowserViews(window, resolveRegisteredWorkspace, (key, url) => workspacePreview.resolveUrl(key, url))
@@ -1007,12 +1013,13 @@ void app.whenReady().then(async () => {
   })
   ipcMain.handle('providerInstanceLaunch', async (event, workspacePath: string, providerInstanceId: string, task?: Parameters<DaemonClient['providerInstanceLaunch']>[2]) => {
     credentialOwner(event)
+    const workspace = await resolveRegisteredProjectWorkspace(store, workspacePath)
     // Driver-owned launch arguments are computed here, in the trusted main
     // process, because the project-memory patch needs workspace and app paths the
     // daemon does not have. They are derived from the instance's own driver
     // identity — never from a command string — and the renderer supplies neither.
-    const driverArguments = await providerDriverLaunchArguments(workspacePath, providerInstanceId)
-    return terminalBus.providerInstanceLaunch(workspacePath, providerInstanceId, task, driverArguments)
+    const driverArguments = await providerDriverLaunchArguments(workspace.path, providerInstanceId)
+    return terminalBus.providerInstanceLaunch(workspace.path, providerInstanceId, task, driverArguments)
   })
   ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
@@ -1042,7 +1049,6 @@ void app.whenReady().then(async () => {
   ipcMain.handle('skillPackagesPrepare', (_e, ...args: Parameters<IpcApi['skillPackagesPrepare']>) => skills.prepare(...args))
 
   // Auto-updater — opt-in, throttled, preference-gated download
-  initAutoUpdater(mainWindow!)
   ipcMain.handle('autoUpdaterCheck', () => checkForUpdates())
   ipcMain.handle('autoUpdaterDownload', () => downloadUpdate())
   ipcMain.handle('autoUpdaterQuitAndInstall', () => quitAndInstall())
@@ -1246,10 +1252,21 @@ app.on('will-quit', (event) => {
     }).then(() => { toolsClosed = true; setImmediate(() => app.quit()) })
     return
   }
-  // daemon rule: never kill the daemon or its PTYs on app exit — sessions survive.
-  // An idle daemon (proven zero sessions) is the exception: shutdownIfIdle asks it
-  // to exit itself, reclaiming the socket/runtime files only when nothing is owned.
-  void terminalBus?.shutdownIfIdle().catch((err) => logger.debug({ err }, 'idle daemon reaped refused'))
+  if (!daemonShutdownComplete) {
+    event.preventDefault()
+    closingDaemon ??= (async () => {
+      try {
+        await terminalBus?.shutdownIfIdle()
+      } catch (err) {
+        logger.debug({ err }, 'idle daemon reap refused')
+      }
+      daemonShutdownComplete = true
+      setImmediate(() => app.quit())
+    })()
+    return
+  }
+  // Daemons owning sessions survive app exit. An idle daemon reaches this
+  // point only after its endpoint and ownership row have been reclaimed.
   void workspacePreview.close()
   const runtimeCleanup = rpcServer?.stop()
   if (runtimeCleanup === 'cleanup-failed') logger.error('runtime RPC ownership cleanup could not be verified before quit')

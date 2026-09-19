@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentExecutable, AgentTaskIntent } from '@shared/agent-runtime'
 import type { ProcessIdentity, ProcessIdentityVerdict } from '@shared/child-process/process-spec'
-import { isolatedProviderEnvironment } from '@shared/child-process/process-environment'
+import { isolatedProviderEnvironment, sanitizedTemplateEnvironment } from '@shared/child-process/process-environment'
 import {
   canonicalResourceKey,
   TaskAuthorityError,
@@ -20,7 +20,7 @@ import { SecretAuthorityError, type ProviderLaunchSecrets } from '@shared/provid
 import { SequencedTaskOutputPump } from '@shared/terminal-stream'
 import { agentProviderForExecutable } from '@shared/agent-runtime'
 import { SqliteTaskAuthority, launchIntentFingerprint } from './task-authority'
-import type { DaemonTaskEvidencePort, TaskEvidencePreObservation } from './task-evidence-port'
+import type { DaemonTaskEvidencePort, TaskEvidencePostCapture, TaskEvidencePreObservation } from './task-evidence-port'
 import type { SecretOutputBoundary } from '../secret-output-redactor'
 import { ProviderInvocationError, resolveProviderInvocation, type ResolvedProviderInvocation } from '../agents/provider-hooks'
 
@@ -271,6 +271,13 @@ export class TaskExecutionCoordinator {
   private readonly pumpPollMs: number
   private readonly cancelCheckMs: number
   private readonly deliveredStops = new Set<string>()
+  /**
+   * Wall-clock high-water mark of the last granted renewal per lease/generation.
+   * The lease token's `expiresAt` is frozen at claim time and never advances, so
+   * without this the renewal window stays open after the first heartbeat and a
+   * 10ms pump would insert a heartbeat row on every poll.
+   */
+  private readonly leaseRenewals = new Map<string, number>()
   private readonly childKinds = new Map<string, 'finite-job' | 'acp-agent'>()
   private readonly provider: ProviderLaunchPorts | null
 
@@ -310,8 +317,8 @@ export class TaskExecutionCoordinator {
    * child; a failure after it converges through the Stage 2 stop/quarantine
    * path rather than claiming the spawn was rolled back.
    *
-   * This method is unreachable from production in Stage 3: no caller outside
-   * this stage's direct tests supplies a selection.
+   * Production interactive launches reach this method through the daemon's
+   * `agent.providers.launch` wire op; direct-selection tests are the other callers.
    */
   async launchProviderBacked(input: Readonly<{
     lease: LeaseToken
@@ -327,9 +334,9 @@ export class TaskExecutionCoordinator {
      */
     interactive?: boolean
     /**
-     * The caller's task metadata (intent, files, template). It is display and
-     * routing context recorded on the run; it is never launch authority and
-     * never reaches the child environment.
+     * Caller task metadata (intent, files, template id) is retained on the run,
+     * not used as launch authority. Template values are resolved in trusted main
+     * and supplied separately as `requestedEnvironment`, never read from this metadata.
      */
     task?: AgentTaskIntent
     /**
@@ -339,10 +346,9 @@ export class TaskExecutionCoordinator {
      */
     driverArguments?: readonly string[]
     /**
-     * A caller-resolved session-template environment, validated at the wire
-     * boundary. It is merged after the driver/broker values so it can add keys
-     * but never strip the daemon's own authority values. The coordinator applies
-     * it in both credential modes.
+     * Caller-resolved template environment, validated at the wire boundary.
+     * Private keys and isolation roots are removed. Isolated launches accept
+     * only allowlisted template values, below driver and broker settings.
      */
     requestedEnvironment?: Readonly<Record<string, string>>
   }>): Promise<ProviderLaunchOutcome> {
@@ -430,14 +436,18 @@ export class TaskExecutionCoordinator {
     // `external` mode means.
     const isolationRoot = admission.credentialMode === 'external' ? null : ports.createIsolationRoot(input.sessionId)
     let environment: NodeJS.ProcessEnv
+    // External launches retain ordinary template additions; isolated launches
+    // accept only allowlisted values, before pins, driver settings, and credentials.
+    const templateEnvironment = sanitizedTemplateEnvironment(input.requestedEnvironment)
     if (isolationRoot === null) {
-      environment = { ...process.env, ...(input.requestedEnvironment ?? {}) }
+      environment = { ...process.env, ...templateEnvironment }
     } else {
       environment = isolatedProviderEnvironment({
         isolationRoot,
         inherited: process.env,
+        templateEnvironment,
         driverEnvironment: ports.driverEnvironment?.(admission.selection.driverId, isolationRoot) ?? {},
-        credentialEnvironment: { ...(secrets?.environment ?? {}), ...(input.requestedEnvironment ?? {}) }
+        credentialEnvironment: secrets?.environment ?? {}
       })
     }
     // Exactly the broker's own values become redaction patterns, and the last
@@ -449,7 +459,13 @@ export class TaskExecutionCoordinator {
 
     const releaseIsolation = (): void => {
       if (isolationRoot !== null) ports.removeIsolationRoot(isolationRoot)
-      if (managedValues.length > 0) ports.boundary.close(input.sessionId)
+      // Both callers run before `child.open`, so no PTY session — and therefore
+      // no exit event — can ever exist for this id. `forget` rather than `close`:
+      // a closed registration is only correct while a late push is still
+      // possible, and here nothing can push at all, so `close` would hold the
+      // redactor in the map for the daemon's life with no teardown able to reach
+      // it.
+      if (managedValues.length > 0) ports.boundary.forget(input.sessionId)
     }
 
     // The Stage 2 launch-intent state check, immediately before spawn: a
@@ -483,14 +499,21 @@ export class TaskExecutionCoordinator {
     }
 
     // The OS spawn is a fact now. Ownership is taken here and every later
-    // failure converges through stop + quarantine.
-    this.authority.recordReturnedIdentity({
-      projectId: input.lease.projectId,
-      taskId: input.lease.taskId,
-      attemptId: input.attemptId,
-      sessionId: opened.sessionId,
-      processIdentity: opened.processIdentity
-    })
+    // failure converges through stop + quarantine. The identity write itself is
+    // fenced on the launch intent still being `spawning`, so a cancellation that
+    // committed between the spawn and this call must converge rather than escape
+    // with the child live and the admission still held.
+    try {
+      this.authority.recordReturnedIdentity({
+        projectId: input.lease.projectId,
+        taskId: input.lease.taskId,
+        attemptId: input.attemptId,
+        sessionId: opened.sessionId,
+        processIdentity: opened.processIdentity
+      })
+    } catch (error) {
+      return this.convergeProviderLoss(input, admission, opened, isolationRoot, claim, `returned identity was refused: ${describeFailure(error)}`)
+    }
 
     try {
       if (opened.processIdentity === null) throw new TaskAuthorityError('RESOURCE_QUARANTINED', 'the provider child returned no process identity to bind')
@@ -533,22 +556,45 @@ export class TaskExecutionCoordinator {
     let stdoutOffset = 0
     let stderrOffset = 0
     let exitCode: number | null = null
+    let lastCancelCheck = 0
     for (;;) {
-      const chunk = ports.child.output(opened.sessionId)
-      // Backpressure and the output limit apply to the settled redacted bytes,
-      // never to the redactor's retain window.
-      const safeStdout = this.redactProviderChunk(opened.sessionId, 'stdout', chunk.stdout, stdoutOffset)
-      const safeStderr = this.redactProviderChunk(opened.sessionId, 'stderr', chunk.stderr, stderrOffset)
-      stdoutOffset = chunk.stdout.length
-      stderrOffset = chunk.stderr.length
-      if (safeStdout.length > 0) pump.append(safeStdout)
-      if (safeStderr.length > 0) pump.append(safeStderr)
-      if (chunk.exited) {
-        exitCode = chunk.exitCode ?? null
-        break
+      // The whole body is guarded: the output port and the stop/renew deliveries
+      // are the launch's only remaining owners after the OS spawn, so a throw
+      // here must converge through stop + quarantine like every other post-spawn
+      // failure. Escaping instead would leave the child live, the admission
+      // open, the isolation root on disk, and the attempt `running` — and for an
+      // interactive launch the caller's promise is deliberately swallowed, so
+      // nothing else would ever release them.
+      try {
+        const chunk = ports.child.output(opened.sessionId)
+        // Backpressure and the output limit apply to the settled bytes, never to
+        // the redactor's retain window; the sink already redacted them.
+        const safeStdout = this.settledOutputChunk(chunk.stdout, stdoutOffset)
+        const safeStderr = this.settledOutputChunk(chunk.stderr, stderrOffset)
+        stdoutOffset = chunk.stdout.length
+        stderrOffset = chunk.stderr.length
+        if (safeStdout.length > 0) pump.append(safeStdout)
+        if (safeStderr.length > 0) pump.append(safeStderr)
+        if (chunk.exited) {
+          exitCode = chunk.exitCode ?? null
+          break
+        }
+        // An interactive child can outlive the initial lease, and its terminal
+        // write is fenced: renew the lease while the child is still running so a
+        // later completion is not refused as expired.
+        this.renewLeaseIfDue(input.lease, input.connection)
+        // A cancellation committed mid-run must stop the child now, not at
+        // natural completion; delivery is idempotent per lease/generation.
+        if (Date.now() - lastCancelCheck >= this.cancelCheckMs) {
+          lastCancelCheck = Date.now()
+          this.deliverStopIfCancelling(input.lease, input.connection)
+        }
+        await this.delay(this.pumpPollMs)
+      } catch (error) {
+        return this.convergeProviderLoss(input, admission, opened, isolationRoot, claim, `provider output pump failed: ${describeFailure(error)}`)
       }
-      await this.delay(this.pumpPollMs)
     }
+    this.forgetLeaseRenewal(input.lease)
     // Every child output pipe has closed, so the residual undecided bytes are
     // safe to emit and the patterns/carry can be zeroized.
     for (const stream of ['stdout', 'stderr'] as const) {
@@ -559,16 +605,32 @@ export class TaskExecutionCoordinator {
     if (isolationRoot !== null) ports.removeIsolationRoot(isolationRoot)
     await this.closeProviderMaintenance(claim, 'completed')
 
+    // Cancellation may have been committed while the child was still running.
+    // A still-cancelling attempt needs the exit acknowledgement now; an
+    // already-cancelled attempt was closed by our own mid-run stop delivery,
+    // and re-acknowledging it would throw STALE_AUTHORITY.
     const attempt = this.freshAttemptOrNull(input)
-    if (attempt !== null && (attempt.state === 'cancelling' || attempt.state === 'cancelled')) {
-      this.authority.acknowledgeExit({
-        projectId: input.lease.projectId,
-        taskId: input.lease.taskId,
-        attemptId: input.attemptId,
-        leaseId: input.lease.leaseId,
-        generation: input.lease.generation,
-        reason: 'coordinator observed the cancelled provider child exit'
-      })
+    const sameLease = attempt?.currentLease?.leaseId === input.lease.leaseId && attempt.currentLease.generation === input.lease.generation
+    if (attempt !== null && sameLease && (attempt.state === 'cancelling' || attempt.state === 'cancelled')) {
+      if (attempt.state === 'cancelling') {
+        // Best effort: this is the last authority write of the pump, after every
+        // resource was already released, so a refused acknowledgement must not
+        // reject the launch promise (the interactive caller swallows it and a
+        // non-interactive one expects an outcome). A refusal means a concurrent
+        // lease change owns the attempt, which is the same conclusion.
+        try {
+          this.authority.acknowledgeExit({
+            projectId: input.lease.projectId,
+            taskId: input.lease.taskId,
+            attemptId: input.attemptId,
+            leaseId: input.lease.leaseId,
+            generation: input.lease.generation,
+            reason: 'coordinator observed the cancelled provider child exit'
+          })
+        } catch {
+          // The owning lease reconciles the attempt itself.
+        }
+      }
       return { disposition: 'cancelled', admission, sessionId: opened.sessionId, exitCode, reason: 'cancelled' }
     }
     try {
@@ -583,12 +645,17 @@ export class TaskExecutionCoordinator {
     }
   }
 
-  /** Redacts one stream's new bytes, or passes them through for a `none` launch. */
-  private redactProviderChunk(sessionId: string, stream: 'stdout' | 'stderr', cumulative: string, consumed: number): string {
-    const ports = this.provider as ProviderLaunchPorts
-    const fresh = consumed > 0 && consumed <= cumulative.length ? cumulative.slice(consumed) : cumulative
-    if (fresh.length === 0) return ''
-    return ports.boundary.has(sessionId) ? ports.boundary.push(sessionId, stream, fresh) : fresh
+  /**
+   * Returns one stream's new bytes for the retained output view.
+   *
+   * The daemon's PTY sink owns redaction: it settles every chunk through the
+   * launch's boundary before the bytes reach scrollback, replay, or any live
+   * event, so the text this pump reads is already safe. The boundary's
+   * registration is still the pump's to close, which zeroizes the patterns once
+   * every child output pipe has closed.
+   */
+  private settledOutputChunk(cumulative: string, consumed: number): string {
+    return consumed > 0 && consumed <= cumulative.length ? cumulative.slice(consumed) : cumulative
   }
 
   /**
@@ -604,6 +671,9 @@ export class TaskExecutionCoordinator {
     reason: string
   ): Promise<ProviderLaunchOutcome> {
     const ports = this.provider as ProviderLaunchPorts
+    // The pump may have renewed before it failed; the child is stopped here, so
+    // no renewal follows and the entry would otherwise outlive the launch.
+    this.forgetLeaseRenewal(input.lease)
     ports.boundary.flush(opened.sessionId, 'stdout')
     ports.boundary.flush(opened.sessionId, 'stderr')
     ports.boundary.close(opened.sessionId)
@@ -707,6 +777,7 @@ export class TaskExecutionCoordinator {
     try {
       this.authority.write({ kind: 'bind-runtime', connection, token, sessionId: child.sessionId, processIdentity: child.processIdentity as ProcessIdentity })
     } catch (error) {
+      this.childKinds.delete(child.sessionId)
       return this.handleBindLoss(prepared, child, owner, error, connection)
     }
 
@@ -733,9 +804,18 @@ export class TaskExecutionCoordinator {
       this.renewLeaseIfDue(token, connection)
       await this.delay(this.pumpPollMs)
     }
+    this.forgetLeaseRenewal(token)
+    // The child has settled, so nothing can route a stop to it any more; keeping
+    // the entry would grow this index by one UUID per launch for the daemon's life.
+    this.childKinds.delete(child.sessionId)
 
-    this.evidence.assertReservedWorkspace(prepared.preObservation, prepared.canonicalResourceKey)
-    const capture = this.evidence.capturePost(prepared.preObservation, pump.output, pump.truncated)
+    let capture: TaskEvidencePostCapture
+    try {
+      this.evidence.assertReservedWorkspace(prepared.preObservation, prepared.canonicalResourceKey)
+      capture = this.evidence.capturePost(prepared.preObservation, pump.output, pump.truncated)
+    } catch (error) {
+      return this.convergeFiniteExit(token, connection, child.sessionId, pump.output, exitCode, describeFailure(error))
+    }
     // Cancellation may have been committed while the child was still running.
     // When the pump observes its exit: a still-cancelling attempt needs the
     // exit acknowledgement now; an already-cancelled attempt was closed by our
@@ -768,11 +848,51 @@ export class TaskExecutionCoordinator {
       const task = this.authority.write({ kind: 'fail', connection, token, error: `task child exited with code ${exitCode}` })
       return { task, attempt: task.currentAttempt ?? preparedAttemptFallback(task), sessionId: child.sessionId, exitCode, disposition: 'failed', output: pump.output }
     } catch (error) {
-      if (!FENCED_BIND_LOSS.has(authorityCode(error))) throw error
+      if (!FENCED_BIND_LOSS.has(authorityCode(error))) {
+        return this.convergeFiniteExit(token, connection, child.sessionId, pump.output, exitCode, describeFailure(error))
+      }
       this.authority.recordStaleGenerationExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, exitCode, outputDigest: capture.outputDigest })
       const task = this.freshTask(connection, token.projectId, token.taskId)
       return { task, attempt: task.currentAttempt ?? preparedAttemptFallback(task), sessionId: child.sessionId, exitCode, disposition: 'superseded', output: pump.output }
     }
+  }
+
+  /**
+   * Converges a finite child that has already exited but whose fenced
+   * settlement threw. Leaving the exception to the caller strands the attempt as
+   * `running` with its reservation held until the next daemon boot, so the exit
+   * is always recorded: as the cancellation acknowledgement when the attempt was
+   * cancelled mid-run, as a fenced failure when the lease is still current, and
+   * as the audit-only stale-generation record when the lease was superseded.
+   */
+  private convergeFiniteExit(
+    token: LeaseToken,
+    connection: AuthenticatedAuthorityConnection,
+    sessionId: string,
+    output: string,
+    exitCode: number | null,
+    reason: string
+  ): TaskLaunchOutcome {
+    const fresh = this.freshAttemptOrNull({ lease: token, connection })
+    const sameLease = fresh?.currentLease?.leaseId === token.leaseId && fresh.currentLease.generation === token.generation
+    if (fresh !== null && sameLease && fresh.state === 'cancelling') {
+      try {
+        const updated = this.authority.acknowledgeExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, reason: `cancellation observed while converging the child exit: ${reason}` })
+        return { task: updated, attempt: updated.currentAttempt ?? fresh, sessionId, exitCode, disposition: 'cancelled', output }
+      } catch {
+        // The acknowledgement was refused too; the audit-only record below is the last resort.
+      }
+    } else if (fresh === null || sameLease) {
+      try {
+        const task = this.authority.write({ kind: 'fail', connection, token, error: `task child exited with code ${exitCode}; settlement was refused: ${reason}`.slice(0, 2048) })
+        return { task, attempt: task.currentAttempt ?? preparedAttemptFallback(task), sessionId, exitCode, disposition: 'failed', output }
+      } catch {
+        // A superseded lease refuses the fenced write; record the exit instead of dropping it.
+      }
+    }
+    this.authority.recordStaleGenerationExit({ projectId: token.projectId, taskId: token.taskId, attemptId: token.attemptId, leaseId: token.leaseId, generation: token.generation, exitCode, outputDigest: '' })
+    const task = this.freshTask(connection, token.projectId, token.taskId)
+    return { task, attempt: task.currentAttempt ?? preparedAttemptFallback(task), sessionId, exitCode, disposition: 'superseded', output }
   }
 
   async launch(claim: ClaimResult, specification: TaskExecutionSpecificationInput, connection: AuthenticatedAuthorityConnection, runtime: TaskChildRuntime = 'finite-job', repositoryId?: string): Promise<TaskLaunchOutcome> {
@@ -794,6 +914,10 @@ export class TaskExecutionCoordinator {
     const sessionId = attempt.runtime?.sessionId ?? null
     const identity = attempt.runtime?.processIdentity ?? null
     const kind = sessionId === null ? null : this.childKinds.get(sessionId) ?? null
+    // A provider launch registers no kind here: the daemon's provider child port
+    // and its jobs port are the same PtyManager stop, and after a restart this
+    // in-memory index is empty regardless of kind. The fallback is therefore the
+    // deliberate route for a provider child, not a missing registration.
     const owner = kind === 'acp-agent' ? this.ports.agents : this.ports.jobs
     if (!owner) throw new TaskAuthorityError('AUTHORIZATION_DENIED', `no daemon port is available for ${kind ?? 'unknown'} task children`)
     let delivered = false
@@ -953,11 +1077,25 @@ export class TaskExecutionCoordinator {
     }
   }
 
+  /** Drops the renewal high-water mark once the lease can no longer be renewed. */
+  private forgetLeaseRenewal(token: LeaseToken): void {
+    this.leaseRenewals.delete(`${token.leaseId}:${token.generation}`)
+  }
+
   private renewLeaseIfDue(token: LeaseToken, connection: AuthenticatedAuthorityConnection): void {
     if (Number.isNaN(Date.parse(token.expiresAt))) return
-    if (Date.parse(token.expiresAt) - Date.now() > LEASE_RENEWAL_WINDOW_MS) return
+    const key = `${token.leaseId}:${token.generation}`
+    // The token's expiry is frozen at claim time; the authority records granted
+    // renewals in `lease_renewals` only, so the effective expiry has to be
+    // reconstructed locally or every poll inside the window re-writes a row.
+    const renewedAt = this.leaseRenewals.get(key)
+    const effectiveExpiry = renewedAt === undefined
+      ? Date.parse(token.expiresAt)
+      : Math.max(Date.parse(token.expiresAt), renewedAt + LEASE_RENEWAL_TTL_MS)
+    if (effectiveExpiry - Date.now() > LEASE_RENEWAL_WINDOW_MS) return
     try {
       this.authority.write({ kind: 'heartbeat', connection, token, ttlMs: LEASE_RENEWAL_TTL_MS })
+      this.leaseRenewals.set(key, Date.now())
     } catch {
       // A fencing failure surfaces at the next fenced write; never retry a stale mutation as transient.
     }

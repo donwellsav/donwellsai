@@ -14,16 +14,29 @@ interface TemplatePickerProps {
 export function TemplatePicker({ onSelect, selectedId }: TemplatePickerProps) {
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(null)
     void window.donwells.sessionTemplateList()
-      .then(setTemplates)
-      .catch(() => setTemplates([]))
-      .finally(() => setLoading(false))
-  }, [])
+      .then(result => { if (active) setTemplates(result) })
+      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [attempt])
 
   if (loading) {
     return <div className="text-xs text-muted p-2">Loading templates…</div>
+  }
+
+  if (error !== null) {
+    return <div>
+      <p role="alert">Could not load templates: {error}</p>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAttempt(value => value + 1)}>Retry templates</button>
+    </div>
   }
 
   return (

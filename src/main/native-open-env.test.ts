@@ -74,22 +74,36 @@ it('applies the wire env to a native-open child', async () => {
 
   const markerFile = join(workspace, 'marker.out')
   const script = join(workspace, 'child.cjs')
-  writeFileSync(script, `require('fs').writeFileSync(process.argv[2], String(process.env.TEMPLATE_MARKER ?? 'missing'))`, { mode: 0o600 })
+  writeFileSync(script, `require('fs').writeFileSync(process.argv[2], JSON.stringify({ marker: process.env.TEMPLATE_MARKER ?? 'missing', hook: process.env.DONWELLS_AGENT_HOOK_SOCKET ?? 'unset' }))`, { mode: 0o600 })
 
   const result = await callWireOp(locator.record.socketPath, token, 'agent.native.open', {
     cwd: workspace,
     launch: { executable: process.execPath, args: [script, markerFile] },
-    env: { TEMPLATE_MARKER: 'applied' }
+    env: { TEMPLATE_MARKER: 'applied', DONWELLS_AGENT_HOOK_SOCKET: 'evil-socket' }
   })
   if (result['ok'] !== true) throw new Error('native open refused: ' + JSON.stringify(result))
 
-  // The child must observe the caller-supplied environment. The PTY merges
-  // additions over the daemon's inherited environment, so the marker proves
-  // the wire env actually reached the child rather than being dropped.
+  // The child must observe the caller-supplied environment, but daemon
+  // authority (hook variables) must win over template values: a template
+  // cannot retarget the hook channel it could otherwise forge events over.
   let observed: string | null = null
   for (let attempt = 0; attempt < 100 && observed === null; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 50))
     try { observed = readFileSync(markerFile, 'utf8') } catch { /* child has not run yet */ }
   }
-  expect(observed).toBe('applied')
+  const recorded = JSON.parse(observed as string) as { marker: string; hook: string }
+  expect(recorded.marker).toBe('applied')
+  expect(recorded.hook).not.toBe('evil-socket')
+  expect(recorded.hook).toBe(locator.record.socketPath)
+
+  // Invalid wire input is rejected before spawning, not silently stripped or
+  // reported as an unrelated process-launch failure.
+  for (const env of [{ ['INVALID\0KEY']: 'value' }, { LANG: 'invalid\0value' }]) {
+    const refused = await callWireOp(locator.record.socketPath, token, 'agent.native.open', {
+      cwd: workspace,
+      launch: { executable: process.execPath, args: [script, markerFile] },
+      env
+    })
+    expect(refused).toMatchObject({ ok: false, code: 'AUTHORIZATION_DENIED' })
+  }
 })

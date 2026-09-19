@@ -7,6 +7,7 @@ import { typescriptDefaults, javascriptDefaults } from 'monaco-editor/languages/
 import 'monaco-editor/editor/contrib/codelens/browser/codeLensCache.js'
 import 'monaco-editor/editor/common/services/treeViewsDndService.js'
 import { installLanguageDiagnostics } from './language-diagnostics'
+import { useAppStore } from './store'
 
 import 'monaco-editor/editor/contrib/find/browser/findController.js'
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js'
@@ -123,7 +124,7 @@ javascriptDefaults.setEagerModelSync(true)
 typescriptDefaults.setModeConfiguration({ ...typescriptDefaults.modeConfiguration, diagnostics: false })
 javascriptDefaults.setModeConfiguration({ ...javascriptDefaults.modeConfiguration, diagnostics: false })
 const reportLanguageError = (message: string): void => {
-  void import('./store').then(({ useAppStore }) => useAppStore.getState().setError(message))
+  queueMicrotask(() => useAppStore.getState().setError(message))
 }
 installLanguageDiagnostics(monaco, reportLanguageError)
 self.MonacoEnvironment = {

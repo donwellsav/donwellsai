@@ -30,6 +30,7 @@ import { forceTerminatePosixProcessGroup } from '@shared/child-process/process-t
 import { SqliteTaskAuthority } from './task-authority/task-authority'
 import { DaemonTaskEvidencePort } from './task-authority/task-evidence-port'
 import { readRegisteredProjects, TaskAuthorityMigration, TaskAuthorityMigrationError } from './task-authority/task-authority-migration'
+import { resolveInteractiveWorkspace } from './interactive-workspace'
 import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './task-authority/backlog-migration-reader'
 import { SqliteProfileMaintenanceGate } from './profile-maintenance-gate'
 import type { AuthenticatedProfileMaintenanceMigrationContext, AuthenticatedProfileMaintenanceParticipantContext } from '@shared/profile-maintenance'
@@ -69,7 +70,7 @@ import { isAgentDriverId, parseProviderInstanceInput, AGENT_PROVIDER_CATALOG_CAP
 import { asCredentialRef, PROVIDER_SECRET_BROKER_CAPABILITY, type ProviderLaunchAuthorization, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
 import { ProviderSecretBrokerHost, SECRET_BROKER_REGISTER_OP, SECRET_BROKER_RESPOND_OP, SecretBrokerError } from './provider-secret-broker'
 import { AgentRegistry } from './agents/registry'
-import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
+import { sanitizedProcessEnv, sanitizedTemplateEnvironment } from '@shared/child-process/process-environment'
 import { SecretOutputBoundary } from './secret-output-redactor'
 import {
   ATTENTION_INBOX_CAPABILITY,
@@ -290,14 +291,13 @@ export class TerminalDaemon {
   private readonly sequence = new Map<string, number>()
   private readonly clients = new Set<Socket>()
   private readonly connections = new Set<Socket>()
+  private readonly connectionClosures = new Map<Socket, Promise<void>>()
   private readonly agentsBySession = new Map<string, AgentRecord>()
   private readonly agentsByRun = new Map<string, AgentRecord>()
   /** One managed-output redactor per session; empty for external launches. */
-  private readonly providerBoundary = new SecretOutputBoundary()
+  private readonly providerBoundary: SecretOutputBoundary
   /** Run records for admitted provider children, keyed by daemon session id. */
   private readonly providerRuns = new Map<string, RunningAgent>()
-  /** Exit codes observed for provider children, so `output` never infers exit. */
-  private readonly providerExitCode = new Map<string, number>()
   /**
    * The lifecycle pump for each provider child.
    *
@@ -340,6 +340,11 @@ export class TerminalDaemon {
      * has no Backlog sources to freeze on this profile.
      */
     projectRegistry?: () => Promise<readonly BacklogWorkspaceIdentity[]>
+    /**
+     * Test seam for the managed-output redactor. Production owns exactly one
+     * boundary per daemon, shared by every launch it settles.
+     */
+    providerBoundary?: SecretOutputBoundary
     /** Migration-only Backlog reader bound to the app's pinned CLI. */
     backlogPort?: () => BacklogMigrationReadPort
     /**
@@ -355,6 +360,7 @@ export class TerminalDaemon {
     this.projectRegistry = opts.projectRegistry
     this.authToken = opts.authToken
     this.identity = opts.identity ?? runtimeIdentityAuthority()
+    this.providerBoundary = opts.providerBoundary ?? new SecretOutputBoundary()
     this.paths = localRuntimePaths(userDataDir, 'terminal')
     this.baseEndpointPath = this.paths.socketPath
     this.secretBroker = new ProviderSecretBrokerHost({
@@ -370,11 +376,14 @@ export class TerminalDaemon {
       {
         data: (sessionId, data) => this.handlePtyData(sessionId, data),
         exit: (sessionId, exitCode) => this.handlePtyExit(sessionId, exitCode),
+        // Titles arrive settled: PtyManager runs `settleProviderTitle` before it
+        // stores the record's title, so this event and the record agree.
         title: (sessionId, title) => this.broadcast({ event: 'title', sessionId, title })
       },
       opts.shell,
       undefined,
-      this.identity
+      this.identity,
+      (sessionId, title) => this.settleProviderTitle(sessionId, title)
     )
     this.attention = new AttentionInboxService(new AttentionInboxStore(opts.userDataDir), {
       resolveContact: (sessionId) => ({
@@ -577,7 +586,7 @@ export class TerminalDaemon {
     if (run.liveness !== 'exited') {
       const stopping: RunningAgent = { ...run, activity: 'stopping', stopRequestedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
       this.providerRuns.set(sessionId, stopping)
-      this.broadcast({ event: 'agent-changed', run: stopping })
+      this.broadcast({ event: 'agent', run: stopping })
     }
     await this.pty.stop(sessionId)
     return cloneRun(this.providerRuns.get(sessionId) ?? run)
@@ -589,7 +598,7 @@ export class TerminalDaemon {
     if (!this.pty.has(sessionId)) {
       const unverifiable: RunningAgent = { ...run, liveness: 'unverifiable', updatedAt: new Date().toISOString() }
       this.providerRuns.set(sessionId, unverifiable)
-      this.broadcast({ event: 'agent-changed', run: unverifiable })
+      this.broadcast({ event: 'agent', run: unverifiable })
       throw new Error('agent process ownership is unverifiable')
     }
     this.pty.interrupt(sessionId)
@@ -601,7 +610,7 @@ export class TerminalDaemon {
       updatedAt: stopRequestedAt
     }
     this.providerRuns.set(sessionId, interrupted)
-    this.broadcast({ event: 'agent-changed', run: interrupted })
+    this.broadcast({ event: 'agent', run: interrupted })
     return cloneRun(interrupted)
   }
 
@@ -615,8 +624,9 @@ export class TerminalDaemon {
     this.pty.dismissExited(sessionId)
     this.providerRuns.delete(sessionId)
     this.providerPumps.delete(sessionId)
-    this.providerExitCode.delete(sessionId)
-    this.providerBoundary.close(sessionId)
+    // Terminal teardown: the PTY is dismissed and the pump joined, so the
+    // launch's registration can be dropped rather than only zeroized.
+    this.providerBoundary.forget(sessionId)
     this.scrollback.delete(sessionId); this.replay.delete(sessionId)
     this.truncated.delete(sessionId)
     this.sequence.delete(sessionId)
@@ -651,7 +661,7 @@ export class TerminalDaemon {
       hook: { support: 'unavailable', events: [], reason: 'Provider-backed launches report liveness from the PTY only.', connected: false }
     }
     this.providerRuns.set(sessionId, run)
-    this.broadcast({ event: 'agent-changed', run })
+    this.broadcast({ event: 'agent', run })
   }
 
   hasLiveSessions(): boolean {
@@ -676,8 +686,8 @@ export class TerminalDaemon {
     }
     const server = this.server
     this.server = null
+    const connectionClosures = [...this.connectionClosures.values()]
     for (const client of this.connections) client.destroy()
-    this.connections.clear()
     this.clients.clear()
     let released: RuntimeReleaseResult | 'no-owner' = 'no-owner'
     try {
@@ -686,6 +696,7 @@ export class TerminalDaemon {
         server.close(() => closed.resolve())
         await closed.promise
       }
+      await Promise.all(connectionClosures)
     } finally {
       this.removeOwnedEndpoint()
       this.boundIno = null
@@ -821,8 +832,35 @@ export class TerminalDaemon {
     return result
   }
 
+  /**
+   * Redacts a managed session's window title. A title is a discrete string
+   * rather than a stream chunk, so it is settled through the stream the PTY does
+   * not use for data and its carry is released immediately. PtyManager runs this
+   * before it stores the title, so the session record served by `session.list`
+   * and `session.attach` carries the same bytes as the title event.
+   */
+  private settleProviderTitle(sessionId: string, title: string): string {
+    if (!this.providerBoundary.has(sessionId)) return title
+    return this.providerBoundary.push(sessionId, 'stderr', title) + this.providerBoundary.flush(sessionId, 'stderr')
+  }
+
   private handlePtyData(sessionId: string, data: string): void {
     if (data.length === 0) return
+    // A managed provider launch's exact credential values are settled here,
+    // before the bytes reach any sink: scrollback, replay, and the live
+    // data event the renderer, native terminals, and operational runs share.
+    // A PTY exposes one merged stream, which is the `stdout` stream the
+    // coordinator's output port reports. `push` already encodes both policies a
+    // caller would re-derive: a session with no registered redactor passes
+    // through unchanged, and a closed one returns nothing, so every later byte
+    // is dropped rather than emitted unredacted.
+    const settled = this.providerBoundary.push(sessionId, 'stdout', data)
+    if (settled.length === 0) return
+    this.sinkSessionBytes(sessionId, settled)
+  }
+
+  /** Writes one chunk of already-settled bytes to scrollback, replay, and the live event. */
+  private sinkSessionBytes(sessionId: string, data: string): void {
     const sequence = (this.sequence.get(sessionId) ?? 0) + 1
     this.sequence.set(sessionId, sequence)
     let current = (this.scrollback.get(sessionId) ?? '') + data
@@ -854,12 +892,17 @@ export class TerminalDaemon {
   }
 
   private handlePtyExit(sessionId: string, exitCode: number): void {
+    // The child's output pipes have closed, so the redactor's undecided carry is
+    // safe to emit: flush it into the same sinks before the exit is announced.
+    if (this.providerBoundary.has(sessionId)) {
+      const residual = this.providerBoundary.flush(sessionId, 'stdout') + this.providerBoundary.flush(sessionId, 'stderr')
+      if (residual.length > 0) this.sinkSessionBytes(sessionId, residual)
+    }
     this.broadcast({ event: 'exit', sessionId, exitCode })
     // A provider child's exit is a daemon-owned fact: the coordinator's output
     // port reports it rather than inferring exit from transport loss.
     const providerRun = this.providerRuns.get(sessionId)
     if (providerRun) {
-      this.providerExitCode.set(sessionId, exitCode)
       const updated: RunningAgent = {
         ...providerRun,
         liveness: 'exited',
@@ -868,7 +911,7 @@ export class TerminalDaemon {
         updatedAt: new Date().toISOString()
       }
       this.providerRuns.set(sessionId, updated)
-      this.broadcast({ event: 'agent-changed', run: updated })
+      this.broadcast({ event: 'agent', run: updated })
     }
     const record = this.agentsBySession.get(sessionId)
     if (record) {
@@ -897,8 +940,7 @@ export class TerminalDaemon {
       this.sequence.delete(sessionId)
       this.providerRuns.delete(sessionId)
       this.providerPumps.delete(sessionId)
-      this.providerExitCode.delete(sessionId)
-      this.providerBoundary.close(sessionId)
+      this.providerBoundary.forget(sessionId)
     }, REAP_EXITED_MS).unref()
   }
 
@@ -955,6 +997,8 @@ export class TerminalDaemon {
     let buffer = ''
     const decoder = new StringDecoder('utf8')
     this.connections.add(socket)
+    const closed = Promise.withResolvers<void>()
+    this.connectionClosures.set(socket, closed.promise)
     socket.on('data', (chunk: Buffer) => {
       buffer += decoder.write(chunk)
       if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) {
@@ -1007,8 +1051,7 @@ export class TerminalDaemon {
         else void this.handleOp(socket, message)
       }
     })
-    socket.on('close', () => {
-      this.connections.delete(socket)
+    socket.on('close', async () => {
       this.clients.delete(socket)
       // A disconnect invalidates every pending materialization request for this
       // connection, and late responses are dropped as no-longer-pending.
@@ -1021,10 +1064,13 @@ export class TerminalDaemon {
         }
         // A disconnect marks that connection's ordinary admissions
         // indeterminate; only the same participant can reconcile them later.
-        void this.maintenanceGate.markConnectionDisconnected(connectionKey).catch(error => {
+        await this.maintenanceGate.markConnectionDisconnected(connectionKey).catch(error => {
           logger.warn({ err: error }, 'profile maintenance disconnect bookkeeping failed')
         })
       }
+      this.connections.delete(socket)
+      this.connectionClosures.delete(socket)
+      closed.resolve()
     })
     socket.on('error', () => socket.destroy())
   }
@@ -1155,9 +1201,11 @@ export class TerminalDaemon {
       inheritedEnv: process.env
     })
     // A session template's environment arrives from the trusted main client,
-    // which resolved the template; it is merged after the hook variables so a
-    // malicious template cannot strip daemon authority, only add its own keys.
-    const env = requestedEnv === undefined ? launchPlan.env : { ...launchPlan.env, ...requestedEnv }
+    // which resolved the template. The sanitized template is merged BEFORE the
+    // hook-plan values so the daemon's authority keys (the hook socket, run
+    // id, session id, and token) always win: a template can add variables but
+    // can never retarget the hook channel or strip daemon authority.
+    const env = { ...sanitizedTemplateEnvironment(requestedEnv), ...launchPlan.env }
     const now = new Date().toISOString()
     const run: RunningAgent = {
       ...(task ? { task: parseAgentTaskIntent(task) } : {}),
@@ -1331,7 +1379,7 @@ export class TerminalDaemon {
           const task = rawTask === undefined ? undefined : parseAgentTaskIntent(rawTask)
           if (task?.externalId !== undefined) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task-linked native opens must use the task coordinator claim and launch-intent path')
           const rawEnv = message['env']
-          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => typeof key !== 'string' || key.length > 256 || typeof value !== 'string' || value.length > 4096))) {
+          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => key.length > 256 || key.includes('\0') || typeof value !== 'string' || value.length > 4096 || value.includes('\0')))) {
             throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'invalid native-open environment')
           }
           const requestedEnv = rawEnv === undefined ? undefined : Object.fromEntries(Object.entries(rawEnv as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
@@ -1363,7 +1411,7 @@ export class TerminalDaemon {
           const rawTask = message['task']
           const rawDriverArgs = message['driverArguments']
           const rawEnv = message['env']
-          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => typeof key !== 'string' || key.length > 256 || typeof value !== 'string' || value.length > 4096))) {
+          if (rawEnv !== undefined && (typeof rawEnv !== 'object' || rawEnv === null || Array.isArray(rawEnv) || Object.entries(rawEnv).some(([key, value]) => key.length > 256 || key.includes('\0') || typeof value !== 'string' || value.length > 4096 || value.includes('\0')))) {
             throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'invalid provider-launch environment')
           }
           const requestedEnv = rawEnv === undefined ? undefined : Object.fromEntries(Object.entries(rawEnv as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
@@ -1625,10 +1673,6 @@ export class TerminalDaemon {
           this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
-          this.providerRuns.delete(sessionId)
-          this.providerPumps.delete(sessionId)
-          this.providerExitCode.delete(sessionId)
-          this.providerBoundary.close(sessionId)
           this.broadcast({ event: 'agent-dismissed', sessionId })
           reply(true, {})
           break
@@ -1654,14 +1698,26 @@ export class TerminalDaemon {
           if (this.agentsBySession.has(sessionId)) {
             throw new Error('agent sessions require interrupt followed by dismiss after confirmed exit')
           }
+          // A provider session's lifecycle pump owns its retained state and reads
+          // its settled exit; closing the session underneath it would record a
+          // clean exit as a failure with its trailing output dropped. A run that
+          // is still live, or whose exit is not yet settled, must go through
+          // `agent.stop` and then `agent.dismiss`. An exited one is dismissed
+          // here, which is the same teardown: it joins the pump before releasing
+          // anything the pump still reads.
+          const provider = this.providerRuns.get(sessionId)
+          if (provider) {
+            if (provider.liveness !== 'exited' || this.pty.liveness(sessionId) !== 'exited') {
+              throw new Error('provider sessions require agent.stop followed by agent.dismiss after confirmed exit')
+            }
+            await this.dismissProviderRun(sessionId)
+            reply(true, {})
+            break
+          }
           await this.pty.close(sessionId)
           this.scrollback.delete(sessionId); this.replay.delete(sessionId)
           this.truncated.delete(sessionId)
           this.sequence.delete(sessionId)
-          this.providerRuns.delete(sessionId)
-          this.providerPumps.delete(sessionId)
-          this.providerExitCode.delete(sessionId)
-          this.providerBoundary.close(sessionId)
           reply(true, {})
           break
         }
@@ -1901,8 +1957,9 @@ export class TerminalDaemon {
     if (instance.availability !== 'available') throw new ProviderCatalogError('DRIVER_UNAVAILABLE', 'the selected provider instance is unavailable')
 
     const canonicalWorkspace = realpathSync.native(workspacePath)
-    const project = (await (this.projectRegistry ?? (async () => readRegisteredProjects(this.userDataDir)))())
-      .find(candidate => realpathSync.native(candidate.workspaceRoot) === canonicalWorkspace)
+    const project = this.projectRegistry
+      ? (await this.projectRegistry()).find(candidate => realpathSync.native(candidate.workspaceRoot) === canonicalWorkspace)
+      : await resolveInteractiveWorkspace(this.userDataDir, canonicalWorkspace)
     if (!project) throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the workspace is not a registered project')
     const projectId = project.projectId
 

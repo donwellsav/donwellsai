@@ -390,9 +390,6 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
               }}><option value="" disabled>Custom command (Advanced)</option>{availablePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>
             </label>
             <CapabilityMatrix />
-            <label className="modal-field">Session template
-              <TemplatePicker onSelect={setSelectedTemplateId} selectedId={selectedTemplateId ?? undefined} />
-            </label>
           </>
         ) : (
           <div className="agent-launcher-note" role="status">
@@ -400,6 +397,10 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
             <span>Install an agent or choose its command in Advanced.</span>
           </div>
         )}
+            <div className="modal-field" role="group" aria-label="Session template">
+              <span>Session template</span>
+              <TemplatePicker onSelect={setSelectedTemplateId} selectedId={selectedTemplateId ?? undefined} />
+            </div>
 
 
 
@@ -425,7 +426,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         </div>}
         {launchError && <p className="op-inline-error" role="alert"><strong>Agent did not start.</strong><span>{launchError}</span></p>}
         <div className="agent-launcher-actions">
-          <button type="submit" className="btn btn-primary" disabled={!targetPath || (providerInstanceId === '' && !command.trim()) || launching || configuringMemory}>
+          <button type="submit" className="btn btn-primary" disabled={!targetPath || (providerInstanceId === '' && !(launchDirect && command.trim())) || launching || configuringMemory}>
             <Icon name="terminal" size={14} />
             {launching ? 'Starting agent…' : 'Start agent & open terminal'}
           </button>

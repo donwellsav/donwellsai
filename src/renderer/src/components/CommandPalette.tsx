@@ -71,7 +71,6 @@ export function CommandPalette({ open }: { open: boolean }) {
   const mode = useAppStore((state) => state.paletteMode)
   const setOpen = useAppStore((state) => state.setPaletteOpen)
   const repos = useAppStore((state) => state.repos)
-  const agents = useAppStore((state) => state.agents)
   const runningAgents = useAppStore((state) => state.runningAgents)
   const settings = useAppStore((state) => state.settings)
   const activeWorktreePath = useAppStore((state) => state.activeWorktreePath)
@@ -81,8 +80,10 @@ export function CommandPalette({ open }: { open: boolean }) {
   const panes = useAppStore((state) => state.panes)
   const activePane = useAppStore((state) => state.activePane)
   const runsOpen = useAppStore((state) => state.runsOpen)
-  const context = useMemo<CommandContext>(() => ({ repos, activeRepoId, activeWorktreePath, panes, activePane, runsOpen, settings }),
-    [repos, activeRepoId, activeWorktreePath, panes, activePane, runsOpen, settings])
+  const providerCatalog = useAppStore((state) => state.providerCatalog)
+  const previews = useAppStore((state) => state.previews)
+  const context = useMemo<CommandContext>(() => ({ repos, activeRepoId, activeWorktreePath, panes, activePane, runsOpen, settings, providerCatalog, previews }),
+    [repos, activeRepoId, activeWorktreePath, panes, activePane, runsOpen, settings, providerCatalog, previews])
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>()
   const [requestedScope, setRequestedScope] = useState<PaletteFileScope>(getPaletteFileScope)
@@ -224,28 +225,25 @@ export function CommandPalette({ open }: { open: boolean }) {
         run: () => dispatchAppCommand(command.id)
       })
     }
-    for (const agent of agents) {
-      const label = 'Run agent: ' + agent.name
+    for (const instance of providerCatalog?.instances ?? []) {
+      const label = 'Run agent: ' + instance.displayName
       const match = fuzzyMatch(label, normalizedQuery)
       if (!match) continue
-      // Agent identity is no longer a command string: a run starts from the
-      // default provider instance, exactly like the `run-agent` command.
-      const defaultInstanceId = useAppStore.getState().providerCatalog?.defaultInstanceId ?? null
       items.push({
-        id: 'agent-preset:' + agent.name,
+        id: 'provider-instance:' + instance.id,
         label,
-        hint: agent.command,
-        disabledReason: !agent.available ? `${agent.name} is not installed on this host.` : defaultInstanceId === null ? 'Choose a default provider instance in Settings → Agents.' : pinnedWorktree(context) ? undefined : 'Select a registered workspace first.',
+        hint: (instance.driver.kind === 'known' ? instance.driver.displayName : instance.driver.rawDriverId) + ' · ' + instance.credentialMode,
+        disabledReason: !instance.enabled ? 'This provider instance is disabled.' : pinnedWorktree(context) ? undefined : 'Select a registered workspace first.',
         score: match.score,
         hits: match.hits,
         run: () => {
           const worktreePath = pinnedWorktree()
-          if (worktreePath && defaultInstanceId !== null) void useAppStore.getState().launchProviderInstance(worktreePath, defaultInstanceId)
+          if (worktreePath) void useAppStore.getState().launchProviderInstance(worktreePath, instance.id)
         }
       })
     }
     return items.sort(itemOrder).slice(0, MAX_PALETTE_ITEMS)
-  }, [agents, context, mode, open, query, settings.keyboardShortcutOverrides])
+  }, [providerCatalog, context, mode, open, query, settings.keyboardShortcutOverrides])
 
   const localFileItems = useMemo<PaletteItem[]>(() => {
     if (!open || mode !== 'files') return []

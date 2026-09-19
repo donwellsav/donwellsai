@@ -290,7 +290,7 @@ describe('daemon task authority upgrade negotiation', () => {
   }
   const NEW_OWNER_ID = '55555555-5555-4555-8555-555555555555'
 
-  function oldDaemonServer(endpoint: string, token: string, status: { idle: boolean; sessionCount: number; liveSessionCount: number }, options: { onShutdown?: () => void; handshake?: Record<string, unknown>; legacy?: boolean } = {}) {
+  function oldDaemonServer(endpoint: string, token: string, status: { idle: boolean; sessionCount: number; liveSessionCount: number }, options: { onShutdown?: () => void; onShutdownReply?: () => void; handshake?: Record<string, unknown>; legacy?: boolean } = {}) {
     const requests: string[] = []
     const server = createServer(socket => {
       socket.setEncoding('utf8')
@@ -311,7 +311,7 @@ describe('daemon task authority upgrade negotiation', () => {
           if (message.op === 'daemon.status') socket.write(JSON.stringify({ id: message.id, ok: true, pid: 1234, ...status }) + '\n')
           else if (message.op === 'daemon.shutdown') {
             options.onShutdown?.()
-            socket.write(JSON.stringify({ id: message.id, ok: true, stopped: true }) + '\n')
+            socket.write(JSON.stringify({ id: message.id, ok: true, stopped: true }) + '\n', () => options.onShutdownReply?.())
             socket.end()
           } else if (message.op === 'session.list') socket.write(JSON.stringify({ id: message.id, ok: true, sessions: [] }) + '\n')
           else socket.write(JSON.stringify({ id: message.id, ok: false, error: 'unknown op: ' + message.op }) + '\n')
@@ -320,6 +320,54 @@ describe('daemon task authority upgrade negotiation', () => {
     })
     return { server, requests }
   }
+
+  it.runIf(process.platform !== 'win32')('waits for runtime ownership cleanup before idle shutdown resolves', async () => {
+    const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'daemon-client-idle-shutdown-')))
+    const paths = localRuntimePaths(directory, 'terminal')
+    mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 })
+    const token = 'idle-shutdown-token-1234567890'
+    const ownerId = '33333333-3333-4333-8333-333333333333'
+    const identity: ProcessIdentity = {
+      pid: process.pid,
+      bootId: 'boot-idle-shutdown',
+      startedAt: 'birth-idle-shutdown',
+      executablePath: process.execPath,
+      family: 'terminal-daemon',
+      capturedAt: '2026-09-19T00:00:00.000Z',
+      generation: ownerId + ':1'
+    }
+    const locator: LocalRuntimeRecord = { version: 2, ownerId, ownerGeneration: 1, socketPath: paths.socketPath, authToken: token, processIdentity: identity }
+    const store = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
+    const active = store.activate(store.prepareClaim({ kind: 'terminal-daemon', ownerId, identity, endpoint: paths.socketPath, authToken: token }, store.observe('terminal-daemon'), null), createHash('sha256').update(JSON.stringify(locator)).digest('hex'))
+    writeRuntimeRecord(paths.runtimeFile, locator)
+    const shutdownRequested = Promise.withResolvers<void>()
+    const shutdownReplied = Promise.withResolvers<void>()
+    const daemon = oldDaemonServer(paths.socketPath, token, { idle: true, sessionCount: 0, liveSessionCount: 0 }, {
+      onShutdown: () => shutdownRequested.resolve(),
+      onShutdownReply: () => shutdownReplied.resolve(),
+      handshake: { ownerId, generation: 1, processIdentity: identity }
+    })
+    const client = new DaemonClient(directory, events, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
+    try {
+      await listen(daemon.server, paths.socketPath)
+      await client.connect()
+      let settled = false
+      const shutdown = client.shutdownIfIdle().then(result => { settled = true; return result })
+      await shutdownRequested.promise
+      await shutdownReplied.promise
+      await new Promise<void>(resolve => setTimeout(resolve, 25))
+      expect(settled).toBe(false)
+      store.release(active)
+      await expect(shutdown).resolves.toBe(true)
+      expect(store.observe('terminal-daemon').status).toBe('vacant')
+    } finally {
+      if (store.observe('terminal-daemon').status !== 'vacant') store.release(active)
+      client.disconnect()
+      await new Promise<void>(resolve => daemon.server.close(() => resolve()))
+      store.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 
   function newDaemonServer(endpoint: string, token: string) {
     const requests: string[] = []

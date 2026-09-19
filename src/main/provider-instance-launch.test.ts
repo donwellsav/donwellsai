@@ -20,9 +20,24 @@ import { TerminalDaemon } from './terminal-daemon'
 
 const directories: string[] = []
 const daemons: TerminalDaemon[] = []
+const startedDaemons: Array<{ socketPath: string; token: string }> = []
 
 afterEach(async () => {
-  for (const daemon of daemons.splice(0)) await daemon.stopIfIdle().catch(() => undefined)
+  for (const daemon of daemons.splice(0)) {
+    for (const started of startedDaemons.splice(0)) {
+      const listed = await callWireOp(started.socketPath, started.token, 'agent.list')
+      const runs = listed['runs'] as Array<{ sessionId: string; liveness: string }>
+      for (const run of runs) {
+        if (run.liveness !== 'exited') {
+          const stopped = await callWireOp(started.socketPath, started.token, 'agent.stop', { sessionId: run.sessionId })
+          expect(stopped['ok']).toBe(true)
+        }
+        const dismissed = await callWireOp(started.socketPath, started.token, 'agent.dismiss', { sessionId: run.sessionId })
+        expect(dismissed['ok']).toBe(true)
+      }
+    }
+    expect(await daemon.stopIfIdle()).toBe(true)
+  }
   while (directories.length > 0) rmSync(directories.pop() as string, { recursive: true, force: true })
 })
 
@@ -98,6 +113,7 @@ async function startDaemon(projects: readonly { projectId: string; repositoryId:
   await daemon.start()
   const locator = readRuntimeRecord(localRuntimePaths(directory, 'terminal').runtimeFile)
   if (locator.status !== 'current') throw new Error('terminal locator was not published')
+  startedDaemons.push({ socketPath: locator.record.socketPath, token })
   return { socketPath: locator.record.socketPath, token }
 }
 

@@ -36,6 +36,21 @@ export interface SessionTemplateManagerOptions {
 }
 
 /**
+ * A user template's id is used as its file name inside the user templates
+ * directory, so a separator, a traversal segment, or an absolute path would let
+ * a caller write or delete outside it — including over the repository registry
+ * that provider launches are authorized against.
+ */
+const TEMPLATE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+function assertTemplateId(id: string): string {
+  if (typeof id !== 'string' || !TEMPLATE_ID_PATTERN.test(id)) {
+    throw new Error(`Invalid template id: ${String(id)}`)
+  }
+  return id
+}
+
+/**
  * Manages session templates.
  *
  * Templates are pre-configured session setups that users can apply
@@ -257,7 +272,7 @@ export class SessionTemplateManager {
   }
 
   private templatePath(id: string): string {
-    return join(this.options.userDir, `${id}.json`)
+    return join(this.options.userDir, `${assertTemplateId(id)}.json`)
   }
 }
 

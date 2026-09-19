@@ -171,6 +171,17 @@ function fakePorts(authority: SqliteTaskAuthority, options: FakePortOptions = {}
   return { ports, calls, setPending }
 }
 
+/**
+ * The real evidence port with one failure injected after the child has exited:
+ * the reservation assertion drifts, which is the class of settlement failure
+ * that used to escape the coordinator and strand the attempt as running.
+ */
+class DriftingReservationEvidence extends DaemonTaskEvidencePort {
+  override assertReservedWorkspace(): void {
+    throw new Error('reservation drifted')
+  }
+}
+
 function makeCoordinator(
   authority: SqliteTaskAuthority,
   ports: TaskLaunchPorts,
@@ -482,6 +493,29 @@ describe('task execution coordinator', () => {
     expect(retryOutcome.disposition).toBe('completed')
     expect(retryOutcome.task.status).toBe('done')
     expect(retryOutcome.attempt.retryOfAttemptId).toBe(claimed.attempt.attemptId)
+  })
+
+  integration('records the exit instead of stranding the attempt when its settlement cannot be taken', async () => {
+    const { authority, directory } = openAuthority()
+    const workspace = join(directory, 'work')
+    mkdirSync(workspace)
+    createTask(authority, 'DW-SETTLE')
+    const claimed = claim(authority, 'DW-SETTLE', OWNER_ALICE, SPEC(workspace))
+    const { ports, setPending } = fakePorts(authority, { script: [{ output: 'trailing output\n', exited: true, exitCode: 0 }] })
+    setPending(claimed)
+    const coordinator = new TaskExecutionCoordinator({
+      authority,
+      ports,
+      evidence: new DriftingReservationEvidence(),
+      pumpPollMs: 1
+    })
+    const outcome = await coordinator.launch(claimed, SPEC(workspace), worker(OWNER_ALICE))
+    expect(outcome.disposition).toBe('failed')
+    // The terminal write is what settles the attempt and releases its
+    // reservation; escaping instead left both held for a child that had exited.
+    const task = taskOf(authority, claimed.task.taskId)
+    expect(task.currentAttempt?.state).toBe('failed')
+    expect(task.status).toBe('failed')
   })
 
   integration('records a failed exit on the current attempt and one atomic retry creates a linked attempt', async () => {

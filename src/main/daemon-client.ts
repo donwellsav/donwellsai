@@ -55,6 +55,7 @@ import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import { spawnProcess } from '@shared/child-process/run-process'
 import { readRuntimeRecord, localRuntimePaths, type LocalRuntimeRecord } from './local-runtime'
 import { logger } from '@shared/logger'
+import { getServices } from './services'
 import { reconcileRuntimeOwner } from './runtime-ownership'
 import {
   parseTaskExecutionSpecification,
@@ -640,7 +641,7 @@ export class DaemonClient {
   }
 
   private async connectInner(): Promise<void> {
-    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { create: true, requireCanonical: true }), 'terminal')
     const record = readRuntimeRecord(paths.runtimeFile)
     if (record.status === 'legacy') {
       const ownership = new RuntimeOwnershipStore(paths.ownershipDatabasePath)
@@ -962,7 +963,7 @@ export class DaemonClient {
   }
 
   private async awaitDaemonEndpointCleanup(previousEndpoint: string | null): Promise<void> {
-    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { requireCanonical: true }), 'terminal')
+    const paths = localRuntimePaths(canonicalPrivateDirectory(this.userDataDir, { create: true, requireCanonical: true }), 'terminal')
     const deadline = Date.now() + 5_000
     while (Date.now() <= deadline) {
       const record = readRuntimeRecord(paths.runtimeFile)
@@ -1213,7 +1214,6 @@ export class DaemonClient {
     let resolvedLaunch = launch
     if (task?.templateId) {
       try {
-        const { getServices } = await import('./services')
         const templates = getServices().sessionTemplates
         if (templates) {
           const template = await templates.get(task.templateId)
@@ -1281,15 +1281,17 @@ export class DaemonClient {
   async providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: AgentTaskIntent, driverArguments?: readonly string[]): Promise<RunningAgent> {
     await this.requireCapability(AGENT_PROVIDER_CATALOG_CAPABILITY, 'launching a provider instance')
     // The session template's environment is resolved here, in trusted main, and
-    // sent alongside the intent; the daemon validates and merges it after its
-    // own hook and credential values. A template's systemPrompt is native-path
+    // sent alongside the intent; daemon-owned hook, isolation, and credential
+    // settings take precedence. A template's systemPrompt is native-path
     // only — an arbitrary instance command cannot accept a leading prompt.
     let resolvedEnv: Record<string, string> | undefined
     if (task?.templateId) {
       try {
-        const { getServices } = await import('./services')
         const template = await getServices().sessionTemplates.get(task.templateId)
         if (template?.env) resolvedEnv = template.env
+        if (template?.systemPrompt) {
+          logger.warn({ templateId: task.templateId, providerInstanceId }, 'provider instance launch ignores session template system prompt')
+        }
       } catch (err) {
         logger.warn({ err, templateId: task.templateId }, 'provider instance launch without session template')
       }
@@ -1529,8 +1531,12 @@ export class DaemonClient {
     await this.requireCapability('idle-shutdown', 'isolated daemon cleanup')
     const status = await this.status()
     if (!status.idle || status.sessionCount !== 0 || status.liveSessionCount !== 0) return false
+    const previousEndpoint = this.connectedEndpoint
     const response = await this.request<{ stopped: boolean }>('daemon.shutdown')
-    return response.stopped === true
+    if (response.stopped !== true) return false
+    this.disconnect()
+    await this.awaitDaemonEndpointCleanup(previousEndpoint)
+    return true
   }
 
   // -- typed task authority intents -------------------------------------------
