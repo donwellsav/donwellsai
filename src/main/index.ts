@@ -943,6 +943,12 @@ void app.whenReady().then(async () => {
   registerTaskAuthorityCapability(terminalBus)
   registerIpc()
   buildMenu()
+  // macOS can emit activate before app.whenReady() initialization finishes.
+  // Register only after createWindow's dependencies are fully assigned; the
+  // initial startup path below creates the first window independently.
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
   createWindow()
   startPerfServer()
   // Tray presence + attention badge; skipped headless (smoke runs).
@@ -1281,6 +1287,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+
