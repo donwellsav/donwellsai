@@ -80,8 +80,8 @@ function SettingControlView({
     }
   }
 
-  if (metadata.key === 'terminalFontWeight' && settings.terminalRenderer === 'ghostty') {
-    return <p role="note">Numeric font weight is available with Xterm. Native Ghostty uses the selected font’s regular face; your Xterm weight is preserved.</p>
+  if (metadata.key === 'terminalFontWeight' && appCommandPlatform(navigator.platform) === 'mac') {
+    return <p role="note">Native Ghostty uses the selected font’s regular face. Numeric font weight applies on Windows and Linux.</p>
   }
   if (metadata.key === 'keyboardShortcutOverrides') {
     return <ShortcutEditor settings={settings} revision={revision} onCommit={onCommit} />
@@ -154,7 +154,7 @@ function SettingsList({
             if (resettingKey === null) onReset(item.key)
           }}
         >
-          {item.key === 'scrollback' && settings.terminalRenderer === 'ghostty' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
+          {item.key === 'scrollback' && appCommandPlatform(navigator.platform) === 'mac' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
           <SettingControlView metadata={item} settings={settings} revision={revision} agents={agents} onCommit={onCommit} />
         </SettingsField>
       ))}
@@ -390,12 +390,11 @@ export function SettingsModal({ open }: { open: boolean }) {
       ] as const : [
         ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLineHeight']],
         ['Colors and cursor', ['terminalTheme', 'cursorStyle', 'cursorBlink']],
-        ['Behavior', ['scrollback', 'copyOnSelect']],
-        ['Renderer', ['terminalRenderer']]
+        ['Behavior', ['scrollback', 'copyOnSelect']]
       ] as const).map(([label, keys]) => {
         const fields = keys.flatMap(key => metadata.filter(field => field.key === key))
         return fields.length > 0 && <section className="settings-preference-group" key={label} aria-label={label}>
-          {label !== 'Theme' && label !== 'Renderer' && <h3>{label}</h3>}
+          {label !== 'Theme' && <h3>{label}</h3>}
           <SettingsList metadata={fields} settings={settings} revision={revision} resettingKey={resettingKey} onCommit={commit} onReset={key => void resetOne(key)} />
         </section>
       })}

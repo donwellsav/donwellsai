@@ -202,7 +202,6 @@ export type AppSettings = {
   browserAutoPreview: boolean
   recordBrowserHistory: boolean
   externalAgentAccess: boolean
-  terminalRenderer: 'xterm' | 'ghostty'
   terminalFontFamily: string
   terminalFontSize: number
   terminalFontWeight: 400 | 500 | 600 | 700
@@ -272,7 +271,7 @@ export type PersistedState = {
     activeRepoId: string | null
     navigationHistory?: PersistedNavigationHistoryV1
     /** persisted chrome widths (panel resizing) */
-    ui?: { railCollapsed?: boolean; projectListPercent?: number; sidebarWidth?: number; rightSidebarWidth?: number; sidebarOpen?: boolean; rightSidebarOpen?: boolean; rightSidebarTab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'; runsOpen?: boolean; runsSection?: RunsSection }
+    ui?: { railCollapsed?: boolean; projectListPercent?: number; sidebarWidth?: number; rightSidebarWidth?: number; sidebarOpen?: boolean; rightSidebarOpen?: boolean; rightSidebarTab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'; runsOpen?: boolean; runsSection?: RunsSection }
     /** User-owned workspace organization; hidden entries remain registered and restorable. */
     workspaceNav?: {
       collapsedRepoIds?: string[]
@@ -292,7 +291,7 @@ export type PersistedState = {
     runningAgents?: Record<string, RunningAgent>
     /** per repo id: pane lists + active pane key + active terminal session */
     repos: Record<string, {
-      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'; sessionId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
+      panes: Record<string, Array<{ key: string; kind: 'terminal' | 'herdr-terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'; sessionId?: string; herdrPaneId?: string; file?: string; url?: string; comparison?: DiffComparison; label?: string }>>
       activePane: Record<string, string>
       activeTerminal: Record<string, string>
       terminalOrder: Record<string, string[]>
@@ -416,7 +415,7 @@ export type UiCommand =
   | { op: 'editor.open'; worktreePath: string; relPath: string }
   | { op: 'editor.write'; worktreePath: string; relPath: string; content: string }
   | { op: 'editor.read'; worktreePath: string; relPath?: string }
-  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'; width?: number }
+  | { op: 'sidebar'; side: 'left' | 'right'; open?: boolean | 'toggle'; tab?: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'; width?: number }
   | { op: 'palette'; open?: boolean | 'toggle'; mode?: 'commands' | 'files' }
   | { op: 'settings.open'; section?: SettingsSection }
   | { op: 'runs.open'; section?: RunsSection }
@@ -458,6 +457,7 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
   nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
   onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
+  herdrSnapshot(): Promise<import('./herdr-session').HerdrSnapshot>
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean; replay?: import('./terminal-stream').TerminalReplayChunk[] } | null>
   closeTerminal(sessionId: string): Promise<void>
   /** Live daemon-owned sessions (for reattach after app restart). */

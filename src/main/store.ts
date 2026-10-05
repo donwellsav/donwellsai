@@ -218,10 +218,8 @@ export class Store {
       // A schema-v1 envelope predates provider instances, so its own command
       // field is not the migration's source and is retired with the envelope.
     } else {
-      // `language` was retired with the English-only cutover, and this store is
-      // its removal authority: trimming it and persisting the result IS the
-      // retirement.
-      const RETIRED_AND_REMOVED_HERE = ['language'] as const
+      // This store owns removal of settings retired from its schema.
+      const RETIRED_AND_REMOVED_HERE = ['language', 'terminalRenderer'] as const
       // `agentCommand` is different: the daemon removes it as the provider
       // migration's settings publication, and that migration reads the persisted
       // file. Trimming it here would delete the migration's own source before it
@@ -288,7 +286,7 @@ export class Store {
     for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
       // Anything this version defines is the store's own business; only the
       // remainder belongs to another authority.
-      if (!Object.hasOwn(SETTING_DEFINITIONS, key) && key !== 'language') foreign[key] = value
+      if (!Object.hasOwn(SETTING_DEFINITIONS, key) && key !== 'language' && key !== 'terminalRenderer') foreign[key] = value
     }
     return foreign
   }

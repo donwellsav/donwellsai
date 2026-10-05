@@ -1,13 +1,15 @@
 import { Icon } from './Icon'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NativeTerminalRequest } from '@shared/native-terminal'
+import type { HerdrTerminalSource } from '@shared/herdr-session'
 import { useAppStore } from '../store'
 import { TERMINAL_FIND_EVENT, type TerminalFindEvent } from '../terminal-ui'
 import { acknowledgeVisibleAttention, useAttentionInboxState } from '../attention-inbox'
 
-export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string; isActive: boolean }) {
+export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId: string; isActive: boolean; source?: HerdrTerminalSource }) {
   const host = useRef<HTMLDivElement>(null)
-  const instance = useRef(crypto.randomUUID())
+  const sourceKey = source ? `${source.paneId}:${source.mode}:${source.takeover === true}` : 'don'
+  const instance = useMemo(() => crypto.randomUUID(), [sessionId, sourceKey])
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [truncated, setTruncated] = useState(false)
@@ -17,7 +19,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
   const inbox = useAttentionInboxState()
   const nativeFocused = useRef(false)
   const active = useRef(isActive); active.current = isActive
-  const call = (request: Omit<NativeTerminalRequest, 'sessionId' | 'instance'>) => window.donwells.nativeTerminal({ ...request, sessionId, instance: instance.current } as NativeTerminalRequest)
+  const call = (request: Omit<NativeTerminalRequest, 'sessionId' | 'instance' | 'source'>) => window.donwells.nativeTerminal({ ...request, sessionId, instance, ...(source ? { source } : {}) } as NativeTerminalRequest)
   const reconnect = async () => {
     setConnecting(true)
     try { const result = await call({ op: 'create' }); setReady(true); setTruncated(result.truncated === true); setError(null) }
@@ -30,7 +32,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
       if (host.current && nativeFocused.current) void acknowledgeVisibleAttention({ sessionId, isActive: active.current, runsOverlayOpen: useAppStore.getState().runsOpen, host: host.current, allowCapture, nativeFocused: true })
     }
     const dispose = window.donwells.onNativeTerminal(event => {
-      if (event.sessionId !== sessionId || event.instance !== instance.current || !alive) return
+      if (event.sessionId !== sessionId || event.instance !== instance || !alive) return
       if (event.error) setError(event.error)
       if (event.focused !== undefined) {
         nativeFocused.current = event.focused
@@ -49,7 +51,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
     }
     window.addEventListener(TERMINAL_FIND_EVENT, find)
     return () => { alive = false; dispose(); window.removeEventListener(TERMINAL_FIND_EVENT, find); void call({ op: 'dispose' }).catch(() => {}) }
-  }, [sessionId])
+  }, [sessionId, sourceKey])
 
   useEffect(() => {
     if (!ready) return
@@ -70,7 +72,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
       if (serialized !== last) {
         last = serialized
         if (!rect) nativeFocused.current = false
-        void window.donwells.nativeTerminal({ op: 'bounds', sessionId, instance: instance.current, rect }).catch(cause => setError(String(cause)))
+        void window.donwells.nativeTerminal({ op: 'bounds', sessionId, instance, ...(source ? { source } : {}), rect }).catch(cause => setError(String(cause)))
       }
     }
     const resize = new ResizeObserver(schedule); if (host.current) resize.observe(host.current)
@@ -79,7 +81,7 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
     window.addEventListener('resize',schedule); window.addEventListener('scroll',schedule,true); document.addEventListener('visibilitychange',schedule)
     schedule()
     return () => { cancelAnimationFrame(frame); resize.disconnect(); mutation.disconnect(); window.removeEventListener('resize',schedule); window.removeEventListener('scroll',schedule,true); document.removeEventListener('visibilitychange',schedule) }
-  }, [ready,isActive,error,truncated,runsOpen,inbox.overlayOpen,sessionId])
+  }, [ready,isActive,error,truncated,runsOpen,inbox.overlayOpen,sessionId,sourceKey])
 
   useEffect(() => {
     if (ready && isActive && inbox.reveals[sessionId] && !runsOpen && !inbox.overlayOpen && !error && !truncated) void call({ op: 'focus' }).catch(cause => setError(String(cause)))
@@ -88,7 +90,6 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
   return <div className={'terminal-host-wrap native-terminal-wrap ' + (isActive ? '' : 'terminal-hidden')}>
     {error && <div className="terminal-replay-warning" role="alert"><strong>Native terminal unavailable</strong><p>{error}</p>
       <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnect()}>{connecting ? 'Reattaching…' : 'Retry connection'}</button>
-      <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().setSettings({ terminalRenderer: 'xterm' }).then(result => { if (!result.ok) setError(result.error) })}>Use xterm for existing sessions</button>
       <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('terminal')}>Terminal settings</button>
     </div>}
     {!error && truncated && <div className="terminal-history-notice" role="status">
@@ -96,6 +97,6 @@ export function NativeTerminalPane({ sessionId, isActive }: { sessionId: string;
       <button className="btn btn-ghost btn-sm" aria-label="Request redraw" title="Ask the running process to redraw its screen; earlier output remains incomplete" onClick={() => void call({ op: 'redraw' }).then(() => setMessage('Redraw requested from the running process. Earlier output is still incomplete.')).catch(cause => setMessage(String(cause)))}>Redraw</button>
       <button className="icon-btn" aria-label="Dismiss notice" title="Dismiss this history notice" onClick={() => setTruncated(false)}><Icon name="x" size={14} /></button>
     </div>}
-    <div className="terminal-host native-terminal-host" data-native-instance={instance.current} ref={host} tabIndex={0} aria-label="Native terminal" onFocus={() => { if (ready) void call({ op: 'focus' }).catch(cause => setError(String(cause))) }} />
+    <div className="terminal-host native-terminal-host" data-native-instance={instance} ref={host} tabIndex={0} aria-label="Native terminal" onFocus={() => { if (ready) void call({ op: 'focus' }).catch(cause => setError(String(cause))) }} />
   </div>
 }

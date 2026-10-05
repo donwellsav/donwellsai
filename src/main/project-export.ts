@@ -253,7 +253,7 @@ export class ProjectExport implements ProjectKitApi {
     }
     const repo = this.store.listRepos().find(value => value.path === scope.projectPath)!
     const saved = this.store.getWorkspaceSession()?.repos[repo.id]
-    const original = (saved?.panes[scope.checkoutPath] ?? []).filter(pane => !['preview', 'diff'].includes(pane.kind)).slice(0, 64)
+    const original = (saved?.panes[scope.checkoutPath] ?? []).filter(pane => !['preview', 'diff', 'herdr-terminal'].includes(pane.kind)).slice(0, 64)
     const clean = restoreWorkspaceLayout(saved?.docking?.[scope.checkoutPath], original, saved?.layouts?.[scope.checkoutPath]).layout
     const keys = new Map(original.map((pane, index) => [pane.key, `kit-pane-${index}`]))
     const remap = (value: unknown): unknown => typeof value === 'string' ? keys.get(value) ?? value : Array.isArray(value) ? value.map(remap) : isObject(value) ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, remap(child)])) : value

@@ -16,6 +16,14 @@
 .workspace-tool-title:focus-visible { outline: 2px solid var(--ring); }
 .workspace-section-label { display: flex; align-items: center; justify-content: space-between; margin: 0; padding: 8px; font-size: 11px; font-weight: 500; color: var(--muted-fg); }
 .workspace-section-label > span { font-family: var(--font-mono); font-size: 10px; }
+.workspace-needs-you { margin: 0 0 10px; }
+.workspace-needs-you-list { display: flex; flex-direction: column; gap: 2px; }
+.workspace-needs-you-item { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; padding: 6px 8px 6px 10px; border-left: 2px solid var(--agent-question); border-radius: var(--radius-sm); text-align: left; }
+.workspace-needs-you-item:hover { background: var(--ws-accent); }
+.workspace-needs-you-title { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--agent-question); font-size: 11px; }
+.workspace-needs-you-title strong, .workspace-needs-you-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-needs-you-title strong { flex: 1; min-width: 0; font-weight: 550; }
+.workspace-needs-you-item small { margin-left: 19px; color: var(--muted-fg); font: 10px/1.5 var(--font-mono); }
 .workspace-help { margin: 4px 8px; color: var(--muted-fg); font-size: 12px; line-height: 1.6; }
 .workspace-project { margin: 0 0 8px; }
 .workspace-project-heading { display: flex; align-items: center; gap: 3px; }
@@ -76,6 +84,42 @@
 .workspace-projects-with-tool > .workspace-project-scroll { flex: 0 1 auto; min-height: 0; padding-bottom: 4px; }
 .workspace-projects-with-tool > .right-sidebar { flex: 1; width: 100% !important; min-width: 0; max-width: none; min-height: 160px; border: 0; border-top: 1px solid var(--border); overflow: visible; }
 .workspace-projects-with-tool .rs-body { overflow: auto; }
+
+.herdr-sessions-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px 12px; }
+.herdr-sessions-heading, .herdr-session-workspace > header, .herdr-session-pane { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.herdr-sessions-heading > div, .herdr-session-pane > div, .herdr-workspace-title { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
+.herdr-sessions-heading h2, .herdr-session-workspace h3 { margin: 0; font-size: 13px; font-weight: 620; letter-spacing: -.01em; }
+.herdr-sessions-heading small, .herdr-session-pane small, .herdr-workspace-title small, .herdr-session-empty-line { color: var(--muted-fg); font-size: 11px; }
+.herdr-sessions-note { margin: 0; padding: 9px 10px; color: var(--muted-fg); background: color-mix(in srgb, var(--card) 72%, transparent); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 11px; line-height: 1.55; }
+.herdr-sessions-alert { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; color: var(--foreground); background: color-mix(in srgb, var(--destructive) 7%, var(--card)); border: 1px solid color-mix(in srgb, var(--destructive) 24%, var(--border)); border-radius: var(--radius-md); font-size: 11px; }
+.herdr-sessions-alert p { margin: 0; color: var(--muted-fg); line-height: 1.45; overflow-wrap: anywhere; }
+.herdr-sessions-empty { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 22px 12px; color: var(--muted-fg); text-align: center; font-size: 12px; }
+.herdr-sessions-empty strong { color: var(--foreground); font-size: 12px; font-weight: 560; }
+.herdr-sessions-empty small { max-width: 240px; font-size: 11px; line-height: 1.5; }
+.herdr-session-workspace { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: color-mix(in srgb, var(--card) 38%, transparent); border: 1px solid var(--border); border-radius: var(--radius-md); transition: background-color 140ms ease, border-color 140ms ease; }
+.herdr-session-workspace:hover { background: color-mix(in srgb, var(--card) 68%, transparent); border-color: color-mix(in srgb, var(--foreground) 13%, var(--border)); }
+.herdr-workspace-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.herdr-status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; color: var(--muted-fg); font-size: 10px; }
+.herdr-status i { width: 7px; height: 7px; background: var(--muted-fg); border-radius: 50%; }
+.herdr-status[data-status="working"] i { background: var(--status-working); }
+.herdr-status[data-status="blocked"] i { background: var(--agent-question); }
+.herdr-status[data-status="done"] i { background: var(--status-success); }
+.herdr-session-empty-line { padding: 8px 0 2px; }
+.herdr-session-pane { min-width: 0; min-height: 48px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; }
+.herdr-session-pane > div { overflow: hidden; }
+.herdr-session-pane strong, .herdr-session-pane small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.herdr-session-pane strong { font-size: 11px; font-weight: 560; }
+.herdr-action { height: 40px; min-height: 40px; flex: 0 0 auto; }
+.herdr-terminal-view { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.herdr-terminal-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.herdr-terminal-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.herdr-terminal-toolbar strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.herdr-terminal-toolbar small { color: var(--muted-fg); font-size: 10px; line-height: 1.4; }
+.herdr-mode { color: var(--muted-fg); font-weight: 600; }
+.herdr-mode[data-mode="control"] { color: var(--agent-question); }
+.herdr-terminal-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.herdr-terminal-surface { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.herdr-terminal-surface > .terminal-host-wrap { height: 100%; }
 
 .workspace-checkout-single { align-items: center; }
 .workspace-checkout-single .workspace-checkout-open { display: flex; align-items: center; gap: 8px; padding: 6px; min-height: 34px; }

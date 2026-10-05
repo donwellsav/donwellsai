@@ -5,18 +5,20 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { AppSettings } from '@shared/types'
 import type { NativeTerminalRequest, NativeTerminalResult } from '@shared/native-terminal'
+import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
+import { HerdrTerminalBridge, sessionErrorMessage } from './herdr-session'
 import { terminalThemeOf } from '../renderer/src/terminal-themes'
 import { logger } from '@shared/logger'
 
-type Entry = { id: string; instance: string; sessionId: string; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
+type Entry = { id: string; instance: string; sessionId: string; source?: HerdrTerminalSource; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
 type Binding = { request(json: string, handle?: Buffer): string; listen(callback: (json: string) => void): void }
 let binding: Binding | undefined
 let receive: ((json: string) => void) | undefined
 
 function native(): Binding {
-  if (process.platform !== 'darwin') throw new Error('Native Ghostty is available on macOS. Choose xterm in Terminal settings on this platform.')
+  if (process.platform !== 'darwin') throw new Error('Native Ghostty is available only on macOS.')
   if (!binding) {
     const path = join(appResourcesRoot(), app.isPackaged ? 'native/ghostty.node' : 'resources/native/ghostty.node')
     process.env.GHOSTTY_RESOURCE_BUNDLE = join(dirname(path), 'GhosttyKit_GhosttyTerminal.bundle')
@@ -48,6 +50,8 @@ export function nativeTerminalConfiguration(settings: AppSettings): string {
 export class NativeTerminals {
   private entries = new Map<string, Entry>()
   private stream = new TerminalBus()
+  private herdrStream = new TerminalBus()
+  private herdr = new HerdrTerminalBridge()
   private closed = false
   constructor(private window: BrowserWindow, private daemon: DaemonClient, private settings: () => AppSettings) {
     receive = json => this.event(json)
@@ -80,6 +84,7 @@ export class NativeTerminals {
   configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: nativeTerminalConfiguration(this.settings()), shortcuts: this.shortcuts() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
+    if (entry.source) this.herdr.stop(entry.sessionId)
     this.entries.delete(entry.sessionId)
     try { this.call(entry, 'destroy') }
     catch (error) { logger.error({ err: error }, 'Native terminal surface cleanup failed') }
@@ -94,18 +99,49 @@ export class NativeTerminals {
     entry.connected = snapshot.session.exited !== true
     this.call(entry, 'connected', { value: entry.connected })
   }
+  private sameSource(left?: HerdrTerminalSource, right?: HerdrTerminalSource): boolean {
+    return left?.kind === right?.kind && left?.paneId === right?.paneId && left?.mode === right?.mode && left?.takeover === right?.takeover
+  }
+  private validSource(source: unknown): source is HerdrTerminalSource | undefined {
+    if (source === undefined) return true
+    if (source === null || typeof source !== 'object' || Array.isArray(source)) return false
+    const candidate = source as Partial<HerdrTerminalSource>
+    return candidate.kind === 'herdr' && typeof candidate.paneId === 'string' && /^[\w.:-]{1,128}$/.test(candidate.paneId) && ['observe', 'control'].includes(candidate.mode ?? '') && (candidate.takeover === undefined || typeof candidate.takeover === 'boolean') && (candidate.mode === 'control' || candidate.takeover !== true)
+  }
+  private async startHerdr(entry: Entry): Promise<void> {
+    const source = entry.source
+    if (!source || !entry.boundsReady || this.herdr.isActive(entry.sessionId)) return
+    const generation = entry.generation
+    try {
+      await this.herdr.start(entry.sessionId, source, entry.cols, entry.rows,
+        (data, sequence) => this.herdrStream.emitData(entry.sessionId, data, sequence),
+        error => this.disconnected(entry, error))
+      if (this.entries.get(entry.sessionId) !== entry || entry.generation !== generation) return
+      entry.connected = true
+      this.call(entry, 'connected', { value: true })
+    } catch (error) {
+      if (this.entries.get(entry.sessionId) === entry && entry.generation === generation) this.disconnected(entry, sessionErrorMessage(error))
+    }
+  }
   private event(json: string) {
     try {
       const event = JSON.parse(json)
       const entry = [...this.entries.values()].find(item => item.id === event.id)
       if (!entry || this.closed) return
-      if (event.type === 'input' && entry.connected && typeof event.data === 'string') this.daemon.write(entry.sessionId, Buffer.from(event.data, 'base64').toString('utf8'))
+      if (event.type === 'input' && entry.connected && typeof event.data === 'string') {
+        const data = Buffer.from(event.data, 'base64').toString('utf8')
+        if (entry.source?.mode === 'control') this.herdr.input(entry.sessionId, data)
+        else if (!entry.source) this.daemon.write(entry.sessionId, data)
+      }
       if (event.type === 'resize' && entry.boundsReady && Number.isInteger(event.cols) && Number.isInteger(event.rows) && event.cols > 0 && event.rows > 0) {
         const current = this.call(entry, 'geometry')
         if (current.cols !== event.cols || current.rows !== event.rows) return
         entry.cols = event.cols; entry.rows = event.rows; entry.measured = true
         try { this.replay(entry) } catch (error) { this.disconnected(entry, String(error)); return }
-        if (entry.connected) void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
+        if (entry.source) {
+          if (this.herdr.isActive(entry.sessionId)) this.herdr.resize(entry.sessionId, event.cols, event.rows)
+          else void this.startHerdr(entry)
+        } else if (entry.connected) void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
       }
       if (event.type === 'shortcut' && Object.values(this.shortcuts()).includes(event.command)) {
         this.window.webContents.focus()
@@ -117,24 +153,30 @@ export class NativeTerminals {
   }
   async request(request: NativeTerminalRequest): Promise<NativeTerminalResult> {
     if (this.closed || this.window.isDestroyed()) throw new Error('Native terminal window closed')
-    if (!request || typeof request.sessionId !== 'string' || request.sessionId.length > 128 || typeof request.instance !== 'string' || !request.instance || request.instance.length > 128) throw new Error('Invalid native terminal owner')
+    if (!request || typeof request.sessionId !== 'string' || request.sessionId.length > 256 || typeof request.instance !== 'string' || !request.instance || request.instance.length > 128 || !this.validSource(request.source) || (request.source && request.sessionId !== `herdr:${request.source.paneId}`)) throw new Error('Invalid native terminal owner')
     let entry = this.entries.get(request.sessionId)
     if (request.op === 'create') {
-      if (entry?.instance !== request.instance) {
+      if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
-        const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
+        const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
         this.call(next, 'create', { configuration: nativeTerminalConfiguration(this.settings()), shortcuts: this.shortcuts() })
-        next.stream = this.stream.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
+        const bus = request.source ? this.herdrStream : this.stream
+        next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next
       }
     }
-    if (!entry || entry.instance !== request.instance) {
+    if (!entry || entry.instance !== request.instance || !this.sameSource(entry.source, request.source)) {
       if (request.op === 'dispose') return {}
       throw new Error('Native terminal ownership changed')
     }
     if (request.op === 'create' || request.op === 'reattach') {
       const generation = ++entry.generation
       entry.connected = false; this.call(entry, 'connected', { value: false }); entry.stream.prepareSnapshot()
+      if (entry.source) {
+        entry.stream.acceptSnapshot('', 0)
+        if (entry.boundsReady) await this.startHerdr(entry)
+        return { connected: entry.connected, truncated: false }
+      }
       const result = await this.daemon.attach(entry.sessionId)
       if (this.entries.get(entry.sessionId) !== entry || entry.generation !== generation) throw new Error('Native terminal attachment changed')
       if (!result) throw new Error('The terminal service no longer retains this session')
@@ -150,10 +192,12 @@ export class NativeTerminals {
       const x = rect ? Math.max(0,Math.round(rect.x*zoom)) : 0, y = rect ? Math.max(0,Math.round(rect.y*zoom)) : 0
       if (rect && rect.width > 0 && rect.height > 0) entry.boundsReady = true
       const result = this.call(entry, 'bounds', rect ? { x,y,width:Math.max(0,Math.min(rect.width*zoom,width-x)),height:Math.max(0,Math.min(rect.height*zoom,height-y)) } : {})
+      if (rect && entry.source && !this.herdr.isActive(entry.sessionId)) void this.startHerdr(entry)
       if (result.focused) this.window.webContents.focus()
       return {}
     }
     if (request.op === 'redraw') {
+      if (entry.source) throw new Error('The original session manages its own screen redraw.')
       if (!entry.connected) throw new Error('Reattach this session before requesting a redraw')
       await this.daemon.resize(entry.sessionId, Math.max(2,entry.cols-1), entry.rows)
       await this.daemon.resize(entry.sessionId, entry.cols, entry.rows)

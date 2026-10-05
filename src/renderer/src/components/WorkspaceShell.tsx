@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useAppStore } from '../store'
 import { PopupMenu } from 'flexlayout-react'
 import { moveWorkspaceNavigation, orderedWorkspacePaths, pathBasename } from '../workspace-navigation'
+import { agentPresentation, agentProviderName } from '@shared/agent-presentation'
 import { dispatchAppCommand } from '../commands'
 import { openProjectSetup } from '../project-setup'
 import type { RepoSummary } from '@shared/types'
@@ -51,6 +52,9 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
   const selectedRepo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === activePath))
   const agents = Object.values(runningAgents).filter(agent => selectedRepo?.worktrees.some(worktree => worktree.path === agent.workspacePath))
   const waiting = agents.filter(agent => agent.liveness === 'live' && (agent.activity === 'waiting' || agent.activity === 'permission'))
+  const needsYou = Object.values(runningAgents)
+    .filter(agent => repos.some(repo => repo.worktrees.some(worktree => worktree.path === agent.workspacePath)) && agentPresentation(agent).needsAttention)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   const order = orderedWorkspacePaths(repos, navigation)
   const status = activePath ? statuses[activePath] : undefined
   const changed = status ? status.staged + status.modified + status.untracked : null
@@ -65,7 +69,7 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
     } catch (error) { state().setError(String(error)) }
     finally { setOpeningFolder(false) }
   }
-  const showTool = (tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'): void => {
+  const showTool = (tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'): void => {
     state().setRightSidebarTab(tab, true)
   }
   const toolVisible = (tab: Parameters<typeof showTool>[0]): boolean => !runsOpen && (
@@ -82,6 +86,7 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
         <button aria-label="Files" title={activePath ? 'Browse and edit files in the selected checkout' : 'Select a checkout to browse its files'} disabled={!activePath} aria-pressed={toolVisible('explorer')} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>
         <button aria-label="Git" title={!activePath ? 'Select a project to use Git' : selectedRepo?.repo.kind === 'folder' ? 'This folder is not a Git repository' : `Git source control${changed ? ` · ${changed} changed files` : ''}`} disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={toolVisible('git')} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Git</span></button>
         <button aria-label="Agents" title="Start AI agents and return to their sessions" aria-pressed={runsOpen && runsSection === 'agents'} onClick={() => runsOpen && runsSection === 'agents' ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="robot" size={19} /><span>Agents</span>{waiting.length > 0 && <small className="workspace-attention-count" aria-label={`${waiting.length} sessions need attention`}>{waiting.length}</small>}</button>
+        <button aria-label="Sessions" title="Browse persistent workspaces and panes" aria-pressed={toolVisible('sessions')} onClick={() => showTool('sessions')}><Icon name="terminal" size={19} /><span>Sessions</span></button>
         <button aria-label="Automations" title="Run commands across projects or on a schedule" aria-pressed={runsOpen && runsSection !== 'agents'} onClick={() => runsOpen && runsSection !== 'agents' ? state().setRunsOpen(false) : dispatchAppCommand('show-scheduled-runs')}><Icon name="clock" size={19} /><span>Automations</span></button>
         <button aria-label="Browser" title="Open the project preview in the built-in browser" disabled={!activePath} aria-pressed={!runsOpen && panes?.some(pane => pane.key === activePane && pane.kind === 'browser') === true} onClick={() => { if (!activePath) return; state().setRunsOpen(false); void state().openBrowser(activePath).catch(error => state().setError(String(error))) }}><Icon name="globe" size={19} /><span>Browser</span></button>
         <div className="workspace-rail-spacer" />
@@ -91,6 +96,20 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
         <header><h2 className="workspace-tool-title">Projects</h2><button className="workspace-icon-control" aria-label="Add project" title="Open a folder or create a project" aria-haspopup="menu" aria-expanded={!!menu} onClick={event => setMenu(event.currentTarget)}><Icon name="plus" size={14} /></button></header>
         <div className="workspace-project-scroll" id="workspace-project-picker" style={leftPanel ? { maxHeight: `${projectListPercent}%` } : undefined}>
           {repos.length === 0 && <button className="workspace-open-folder" disabled={openingFolder} onClick={() => void openFolder()}><Icon name="dir" size={15} />{openingFolder ? 'Opening…' : 'Open folder'}</button>}
+          {needsYou.length > 0 && <section className="workspace-needs-you" aria-label="Needs you">
+            <h3 className="workspace-section-label">Needs you <span>{needsYou.length}</span></h3>
+            <div className="workspace-needs-you-list">{needsYou.map(agent => {
+              const presentation = agentPresentation(agent)
+              const repo = repos.find(item => item.worktrees.some(worktree => worktree.path === agent.workspacePath))
+              const worktree = repo?.worktrees.find(item => item.path === agent.workspacePath)
+              const workspace = `${repo ? `${pathBasename(repo.repo.path)} · ` : ''}${navigation.renames[agent.workspacePath] ?? (worktree?.isMain ? 'Main checkout' : pathBasename(agent.workspacePath))}`
+              const intent = agent.task?.intent?.trim()
+              return <button className="workspace-needs-you-item" key={agent.sessionId} title={`${presentation.description} · ${workspace}${intent ? ` · ${intent}` : ''}`} onClick={() => void state().focusAgentSession(agent.sessionId)}>
+                <span className="workspace-needs-you-title"><Icon name="alert" size={13} /><strong>{presentation.label} · {agentProviderName(agent)}</strong></span>
+                <small>{workspace}{intent ? ` · ${intent}` : ''}</small>
+              </button>
+            })}</div>
+          </section>}
           {[...repos].sort((a, b) => Math.min(...a.worktrees.map(worktree => order.indexOf(worktree.path))) - Math.min(...b.worktrees.map(worktree => order.indexOf(worktree.path)))).map(repo => {
             const collapsed = navigation.collapsedRepoIds.includes(repo.repo.id)
             const worktrees = repo.worktrees.filter(worktree => !navigation.hiddenPaths.includes(worktree.path)).sort((a,b) => Number(navigation.pinnedPaths.includes(b.path)) - Number(navigation.pinnedPaths.includes(a.path)) || order.indexOf(a.path) - order.indexOf(b.path))

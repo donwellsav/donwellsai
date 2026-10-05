@@ -4,6 +4,7 @@ import { isObject } from '@shared/command-catalog'
 import { appCommand, electronAccelerator, type AppCommandId } from '@shared/app-commands'
 import { appResourcesRoot } from './app-resources'
 import { NativeTerminals } from './native-terminals'
+import { readHerdrSnapshot } from './herdr-session'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
 import { publishRegisteredProjects } from './task-authority/task-authority-migration'
@@ -386,6 +387,11 @@ function registerIpc(): void {
   ipcMain.handle('native-terminal:request', (event, request) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !nativeTerminals) throw new Error('Native terminal request has no authorized owner')
     return nativeTerminals.request(request)
+  })
+
+  ipcMain.handle('herdr:snapshot', (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Session request has no authorized owner')
+    return readHerdrSnapshot()
   })
 
   ipcMain.handle('attachTerminal', async (_e, sessionId: string) => {
@@ -1286,5 +1292,3 @@ app.on('window-all-closed', () => {
   // macOS convention (and upstream parity): stay alive with no windows; quit elsewhere.
   if (process.platform !== 'darwin') app.quit()
 })
-
-

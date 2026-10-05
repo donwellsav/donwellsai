@@ -3,8 +3,9 @@ import { useAppStore } from '../store'
 import { focusPaneTarget } from '../navigation-controller'
 import { Icon } from './Icon'
 import { RecoveryPanel } from './RecoveryPanel'
+import { HerdrSessionsPanel } from './HerdrSessionsPanel'
 
-export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'
+export type RightSidebarTab = 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'
 
 const MIN_PANEL_WIDTH = 260
 const MAX_PANEL_WIDTH = 620
@@ -14,7 +15,8 @@ const TABS: ReadonlyArray<{ id: RightSidebarTab; label: string }> = [
   { id: 'git', label: 'Git' },
   { id: 'memory', label: 'Memory' },
   { id: 'recovery', label: 'Recovery' },
-  { id: 'computer', label: 'Computer control' }
+  { id: 'computer', label: 'Computer control' },
+  { id: 'sessions', label: 'Sessions' }
 ]
 
 export function RightSidebar() {
@@ -85,13 +87,13 @@ export function RightSidebar() {
       />
       <div className="right-sidebar-header">
         <select className="input" data-workspace-tool-heading={tab} aria-label="Workspace tool" title="Choose the tool shown in this panel" value={tab} onChange={event => useAppStore.getState().setRightSidebarTab(event.target.value as RightSidebarTab)}>{TABS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
-        {activeWorktreePath && <button className="icon-btn" aria-label="Move panel into workspace" title="Move this tool into a workspace tab beside your terminals and files" onClick={() => useAppStore.getState().openWorkspaceModule(activeWorktreePath, tab === 'git' ? 'git-status' : tab)}><Icon name="dock" size={14} /></button>}
+        {activeWorktreePath && tab !== 'sessions' && <button className="icon-btn" aria-label="Move panel into workspace" title="Move this tool into a workspace tab beside your terminals and files" onClick={() => useAppStore.getState().openWorkspaceModule(activeWorktreePath, tab === 'git' ? 'git-status' : tab)}><Icon name="dock" size={14} /></button>}
         <button className="icon-btn" aria-label="Hide workspace panel" title="Hide this panel while keeping its work available" onClick={closePanel}>
           <Icon name="x" size={14} />
         </button>
       </div>
       <div className="rs-body" id="workspace-tool-panel" role="region" aria-label={activeLabel}>
-        {activeWorktreePath ? <div className="workspace-pane-slot" data-sidebar-tool-slot={activeWorktreePath} /> : tab === 'recovery' ? <RecoveryPanel /> : <div className="empty-note">Select a project workspace</div>}
+        {tab === 'sessions' ? <HerdrSessionsPanel /> : activeWorktreePath ? <div className="workspace-pane-slot" data-sidebar-tool-slot={activeWorktreePath} /> : tab === 'recovery' ? <RecoveryPanel /> : <div className="empty-note">Select a project workspace</div>}
       </div>
     </aside>
   )

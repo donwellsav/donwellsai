@@ -2,9 +2,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ErrorBoundary } from 'react-error-boundary'
 import { Actions, DockLocation, PopupMenu, Layout, Model, TabNode, TabSetNode, type Action } from 'flexlayout-react'
-import { isMarkdownFile, useAppStore, type Pane } from '../store'
+import { isMarkdownFile, useAppStore, type Pane, type PaneKind } from '../store'
 import { restoreWorkspaceLayout, workspacePaneLabel, type WorkspaceLayout, type WorkspacePreset } from '../workspace-layout'
 import { TerminalPane } from './TerminalPane'
+import { HerdrTerminalPane } from './HerdrTerminalPane'
 import { MediaPreviewRouter } from './MediaPreviewRouter'
 import { DiffPane } from './DiffPane'
 import { ExplorerPane } from './ExplorerPane'
@@ -51,6 +52,7 @@ function WorkspacePane({ worktreePath, pane, visible, sidebar }: { worktreePath:
             <button className="btn btn-secondary btn-sm" onClick={() => void useAppStore.getState().openPreview(worktreePath, pane.file!)}>Retry file</button>
             <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openWorkspaceModule(worktreePath, 'recovery')}>Recover unsaved files</button>
           </div> : pane.kind === 'terminal' && terminal ? <TerminalPane sessionId={terminal.session.id} cols={terminal.cols} rows={terminal.rows} isActive={visible} />
+          : pane.kind === 'herdr-terminal' && pane.herdrPaneId ? <HerdrTerminalPane paneId={pane.herdrPaneId} label={pane.label} isActive={visible} />
             : pane.kind === 'preview' && pane.file ? <MediaPreviewRouter worktreePath={worktreePath} relPath={pane.file} />
             : pane.kind === 'diff' && pane.file ? <DiffPane worktreePath={worktreePath} relPath={pane.file} comparison={pane.comparison} />
             : pane.kind === 'explorer' ? <ExplorerPane worktreePath={worktreePath} active={visible} location={sidebar ? 'sidebar' : 'workspace'} />
@@ -83,15 +85,15 @@ function DockingSurface({ worktreePath, active }: { worktreePath: string; active
   // Reattach retained tool hosts when Projects moves the left tool slot into or out of its column.
   useAppStore(state => state.sidebarOpen)
   const sidebarTab = useAppStore(state => state.rightSidebarTab)
-  const sidebarKind = sidebarTab === 'git' ? 'git-status' : sidebarTab
-  const sidebarKey = active && sidebarOpen ? `${sidebarKind}:${worktreePath}` : undefined
+  const sidebarKind: PaneKind | null = sidebarTab === 'git' ? 'git-status' : sidebarTab === 'sessions' ? null : sidebarTab
+  const sidebarKey = active && sidebarOpen && sidebarKind ? `${sidebarKind}:${worktreePath}` : undefined
   const sidebarResources = useRef(new Map<string, Pane>())
   const previousDockKeys = useRef(new Set<string>())
   const dockKeys = new Set(panes.map(pane => pane.key))
   // Sidebar navigation hides a resource; closing its dock tab ends its lifetime.
   for (const key of previousDockKeys.current) if (!dockKeys.has(key)) sidebarResources.current.delete(key)
   previousDockKeys.current = dockKeys
-  if (sidebarKey && !dockKeys.has(sidebarKey)) sidebarResources.current.set(sidebarKey, { key: sidebarKey, kind: sidebarKind })
+  if (sidebarKey && sidebarKind && !dockKeys.has(sidebarKey)) sidebarResources.current.set(sidebarKey, { key: sidebarKey, kind: sidebarKind })
   const resources = [...panes, ...[...sidebarResources.current.values()].filter(pane => !dockKeys.has(pane.key))]
   const parking = useRef<HTMLDivElement>(null)
   const hosts = useRef(new Map<string, HTMLDivElement>())

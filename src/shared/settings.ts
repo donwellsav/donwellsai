@@ -52,7 +52,6 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   browserAutoPreview: true,
   recordBrowserHistory: true,
   externalAgentAccess: true,
-  terminalRenderer: 'xterm',
   terminalFontFamily: '',
   terminalFontSize: 13,
   terminalFontWeight: 400,
@@ -264,12 +263,6 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     description: 'Copy terminal selections to the clipboard immediately.',
     default: DEFAULT_SETTINGS.copyOnSelect, lifecycle: 'live', scope: 'global',
     control: { type: 'toggle' }, validate: booleanValue
-  },
-  terminalRenderer: {
-    key: 'terminalRenderer', section: 'terminal', label: 'Terminal renderer',
-    description: 'Native Ghostty uses Metal on macOS. Switching reconnects views to the same running processes.',
-    default: DEFAULT_SETTINGS.terminalRenderer, lifecycle: 'live', scope: 'global',
-    control: { type: 'select', options: [{ value: 'xterm', label: 'xterm' }, { value: 'ghostty', label: 'Native Ghostty (macOS)' }] }, validate: oneOf(['xterm', 'ghostty'] as const)
   },
   terminalTheme: {
     key: 'terminalTheme', section: 'terminal', label: 'Terminal palette',

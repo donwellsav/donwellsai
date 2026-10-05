@@ -2,6 +2,7 @@ import { restoreProjectMemoryDraft } from './project-memory-editor'
 import { restoreGuiDrafts } from './gui-drafts'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import type { ProviderCatalogSnapshot } from '@shared/provider-authority'
+import type { HerdrPaneSummary, HerdrWorkspaceSummary } from '@shared/herdr-session'
 import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
 import { projectRemovalBlockers } from './project-removal'
@@ -52,11 +53,12 @@ type TerminalView = {
 }
 
 /** A pane inside a worktree: terminal tab, preview, or embedded browser. */
-export type PaneKind = 'terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'
+export type PaneKind = 'terminal' | 'herdr-terminal' | 'explorer' | 'git-status' | 'preview' | 'diff' | 'browser' | 'memory' | 'recovery' | 'search' | 'computer' | 'environments'
 export type Pane = {
   key: string
   kind: PaneKind
   sessionId?: string
+  herdrPaneId?: string
   file?: string
   comparison?: DiffComparison
   /** browser pane start URL */
@@ -280,7 +282,7 @@ type AppState = {
   sidebarWidth: number
   rightSidebarWidth: number
   rightSidebarOpen: boolean
-  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer'
+  rightSidebarTab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'
   createOpen: boolean
   /** worktree path pending styled delete confirmation (null = closed) */
   deleteTarget: string | null
@@ -393,7 +395,8 @@ type AppState = {
   setRightSidebarWidth(w: number): void
   resizeSplit(worktreePath: string, splitId: number, pct: number): number | null
   setRightSidebarOpen(open: boolean): void
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer', toggle?: boolean): void
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions', toggle?: boolean): void
+  openHerdrPane(workspace: HerdrWorkspaceSummary, pane: HerdrPaneSummary): Promise<void>
   setCreateOpen(open: boolean): void
 
   toggleRepoCollapsed(repoId: string): void
@@ -644,7 +647,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           rightSidebarWidth: ui.rightSidebarWidth ?? get().rightSidebarWidth,
           sidebarOpen: typeof ui.sidebarOpen === 'boolean' ? ui.sidebarOpen : get().sidebarOpen,
           rightSidebarOpen: typeof ui.rightSidebarOpen === 'boolean' ? ui.rightSidebarOpen : get().rightSidebarOpen,
-          rightSidebarTab: ui.rightSidebarTab && ['explorer', 'git', 'memory', 'recovery', 'search', 'computer'].includes(ui.rightSidebarTab) ? ui.rightSidebarTab : get().rightSidebarTab,
+          rightSidebarTab: ui.rightSidebarTab && ['explorer', 'git', 'memory', 'recovery', 'search', 'computer', 'sessions'].includes(ui.rightSidebarTab) ? ui.rightSidebarTab : get().rightSidebarTab,
           runsOpen: typeof ui.runsOpen === 'boolean' ? ui.runsOpen : get().runsOpen,
           runsSection: ui.runsSection && ['agents', 'automations', 'orchestration'].includes(ui.runsSection) ? ui.runsSection : get().runsSection,
         })
@@ -1003,6 +1006,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     get().setActivePane(worktreePath, key)
     set({ rightSidebarOpen: false })
+  },
+
+  async openHerdrPane(workspace, pane) {
+    const path = workspace.checkoutPath
+    if (!path || !pane.paneId) throw new Error('No workspace is attached to this session.')
+    let repo = get().repos.find(item => item.worktrees.some(worktree => worktree.path === path))
+    if (!repo) {
+      get().openProject(await window.donwells.addRepo(path))
+      repo = get().repos.find(item => item.worktrees.some(worktree => worktree.path === path))
+    }
+    if (!repo) throw new Error('The session workspace could not be added to Don.')
+    get().setActiveWorktree(path)
+    const key = `herdr:${pane.paneId}`
+    if (!(get().panes[path] ?? []).some(item => item.key === key)) {
+      const label = pane.agent ? `${pane.agent} · ${workspace.label}` : workspace.label
+      set(state => ({ panes: { ...state.panes, [path]: [...(state.panes[path] ?? []), { key, kind: 'herdr-terminal', herdrPaneId: pane.paneId, label }] } }))
+    }
+    get().setActivePane(path, key)
+    set({ rightSidebarOpen: false })
+    persistSessionSoon()
   },
 
   requestClosePane(worktreePath: string, key: string) {
@@ -2034,7 +2057,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return clamped
   },
 
-  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer', toggle = false) {
+  setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions', toggle = false) {
     const state = get()
     if (toggle && !state.runsOpen && state.rightSidebarOpen && state.rightSidebarTab === tab) {
       get().setRightSidebarOpen(false)

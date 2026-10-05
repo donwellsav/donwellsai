@@ -1,4 +1,5 @@
 import { contextMenuKey, focusContextMenu } from '../context-menu'
+import { appCommandPlatform } from '@shared/app-commands'
 import { NativeTerminalPane } from './NativeTerminalPane'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
@@ -39,8 +40,9 @@ declare global {
 }
 
 export function TerminalPane(props: Props) {
-  const renderer = useAppStore(state => state.settings.terminalRenderer)
-  return renderer === 'ghostty' ? <NativeTerminalPane {...props} /> : <XtermPane {...props} />
+  return appCommandPlatform(navigator.platform || navigator.userAgent) === 'mac'
+    ? <NativeTerminalPane {...props} />
+    : <XtermPane {...props} />
 }
 
 function XtermPane({ sessionId, cols, rows, isActive }: Props) {
