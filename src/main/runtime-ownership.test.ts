@@ -320,7 +320,7 @@ describe('runtime publication state machine', () => {
     }
   })
 
-  it('takes over when both a mismatched v2 locator and its recorded owner are proven stale', async () => {
+  it('takes over a stale mismatched v2 locator without committed recovery evidence', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'runtime-reconcile-stale-mismatch-')))
     const first = claimRuntimeOwner({ userDataDir: directory, kind: 'donwells-app', endpoint: freshRuntimeEndpoint(join('/tmp', 'donwells-owner.sock')), authToken: 'owner-stale-token', captureIdentity: generation => authority.capture(process.pid, { family: 'donwells-app', executablePath: process.execPath, generation }), authority })
     await publishRuntimeOwner(first, () => undefined)
@@ -328,11 +328,6 @@ describe('runtime publication state machine', () => {
     writeRuntimeRecord(first.paths.runtimeFile, mismatched)
     const orphan = readRuntimeRecord(first.paths.runtimeFile)
     if (orphan.status !== 'current') throw new Error('orphan fixture was not readable')
-    const evidencePath = join(directory, 'orphan-v2.evidence')
-    writeFileSync(evidencePath, JSON.stringify(mismatched), { mode: 0o600 })
-    const evidence = readRuntimeRecord(evidencePath)
-    if (evidence.status !== 'current') throw new Error('orphan evidence was not readable')
-    first.store.recordLegacyRecovery({ kind: 'donwells-app', expectedFingerprint: orphan.sha256, fileIdentity: orphan.fileIdentity, evidencePath, evidenceFileIdentity: evidence.fileIdentity, endpoint: orphan.record.socketPath, recordType: 'orphan-v2' })
     const staleAuthority: RuntimeIdentityAuthority = { ...authority, verify: () => ({ status: 'stale', reason: 'not-found' }) }
     try {
       await expect(reconcileRuntimeOwner({

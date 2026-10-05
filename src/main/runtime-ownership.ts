@@ -174,21 +174,18 @@ export function contactRuntimeOwner(record: LocalRuntimeRecord | LegacyRuntimeRe
   })
 }
 
-function requireCommittedRecovery(store: RuntimeOwnershipStore, locator: Exclude<RuntimeRecordRead, { status: 'missing' | 'invalid' }>, kind: RuntimeOwnerKind, recordType: 'legacy' | 'orphan-v2'): void {
+function requireCommittedRecovery(store: RuntimeOwnershipStore, locator: Extract<RuntimeRecordRead, { status: 'legacy' }>, kind: RuntimeOwnerKind): void {
   const recovery = store.findLegacyRecovery({
     kind,
     expectedFingerprint: locator.sha256,
     fileIdentity: locator.fileIdentity,
     endpoint: locator.record.socketPath,
-    recordType
+    recordType: 'legacy'
   })
-  if (!recovery) fail('RECOVERY_REQUIRED', recordType === 'legacy'
-    ? 'legacy runtime locator requires exact committed recovery'
-    : 'orphaned version-2 runtime locator requires exact committed recovery')
+  if (!recovery) fail('RECOVERY_REQUIRED', 'legacy runtime locator requires exact committed recovery')
   const bytes = readVerifiedRecoveryEvidence(recovery)
   const verified = parseRuntimeRecordBytes(bytes)
-  if (verified.status === 'invalid' || verified.record.socketPath !== locator.record.socketPath
-    || (recordType === 'legacy') !== (verified.status === 'legacy')) {
+  if (verified.status !== 'legacy' || verified.record.socketPath !== locator.record.socketPath) {
     fail('RECOVERY_EVIDENCE_INVALID', 'committed recovery evidence did not match the runtime locator metadata')
   }
 }
@@ -209,7 +206,7 @@ async function requireSafeForeignLocator(
       contacted = { status: 'unreachable', detail: error instanceof Error ? error.message : String(error) }
     }
     if (contacted.status === 'legacy') return locator.record
-    requireCommittedRecovery(store, locator, kind, 'legacy')
+    requireCommittedRecovery(store, locator, kind)
     return undefined
   }
   if (!locatorMatchesKind(locator.record, kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
@@ -219,7 +216,6 @@ async function requireSafeForeignLocator(
   const verdict = authority.verify(locator.record.processIdentity)
   if (verdict.status === 'valid') fail('OWNER_LIVE', 'mismatched runtime locator identifies a live process')
   if (verdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', verdict.reason + ': ' + verdict.detail)
-  requireCommittedRecovery(store, locator, kind, 'orphan-v2')
   return undefined
 }
 
@@ -297,14 +293,13 @@ function requireSafeClaimLocator(store: RuntimeOwnershipStore, paths: LocalRunti
   if (locator.status === 'missing') return
   if (locator.status === 'invalid') fail('RUNTIME_LOCATOR_INVALID', locator.reason)
   if (locator.status === 'legacy') {
-    requireCommittedRecovery(store, locator, kind, 'legacy')
+    requireCommittedRecovery(store, locator, kind)
     return
   }
   if (!locatorMatchesKind(locator.record, kind)) fail('RUNTIME_LOCATOR_INVALID', 'runtime locator process identity family did not match its owner kind')
   const verdict = authority.verify(locator.record.processIdentity)
   if (verdict.status === 'valid') fail('OWNER_LIVE', 'ownerless runtime locator still identifies a live process')
   if (verdict.status === 'indeterminate') fail('OWNER_INDETERMINATE', verdict.reason + ': ' + verdict.detail)
-  requireCommittedRecovery(store, locator, kind, 'orphan-v2')
 }
 
 export function freshRuntimeEndpoint(baseEndpoint: string, ownerId: string = randomUUID()): string {
@@ -492,7 +487,7 @@ export function republishRuntimeOwner(publication: RuntimePublication, expectedL
 
 export type RuntimeReleaseResult = 'released' | 'not-owned' | 'cleanup-failed'
 
-function preserveLocatorForRecovery(publication: RuntimePublication): 'preserved' | 'missing' | 'not-owned' | 'cleanup-failed' {
+function inspectPublishedLocator(publication: RuntimePublication): 'owned' | 'missing' | 'not-owned' | 'cleanup-failed' {
   const current = readRuntimeRecord(publication.paths.runtimeFile)
   if (current.status === 'missing') return 'missing'
   if (current.status === 'invalid') return 'cleanup-failed'
@@ -500,21 +495,7 @@ function preserveLocatorForRecovery(publication: RuntimePublication): 'preserved
   const expectedHash = publication.owner.locatorSha256 ?? locatorHash(publication.locator)
   if (current.sha256 !== expectedHash || !locatorMatchesOwner(current.record, publication.owner)
     || publication.locatorFileIdentity === null || JSON.stringify(current.fileIdentity) !== JSON.stringify(publication.locatorFileIdentity)) return 'not-owned'
-  try {
-    publication.store.recordLegacyRecovery({
-      kind: publication.owner.kind,
-      expectedFingerprint: current.sha256,
-      fileIdentity: current.fileIdentity,
-      evidencePath: publication.paths.runtimeFile,
-      evidenceFileIdentity: current.fileIdentity,
-      endpoint: current.record.socketPath,
-      recordType: 'orphan-v2'
-    })
-  } catch (error) {
-    if (error instanceof RuntimeOwnershipError) throw error
-    return 'cleanup-failed'
-  }
-  return 'preserved'
+  return 'owned'
 }
 
 export function abandonRuntimeOwner(publication: RuntimePublication): RuntimeReleaseResult {
@@ -527,14 +508,14 @@ export function abandonRuntimeOwner(publication: RuntimePublication): RuntimeRel
   if (current.status === 'missing' || !locatorBelongsToPublication) {
     return publication.store.abandonPreparing(publication.owner) ? 'released' : 'not-owned'
   }
-  const preserved = preserveLocatorForRecovery(publication)
-  if (preserved === 'cleanup-failed' || preserved === 'not-owned') return preserved
+  const locator = inspectPublishedLocator(publication)
+  if (locator === 'cleanup-failed' || locator === 'not-owned') return locator
   return publication.store.abandonPreparing(publication.owner) ? 'released' : 'not-owned'
 }
 
 export function releaseRuntimeOwner(publication: RuntimePublication): RuntimeReleaseResult {
   if (publication.owner.state !== 'active') return 'not-owned'
-  const preserved = preserveLocatorForRecovery(publication)
-  if (preserved === 'cleanup-failed' || preserved === 'not-owned') return preserved
+  const locator = inspectPublishedLocator(publication)
+  if (locator === 'cleanup-failed' || locator === 'not-owned') return locator
   return publication.store.release(publication.owner) ? 'released' : 'not-owned'
 }
