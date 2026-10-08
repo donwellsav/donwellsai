@@ -13,6 +13,9 @@ export default defineConfig({
   fullyParallel: false,
   retries: 1,
   workers: 1,
+  // Disposable profiles strand a detached daemon; reap this run's before they
+  // accumulate and starve the machine of child processes.
+  globalTeardown: './e2e/global-teardown.ts',
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     trace: 'on-first-retry',
