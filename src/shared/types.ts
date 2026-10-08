@@ -211,6 +211,11 @@ export type AppSettings = {
   scrollback: number
   copyOnSelect: boolean
   terminalTheme: TerminalThemeName
+  /**
+   * Requested terminal surface. Ghostty is the default; the pane falls back to
+   * xterm whenever the native module is unavailable on this platform.
+   */
+  terminalRenderer: 'ghostty' | 'xterm'
   /** null inherits the terminal preference. */
   editorFontFamily: string | null
   /** null inherits terminalFontSize. */
@@ -456,6 +461,7 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   openTerminal(worktreePath: string, cwd?: string): Promise<TerminalSession>
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
   nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
+  nativeTerminalAvailability(): Promise<import('./native-terminal').NativeTerminalAvailability>
   onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
   herdrSnapshot(): Promise<import('./herdr-session').HerdrSnapshot>
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean; replay?: import('./terminal-stream').TerminalReplayChunk[] } | null>

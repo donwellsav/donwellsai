@@ -4,7 +4,7 @@ import { app, shell, type BrowserWindow } from 'electron'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { AppSettings } from '@shared/types'
-import type { NativeTerminalRequest, NativeTerminalResult } from '@shared/native-terminal'
+import type { NativeTerminalRequest, NativeTerminalResult, NativeTerminalAvailability } from '@shared/native-terminal'
 import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
@@ -26,6 +26,22 @@ function native(): Binding {
     binding.listen(json => receive?.(json))
   }
   return binding
+}
+
+/**
+ * Report whether the native Ghostty surface can render here, without throwing.
+ *
+ * The renderer uses this to fall back to xterm instead of presenting a pane it
+ * cannot draw. Loading is idempotent, so a successful probe is what the first
+ * terminal would do anyway.
+ */
+export function nativeTerminalAvailability(): NativeTerminalAvailability {
+  try {
+    native()
+    return { available: true }
+  } catch (cause) {
+    return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
+  }
 }
 
 export function nativeTerminalConfiguration(settings: AppSettings): string {

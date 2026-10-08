@@ -14,6 +14,7 @@ import {
 } from '@shared/settings'
 import type { SettingMetadata } from '@shared/settings'
 import { useAppStore } from '../store'
+import { resolveTerminalRenderer } from '../terminal-renderer'
 import { SETTINGS_SECTION_PRESENTATION, resetSettingsAtRevision, searchSettingsCatalog } from '../settings-workspace'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
@@ -141,6 +142,13 @@ function SettingsList({
   onReset(key: SettingKey): void
 }) {
   const agents = useAppStore((state) => state.agents)
+  const nativeTerminal = useAppStore((state) => state.nativeTerminal)
+  // Never let a fall back to xterm be silent: explain it beside the control.
+  const rendererFallback = resolveTerminalRenderer({
+    requested: settings.terminalRenderer,
+    nativeAvailable: nativeTerminal.available,
+    ...(nativeTerminal.reason === undefined ? {} : { nativeReason: nativeTerminal.reason })
+  })
   return (
     <div className="settings-list">
       {metadata.map((item) => (
@@ -154,6 +162,7 @@ function SettingsList({
             if (resettingKey === null) onReset(item.key)
           }}
         >
+          {item.key === 'terminalRenderer' && rendererFallback.fellBack && <p role="note">Terminals are using xterm because Ghostty is unavailable. {rendererFallback.reason}</p>}
           {item.key === 'scrollback' && appCommandPlatform(navigator.platform) === 'mac' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
           <SettingControlView metadata={item} settings={settings} revision={revision} agents={agents} onCommit={onCommit} />
         </SettingsField>

@@ -3,6 +3,7 @@ import { restoreGuiDrafts } from './gui-drafts'
 import type { AgentExecutable } from '@shared/agent-runtime'
 import type { ProviderCatalogSnapshot } from '@shared/provider-authority'
 import type { HerdrPaneSummary, HerdrWorkspaceSummary } from '@shared/herdr-session'
+import type { NativeTerminalAvailability } from '@shared/native-terminal'
 import { restoreWorkspaceLayout, workspacePreset, splitWorkspaceLayout, resizeWorkspaceSplit, type WorkspaceLayout, type WorkspacePreset } from './workspace-layout'
 import { ensureNavigationHistoryInitialized, getPersistedNavigationHistory } from './navigation-history'
 import { projectRemovalBlockers } from './project-removal'
@@ -262,6 +263,8 @@ type AppState = {
   /** The daemon-owned provider catalog: launch authority after the Stage 3 cutover. */
   providerCatalog: ProviderCatalogSnapshot | null
   settings: AppSettings
+  /** Whether the native Ghostty surface can render here; drives the xterm fallback. */
+  nativeTerminal: NativeTerminalAvailability
   /** Monotonic renderer revision used to reject drafts based on stale RPC state. */
   settingsRevision: number
   /** split-tree layout per worktree path; undefined = flat single active pane */
@@ -600,6 +603,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runningAgents: {},
   agents: [],
   providerCatalog: null,
+  nativeTerminal: { available: false, reason: 'The native Ghostty module has not been checked yet.' },
 
   async load() {
     set({ loading: true, initializationError: null })
@@ -607,13 +611,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       await restoreGuiDrafts()
       restoreProjectMemoryDraft()
       const settingsRevision = get().settingsRevision
-      const [repos, agents, agentRuns, settings, wsSession, providerCatalog] = await Promise.all([
+      const [repos, agents, agentRuns, settings, wsSession, providerCatalog, nativeTerminal] = await Promise.all([
         window.donwells.listRepos(),
         window.donwells.listAgents(),
         window.donwells.agentList(),
         window.donwells.getSettings(),
         window.donwells.getWorkspaceSession(),
-        window.donwells.providerCatalogRead()
+        window.donwells.providerCatalogRead(),
+        window.donwells.nativeTerminalAvailability()
       ])
       const currentSettingsRevision = get().settingsRevision
       const acceptLoadedSettings = currentSettingsRevision === settingsRevision
@@ -621,6 +626,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         repos,
         agents,
         providerCatalog,
+        nativeTerminal,
         runningAgents: Object.fromEntries(agentRuns.map((run) => [run.sessionId, run])),
         workspaceNavigation: normalizeWorkspaceNavigation(wsSession?.workspaceNav, repos),
         settings: acceptLoadedSettings ? resolveSettings(settings) : get().settings,

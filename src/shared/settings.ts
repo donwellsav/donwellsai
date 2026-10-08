@@ -40,6 +40,7 @@ const browserSearchEngines = ['duckduckgo', 'google', 'bing'] as const
 const imageFitModes = ['contain', 'width', 'actual'] as const
 const pdfFitModes = ['page', 'width', 'actual'] as const
 const statusPollIntervals = [0, 2000, 5000, 10000] as const
+const terminalRenderers = ['ghostty', 'xterm'] as const
 
 export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   theme: 'dark',
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   scrollback: 10000,
   copyOnSelect: false,
   terminalTheme: 'donwells',
+  terminalRenderer: 'ghostty',
   editorFontFamily: null,
   editorFontSize: null,
   editorWordWrap: 'off',
@@ -213,6 +215,13 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     description: 'When opening a browser, resume its current page or use the checkout’s only detected server. Otherwise use the home URL.',
     default: DEFAULT_SETTINGS.browserAutoPreview, lifecycle: 'live', scope: 'global',
     control: { type: 'toggle' }, validate: booleanValue
+  },
+  terminalRenderer: {
+    key: 'terminalRenderer', section: 'terminal', label: 'Renderer',
+    description: 'Ghostty is the default terminal. Choose xterm to use the previous renderer instead.',
+    default: DEFAULT_SETTINGS.terminalRenderer, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [{ value: 'ghostty', label: 'Ghostty (native)' }, { value: 'xterm', label: 'xterm' }] },
+    validate: oneOf(terminalRenderers)
   },
   terminalFontFamily: {
     key: 'terminalFontFamily', section: 'terminal', label: 'Font family',
