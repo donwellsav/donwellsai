@@ -152,9 +152,12 @@ if (platform === 'darwin') {
   for (const shell of ['bash', 'zsh', 'fish', 'elvish', 'nushell']) {
     assert(existsSync(resolve(integration, shell)), `Missing shell integration for ${shell}`);
   }
+  const permissiveIntegration = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC']);
   for (const entry of readdirSync(integration, { recursive: true, withFileTypes: true }).filter((item) => item.isFile())) {
     const text = await readFile(resolve(entry.parentPath, entry.name), 'utf8');
     assert(!/under the terms of the GNU General Public License/i.test(text), `Non-permissive shell integration shipped: ${entry.name}`);
+    const spdx = /SPDX-License-Identifier:\s*([A-Za-z0-9.+-]+)/i.exec(text);
+    assert(spdx === null || permissiveIntegration.has(spdx[1]), `Non-permissive shell integration shipped: ${entry.name}`);
   }
   assert((await readdir(resolve(native, 'notices/z2d-source'))).length > 2, 'z2d covered source is missing');
   const build = JSON.parse(await readFile(resolve(native, 'build.json'), 'utf8'));

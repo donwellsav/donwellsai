@@ -65,7 +65,13 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
       if (!node) return
       const r = node.getBoundingClientRect()
       const overlays = [...document.querySelectorAll<HTMLElement>(':popover-open, dialog[open], [role="dialog"], [role="menu"], .palette-backdrop, .browser-suggestions, .design-capture-panel, .flexlayout__outline_rect, .flexlayout__drag_rect')]
-      const blocked = Boolean(document.querySelector('[data-native-resize]')) || overlays.some(item => { const b = item.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(item).visibility !== 'hidden' })
+      const blocked = Boolean(document.querySelector('[data-native-resize]')) || overlays.some(item => {
+        // A container that holds this surface is not an occluder, it is the
+        // surface's own shell - the quick terminal renders inside a modal
+        // dialog. Only something drawn over the host should hide it.
+        if (item.contains(node)) return false
+        const b = item.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom && getComputedStyle(item).visibility !== 'hidden'
+      })
       const visible = isActive && !error && !runsOpen && !inbox.overlayOpen && !blocked && document.visibilityState === 'visible' && node.getClientRects().length > 0 && r.width > 0 && r.height > 0
       const rect = visible ? { x: Math.max(0,r.left), y: Math.max(0,r.top), width: Math.max(0,Math.min(r.right,innerWidth)-Math.max(0,r.left)), height: Math.max(0,Math.min(r.bottom,innerHeight)-Math.max(0,r.top)) } : null
       const serialized = JSON.stringify(rect)

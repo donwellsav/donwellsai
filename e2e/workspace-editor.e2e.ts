@@ -328,6 +328,7 @@ test('applies a real Ghostty config without breaking the surface', async () => {
 test('summons and disposes the quick terminal', async () => {
   test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
   await openFixtureProject()
+  const before = await page.evaluate(() => window.donwells.terminalSessions())
   await page.keyboard.press(`${modifier}+Shift+KeyP`)
   const palette = page.locator('dialog.palette-dialog')
   await expect(palette).toBeVisible()
@@ -338,8 +339,18 @@ test('summons and disposes the quick terminal', async () => {
   await expect(overlay).toBeVisible()
   await expect(overlay.locator('.native-terminal-host')).toBeVisible()
 
+  // Existing in the DOM is not the same as drawn: the overlay is a modal whose
+  // rect covers the host, so the surface reports whether it is actually on
+  // screen. This is the difference between a terminal and an empty box.
+  const summoned = await page.evaluate(() => window.donwells.terminalSessions())
+  const sessionId = summoned.map((s) => s.id).find((id) => !before.some((prior) => prior.id === id))
+  expect(sessionId).toBeTruthy()
+  await expect.poll(() => page.evaluate(async (id) => (await window.donwells.nativeTerminalRead(id)).visible, sessionId!)).toBe(true)
+
   await page.keyboard.press('Escape')
   await expect(overlay).toHaveCount(0)
+  // Disposal: a leaked shell per summon would be invisible to the user.
+  await expect.poll(() => page.evaluate(async () => (await window.donwells.terminalSessions()).length)).toBe(before.length)
   // The workspace layout is untouched: it never became a pane.
   await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeVisible()
 })
@@ -371,10 +382,9 @@ test('renders command output in the native Ghostty surface', async () => {
   ).toContain(marker)
 })
 
-// The fallback to xterm is the design's safety net, but only the resolver was
-// unit tested - nothing proved a pane actually renders an xterm surface when
-// the renderer is set to one. This exercises the whole path.
-test('renders an xterm surface when the renderer is set to xterm', async () => {
+// Choosing xterm explicitly is NOT the fallback: the resolver returns it on its
+// first branch without consulting native availability. This covers that branch.
+test('renders an xterm surface when the renderer is explicitly chosen', async () => {
   test.skip(process.platform !== 'darwin', 'the fallback exists because the native surface ships on macOS')
   await page.evaluate(() => window.donwells.setSettings({ terminalRenderer: 'xterm' }))
   await openFixtureProject()
@@ -382,6 +392,38 @@ test('renders an xterm surface when the renderer is set to xterm', async () => {
   const pane = page.locator('.pane-body-terminal:not(.terminal-hidden)')
   await expect(pane.locator('.xterm-helper-textarea')).toBeAttached()
   await expect(pane.locator('.native-terminal-host')).toHaveCount(0)
+})
+
+// The fallback is the safety net for a packaging, architecture or dyld failure:
+// the renderer still asks for Ghostty and the native module is unusable. Force
+// that in the main process, which the fixture's reload then picks up, and prove
+// the resulting pane is usable rather than merely present.
+test('falls back to a usable xterm terminal when the native module is unavailable', async () => {
+  test.skip(process.platform !== 'darwin', 'the fallback exists because the native surface ships on macOS')
+  await app!.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('native-terminal:availability')
+    ipcMain.handle('native-terminal:availability', () => ({ available: false, reason: 'forced unavailable by the fallback test' }))
+  })
+  await openFixtureProject()
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+
+  // Several panes can be open; this test is about the xterm one.
+  const pane = page.locator('.pane-body-terminal:not(.terminal-hidden)').filter({ has: page.locator('.xterm-helper-textarea') }).first()
+  await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')).toHaveCount(0)
+  await expect(pane.locator('.xterm-helper-textarea')).toBeAttached()
+  await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
+
+  // Usable, not just rendered: drive it and read the output back.
+  const marker = 'fallback-marker'
+  await pane.locator('.xterm-helper-textarea').focus()
+  await page.keyboard.type(`echo ${marker}`)
+  await page.keyboard.press('Enter')
+  await expect(pane).toContainText(marker)
+
+  // The reason must reach the user; the fallback is documented as never silent.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click()
+  await expect(page.getByText(/Ghostty is unavailable/)).toBeVisible()
 })
 
 test('exercises workspace layout presets', async () => {
