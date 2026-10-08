@@ -1,8 +1,15 @@
 # Native terminal
 
-On macOS, choose **Settings → Terminal → Renderer → Native Ghostty**. The existing daemon continues to own the PTY. Changing renderer, moving a panel or restarting the GUI does not start a replacement agent. xterm remains available and is the default.
+**Ghostty is the default terminal on macOS.** The pane renders the vendored libghostty surface (`resources/native/ghostty.node`), and the existing daemon continues to own the PTY: moving a panel, changing renderer, or restarting the GUI never starts a replacement agent.
 
-Build with `pnpm build:native-terminal` using Xcode command-line tools, Swift 6 and Zig 0.16.0. `package:prepare` includes this build. Generated checkouts, caches and binaries are ignored. The build currently targets the machine's architecture; cross-architecture packaging needs a matching native build.
+**Settings → Terminal → Renderer** selects the surface:
+
+- **Ghostty (native)** — the default. Used only when the native module actually loads.
+- **xterm** — the previous renderer, for anyone who needs it.
+
+If the native module is missing or cannot load (unsupported platform or architecture, a packaging gap, or a failed probe), panes fall back to **xterm automatically** rather than presenting a surface that cannot draw. The fallback is never silent: the Renderer setting shows the reason the pane fell back. Availability is decided once in the main process (`nativeTerminalAvailability`) and consumed through the pure resolver in `src/renderer/src/terminal-renderer.ts`.
+
+Build with `pnpm build:native-terminal` using Xcode command-line tools, Swift 6 and Zig 0.16.0. `package:prepare` includes this build, and `package:check` fails if the artifacts, resource bundle or their dynamic dependencies are missing or nonportable. Generated checkouts, caches and binaries are ignored. The build targets the host machine's architecture only; cross-architecture packaging needs a matching native build, so a universal macOS artifact is **not** produced today.
 
 The build pins:
 
