@@ -371,6 +371,19 @@ test('renders command output in the native Ghostty surface', async () => {
   ).toContain(marker)
 })
 
+// The fallback to xterm is the design's safety net, but only the resolver was
+// unit tested - nothing proved a pane actually renders an xterm surface when
+// the renderer is set to one. This exercises the whole path.
+test('renders an xterm surface when the renderer is set to xterm', async () => {
+  test.skip(process.platform !== 'darwin', 'the fallback exists because the native surface ships on macOS')
+  await page.evaluate(() => window.donwells.setSettings({ terminalRenderer: 'xterm' }))
+  await openFixtureProject()
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  const pane = page.locator('.pane-body-terminal:not(.terminal-hidden)')
+  await expect(pane.locator('.xterm-helper-textarea')).toBeAttached()
+  await expect(pane.locator('.native-terminal-host')).toHaveCount(0)
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.

@@ -15,6 +15,7 @@ import {
 import type { SettingMetadata } from '@shared/settings'
 import { useAppStore } from '../store'
 import { resolveTerminalRenderer } from '../terminal-renderer'
+import { TERMINAL_SETTING_GROUPS } from '../settings-groups'
 import { SETTINGS_SECTION_PRESENTATION, resetSettingsAtRevision, searchSettingsCatalog } from '../settings-workspace'
 import { Icon } from './Icon'
 import { ModalDialog } from './ModalDialog'
@@ -406,12 +407,7 @@ export function SettingsModal({ open }: { open: boolean }) {
         ['Theme', ['theme']],
         ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
         ['Layout', ['navigationLabels', 'toolPanelSide']]
-      ] as const : [
-        ['Terminal surface', ['terminalRenderer', 'terminalUseGhosttyConfig']],
-        ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLigatures', 'terminalFontFeatures', 'terminalFontVariations', 'terminalLineHeight']],
-        ['Colors and cursor', ['terminalTheme', 'terminalGhosttyTheme', 'cursorStyle', 'cursorBlink']],
-        ['Behavior', ['scrollback', 'copyOnSelect']]
-      ] as const).map(([label, keys]) => {
+      ] as const : TERMINAL_SETTING_GROUPS).map(([label, keys]) => {
         const fields = keys.flatMap(key => metadata.filter(field => field.key === key))
         return fields.length > 0 && <section className="settings-preference-group" key={label} aria-label={label}>
           {label !== 'Theme' && <h3>{label}</h3>}
