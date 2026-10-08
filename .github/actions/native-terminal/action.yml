@@ -16,8 +16,11 @@ runs:
       shell: bash
       run: |
         node scripts/install-zig.mjs
-        echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
-        zig version
+        ZIG_DIR="$(node scripts/install-zig.mjs --print-path)"
+        # $GITHUB_PATH only affects LATER steps, so the provisioned binary is
+        # verified by absolute path here; a bare `zig` would not resolve yet.
+        "$ZIG_DIR/zig" version
+        echo "$ZIG_DIR" >> "$GITHUB_PATH"
 
     - name: Install Electron headers for the native terminal build
       shell: bash
