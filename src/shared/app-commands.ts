@@ -18,6 +18,7 @@ export type AppCommandId =
   | 'increase-terminal-font-size'
   | 'decrease-terminal-font-size'
   | 'reset-terminal-font-size'
+  | 'toggle-quick-terminal'
   | 'focus-next-pane'
   | 'focus-previous-pane'
   | 'close-active-pane'
@@ -117,6 +118,7 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'increase-terminal-font-size', label: 'Increase terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'decrease-terminal-font-size', label: 'Decrease terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'reset-terminal-font-size', label: 'Reset terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'toggle-quick-terminal', label: 'Toggle quick terminal', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'settings', label: 'Settings…', category: 'View', defaultAccelerators: ['Mod+Comma'], palette: true },
   { id: 'show-agents', label: 'Show agent sessions', category: 'Agent', defaultAccelerators: [], palette: true },
   { id: 'show-project-memory', label: 'Show project memory', category: 'Workspace', defaultAccelerators: [], palette: true },

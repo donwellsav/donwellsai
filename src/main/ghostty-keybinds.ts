@@ -18,6 +18,7 @@ const ACTION_COMMANDS: Readonly<Record<string, string>> = Object.freeze({
   'new_split:up': 'split-terminal',
   'new_split:auto': 'split-terminal',
   toggle_command_palette: 'command-palette',
+  toggle_quick_terminal: 'toggle-quick-terminal',
   search: 'find'
 })
 

@@ -63,6 +63,10 @@ describe('Ghostty keybind passthrough', () => {
     expect(commands).toEqual({ 'command+b': 'split-terminal' })
   })
 
+  it('wires the quick terminal action', () => {
+    expect(ghosttyKeybindCommands('keybind = cmd+enter=toggle_quick_terminal', 'mac')['command+enter']).toBe('toggle-quick-terminal')
+  })
+
   it('honours the platform when the same file is used elsewhere', () => {
     expect(ghosttyKeybindCommands('keybind = ctrl+t=new_tab', 'windows')['control+t']).toBe('new-terminal')
   })

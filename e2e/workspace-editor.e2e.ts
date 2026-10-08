@@ -323,6 +323,27 @@ test('applies a real Ghostty config without breaking the surface', async () => {
   await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
 })
 
+// The quick terminal is an in-window overlay driven by a command, since there is
+// no global shortcut. This covers the overlay, its native surface and disposal.
+test('summons and disposes the quick terminal', async () => {
+  test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
+  await openFixtureProject()
+  await page.keyboard.press(`${modifier}+Shift+KeyP`)
+  const palette = page.locator('dialog.palette-dialog')
+  await expect(palette).toBeVisible()
+  await palette.getByRole('combobox', { name: 'Commands', exact: true }).fill('Toggle quick terminal')
+  await palette.locator('.palette-item', { hasText: 'Toggle quick terminal' }).first().click()
+
+  const overlay = page.getByRole('dialog', { name: 'Quick terminal', exact: true })
+  await expect(overlay).toBeVisible()
+  await expect(overlay.locator('.native-terminal-host')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(overlay).toHaveCount(0)
+  // The workspace layout is untouched: it never became a pane.
+  await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeVisible()
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.

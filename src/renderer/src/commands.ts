@@ -296,6 +296,10 @@ export function dispatchAppCommand(action: string): void {
     case 'reset-terminal-font-size':
       void state.setSettings({ terminalFontSize: DEFAULT_SETTINGS.terminalFontSize })
       break
+    case 'toggle-quick-terminal':
+      if (state.quickTerminalSessionId) void state.closeQuickTerminal()
+      else void state.openQuickTerminal()
+      break
     case 'settings':
       state.openSettings(state.settingsSection)
       break

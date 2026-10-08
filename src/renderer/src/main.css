@@ -1985,3 +1985,9 @@ button.git-branch-name > svg { flex-shrink: 0; }
 @media (max-width: 600px) { .settings-preference-group .settings-field { grid-template-columns: 1fr; gap: 6px; } }
 
 .settings-preference-group > p { color: var(--muted-fg); font-size: 12px; line-height: 1.5; }
+
+/* Quick terminal: a drop-down panel, not a centred modal, so it reads as a
+   summoned surface over the workspace. */
+.quick-terminal-modal { width: min(1100px, calc(100vw - 3rem)); margin-top: 2vh; }
+.quick-terminal-surface { height: min(46vh, 460px); min-height: 220px; display: flex; overflow: hidden; }
+.quick-terminal-surface .terminal-host-wrap { flex: 1; }

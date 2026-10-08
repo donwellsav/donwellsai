@@ -24,6 +24,7 @@ import { startEditorRecoveryController } from './editor-recovery'
 import { useNavigationHistoryController } from './navigation-controller'
 import { ProjectSetupDialog } from './components/ProjectSetupDialog'
 import { AttentionInbox } from './components/AttentionInbox'
+import { QuickTerminal } from './components/QuickTerminal'
 import { refreshAttentionInbox, useAttentionInboxMount } from './attention-inbox'
 import type { AttentionInboxApi } from '@shared/attention-inbox'
 
@@ -191,6 +192,7 @@ export function App() {
         <TerminalCloseDialog />
         <ProjectMemoryEditor />
         <AttentionInbox />
+        <QuickTerminal />
       </div>
     </ErrorBoundary>
   )

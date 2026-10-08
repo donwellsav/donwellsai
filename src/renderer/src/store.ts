@@ -267,6 +267,12 @@ type AppState = {
   nativeTerminal: NativeTerminalAvailability
   /** Ghostty's own theme collection; empty when the native module is unavailable. */
   ghosttyThemes: GhosttyTheme[]
+  /**
+   * Session shown by the quick terminal overlay. Registered in `terminals` so
+   * the native surface can resolve its checkout, but deliberately never added
+   * to `panes`, so summoning it does not disturb the workspace layout.
+   */
+  quickTerminalSessionId: string | null
   /** Monotonic renderer revision used to reject drafts based on stale RPC state. */
   settingsRevision: number
   /** split-tree layout per worktree path; undefined = flat single active pane */
@@ -394,6 +400,8 @@ type AppState = {
   setRunsOpen(open: boolean): void
   syncSettings(settings: AppSettings): void
   setSettings(patch: Partial<AppSettings>): Promise<{ ok: true } | { ok: false; error: string }>
+  openQuickTerminal(): Promise<void>
+  closeQuickTerminal(): Promise<void>
   setSidebarOpen(open: boolean): void
   setRailCollapsed(value: boolean): void
   setProjectListPercent(value: number): void
@@ -607,6 +615,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   providerCatalog: null,
   nativeTerminal: { available: false, reason: 'The native Ghostty module has not been checked yet.' },
   ghosttyThemes: [],
+  quickTerminalSessionId: null,
 
   async load() {
     set({ loading: true, initializationError: null })
@@ -1969,6 +1978,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       settingsRevision: state.settingsRevision + 1,
       error: null
     }))
+  },
+
+  async openQuickTerminal() {
+    const worktreePath = get().activeWorktreePath
+    if (!worktreePath) {
+      set({ error: 'Select a checkout before opening the quick terminal.' })
+      return
+    }
+    if (get().quickTerminalSessionId) return
+    try {
+      const session = await window.donwells.openTerminal(worktreePath)
+      set((state) => ({
+        terminals: {
+          ...state.terminals,
+          [session.id]: { cols: state.terminals[session.id]?.cols ?? 100, rows: state.terminals[session.id]?.rows ?? 30, session }
+        },
+        quickTerminalSessionId: session.id,
+        error: null
+      }))
+    } catch (error) {
+      set({ error: 'Quick terminal failed: ' + String(error) })
+    }
+  },
+
+  async closeQuickTerminal() {
+    const sessionId = get().quickTerminalSessionId
+    if (!sessionId) return
+    set((state) => {
+      const terminals = { ...state.terminals }
+      delete terminals[sessionId]
+      return { terminals, quickTerminalSessionId: null }
+    })
+    try { await window.donwells.closeTerminal(sessionId) } catch { /* the daemon may already have dropped it */ }
   },
 
   async setSettings(patch: Partial<AppSettings>) {
