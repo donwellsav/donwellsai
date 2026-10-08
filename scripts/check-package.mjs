@@ -167,6 +167,9 @@ if (platform === 'darwin') {
   // Trimming them would silently drop terminal capabilities this app advertises,
   // notably the kitty graphics protocol, so the manifest must record no trimming.
   assert(!(build.flags ?? []).some((flag) => String(flag).startsWith('-Dvt-features')), 'Native build must not trim VT features (kitty graphics and other terminal capabilities would be compiled out)');
+  // The README states -Di18n=false is the only compile flag; enforce that so a
+  // newly added flag is a deliberate, reviewed change rather than a silent one.
+  assert((build.flags ?? []).length === 1, `Native build flags changed: ${JSON.stringify(build.flags)}`);
   const targetArch = { 'aarch64-macos.13.0': 'arm64', 'x86_64-macos.13.0': 'x86_64' }[build.target];
   assert(targetArch, 'Unsupported native target');
   const expected = values.arch ?? (!values.resources ? process.arch : undefined);

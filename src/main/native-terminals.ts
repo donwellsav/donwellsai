@@ -89,9 +89,12 @@ export class NativeTerminals {
     window.webContents.on('render-process-gone', () => this.clear())
     window.webContents.on('did-start-navigation', (_event, _url, inPlace, main) => { if (main && !inPlace) this.clear() })
   }
-  private call(entry: Entry, op: string, fields: Record<string, unknown> = {}): Record<string, unknown> {
+  private call(entry: Entry, op: string, fields: Record<string, unknown> = {}, options: { requireAccepted?: boolean } = {}): Record<string, unknown> {
     const result = JSON.parse(native().request(JSON.stringify({ id: entry.id, op, ...fields }), ...(op === 'create' ? [this.window.getNativeWindowHandle()] : [])))
     if (result.error) throw new Error(String(result.error))
+    // The surface reports a rejected configuration as ok:false rather than an
+    // error, so without this a surface would silently keep its old settings.
+    if (options.requireAccepted && result.ok === false) throw new Error(`Native surface rejected ${op}`)
     return result
   }
   private publish(entry: Entry, extra: { error?: string; focused?: boolean }) {
@@ -149,7 +152,7 @@ export class NativeTerminals {
     return this.call(entry, 'read')
   }
 
-  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }) }
+  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     if (entry.source) this.herdr.stop(entry.sessionId)
@@ -230,7 +233,7 @@ export class NativeTerminals {
       if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
         const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
-        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() })
+        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true })
         const bus = request.source ? this.herdrStream : this.stream
         next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next

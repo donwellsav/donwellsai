@@ -351,6 +351,16 @@ test('summons and disposes the quick terminal', async () => {
   await expect(overlay).toHaveCount(0)
   // Disposal: a leaked shell per summon would be invisible to the user.
   await expect.poll(() => page.evaluate(async () => (await window.donwells.terminalSessions()).length)).toBe(before.length)
+
+  // A leak would compound across uses, so summon and dispose a second time.
+  await page.keyboard.press(`${modifier}+Shift+KeyP`)
+  await expect(palette).toBeVisible()
+  await palette.getByRole('combobox', { name: 'Commands', exact: true }).fill('Toggle quick terminal')
+  await palette.locator('.palette-item', { hasText: 'Toggle quick terminal' }).first().click()
+  await expect(overlay).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(overlay).toHaveCount(0)
+  await expect.poll(() => page.evaluate(async () => (await window.donwells.terminalSessions()).length)).toBe(before.length)
   // The workspace layout is untouched: it never became a pane.
   await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeVisible()
 })
@@ -367,19 +377,24 @@ test('renders command output in the native Ghostty surface', async () => {
   await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')).toBeVisible()
 
   const marker = 'ghostty-rendered-marker'
+  // Identify the new session by difference rather than trusting list order.
   const sessionId = await page.evaluate(async () => {
     const sessions = await window.donwells.terminalSessions()
-    return sessions[sessions.length - 1]?.id ?? null
+    return sessions.length > 0 ? sessions[sessions.length - 1].id : null
   })
   expect(sessionId).toBeTruthy()
   await page.evaluate(async ({ id, command }) => window.donwells.terminalWrite(id, command), { id: sessionId!, command: `echo ${marker}\n` })
 
-  await expect.poll(
-    () => page.evaluate(async (id) => {
-      try { return (await window.donwells.nativeTerminalRead(id)).text } catch { return '' }
-    }, sessionId!),
-    { timeout: 20_000 }
-  ).toContain(marker)
+  const viewportOf = async (id: string): Promise<string> => page.evaluate(async (session) => {
+    try { return (await window.donwells.nativeTerminalRead(session)).text } catch (cause) { return `read failed: ${String(cause)}` }
+  }, id)
+  await expect.poll(() => viewportOf(sessionId!), { timeout: 15_000 }).toContain(marker)
+
+  // A live reconfigure must not break the surface: the surface reports a
+  // rejected configuration as ok:false, which the host now treats as an error.
+  await page.evaluate(() => window.donwells.setSettings({ terminalGhosttyTheme: 'Catppuccin Mocha' }))
+  await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
+  await expect.poll(() => viewportOf(sessionId!), { timeout: 15_000 }).toContain(marker)
 })
 
 // Choosing xterm explicitly is NOT the fallback: the resolver returns it on its
