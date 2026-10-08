@@ -80,18 +80,6 @@ export async function checkForUpdates(): Promise<boolean> {
   }
 }
 
-/** Download a previously-detected update. */
-export async function downloadUpdate(): Promise<void> {
-  logger.info('auto-updater: starting download')
-  await autoUpdater.downloadUpdate()
-}
-
-/** Quit and install the downloaded update. */
-export function quitAndInstall(): void {
-  logger.info('auto-updater: quit and install')
-  autoUpdater.quitAndInstall()
-}
-
 function send(channel: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel as any, payload)

@@ -50,9 +50,5 @@ const logger = pino({
   },
 })
 
-/** Create a child logger with bound context (e.g. per-session or per-module). */
-export const createLogger = (bindings: pino.Bindings): pino.Logger =>
-  logger.child(bindings)
-
 export { logger }
 export default logger

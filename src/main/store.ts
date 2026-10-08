@@ -223,7 +223,7 @@ export class Store {
       // earlier change and then re-used as the name of a live setting, so it
       // must NOT stay here: doing so deleted the user's renderer choice from the
       // profile on every launch and silently reverted them to the default.
-      const RETIRED_AND_REMOVED_HERE = ['language'] as const
+      const RETIRED_AND_REMOVED_HERE = ['language', 'notificationActivityIndicator', 'notificationFlashWindow'] as const
       // `agentCommand` is different: the daemon removes it as the provider
       // migration's settings publication, and that migration reads the persisted
       // file. Trimming it here would delete the migration's own source before it

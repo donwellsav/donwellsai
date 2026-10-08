@@ -18,7 +18,7 @@ import {
 } from '../global-navigator'
 import { focusRetainedAgentSession } from '../navigation-controller'
 import { pathBasename } from '../workspace-navigation'
-import { fuzzyMatch } from '../fuzzy'
+import { fuzzyMatch } from '@shared/fuzzy'
 import { useAppStore } from '../store'
 import { workspacePaneLabel } from '../workspace-layout'
 import { ModalDialog } from './ModalDialog'

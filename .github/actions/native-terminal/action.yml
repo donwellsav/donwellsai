@@ -1,0 +1,24 @@
+name: Native terminal sources
+description: Cache the Ghostty vendor/build trees, provision Zig 0.16.0, and install the Electron headers the native terminal build needs.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache native terminal sources
+      uses: actions/cache@v4
+      with:
+        path: |
+          native/ghostty/.vendor
+          native/ghostty/.build
+        key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Sources/**') }}
+
+    - name: Provision Zig 0.16.0
+      shell: bash
+      run: |
+        node scripts/install-zig.mjs
+        echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+        zig version
+
+    - name: Install Electron headers for the native terminal build
+      shell: bash
+      run: pnpm run rebuild:native

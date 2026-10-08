@@ -1,12 +1,10 @@
-import { Menu, Tray, app, nativeImage, BrowserWindow } from 'electron'
-import type { AttentionState } from '@shared/types'
+import { Menu, Tray, app, nativeImage } from 'electron'
 
 /**
- * System tray presence. The indicator reflects a current agent state that needs
- * attention; native window flashing is governed independently.
+ * System tray presence.
  */
 
-function trayIcon(attention: boolean): Electron.NativeImage {
+function trayIcon(): Electron.NativeImage {
   const size = 16
   const buf = Buffer.alloc(size * size * 4)
   const r = 6.2
@@ -19,15 +17,7 @@ function trayIcon(attention: boolean): Electron.NativeImage {
       let cr = 0
       let cg = 0
       let cb = 0
-      if (attention) {
-        // filled amber disc
-        if (dist <= r) {
-          a = 255
-          cr = 250
-          cg = 204
-          cb = 21
-        }
-      } else if (Math.abs(dist - r) <= 0.75) {
+      if (Math.abs(dist - r) <= 0.75) {
         // hollow grey ring
         a = 230
         cr = 229
@@ -42,17 +32,15 @@ function trayIcon(attention: boolean): Electron.NativeImage {
     }
   }
   const img = nativeImage.createFromBitmap(buf, { width: size, height: size })
-  img.setTemplateImage(!attention)
+  img.setTemplateImage(true)
   return img
 }
 
 export class TrayService {
   private tray: Tray | null = null
-  private indicator = false
-  private flash = false
 
   start(onShow: () => void): void {
-    this.tray = new Tray(trayIcon(this.indicator))
+    this.tray = new Tray(trayIcon())
     this.tray.setToolTip('donwells.ai')
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -67,26 +55,6 @@ export class TrayService {
       ])
     )
     this.tray.on('click', () => onShow())
-  }
-
-  setAttention(state: AttentionState): void {
-    if (this.indicator !== state.indicator) {
-      this.indicator = state.indicator
-      this.tray?.setImage(trayIcon(state.indicator))
-      if (process.platform === 'darwin') app.dock?.setBadge(state.indicator ? '•' : '')
-    }
-
-    const beginFlash = state.flash && !this.flash
-    const endFlash = !state.flash && this.flash
-    this.flash = state.flash
-    if (!beginFlash && !endFlash) return
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (beginFlash) {
-        if (!window.isFocused()) window.flashFrame(true)
-      } else {
-        window.flashFrame(false)
-      }
-    }
   }
 
   stop(): void {

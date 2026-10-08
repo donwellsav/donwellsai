@@ -42,7 +42,6 @@ export const PROFILE_MAINTENANCE_UNMIGRATED = 'unmigrated'
 export type ProfileMaintenanceParticipant = (typeof PROFILE_MAINTENANCE_PARTICIPANTS)[number]
 export type ProfileMaintenancePhase = (typeof PROFILE_MAINTENANCE_PHASES)[number]
 export type ProfileMaintenanceOwnerStage = (typeof PROFILE_MAINTENANCE_STAGES)[number]
-export type ProfileMaintenanceAdmissionState = 'active' | 'completed' | 'cancelled' | 'indeterminate'
 export type ProfileMaintenanceReceiptState = 'prepared' | 'completed'
 export type ProfileMaintenanceExternalVisibility = 'not-required' | 'pending' | 'acknowledged'
 export type ProfileMaintenanceVisibilityMode = 'central' | 'external-wal'

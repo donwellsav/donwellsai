@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { GitError } from './git'
@@ -50,21 +50,3 @@ export function moveToTrash(worktreePath: string, trashRoot: string): string {
   return dest
 }
 
-/** Hard-delete trash entries older than the retention window (default 7 days). */
-export function pruneTrash(trashRoot: string, retentionMs = 7 * 24 * 3600 * 1000): number {
-  if (!existsSync(trashRoot)) return 0
-  let pruned = 0
-  const now = Date.now()
-  for (const name of readdirSync(trashRoot)) {
-    const p = join(trashRoot, name)
-    try {
-      if (now - statSync(p).mtimeMs > retentionMs) {
-        rmSync(p, { recursive: true, force: true })
-        pruned++
-      }
-    } catch {
-      // unreadable entry: skip, never crash the sweeper
-    }
-  }
-  return pruned
-}

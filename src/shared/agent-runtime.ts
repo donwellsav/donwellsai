@@ -999,17 +999,6 @@ export type AgentStartIntent = {
   task?: AgentTaskIntent
 }
 
-export function parseAgentStartIntent(value: unknown): AgentStartIntent {
-  if (!isRecord(value) || Object.keys(value).some(key => key !== 'workspacePath' && key !== 'providerInstanceId' && key !== 'task')) throw new Error('Invalid agent start intent')
-  if (typeof value['workspacePath'] !== 'string' || !value['workspacePath'].trim() || value['workspacePath'].length > 4096 || value['workspacePath'].includes('\0')) throw new Error('Invalid agent start workspace')
-  if (typeof value['providerInstanceId'] !== 'string' || !value['providerInstanceId'] || value['providerInstanceId'].length > 128 || value['providerInstanceId'].includes('\0')) throw new Error('Invalid provider instance id')
-  return {
-    workspacePath: value['workspacePath'],
-    providerInstanceId: value['providerInstanceId'],
-    ...(value['task'] === undefined ? {} : { task: parseAgentTaskIntent(value['task']) })
-  }
-}
-
 export type AgentStartResult = {
   run: RunningAgent
   session: TerminalSession

@@ -42,9 +42,7 @@ function targetLabel(target: NavigationTarget, panes: Record<string, Pane[]>): {
 export function NavigationControls() {
   const history = useNavigationHistoryState()
   const activeRepoId = useAppStore((state) => state.activeRepoId)
-  const repos = useAppStore((state) => state.repos)
   const panes = useAppStore((state) => state.panes)
-  const terminals = useAppStore((state) => state.terminals)
   const settings = useAppStore((state) => state.settings)
   const [recentOpen, setRecentOpen] = useState(false)
   const recentMenuId = useId()
@@ -57,10 +55,7 @@ export function NavigationControls() {
     return shortcut ? formatAppShortcut(shortcut, platform) : undefined
   }
 
-  const capabilities = useMemo(
-    () => getNavigationCapabilities(),
-    [activeRepoId, history, panes, repos, terminals]
-  )
+  const capabilities = getNavigationCapabilities()
   const recent = (activeRepoId ? history.projects[activeRepoId]?.mru ?? [] : [])
     .filter((target) => navigationTargetAvailable(target))
     .slice(0, 8)

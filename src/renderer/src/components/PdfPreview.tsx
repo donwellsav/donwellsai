@@ -384,8 +384,8 @@ export function PdfPreview({ worktreePath, relPath }: PdfPreviewProps) {
   }
 
   return (
-    <section className="media-viewer media-pdf-viewer" aria-label={`PDF preview: ${fileName}`} onKeyDown={onKeyDown}>
-      <div className="media-toolbar media-pdf-toolbar">
+    <section className="media-viewer" aria-label={`PDF preview: ${fileName}`} onKeyDown={onKeyDown}>
+      <div className="media-toolbar">
         <div className="media-toolbar-group" role="group" aria-label="Page navigation">
           <button className="icon-btn" aria-label="Previous page" title="Previous page" disabled={pageNumber <= 1} onClick={() => goToPage(pageNumber - 1)}><Icon name="up" size={12} /></button>
           <label className="media-page-field">

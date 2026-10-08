@@ -1,7 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcApi, MainEvents } from '../shared/types'
-import type { SessionTemplate } from '../shared/session-template'
-import { pluginCommandId } from '../shared/plugin-command'
 
 const api: IpcApi = {
   guiDraftsRead: () => ipcRenderer.invoke('guiDraftsRead'),
@@ -83,7 +81,6 @@ const api: IpcApi = {
   gitCheckout: (worktreePath, branch) => ipcRenderer.invoke('gitCheckout', worktreePath, branch),
   gitCreateBranch: (worktreePath, branch, startPoint) => ipcRenderer.invoke('gitCreateBranch', worktreePath, branch, startPoint),
   gitHistory: (worktreePath, options) => ipcRenderer.invoke('gitHistory', worktreePath, options),
-  gitDiff: (worktreePath, relPath) => ipcRenderer.invoke('gitDiff', worktreePath, relPath),
   listWorkspaceDirectory: (workspacePath, request) => ipcRenderer.invoke('listWorkspaceDirectory', workspacePath, request),
   searchWorkspaceFiles: (workspacePath, request) => ipcRenderer.invoke('searchWorkspaceFiles', workspacePath, request),
   projectSessionHistoryIndex: path => ipcRenderer.invoke('projectSessionHistoryIndex', path),
@@ -139,7 +136,6 @@ const api: IpcApi = {
   agentAcpObserve: (...args) => ipcRenderer.invoke('agentAcpObserve', ...args),
   agentAcpPrompt: (...args) => ipcRenderer.invoke('agentAcpPrompt', ...args),
   agentAcpControl: (...args) => ipcRenderer.invoke('agentAcpControl', ...args),
-  agentInterrupt: (sessionId) => ipcRenderer.invoke('agentInterrupt', sessionId),
   agentStop: (sessionId) => ipcRenderer.invoke('agentStop', sessionId),
   projectHandoffExport: (...args) => ipcRenderer.invoke('projectHandoffExport', ...args),
   projectHandoffList: (...args) => ipcRenderer.invoke('projectHandoffList', ...args),
@@ -188,14 +184,10 @@ const api: IpcApi = {
   parallelRunRetry: (id, taskIds) => ipcRenderer.invoke('parallelRunRetry', id, taskIds),
   parallelRunCancel: (id) => ipcRenderer.invoke('parallelRunCancel', id),
   parallelRunDelete: (id) => ipcRenderer.invoke('parallelRunDelete', id),
-  autoUpdaterCheck: () => ipcRenderer.invoke('autoUpdaterCheck'),
-  autoUpdaterDownload: () => ipcRenderer.invoke('autoUpdaterDownload'),
-  autoUpdaterQuitAndInstall: () => ipcRenderer.invoke('autoUpdaterQuitAndInstall'),
   diffReviewList: (request) => ipcRenderer.invoke('diffReviewList', request),
   diffReviewCreate: (request) => ipcRenderer.invoke('diffReviewCreate', request),
   diffReviewUpdate: (request) => ipcRenderer.invoke('diffReviewUpdate', request),
   diffReviewDelete: (request) => ipcRenderer.invoke('diffReviewDelete', request),
-  setAttention: (state) => ipcRenderer.send('attention', state),
   onBrowserCommand: (cb) => {
     const listener = (_e: unknown, env: { id: string; cmd: import('@shared/types').BrowserCommand }) => cb(env)
     ipcRenderer.on('browser:command', listener)
@@ -211,12 +203,8 @@ const api: IpcApi = {
   },
   resolveUiCommand: (id, result) => ipcRenderer.send('ui:command:result', id, result),
   perfGetStats: () => ipcRenderer.invoke('perf:getStats'),
-  analyticsTrack: (name: string, category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error', properties?: Record<string, string | number | boolean | null>) => ipcRenderer.invoke('analytics:track', name, category, properties),
   // Session templates
   sessionTemplateList: () => ipcRenderer.invoke('sessionTemplate:list'),
-  sessionTemplateGet: (id: string) => ipcRenderer.invoke('sessionTemplate:get', id),
-  sessionTemplateCreate: (template: SessionTemplate) => ipcRenderer.invoke('sessionTemplate:create', template),
-  sessionTemplateDelete: (id: string) => ipcRenderer.invoke('sessionTemplate:delete', id),
   // Autonomous agent
   autonomousStart: (goal: string, job?: { workspacePath: string; command: string }) =>
     ipcRenderer.invoke('autonomous:start', goal, job),
@@ -226,9 +214,7 @@ const api: IpcApi = {
   autonomousState: () => ipcRenderer.invoke('autonomous:state'),
   // Plugins
   pluginList: () => ipcRenderer.invoke('plugin:list'),
-  pluginInvoke: (id: string, method: string, args?: unknown) =>
-    ipcRenderer.invoke('plugin:invoke', pluginCommandId(id, method), ...(args === undefined ? [] : [args])),
-  pluginUnload: (id: string) => ipcRenderer.invoke('plugin:unload', id),  pluginEnable: (id: string) => ipcRenderer.invoke('plugin:enable', id),
+  pluginEnable: (id: string) => ipcRenderer.invoke('plugin:enable', id),
   pluginDisable: (id: string) => ipcRenderer.invoke('plugin:disable', id),
   pluginInstall: (sourceDirPath: string) => ipcRenderer.invoke('plugin:install', sourceDirPath),
   pluginRemove: (id: string) => ipcRenderer.invoke('plugin:remove', id),

@@ -39,6 +39,12 @@ describe('terminal palette resolution', () => {
   })
 
   it('uses the app palette when the catalog is unavailable', () => {
-    expect(resolveTerminalPalette({ terminalTheme: 'github-dark', terminalGhosttyTheme: 'Catppuccin Mocha' }, [])).toEqual(terminalThemeOf('github-dark'))
+    expect(resolveTerminalPalette({ terminalTheme: 'donwells', terminalGhosttyTheme: 'Catppuccin Mocha' }, [])).toEqual(terminalThemeOf('donwells'))
+  })
+
+  it('degrades a retired app palette name to the fallback palette', () => {
+    // A profile written before the app palettes were folded into Ghostty's
+    // catalog can still carry a retired palette name.
+    expect(terminalThemeOf('tomorrow-night')).toEqual(terminalThemeOf('donwells'))
   })
 })

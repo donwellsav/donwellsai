@@ -1,5 +1,4 @@
 import { logger } from '../../shared/logger'
-import { pluginCommandId } from '../../shared/plugin-command'
 
 export interface PluginManifest {
   id: string
@@ -38,12 +37,10 @@ export interface LoadedPlugin {
   manifest: PluginManifest
   module: PluginModule
   context: PluginContext
-  activated: boolean
 }
 
 export class PluginRegistry {
   private plugins = new Map<string, LoadedPlugin>()
-  private commandHandlers = new Map<string, (...args: unknown[]) => Promise<unknown>>()
 
   async load(manifest: PluginManifest, module: PluginModule): Promise<LoadedPlugin> {
     if (this.plugins.has(manifest.id)) {
@@ -70,17 +67,10 @@ export class PluginRegistry {
       }
     }
 
-    const plugin: LoadedPlugin = { manifest, module, context, activated: false }
+    const plugin: LoadedPlugin = { manifest, module, context }
 
     if (module.activate) {
       await module.activate(context)
-      plugin.activated = true
-    }
-
-    // Register commands
-    for (const [method, handler] of Object.entries(module.commands ?? {})) {
-      const commandId = pluginCommandId(manifest.id, method)
-      this.commandHandlers.set(commandId, (...args: unknown[]) => Promise.resolve(handler(...args)))
     }
 
     this.plugins.set(manifest.id, plugin)
@@ -99,39 +89,12 @@ export class PluginRegistry {
       await plugin.module.deactivate()
     }
 
-    // Unregister commands
-    for (const method of Object.keys(plugin.module.commands ?? {})) {
-      this.commandHandlers.delete(pluginCommandId(pluginId, method))
-    }
-
     this.plugins.delete(pluginId)
     logger.info({ pluginId }, 'plugin: unloaded')
   }
 
   getPlugin(pluginId: string): LoadedPlugin | undefined {
     return this.plugins.get(pluginId)
-  }
-
-  getAllPlugins(): LoadedPlugin[] {
-    return [...this.plugins.values()]
-  }
-
-  getCommandHandler(commandId: string): ((...args: unknown[]) => Promise<unknown>) | undefined {
-    return this.commandHandlers.get(commandId)
-  }
-
-  async invokeCommand(commandId: string, ...args: unknown[]): Promise<unknown> {
-    const handler = this.commandHandlers.get(commandId)
-    if (!handler) {
-      throw new Error(`Unknown plugin command: ${commandId}`)
-    }
-    return handler(...args)
-  }
-
-  async unloadAll(): Promise<void> {
-    for (const id of [...this.plugins.keys()]) {
-      await this.unload(id)
-    }
   }
 }
 

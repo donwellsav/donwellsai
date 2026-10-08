@@ -119,9 +119,14 @@ function SettingControlView({
   } else if (control.type === 'select') {
     // Ghostty's catalog lives in the native module, so this list cannot be part
     // of the static descriptor. An empty catalog leaves the app palette alone.
+    // The app itself ships one palette: the retired names stay in the settings
+    // schema so a profile written earlier still validates, so they are filtered
+    // out of the picker here rather than offered as no-op choices.
     const options = metadata.key === 'terminalGhosttyTheme'
       ? [{ value: '', label: 'App palette' }, ...ghosttyThemes.map((theme) => ({ value: theme.name, label: theme.name }))]
-      : control.options
+      : metadata.key === 'terminalTheme'
+        ? control.options.filter((option) => option.value === 'donwells')
+        : control.options
     rendered = <SettingsSelect metadata={metadata} value={value} control={{ ...control, options }} disabled={saving} onChange={(patch) => void commitChoice(patch)} />
   } else {
     return <SettingsState kind="error" title="Unsupported setting control" detail={metadata.key} />

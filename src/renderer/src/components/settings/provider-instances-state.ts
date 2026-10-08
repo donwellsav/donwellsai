@@ -109,11 +109,6 @@ export function providerInstancesError(instance: ProviderInstanceProjection): Pr
   return { kind: 'unavailable', message: `${instance.displayName} unavailable (review credentials)` }
 }
 
-/** Re-export A Command-Spec Negator For Optional External-Argv Rows (Keeps The Module Self-Contained). */
-export function externalArgs(command: Extract<ProviderCommandSpec, { kind: 'external-argv' }>): { executable: string; args: readonly String[] } {
-  return { executable: command.executable.executable, args: [...command.executable.args] }
-}
-
 // ---------------------------------------------------------------------------
 // Instance authoring (create/edit)
 //

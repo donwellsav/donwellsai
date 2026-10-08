@@ -134,12 +134,6 @@ export type ParallelRunInput = {
   concurrency: number
 }
 
-export type FiniteJobInspection = {
-  exited: boolean
-  exitCode?: number
-  output: string
-}
-
 /** Canonical renderer/preload/main contract for operational runs. */
 export type OperationalRunsApi = {
   verificationScripts(workspacePath: string): Promise<string[]>

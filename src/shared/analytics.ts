@@ -167,21 +167,3 @@ export class AnalyticsCollector {
   }
 }
 
-// Singleton instance
-let _instance: AnalyticsCollector | null = null
-
-export function getAnalyticsCollector(): AnalyticsCollector {
-  if (!_instance) {
-    _instance = new AnalyticsCollector()
-  }
-  return _instance
-}
-
-export function initAnalytics(config: Partial<AnalyticsConfig>): AnalyticsCollector {
-  const collector = new AnalyticsCollector(config)
-  _instance = collector
-  if (collector.isEnabled()) {
-    collector.start()
-  }
-  return collector
-}

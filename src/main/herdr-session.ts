@@ -4,6 +4,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, isAbsolute } from 'node:path'
 import type { HerdrAgentStatus, HerdrPaneSummary, HerdrSnapshot, HerdrTerminalSource, HerdrWorkspaceSummary } from '@shared/herdr-session'
+import { ProcessExecutionError, runProcess } from '@shared/child-process/run-process'
 import { AgentRegistry } from './agents/registry'
 
 const MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
@@ -37,27 +38,27 @@ function executable(): string {
   throw new Error('The session service was not found. Install it, then refresh.')
 }
 
-function run(executablePath: string, args: string[], timeoutMs: number, maxBytes: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executablePath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    let stdout = '', stderr = '', size = 0, settled = false
-    const finish = (error?: Error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (error) reject(new Error(sessionErrorMessage(error)))
-      else resolve(stdout)
-    }
-    const timer = setTimeout(() => { child.kill(); finish(new Error('The session service did not respond in time.')) }, timeoutMs)
-    child.stdout.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > maxBytes) { child.kill(); finish(new Error('The session service returned more data than Don can safely display.')); return }
-      stdout += chunk.toString('utf8')
+async function run(executablePath: string, args: string[], timeoutMs: number, maxBytes: number): Promise<string> {
+  try {
+    const { stdout } = await runProcess({
+      program: executablePath,
+      args,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeoutMs,
+      maxOutputBytes: maxBytes
     })
-    child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-8192) })
-    child.once('error', error => finish(error))
-    child.once('close', code => finish(code === 0 ? undefined : new Error(stderr.trim() || `Session service exited with code ${code ?? 'unknown'}.`)))
-  })
+    return stdout
+  } catch (error) {
+    if (error instanceof ProcessExecutionError) {
+      if (error.kind === 'timeout') throw new Error('The session service did not respond in time.')
+      if (error.kind === 'output-limit') throw new Error('The session service returned more data than Don can safely display.')
+      if (error.kind === 'exit') {
+        const stderr = error.result?.stderr.trim() ?? ''
+        throw new Error(stderr || `Session service exited with code ${error.result?.code ?? 'unknown'}.`)
+      }
+    }
+    throw new Error(sessionErrorMessage(error))
+  }
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {

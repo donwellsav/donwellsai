@@ -92,58 +92,57 @@ export function SessionReplay({ sessionId, onClose }: SessionReplayProps) {
 
   if (loading) {
     return (
-      <div className="session-replay p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold text-foreground">Session Replay</h3>
+      <div>
+        <div>
+          <h3>Session Replay</h3>
           <button className="icon-btn" aria-label="Close replay" onClick={onClose}>✕</button>
         </div>
-        <p className="text-xs text-muted">Loading events for session {sessionId.slice(0, 8)}…</p>
+        <p>Loading events for session {sessionId.slice(0, 8)}…</p>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="session-replay p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold text-foreground">Session Replay</h3>
+      <div>
+        <div>
+          <h3>Session Replay</h3>
           <button className="icon-btn" aria-label="Close replay" onClick={onClose}>✕</button>
         </div>
-        <p className="text-xs text-red-500">{error}</p>
+        <p>{error}</p>
       </div>
     )
   }
 
   if (events.length === 0) {
     return (
-      <div className="session-replay p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold text-foreground">Session Replay</h3>
+      <div>
+        <div>
+          <h3>Session Replay</h3>
           <button className="icon-btn" aria-label="Close replay" onClick={onClose}>✕</button>
         </div>
-        <p className="text-xs text-muted">No events recorded for this session</p>
+        <p>No events recorded for this session</p>
       </div>
     )
   }
 
   return (
-    <div className="session-replay p-3">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold text-foreground">Session Replay</h3>
-        <span className="text-xs text-muted font-mono">{sessionId.slice(0, 8)}</span>
+    <div>
+      <div>
+        <h3>Session Replay</h3>
+        <span>{sessionId.slice(0, 8)}</span>
         <button className="icon-btn" aria-label="Close replay" onClick={onClose}>✕</button>
       </div>
 
       {/* Playback controls */}
-      <div className="flex items-center gap-2 mb-3">
-        <button className="btn btn-xs" onClick={stepBack} disabled={currentIndex === 0} aria-label="Step back">⏮</button>
-        <button className="btn btn-xs" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+      <div>
+        <button className="btn" onClick={stepBack} disabled={currentIndex === 0} aria-label="Step back">⏮</button>
+        <button className="btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
           {isPlaying ? '⏸' : '▶'}
         </button>
-        <button className="btn btn-xs" onClick={stepForward} disabled={currentIndex >= events.length - 1} aria-label="Step forward">⏭</button>
+        <button className="btn" onClick={stepForward} disabled={currentIndex >= events.length - 1} aria-label="Step forward">⏭</button>
         <input
           type="range"
-          className="flex-1"
           min={0}
           max={events.length - 1}
           value={currentIndex}
@@ -151,7 +150,6 @@ export function SessionReplay({ sessionId, onClose }: SessionReplayProps) {
           aria-label="Timeline scrubber"
         />
         <select
-          className="input-xs"
           value={speed}
           onChange={(e) => setSpeed(Number(e.target.value))}
           aria-label="Playback speed"
@@ -164,19 +162,19 @@ export function SessionReplay({ sessionId, onClose }: SessionReplayProps) {
       </div>
 
       {/* Event timeline */}
-      <ol className="space-y-1 max-h-48 overflow-y-auto">
+      <ol>
         {events.map((event, idx) => {
           const color = EVENT_TYPE_COLORS[event.type] ?? EVENT_TYPE_COLORS['default']
           const time = new Date(event.timestamp).toLocaleTimeString()
           return (
             <li
               key={event.id}
-              className={`text-xs flex items-center gap-2 px-1 rounded cursor-pointer ${idx === currentIndex ? 'bg-primary/10' : 'hover:bg-muted/10'}`}
+              className={`${idx === currentIndex ? 'bg-primary/10' : 'hover:bg-muted/10'}`}
               onClick={() => jumpTo(idx)}
             >
-              <span className="text-muted font-mono w-14 shrink-0">{time}</span>
-              <span className={`font-medium ${color} w-24 truncate`}>{event.type}</span>
-              <span className="text-muted truncate">
+              <span>{time}</span>
+              <span className={`${color}`}>{event.type}</span>
+              <span>
                 {event.payload && Object.keys(event.payload).length > 0
                   ? JSON.stringify(event.payload).slice(0, 60)
                   : '—'}
@@ -188,11 +186,11 @@ export function SessionReplay({ sessionId, onClose }: SessionReplayProps) {
 
       {/* Current event detail */}
       {currentEvent && (
-        <details className="mt-3">
-          <summary className="text-xs text-muted cursor-pointer">
+        <details>
+          <summary>
             Event detail ({currentIndex + 1}/{events.length})
           </summary>
-          <pre className="text-xs bg-muted/10 p-2 rounded mt-1 overflow-x-auto max-h-32">
+          <pre>
             {JSON.stringify(currentEvent, null, 2)}
           </pre>
         </details>

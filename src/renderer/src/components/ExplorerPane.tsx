@@ -264,7 +264,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
                 aria-level={row.depth + 1}
                 aria-expanded={row.entry.type === 'dir' ? expanded : undefined}
                 aria-selected={workspace.selected === row.entry.path}
-                className={'explorer-row ' + (row.entry.type === 'file' ? 'file ' : '') + (expanded ? 'open ' : '') + (workspace.selected === row.entry.path ? 'selected' : '')}
+                className={'explorer-row' + (row.entry.type === 'file' ? 'file' : '') + (expanded ? 'open' : '') + (workspace.selected === row.entry.path ? 'selected' : '')}
                 style={{ paddingInlineStart: 8 + row.depth * 14 }}
                 title={row.entry.path}
                 onClick={() => { treeRef.current?.focus(); activate(row.entry) }}
@@ -278,10 +278,10 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
                 <span className="explorer-name">{row.entry.name}</span>
               </button>
               {expanded && directory?.phase === 'loading' && directory.entries.length === 0 ? (
-                <div className="explorer-loading explorer-child-status" style={{ paddingInlineStart: 28 + row.depth * 14 }}>Loading…</div>
+                <div className="explorer-loading" style={{ paddingInlineStart: 28 + row.depth * 14 }}>Loading…</div>
               ) : null}
               {expanded && directory?.phase === 'error' ? (
-                <div className="explorer-error explorer-child-status" style={{ paddingInlineStart: 28 + row.depth * 14 }}>
+                <div className="explorer-error" style={{ paddingInlineStart: 28 + row.depth * 14 }}>
                   <span>{directory.error}</span>
                   <button type="button" onClick={() => void refreshExplorer(worktreePath, row.entry.path)}>Retry</button>
                 </div>
@@ -340,7 +340,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
               />
             </label>
           )}
-          {mutationError ? <div className="modal-error" role="alert">{mutationError}</div> : null}
+          {mutationError ? <div role="alert">{mutationError}</div> : null}
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" disabled={mutating} onClick={() => setDialog(null)}>Cancel</button>
             <button

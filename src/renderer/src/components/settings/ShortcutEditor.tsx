@@ -242,7 +242,7 @@ export function ShortcutEditor({ settings, revision, onCommit }: { settings: App
           </section>
         )
       })}
-      {matchingCommands.length === 0 && <div className="settings-state settings-state-empty"><strong>No matching commands</strong><span>Try a command name, category, or command identifier.</span></div>}
+      {matchingCommands.length === 0 && <div className="settings-state"><strong>No matching commands</strong><span>Try a command name, category, or command identifier.</span></div>}
     </div>
   )
 }

@@ -102,14 +102,14 @@ export function PluginMarketplace() {
     p.description.toLowerCase().includes(search.toLowerCase()))
 
   if (loading) {
-    return <div className="plugin-marketplace p-3"><p className="text-xs text-muted">Loading plugins…</p></div>
+    return <div><p>Loading plugins…</p></div>
   }
 
   return (
-    <div className="plugin-marketplace space-y-3">
-      <div className="flex items-center gap-2">
+    <div>
+      <div>
         <input
-          className="input flex-1"
+          className="input"
           type="search"
           placeholder="Search plugins…"
           value={search}
@@ -119,32 +119,32 @@ export function PluginMarketplace() {
         <button className="btn btn-secondary btn-sm" onClick={handleInstall}>Install from folder…</button>
       </div>
 
-      {error && <p className="text-xs text-destructive p-2">{error}</p>}
+      {error && <p>{error}</p>}
 
-      <div className="space-y-2 max-h-64 overflow-y-auto">
+      <div>
         {filtered.map(plugin => (
-          <div key={plugin.id} className="flex items-center justify-between p-2 rounded border border-border/50">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground truncate">
-                {plugin.name} <span className="text-muted">v{plugin.version}</span>
+          <div key={plugin.id}>
+            <div>
+              <p>
+                {plugin.name} <span>v{plugin.version}</span>
               </p>
-              <p className="text-xs text-muted truncate">{plugin.description}</p>
-              <p className="text-xs text-muted">
+              <p>{plugin.description}</p>
+              <p>
                 {plugin.active ? 'active' : plugin.enabled ? 'enabled (loading…)' : 'disabled'}
               </p>
             </div>
-            <div className="flex items-center gap-1">
+            <div>
               {plugin.enabled ? (
-                <button className="btn btn-secondary btn-xs" onClick={() => handleDisable(plugin)}>Disable</button>
+                <button className="btn btn-secondary" onClick={() => handleDisable(plugin)}>Disable</button>
               ) : (
-                <button className="btn btn-primary btn-xs" onClick={() => handleEnable(plugin)}>Enable</button>
+                <button className="btn btn-primary" onClick={() => handleEnable(plugin)}>Enable</button>
               )}
-              <button className="btn btn-secondary btn-xs" onClick={() => handleRemove(plugin)}>Remove</button>
+              <button className="btn btn-secondary" onClick={() => handleRemove(plugin)}>Remove</button>
             </div>
           </div>
         ))}
         {filtered.length === 0 && (
-          <p className="text-xs text-muted p-2">No plugins found. Use “Install from folder…” to add one, or place a plugin folder under the plugins directory to discover it here.</p>
+          <p>No plugins found. Use “Install from folder…” to add one, or place a plugin folder under the plugins directory to discover it here.</p>
         )}
       </div>
     </div>

@@ -344,9 +344,3 @@ export class AutonomousAgent extends EventEmitter {
   }
 }
 
-/**
- * Creates an autonomous agent.
- */
-export function createAutonomousAgent(config?: Partial<AutonomousAgentConfig>): AutonomousAgent {
-  return new AutonomousAgent(config)
-}

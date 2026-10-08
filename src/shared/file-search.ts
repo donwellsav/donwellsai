@@ -8,41 +8,7 @@ import {
   type WorkspaceFileSearchResult
 } from './file-workspace'
 import type { FileEntry } from './types'
-
-const WORD_BOUNDARY = /[\s\-_./:]/
-const MAX_CANDIDATE_PATH_LENGTH = 2_048
-
-export function fuzzyPathMatch(path: string, query: string): { score: number; hits: number[] } | null {
-  const text = path.toLowerCase()
-  const needle = query.toLowerCase()
-  if (needle.length === 0) return { score: 0, hits: [] }
-  if (path.length > MAX_CANDIDATE_PATH_LENGTH || needle.length > path.length) return null
-
-  const hits: number[] = []
-  let score = 0
-  let searchFrom = 0
-  let previous = -2
-  for (let index = 0; index < needle.length; index += 1) {
-    const found = text.indexOf(needle[index]!, searchFrom)
-    if (found === -1) return null
-    hits.push(found)
-    score += 20
-    if (found === 0 || WORD_BOUNDARY.test(text[found - 1] ?? '')) score += 28
-    if (found === previous + 1) score += 18
-    if (found < 4) score += 8
-    if (previous >= 0) score -= Math.min(found - previous - 1, 12)
-    previous = found
-    searchFrom = found + 1
-  }
-
-  const basenameOffset = path.lastIndexOf('/') + 1
-  const basename = text.slice(basenameOffset)
-  if (basename === needle) score += 2_000
-  else if (basename.startsWith(needle)) score += 1_000
-  else if (text.startsWith(needle)) score += 500
-  score -= Math.floor(path.length / 12)
-  return { score, hits }
-}
+import { fuzzyMatch } from './fuzzy'
 
 function boundedResultCount(requested: number | undefined): number {
   if (requested === undefined) return 30
@@ -52,6 +18,21 @@ function boundedResultCount(requested: number | undefined): number {
 
 function hiddenPath(path: string): boolean {
   return path.split('/').some((segment) => segment.startsWith('.'))
+}
+
+/**
+ * Path-shaped weighting on top of the shared subsequence score: an exact or
+ * prefixed basename outranks a mid-path hit.
+ */
+function basenameBonus(path: string, query: string): number {
+  const needle = query.trim().toLowerCase()
+  if (needle.length === 0) return 0
+  const text = path.toLowerCase()
+  const basename = text.slice(text.lastIndexOf('/') + 1)
+  if (basename === needle) return 2_000
+  if (basename.startsWith(needle)) return 1_000
+  if (text.startsWith(needle)) return 500
+  return 0
 }
 
 function insertRanked(results: WorkspaceFileMatch[], candidate: WorkspaceFileMatch, limit: number): void {
@@ -93,11 +74,11 @@ export function rankWorkspaceFiles(
     }
     scanned += 1
     if (entry.type !== 'file' || (!request.showHidden && hiddenPath(entry.path))) continue
-    const result = fuzzyPathMatch(entry.path, query)
+    const result = fuzzyMatch(entry.path, query)
     if (!result) continue
     matched += 1
     const recent = mruRank.get(entry.path) ?? 0
-    insertRanked(matches, { entry, score: result.score + recent * 12, hits: result.hits }, maxResults)
+    insertRanked(matches, { entry, score: result.score + basenameBonus(entry.path, query) + recent * 12, hits: result.hits }, maxResults)
   }
 
   if (matched > matches.length) truncated = true

@@ -427,7 +427,7 @@ export function SkillsManager() {
       ) : state === 'loading' ? (
         <SettingsState kind="loading" title="Inspecting workspace skills" />
       ) : listing?.packages.length === 0 ? (
-        <p className="settings-description">No skills installed for this agent yet.</p>
+        <p>No skills installed for this agent yet.</p>
       ) : (
         <div className="skill-packages-list" aria-label="Managed workspace skill packages">
           {listing?.packages.map((skill) => {

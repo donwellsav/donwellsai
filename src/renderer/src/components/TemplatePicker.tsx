@@ -29,7 +29,7 @@ export function TemplatePicker({ onSelect, selectedId }: TemplatePickerProps) {
   }, [attempt])
 
   if (loading) {
-    return <div className="text-xs text-muted p-2">Loading templates…</div>
+    return <div>Loading templates…</div>
   }
 
   if (error !== null) {
@@ -40,10 +40,10 @@ export function TemplatePicker({ onSelect, selectedId }: TemplatePickerProps) {
   }
 
   return (
-    <div className="space-y-1">
+    <div>
       <button
         type="button"
-        className={`w-full text-left text-xs px-2 py-1 rounded ${!selectedId ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-muted/10'}`}
+        className={`${!selectedId ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-muted/10'}`}
         onClick={() => onSelect(null)}
       >
         No template
@@ -52,7 +52,7 @@ export function TemplatePicker({ onSelect, selectedId }: TemplatePickerProps) {
         <button
           key={t.id}
           type="button"
-          className={`w-full text-left text-xs px-2 py-1 rounded ${selectedId === t.id ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-muted/10'}`}
+          className={`${selectedId === t.id ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-muted/10'}`}
           onClick={() => onSelect(t.id)}
           title={t.description}
         >
@@ -60,7 +60,7 @@ export function TemplatePicker({ onSelect, selectedId }: TemplatePickerProps) {
         </button>
       ))}
       {templates.length === 0 && !loading && (
-        <p className="text-xs text-muted p-2">No templates yet</p>
+        <p>No templates yet</p>
       )}
     </div>
   )

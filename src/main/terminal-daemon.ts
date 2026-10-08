@@ -198,11 +198,6 @@ function taskWireBoolean(value: unknown, field: string): boolean | undefined {
   return value
 }
 
-function taskWireStringList(value: unknown, field: string): readonly string[] {
-  if (!Array.isArray(value)) throw new TaskAuthorityValidationError(field, 'must be an array of strings')
-  return value.map((entry, index) => taskWireRequiredString(entry, `${field}[${index}]`, 128))
-}
-
 function taskWireMemberList(value: unknown, field: string): readonly { projectId: string; taskId: string; specification?: TaskExecutionSpecificationInput }[] {
   if (!Array.isArray(value)) throw new TaskAuthorityValidationError(field, 'must be an array of members')
   return value.map((entry, index) => {

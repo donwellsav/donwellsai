@@ -12,6 +12,7 @@ import {
 import { constants } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { parseArgs } from "node:util";
 
 const MANIFEST_LIMIT = 1024 * 1024;
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
@@ -29,29 +30,28 @@ The default action is a read-only inventory and collision plan. Apply transfers 
 explicitly selected, manifest-owned class only when its destination path is absent.`);
 }
 
+const VALUE_OPTIONS = ["source", "destination", "state-file", "class", "confirm-target", "rollback", "quiescence-ms"];
+
 function parseArguments(argv) {
-  const options = { apply: false, quiescenceMs: 750 };
-  const values = new Set(["source", "destination", "state-file", "class", "confirm-target", "rollback", "quiescence-ms"]);
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--help" || token === "-h") return { help: true };
-    if (token === "--apply") {
-      options.apply = true;
-      continue;
-    }
-    if (!token.startsWith("--")) throw new Error(`unexpected argument: ${token}`);
-    const name = token.slice(2);
-    if (!values.has(name)) throw new Error(`unknown option: ${token}`);
-    const value = argv[index + 1];
-    if (!value || value.startsWith("--")) throw new Error(`${token} requires a value`);
-    if (options[name] !== undefined) throw new Error(`${token} may be supplied only once`);
-    options[name] = value;
-    index += 1;
+  const { values } = parseArgs({
+    args: argv,
+    allowPositionals: false,
+    options: {
+      help: { type: "boolean", short: "h" },
+      apply: { type: "boolean" },
+      ...Object.fromEntries(VALUE_OPTIONS.map((name) => [name, { type: "string", multiple: true }])),
+    },
+  });
+  if (values.help) return { help: true };
+  const options = { apply: values.apply === true };
+  for (const name of VALUE_OPTIONS) {
+    if (values[name]?.length > 1) throw new Error(`--${name} may be supplied only once`);
+    if (values[name]) options[name] = values[name][0];
   }
   for (const required of ["source", "destination", "state-file"]) {
     if (!options[required]) throw new Error(`--${required} is required`);
   }
-  const quiescenceMs = Number(options["quiescence-ms"] ?? options.quiescenceMs);
+  const quiescenceMs = Number(options["quiescence-ms"] ?? 750);
   if (!Number.isInteger(quiescenceMs) || quiescenceMs < 250 || quiescenceMs > 60_000) {
     throw new Error("--quiescence-ms must be an integer from 250 through 60000");
   }

@@ -119,18 +119,8 @@ export function migrateLegacyToInstance(input: Readonly<{ command: string; crede
   return { key, spec }
 }
 
-/** Public reader projection of A legacy command (renderer/display + id). */
-export function legacyCommandProjection(input: Readonly<{ command: string; knownDriverBases?: readonly AgentDriverId[] }>): { profile: LegacyCommandProfile; key: string | null } {
-  const spec = migrateLegacyCommand(input)
-  return { profile: classifyLegacyCommand(input.command, input.knownDriverBases ?? AGENT_PROVIDER_DRIVER_IDS), key: spec === null ? NullKey() : deriveInstanceKey({ driverId: spec.driverId, credentialMode: MIGRATED_CREDENTIAL_MODE, command: spec.command }) }
-}
-
 /** NullGuard helpers keep `null` Typed Strictly (A Migrated Absence, Not Undefined). */
 function NullSpec(): null {
-  return null
-}
-
-function NullKey(): null {
   return null
 }
 

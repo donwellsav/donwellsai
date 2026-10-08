@@ -238,8 +238,8 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
      * Fit with redundancy. The original bug: fit ran only from RO/activation
      * callbacks, so a pane whose RO delivery was missed stayed at the open
      * default (100×30) — canvas smaller than the host, dead black area.
-     * Now: fit immediately, next frame, on font load, on RO, on activation,
-     * and on window resize — every path idempotent.
+     * Now: fit immediately, next frame, on font load, on RO, and on activation
+     * — every path idempotent.
      */
     const applyFit = (origin: string): void => {
       if (!host.isConnected || replaying.current) return
@@ -272,8 +272,6 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
 
     const ro = new ResizeObserver(() => applyFit('ro'))
     ro.observe(host)
-    const onWinResize = (): void => applyFit('winresize')
-    window.addEventListener('resize', onWinResize)
 
     return () => {
       mounted = false
@@ -281,7 +279,6 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       reconnectRef.current = null
       disposeExit()
       ro.disconnect()
-      window.removeEventListener('resize', onWinResize)
       subscription.dispose()
       host.removeEventListener('contextmenu', onContextMenu)
       host.removeEventListener('keydown', onMenuKey, true)

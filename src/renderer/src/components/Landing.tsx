@@ -45,16 +45,16 @@ export function Landing() {
 
   if (repos.length === 0) {
     return (
-      <main className="landing workspace-landing workspace-landing-empty">
+      <main className="landing workspace-landing">
         <div className="workspace-home-empty">
-          <div className="project-home-mark" aria-hidden="true"><Icon name="dir" size={28} /></div>
+          <div aria-hidden="true"><Icon name="dir" size={28} /></div>
           <div className="workspace-home-intro">
             <h1 className="landing-title">Start a project.</h1>
             <p className="landing-sub">Create a new folder with optional Git setup, or open a project already on your computer.</p>
           </div>
           {actions}
-          {error && <p className="field-error" role="alert">{error}</p>}
-          <p className="workspace-home-hint">Your files stay on your computer. Each project has its own terminals, editors, and agent sessions.</p>
+          {error && <p role="alert">{error}</p>}
+          <p>Your files stay on your computer. Each project has its own terminals, editors, and agent sessions.</p>
         </div>
       </main>
     )
@@ -67,7 +67,7 @@ export function Landing() {
           <div><h1>{projectSidebarOpen ? 'Workspace' : 'Projects'}</h1><p>{projectSidebarOpen ? 'Choose a checkout from Projects on the left.' : 'Open a workspace or start something new.'}</p></div>
           {!projectSidebarOpen && actions}
         </header>
-        {error && <p className="field-error" role="alert">{error}</p>}
+        {error && <p role="alert">{error}</p>}
         {!projectSidebarOpen && <section className="workspace-home-projects" aria-labelledby="workspace-projects-title">
           <div className="workspace-home-section-heading"><h2 id="workspace-projects-title">On this computer</h2><span>{repos.length} {repos.length === 1 ? 'project' : 'projects'}</span></div>
           <div className="workspace-home-project-list">

@@ -12,7 +12,6 @@ export const AGENT_PROVIDER_CATALOG_CAPABILITY = 'provider-catalog-v1'
 export const AGENT_PROVIDER_DRIVER_IDS = ['custom-command', ...AGENT_PROVIDER_DEFINITIONS.map(definition => definition.id)] as const
 
 export type AgentDriverId = (typeof AGENT_PROVIDER_DRIVER_IDS)[number]
-export type StoredDriverId = string
 export type ProviderCredentialMode = 'external' | 'managed' | 'none'
 export const PROVIDER_CREDENTIAL_MODES = ['external', 'managed', 'none'] as const
 
@@ -79,14 +78,6 @@ export type ProviderCredentialBinding = {
   bindingGeneration: number
 }
 
-/** A staged intent: the caller supplies the ref, the Catalog supplies the rest. */
-export type ProviderCredentialReplaceIntent = {
-  operationId: string
-  providerInstanceId: string
-  targetBindingGeneration: number
-  priorCredentialRef: string | null
-  priorBindingGeneration: number | null
-}
 export type PrepareProviderLaunchInput = { selection: ProviderSelection; attemptId: string; sessionId: string; purpose: 'agent-launch' }
 export type ProviderLaunchPreparation = { id: string; selection: ProviderSelection; command: ProviderCommandSpec; credentialMode: ProviderCredentialMode; credentialRequest: null | { credentialRef: string; bindingGeneration: number; driverId: AgentDriverId; providerInstanceId: string; accountId: string; accountRevision: number }; attemptId: string; sessionId: string; purpose: 'agent-launch'; expiresAt: string }
 /** The synchronous in-process credential-saga slice of the Catalog. */

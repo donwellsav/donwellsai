@@ -827,13 +827,4 @@ function boundedPathValue(value: string): string {
   return value
 }
 
-/** The stage-neutral gate contract implemented over the central database. */
-export function createProfileMaintenanceGate(options: Readonly<{
-  database: TaskAuthorityDatabase
-  profileId: string
-  onDiscardCandidateState?: (migrationId: string) => void
-}>): ProfileMaintenanceGate {
-  return new SqliteProfileMaintenanceGate(options)
-}
-
 export { PROFILE_MAINTENANCE_PARTICIPANTS as profileMaintenanceParticipants }

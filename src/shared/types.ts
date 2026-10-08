@@ -178,16 +178,9 @@ export type SettingsSection =
   | 'appearance'
   | 'terminal'
   | 'shortcuts'
-  | 'notifications'
   | 'privacy'
   | 'advanced'
 export type RunsSection = 'agents' | 'automations' | 'orchestration'
-export type AttentionState = {
-  /** Whether the tray and Dock should show a current needs-attention marker. */
-  indicator: boolean
-  /** Whether a background window should request native attention for a new attention state. */
-  flash: boolean
-}
 /** How an editor pane shows a markdown file. */
 export type PreviewMode = 'edit' | 'preview'
 
@@ -255,8 +248,6 @@ export type AppSettings = {
   browserSearchEngine: 'duckduckgo' | 'google' | 'bing'
   imageViewerFit: 'contain' | 'width' | 'actual'
   pdfViewerFit: 'page' | 'width' | 'actual'
-  notificationActivityIndicator: boolean
-  notificationFlashWindow: boolean
   keyboardShortcutOverrides: Record<string, string>
   /** Worktree/git status poll interval; 0 disables polling. */
   statusPollMs: number
@@ -346,43 +337,6 @@ export type Automation = {
   lastRunAt?: string
   lastStatus?: 'running' | 'ok' | 'failed' | 'interrupted'
 }
-
-export type AutomationRun = {
-  id: string
-  automationId: string
-  startedAt: string
-  finishedAt?: string
-  status: 'running' | 'ok' | 'failed' | 'interrupted'
-  tail?: string
-}
-
-export type OrchestrationTaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
-export type OrchestrationRunStatus = 'running' | 'done' | 'failed' | 'cancelled'
-
-export type OrchestrationTask = {
-  id: string
-  worktreePath: string
-  prompt: string
-  status: OrchestrationTaskStatus
-  sessionId?: string
-  startedAt?: string
-  finishedAt?: string
-  error?: string
-  output?: string
-}
-
-export type OrchestrationRun = {
-  id: string
-  name: string
-  command: string
-  /** Max concurrent tasks. */
-  parallel: number
-  status: OrchestrationRunStatus
-  createdAt: string
-  finishedAt?: string
-  tasks: OrchestrationTask[]
-}
-
 
 export type BrowserShortcutAction = 'focusAddress' | 'find' | 'zoomIn' | 'zoomOut' | 'zoomReset'
 
@@ -506,7 +460,6 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   gitCheckout(worktreePath: string, branch: string): Promise<GitBranchInfo>
   gitCreateBranch(worktreePath: string, branch: string, startPoint?: string): Promise<GitBranchInfo>
   gitHistory(worktreePath: string, options?: { cursor?: string; limit?: number }): Promise<GitHistoryPage>
-  gitDiff(worktreePath: string, relPath: string): Promise<string>
   /** Empty ref selects the index. null means absent, not an unreadable object. */
   revealWorkspaceEntry(worktreePath: string, relPath: string): Promise<void>
   workspacePreviewUrl(worktreePath: string, relPath: string): Promise<string>
@@ -533,7 +486,6 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   agentAcpObserve(workspacePath: string, sessionId: string, afterSequence?: number): Promise<import('./agent-runtime').AcpObservation>
   agentAcpPrompt(workspacePath: string, sessionId: string, requestId: string, text: string): Promise<import('./agent-runtime').AcpPromptRecord>
   agentAcpControl(workspacePath: string, sessionId: string, operation: 'cancel' | 'stop' | 'permission' | 'dismiss', permissionId?: string, optionId?: string): Promise<import('./agent-runtime').AcpAgentSnapshot>
-  agentInterrupt(sessionId: string): Promise<RunningAgent>
   agentStop(sessionId: string): Promise<RunningAgent>
   agentConfigureMemory(workspacePath: string, provider: string, launchArgs?: string[], replacement?: { action: 'preview' } | { action: 'apply'; revision: string }): Promise<AgentMemorySetupResult>
   agentDismiss(sessionId: string): Promise<void>
@@ -567,14 +519,6 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
    */
   providerInstanceLaunch(workspacePath: string, providerInstanceId: string, task?: import('./agent-runtime').AgentTaskIntent): Promise<import('./agent-runtime').RunningAgent>
 
-  // Auto-updater IPC surface
-  autoUpdaterCheck(): Promise<boolean>
-  autoUpdaterDownload(): Promise<void>
-  autoUpdaterQuitAndInstall(): Promise<void>
-
-  /** Independently controls the current attention marker and background-window flash. */
-  setAttention(state: AttentionState): void
-
   on<K extends keyof MainEvents>(event: K, cb: (payload: MainEvents[K]) => void): () => void
 
   /** Performance monitoring queries */
@@ -582,24 +526,11 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
     ipcCalls: number
     ipcAvg: number
     ipcP95: number
-    renders: number
-    renderAvg: number
-    renderP95: number
     memoryMB: number | null
   }>
 
-  /** Track an analytics event from the renderer. */
-  analyticsTrack(
-    name: string,
-    category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error',
-    properties?: Record<string, string | number | boolean | null>
-  ): Promise<void>
-
   /** Session template operations */
   sessionTemplateList(): Promise<Array<{ id: string; name: string; description: string; category: string }>>
-  sessionTemplateGet(id: string): Promise<{ id: string; name: string; description: string; category: string } | null>
-  sessionTemplateCreate(template: { id: string; name: string; description: string; category: string; systemPrompt?: string }): Promise<{ id: string }>
-  sessionTemplateDelete(id: string): Promise<void>
 
   /** Autonomous agent operations */
   autonomousStart(
@@ -619,8 +550,6 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
 
   /** Plugin operations */
   pluginList(): Promise<PluginStateView[]>
-  pluginInvoke(id: string, method: string, args?: unknown): Promise<unknown>
-  pluginUnload(id: string): Promise<void>
   pluginEnable(pluginId: string): Promise<void>
   pluginDisable(pluginId: string): Promise<void>
   pluginInstall(sourceDirPath: string): Promise<PluginStateView['manifest']>

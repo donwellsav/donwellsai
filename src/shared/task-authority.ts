@@ -93,10 +93,6 @@ export type AuthenticatedAuthorityConnection = Readonly<{
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SHA256_HEX = /^[a-f0-9]{64}$/
 
-export function isAuthorityUuid(value: string): boolean {
-  return UUID.test(value)
-}
-
 export function assertAuthorityUuid(value: unknown, field: string): string {
   if (typeof value !== 'string' || !UUID.test(value)) {
     throw new TaskAuthorityValidationError(field, 'must be a UUID')
@@ -200,11 +196,7 @@ export type RunGroupState = 'active' | 'cancelling' | 'cancelled' | 'completed'
 export type RunMemberState = 'queued' | 'claimed' | 'launching' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed' | 'quarantined'
 export type MailboxEntryKind = 'attention' | 'progress' | 'artifact' | 'system'
 export type ResourceReservationState = 'reserved' | 'quarantined' | 'released'
-export type ReconciliationVerdict = ProcessIdentityVerdict['status']
-
 export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'blocked', 'in-progress', 'cancelling', 'cancelled', 'done', 'failed', 'quarantined']
-export const ACTIVE_ATTEMPT_STATES: readonly AttemptState[] = ['claimed', 'launching', 'running']
-export const CAPACITY_CONSUMING_ATTEMPT_STATES: readonly AttemptState[] = ['claimed', 'launching', 'running', 'cancelling', 'quarantined']
 
 // ---------------------------------------------------------------------------
 // Execution specifications

@@ -1,7 +1,7 @@
 /**
- * Fuzzy subsequence matching for the command palette (VS Code/upstream-grade feel):
- * needle chars must appear in order; score favors word starts, consecutiveness,
- * and earlier positions. Returns match indices so the UI can highlight hits.
+ * Fuzzy subsequence matching (VS Code/upstream-grade feel): needle chars must
+ * appear in order; score favors word starts, consecutiveness, and earlier
+ * positions. Returns match indices so the UI can highlight hits.
  */
 export type FuzzyResult = { score: number; hits: number[] }
 

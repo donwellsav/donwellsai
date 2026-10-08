@@ -86,8 +86,6 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   browserSearchEngine: 'duckduckgo',
   imageViewerFit: 'contain',
   pdfViewerFit: 'page',
-  notificationActivityIndicator: true,
-  notificationFlashWindow: true,
   keyboardShortcutOverrides: Object.freeze({}),
   statusPollMs: 5000,
 })
@@ -449,18 +447,6 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     default: DEFAULT_SETTINGS.pdfViewerFit, lifecycle: 'live', scope: 'global',
     control: { type: 'select', options: stringOptions(pdfFitModes) }, validate: oneOf(pdfFitModes)
   },
-  notificationActivityIndicator: {
-    key: 'notificationActivityIndicator', section: 'notifications', label: 'Needs-attention indicator',
-    description: 'Show a tray and Dock marker while an agent is waiting, needs permission, cannot be verified, or failed.',
-    default: DEFAULT_SETTINGS.notificationActivityIndicator, lifecycle: 'live', scope: 'global',
-    control: { type: 'toggle' }, validate: booleanValue
-  },
-  notificationFlashWindow: {
-    key: 'notificationFlashWindow', section: 'notifications', label: 'Flash for attention',
-    description: 'Flash an unfocused window when an agent first enters a needs-attention state.',
-    default: DEFAULT_SETTINGS.notificationFlashWindow, lifecycle: 'live', scope: 'global',
-    control: { type: 'toggle' }, validate: booleanValue
-  },
   keyboardShortcutOverrides: {
     key: 'keyboardShortcutOverrides', section: 'shortcuts', label: 'Shortcut overrides',
     description: 'Focus a shortcut field, press the keys you want, then Apply. Conflicts are checked before saving.',
@@ -611,7 +597,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = Object.freeze([
   'appearance',
   'terminal',
   'shortcuts',
-  'notifications',
   'privacy',
   'advanced'
 ])
@@ -636,10 +621,6 @@ export type SettingsDraft<K extends SettingKey = SettingKey> = {
   key: K
   value: AppSettings[K]
   baseRevision: number
-}
-
-export function beginSettingsDraft<K extends SettingKey>(settings: AppSettings, revision: number, key: K): SettingsDraft<K> {
-  return { key, value: cloneSettingValue(settings[key]), baseRevision: revision }
 }
 
 export function patchFromSettingsDraft<K extends SettingKey>(draft: SettingsDraft<K>, currentRevision: number): Partial<AppSettings> {

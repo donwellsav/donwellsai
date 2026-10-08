@@ -24,10 +24,6 @@ function quoteWindows(value: string, escapePercent: boolean): string {
   return `${quoted}${'\\'.repeat(backslashes * 2)}"`
 }
 
-export function quoteWindowsArgument(value: string): string {
-  return quoteWindows(value, false)
-}
-
 export function quoteWindowsCmdArgument(value: string): string {
   return quoteWindows(value, true)
 }

@@ -22,7 +22,7 @@ import { createProject } from './project-creation'
 import { ProjectMemoryService } from './project-memory'
 import { configureAgentMemory } from './agents/project-memory-config'
 import { EditorRecoveryService, registerEditorRecoveryHandlers } from './editor-recovery'
-import type { AppMeta, AppSettings, AttentionState, BrowserCommand, IpcApi, MainEvents, SettingsResetRequest, UiCommand } from '@shared/types'
+import type { AppMeta, AppSettings, BrowserCommand, IpcApi, MainEvents, SettingsResetRequest, UiCommand } from '@shared/types'
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { RendererCommandRouter } from './renderer-command-router'
 import packageMetadata from '../../package.json'
@@ -59,9 +59,8 @@ import { configureDesktopPath } from '@shared/child-process/process-environment'
 import { AgentRegistry } from './agents/registry'
 import * as Sentry from '@sentry/electron/main'
 import { logger } from '@shared/logger'
-import { initAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from './auto-updater'
+import { initAutoUpdater, checkForUpdates } from './auto-updater'
 import { initServices, getServices } from './services'
-import { getPluginRegistry } from './plugins/plugin-registry'
 import type { AnalyticsEvent } from '@shared/analytics'
 import { getPerfStats, startIpcTimer } from '@shared/perf-monitor'
 import { AnalyticsCollector } from '@shared/analytics'
@@ -451,7 +450,6 @@ function registerIpc(): void {
   ipcMain.handle('gitCheckout', (_e, worktreePath: string, branch: string) => git.checkout(worktreePath, branch))
   ipcMain.handle('gitCreateBranch', (_e, ...args: Parameters<IpcApi['gitCreateBranch']>) => git.createBranch(...args))
   ipcMain.handle('gitHistory', (_e, ...args: Parameters<IpcApi['gitHistory']>) => git.history(...args))
-  ipcMain.handle('gitDiff', (_e, worktreePath: string, relPath: string) => git.diff(worktreePath, relPath))
   ipcMain.handle('listWorkspaceDirectory', (_e, ...args: Parameters<IpcApi['listWorkspaceDirectory']>) => git.listWorkspaceDirectory(...args))
   ipcMain.handle('searchWorkspaceFiles', (_e, ...args: Parameters<IpcApi['searchWorkspaceFiles']>) => git.searchWorkspaceFiles(...args))
   ipcMain.handle('createWorkspaceEntry', (_e, ...args: Parameters<IpcApi['createWorkspaceEntry']>) => git.createWorkspaceEntry(...args))
@@ -513,7 +511,6 @@ function registerIpc(): void {
   ipcMain.handle('agentAcpObserve', (_e, ...args: Parameters<IpcApi['agentAcpObserve']>) => agentRuntime.observeAcp(...args))
   ipcMain.handle('agentAcpPrompt', (_e, ...args: Parameters<IpcApi['agentAcpPrompt']>) => agentRuntime.promptAcp(...args))
   ipcMain.handle('agentAcpControl', (_e, ...args: Parameters<IpcApi['agentAcpControl']>) => agentRuntime.controlAcp(...args))
-  ipcMain.handle('agentInterrupt', (_e, sessionId: string) => agentRuntime.interrupt(sessionId))
   ipcMain.handle('agentStop', (_e, sessionId: string) => agentRuntime.stop(sessionId))
   ipcMain.handle('agentDismiss', (_e, sessionId: string) => agentRuntime.dismiss(sessionId))
   ipcMain.handle('agentDeliver', (_e, request: Parameters<IpcApi['agentDeliver']>[0]) => deliverAgentAttachment(agentRuntime, terminalBus, resolveRegisteredWorkspace, request))
@@ -535,8 +532,6 @@ function registerIpc(): void {
   ipcMain.on('browser:command:result', (event, id: string, result) => commandRouter.resolve('browser:command', id, result, event.sender))
   // --- Plugin system: IPC handlers ---
   ipcMain.handle('plugin:list', () => getServices().pluginLoader.list())
-  ipcMain.handle('plugin:unload', (_e, pluginId: string) => getPluginRegistry().unload(pluginId))
-  ipcMain.handle('plugin:invoke', (_e, commandId: string, ...args: unknown[]) => getPluginRegistry().invokeCommand(commandId, ...args))
   ipcMain.handle('plugin:enable', (_e, pluginId: string) => getServices().pluginLoader.enable(pluginId))
   ipcMain.handle('plugin:disable', (_e, pluginId: string) => getServices().pluginLoader.disable(pluginId))
   ipcMain.handle('plugin:install', (_e, sourceDirPath: string) => getServices().pluginLoader.install(sourceDirPath))
@@ -546,18 +541,6 @@ function registerIpc(): void {
   ipcMain.handle('sessionTemplate:list', () => {
     const { sessionTemplates } = getServices()
     return sessionTemplates.getAll()
-  })
-  ipcMain.handle('sessionTemplate:get', (_e, id: string) => {
-    const { sessionTemplates } = getServices()
-    return sessionTemplates.get(id)
-  })
-  ipcMain.handle('sessionTemplate:create', (_e, template: Parameters<typeof import('./templates/session-template-manager').SessionTemplateManager.prototype.create>[0]) => {
-    const { sessionTemplates } = getServices()
-    return sessionTemplates.create(template)
-  })
-  ipcMain.handle('sessionTemplate:delete', (_e, id: string) => {
-    const { sessionTemplates } = getServices()
-    return sessionTemplates.delete(id)
   })
 
   // --- Autonomous Agent IPC ---
@@ -666,14 +649,6 @@ function registerIpc(): void {
   })
   // --- Perf & Analytics IPC ---
   ipcMain.handle('perf:getStats', () => getPerfStats())
-  ipcMain.handle('analytics:track', (
-    _e,
-    name: string,
-    category: 'app' | 'agent' | 'project' | 'ui' | 'performance' | 'error',
-    properties?: Record<string, string | number | boolean | null>
-  ) => {
-    getServices().analytics.track(name, category, properties)
-  })
 }
 
 // Wrap ipcMain.handle to auto-time every IPC call for perf monitoring
@@ -1048,7 +1023,6 @@ void app.whenReady().then(async () => {
     const driverArguments = await providerDriverLaunchArguments(workspace.path, providerInstanceId)
     return terminalBus.providerInstanceLaunch(workspace.path, providerInstanceId, task, driverArguments)
   })
-  ipcMain.on('attention', (_event, state: AttentionState) => trayService?.setAttention(state))
 
   void operationalRuns.resume().catch((error) => logger.error({ err: error }, 'Run recovery failed'))
   ipcMain.handle('scheduledRunsList', () => operationalRuns.scheduledRunsList())
@@ -1076,9 +1050,6 @@ void app.whenReady().then(async () => {
   ipcMain.handle('skillPackagesPrepare', (_e, ...args: Parameters<IpcApi['skillPackagesPrepare']>) => skills.prepare(...args))
 
   // Auto-updater — opt-in, throttled, preference-gated download
-  ipcMain.handle('autoUpdaterCheck', () => checkForUpdates())
-  ipcMain.handle('autoUpdaterDownload', () => downloadUpdate())
-  ipcMain.handle('autoUpdaterQuitAndInstall', () => quitAndInstall())
   // Check for updates 30s after launch (throttled internally)
   setTimeout(() => { void checkForUpdates() }, 30_000)
   ipcMain.handle('skillPackagesApply', (_e, ...args: Parameters<IpcApi['skillPackagesApply']>) => skills.apply(...args))

@@ -20,24 +20,6 @@ export function recordLineage(lineage: Lineage, branch: string, base: string | u
 }
 
 /**
- * Ancestor walk: [branch, parent, grandparent, …] stopping at the repo root
- * (branch absent from lineage), a cycle, or a missing link.
- */
-export function ancestryOf(lineage: Lineage, branch: string): string[] {
-  const chain: string[] = [branch]
-  const seen = new Set(chain)
-  let cur = branch
-  while (true) {
-    const parent = lineage[cur]
-    if (!parent || seen.has(parent)) break
-    chain.push(parent)
-    seen.add(parent)
-    cur = parent
-  }
-  return chain
-}
-
-/**
  * Prune lineage to branches that still exist in the live scan.
  * Main worktree branch is always retained as the root anchor.
  */

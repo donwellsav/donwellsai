@@ -552,7 +552,7 @@ export function GitPane({ worktreePath }: { worktreePath: string }) {
       </section>
 
       {confirmation && (
-        <ModalDialog className="modal git-confirmation" labelledBy="git-confirmation-title" onClose={() => !busy && setConfirmation(null)}>
+        <ModalDialog className="modal" labelledBy="git-confirmation-title" onClose={() => !busy && setConfirmation(null)}>
           <h3 id="git-confirmation-title" className="modal-title">
             {confirmation.kind === 'discard' ? 'Discard local changes?'
               : confirmation.kind === 'switch-branch' ? 'Switch branch?'

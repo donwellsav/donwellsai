@@ -201,7 +201,7 @@ export function ImagePreview({ worktreePath, relPath }: ImagePreviewProps) {
   const scaledHeight = dimensions ? Math.max(1, Math.round(dimensions.height * scale)) : 1
 
   return (
-    <section className="media-viewer media-image-viewer" aria-label={`Image preview: ${fileName}`}>
+    <section className="media-viewer" aria-label={`Image preview: ${fileName}`}>
       <div className="media-toolbar">
         <div className="media-toolbar-group" role="group" aria-label="Image zoom">
           <button className="icon-btn" title="Zoom out (−)" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.2)}><Icon name="minus" /></button>

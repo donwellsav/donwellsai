@@ -20,7 +20,6 @@ export const SETTINGS_SECTION_PRESENTATION: readonly SettingsSectionPresentation
   { id: 'appearance', label: 'Appearance', description: 'Customize the interface and workspace layout.', icon: 'eye' },
   { id: 'terminal', label: 'Terminal', description: 'Palette, typography, cursor and scrollback.', icon: 'terminal' },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', description: 'Application commands and conflict-safe overrides.', icon: 'command' },
-  { id: 'notifications', label: 'Notifications', description: 'Local activity and attention indicators.', icon: 'bell' },
   { id: 'privacy', label: 'Privacy & Security', description: 'Browsing history, local data and external agent access.', icon: 'shield' },
   { id: 'advanced', label: 'Advanced', description: 'Status polling, profile memory storage and application diagnostics.', icon: 'gear' }
 ])

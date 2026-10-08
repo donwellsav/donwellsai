@@ -131,7 +131,7 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
   const showControls = phase !== 'running'
 
   return (
-    <div className="autonomous-agent-panel p-3 border-t border-border/30 space-y-2">
+    <div>
       {showControls && (
         <>
           <label className="modal-field">Checkout
@@ -168,9 +168,9 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('agents')}>Agent settings</button>
             </div>
           )}
-          <div className="flex gap-2">
+          <div>
             <input
-              className="input flex-1"
+              className="input"
               type="text"
               placeholder="Goal for the autonomous agent…"
               value={goal}
@@ -185,15 +185,15 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
       )}
 
       {phase === 'running' && runState && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-green-500">● Running</span>
-            <span className="text-muted">
+        <div>
+          <div>
+            <span>● Running</span>
+            <span>
               Iteration {runState.iterations} · {formatDuration(runState.durationMs)} · {formatTokens(runState.totalTokens)}
             </span>
           </div>
           <button
-            className="btn btn-secondary btn-xs"
+            className="btn btn-secondary"
             title="The current agent job finishes first; the loop stops before the next iteration"
             onClick={() => void stop()}
           >
@@ -203,19 +203,19 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
       )}
 
       {phase === 'running' && pendingAction && (
-        <div className="input space-y-2 p-2" role="alert">
-          <p className="text-xs">
+        <div className="input" role="alert">
+          <p>
             Agent requests: <strong>{pendingAction.type}</strong> — {pendingAction.description}
           </p>
-          <div className="flex gap-2">
+          <div>
             <button
-              className="btn btn-primary btn-xs"
+              className="btn btn-primary"
               onClick={() => { void window.donwells.autonomousActionDecide(pendingAction.actionId, true); setPendingAction(null) }}
             >
               Allow
             </button>
             <button
-              className="btn btn-secondary btn-xs"
+              className="btn btn-secondary"
               onClick={() => { void window.donwells.autonomousActionDecide(pendingAction.actionId, false); setPendingAction(null) }}
             >
               Deny
@@ -225,25 +225,25 @@ export function AutonomousAgentPanel({ onReplaySession }: { onReplaySession?: (s
       )}
 
       {phase === 'finished' && result && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium" role="status">{verdictFor(result)}</p>
+        <div>
+          <p role="status">{verdictFor(result)}</p>
           <pre className="input" role="status" style={{ whiteSpace: 'pre-wrap', maxHeight: '10rem', overflowY: 'auto' }}>{result.finalResult || 'No summary was reported.'}</pre>
-          <p className="text-xs text-muted">
+          <p>
             {result.iterations} iterations · {formatDuration(result.totalDurationMs)} · {formatTokens(result.totalTokens)}
           </p>
-          <div className="flex items-center gap-2">
-            <button className="btn btn-secondary btn-xs" onClick={() => { setPhase('idle'); setResult(null); setRunState(null) }}>New goal</button>
+          <div>
+            <button className="btn btn-secondary" onClick={() => { setPhase('idle'); setResult(null); setRunState(null) }}>New goal</button>
             {onReplaySession && (
-              <button className="btn btn-secondary btn-xs" title="Scrub the recorded iteration events for autonomous runs" onClick={() => onReplaySession('autonomous-run')}>Replay iterations</button>
+              <button className="btn btn-secondary" title="Scrub the recorded iteration events for autonomous runs" onClick={() => onReplaySession('autonomous-run')}>Replay iterations</button>
             )}
           </div>
         </div>
       )}
 
       {phase === 'error' && (
-        <div className="space-y-2">
-          <p className="text-xs" role="alert">Autonomous run failed: {errorMessage}</p>
-          <button className="btn btn-secondary btn-xs" onClick={() => { setPhase('idle'); setErrorMessage('') }}>Try again</button>
+        <div>
+          <p role="alert">Autonomous run failed: {errorMessage}</p>
+          <button className="btn btn-secondary" onClick={() => { setPhase('idle'); setErrorMessage('') }}>Try again</button>
         </div>
       )}
     </div>

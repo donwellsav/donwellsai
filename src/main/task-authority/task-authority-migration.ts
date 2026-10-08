@@ -215,15 +215,6 @@ export function parseOperationalSnapshot(sourceKind: OperationalSourceKind, text
   }
 }
 
-/**
- * Deterministic digest over the exact ordered (kind, key, id) entity mapping set.
- * Used to prove a replayed import produced the same authority entities.
- */
-export function entityMappingSha256(entities: Readonly<Record<string, string>>): string {
-  const ordered = Object.entries(entities).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  return sha256Hex(JSON.stringify(ordered))
-}
-
 // ---------------------------------------------------------------------------
 // Legacy operational normalization
 // ---------------------------------------------------------------------------

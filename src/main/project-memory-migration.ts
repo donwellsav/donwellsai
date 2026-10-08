@@ -295,12 +295,6 @@ export function reverseProjectMemoryMigration(userDataDir: string, onBoundary: (
   })
 }
 
-/** Preparation holds the writer fence; no active authority is switched here. */
-export function prepareProjectMemoryMigration(userDataDir: string) {
-  const profile = resolve(userDataDir)
-  return withProjectMemoryWriteLock(profile, () => prepareLockedMigration(profile))
-}
-
 function prepareLockedMigration(profile: string) {
   const sourcePath = join(profile, 'project-memory.json')
   assertJsonAuthority(sourcePath)

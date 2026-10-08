@@ -604,7 +604,7 @@ export function EditorPane({ worktreePath, relPath }: { worktreePath: string; re
         <ModalDialog className="modal delete-modal" labelledBy="editor-reload-title" onClose={() => !reloading && setReloadConfirmationOpen(false)}>
           <h3 id="editor-reload-title" className="modal-title">Discard unsaved changes?</h3>
           <p>Reloading <strong>{relPath}</strong> replaces the editor buffer with the current file from disk.</p>
-          {reloadError && <div className="modal-error" role="alert">{reloadError}</div>}
+          {reloadError && <div role="alert">{reloadError}</div>}
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" disabled={reloading} onClick={() => setReloadConfirmationOpen(false)}>Cancel</button>
             <button type="button" className="btn btn-danger" disabled={reloading} onClick={() => void reloadFromDisk()}>{reloading ? 'Reloading…' : 'Discard and reload'}</button>

@@ -279,7 +279,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
   }
 
   return (
-    <div className="op-section agents-section">
+    <div className="op-section">
       <div className="op-section-heading">
         <div className="agent-totals" aria-label="Agent status totals">
           {agents.length > 0 ? <><span>{activeCount} running</span><span className={attentionCount > 0 ? 'attention' : ''}>{attentionCount} need attention</span></> : <span>Start an agent, then return here to its terminal and progress.</span>}
@@ -513,7 +513,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
       </ModalDialog>}
 
       {confirmation && (
-        <ModalDialog className="modal op-confirm agent-confirm" labelledBy="agent-confirm-title" onClose={() => {
+        <ModalDialog className="modal op-confirm" labelledBy="agent-confirm-title" onClose={() => {
           if (!operation) setConfirmation(null)
         }}>
           <span className="op-eyebrow">Confirm agent operation</span>
@@ -541,7 +541,7 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         </ModalDialog>
       )}
       {memoryReplacement?.setup.replacement && (
-        <ModalDialog className="modal op-confirm agent-confirm" labelledBy="agent-memory-replace-title" onClose={() => { if (!configuringMemory) setMemoryReplacement(null) }}>
+        <ModalDialog className="modal op-confirm" labelledBy="agent-memory-replace-title" onClose={() => { if (!configuringMemory) setMemoryReplacement(null) }}>
           <span className="op-eyebrow">Review project configuration</span>
           <h3 id="agent-memory-replace-title" className="modal-title">Replace the shared-memory entry?</h3>
           <p>{memoryReplacement.provider === 'deepseek-harness' ? 'The existing managed DSH patch differs. Review the entire patch that will replace it.' : 'The existing entry points somewhere else. Review the exact entry change before replacing it. Other configuration entries are preserved.'}</p>

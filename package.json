@@ -16,7 +16,6 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.cli.json",
     "test": "vitest run",
-    "icons:build": "node scripts/build-icons.mjs",
     "package:check": "node scripts/check-package.mjs",
     "package:prepare": "pnpm run build && pnpm run build:native-terminal && pnpm run build:native-history && pnpm run build:native-identity && pnpm run notices:build && pnpm run package:check",
     "package:dir": "pnpm run package:prepare && electron-builder --config build/electron-builder.json --dir --publish never",
@@ -58,7 +57,6 @@
     "pdfjs-dist": "6.3.289",
     "pino": "^9.14.0",
     "react": "^19.2.8",
-    "react-aria": "^3.52.1",
     "react-dom": "^19.2.8",
     "react-error-boundary": "^6.1.5",
     "zustand": "^5.0.15"
@@ -66,9 +64,6 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@playwright/test": "^1.63.0",
-    "@storybook/addon-essentials": "^8.6.14",
-    "@storybook/react-vite": "^8.6.18",
-    "@types/dompurify": "^3.2.0",
     "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
@@ -78,8 +73,6 @@
     "electron-vite": "^5.0.0",
     "node-gyp": "12.4.0",
     "pino-pretty": "^13.1.3",
-    "playwright": "^1.63.0",
-    "storybook": "^8.6.18",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"

@@ -290,7 +290,3 @@ export class EventStore {
   }
 }
 
-// Factory function
-export function createEventStore(baseDir: string): EventStore {
-  return new EventStore({ baseDir })
-}

@@ -85,12 +85,6 @@ export function getAttentionInboxState(): AttentionInboxRendererState {
   return state
 }
 
-export function subscribeAttentionInbox(listener: StateListener): () => void {
-  stateListeners.add(listener)
-  listener(state)
-  return () => stateListeners.delete(listener)
-}
-
 export function useAttentionInboxState(): AttentionInboxRendererState {
   return useSyncExternalStore(
     (listener) => {
@@ -187,10 +181,6 @@ export function requestAttentionReveal(event: Pick<AttentionEvent, 'id' | 'versi
     sessionId: event.sessionId
   }
   publish({ ...state, reveals: { ...state.reveals, [event.sessionId]: reveal } })
-}
-
-export function pendingAttentionReveal(sessionId: string): AttentionRevealTarget | undefined {
-  return state.reveals[sessionId]
 }
 
 /**

@@ -41,23 +41,7 @@ jobs:
       # Ghostty is the terminal, so CI must build and exercise the native
       # surface. Without this the E2E suite would fall back to xterm and stop
       # proving anything about the shipped renderer.
-      - name: Cache native terminal sources
-        uses: actions/cache@v4
-        with:
-          path: |
-            native/ghostty/.vendor
-            native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
-
-      - name: Provision Zig 0.16.0
-        shell: bash
-        run: |
-          node scripts/install-zig.mjs
-          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
-          zig version
-
-      - name: Install Electron headers for the native terminal build
-        run: pnpm run rebuild:native
+      - uses: ./.github/actions/native-terminal
 
       - name: Build native terminal (Ghostty)
         run: pnpm run build:native-terminal
@@ -112,26 +96,8 @@ jobs:
 
       # The macOS package ships Ghostty as its terminal, so the native surface is
       # built here and verified by package:check inside package:prepare.
-      - name: Cache native terminal sources
+      - uses: ./.github/actions/native-terminal
         if: matrix.platform == 'darwin'
-        uses: actions/cache@v4
-        with:
-          path: |
-            native/ghostty/.vendor
-            native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
-
-      - name: Provision Zig 0.16.0
-        if: matrix.platform == 'darwin'
-        shell: bash
-        run: |
-          node scripts/install-zig.mjs
-          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
-          zig version
-
-      - name: Install Electron headers for the native terminal build
-        if: matrix.platform == 'darwin'
-        run: pnpm run rebuild:native
 
       - name: Build directory package
         run: pnpm run package:dir
@@ -222,26 +188,8 @@ jobs:
           src/main/secret-output-redactor.test.ts
           src/main/project-temporal-knowledge.test.ts
 
-      - name: Cache native terminal sources
+      - uses: ./.github/actions/native-terminal
         if: matrix.platform == 'darwin'
-        uses: actions/cache@v4
-        with:
-          path: |
-            native/ghostty/.vendor
-            native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
-
-      - name: Provision Zig 0.16.0
-        if: matrix.platform == 'darwin'
-        shell: bash
-        run: |
-          node scripts/install-zig.mjs
-          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
-          zig version
-
-      - name: Install Electron headers for the native terminal build
-        if: matrix.platform == 'darwin'
-        run: pnpm run rebuild:native
 
       - name: Build directory package
         run: pnpm run package:dir

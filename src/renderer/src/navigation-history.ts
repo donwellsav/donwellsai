@@ -355,6 +355,3 @@ export function getPersistedNavigationHistory(): PersistedNavigationHistoryV1 {
   return navigationHistoryAuthority.persistedSnapshot()
 }
 
-export function waitForNavigationHistoryReady(): Promise<void> {
-  return navigationHistoryAuthority.waitUntilReady()
-}

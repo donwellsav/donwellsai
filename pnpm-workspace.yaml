@@ -5,31 +5,7 @@ allowBuilds:
   node-pty: true
 minimumReleaseAgeExclude:
   - lucide-react@1.43.0
-onlyBuiltDependencies:
-  - electron
-  - electron-winstaller
-  - esbuild
-  - node-pty
 overrides:
   rolldown: 1.2.6
-  '@rolldown/binding-android-arm-eabi': 1.2.6
-  '@rolldown/binding-android-arm64': 1.2.6
-  '@rolldown/binding-darwin-arm64': 1.2.6
-  '@rolldown/binding-darwin-x64': 1.2.6
-  '@rolldown/binding-freebsd-x64': 1.2.6
-  '@rolldown/binding-linux-arm-gnueabihf': 1.2.6
-  '@rolldown/binding-linux-arm64-gnu': 1.2.6
-  '@rolldown/binding-linux-arm64-musl': 1.2.6
-  '@rolldown/binding-linux-armv7-gnu': 1.2.6
-  '@rolldown/binding-linux-ia32-gnu': 1.2.6
-  '@rolldown/binding-linux-ia32-musl': 1.2.6
-  '@rolldown/binding-linux-riscv64-gnu': 1.2.6
-  '@rolldown/binding-linux-s390x-gnu': 1.2.6
-  '@rolldown/binding-linux-x64-gnu': 1.2.6
-  '@rolldown/binding-linux-x64-musl': 1.2.6
-  '@rolldown/binding-wasm32-wasi': 1.2.6
-  '@rolldown/binding-win32-arm64-msvc': 1.2.6
-  '@rolldown/binding-win32-ia32-msvc': 1.2.6
-  '@rolldown/binding-win32-x64-msvc': 1.2.6
 patchedDependencies:
   '@xterm/addon-search@0.16.0': patches/@xterm__addon-search@0.16.0.patch

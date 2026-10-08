@@ -68,15 +68,6 @@ export function agentPresentation(run: RunningAgent): AgentPresentation {
   }
 }
 
-export function agentNeedsAttention(run: RunningAgent): boolean {
-  const status = presentationStatus(run)
-  return status === 'waiting' || status === 'permission' || status === 'unverifiable' || status === 'failed'
-}
-
-export function agentIsInProgress(run: RunningAgent): boolean {
-  return agentPresentation(run).inProgress
-}
-
 /**
  * Display-only provenance for a run recorded before provider instances existed.
  *
@@ -102,26 +93,6 @@ export function agentProviderName(run: RunningAgent): string {
       ?? run.provider.driverId
   }
   return legacyProviderDisplayName(run.command)
-}
-
-/** Prefer a live session for a workspace, then an attention state, then the latest retained outcome. */
-export function agentForWorkspace(
-  workspacePath: string,
-  runs: Readonly<Record<string, RunningAgent>>
-): RunningAgent | undefined {
-  let selected: RunningAgent | undefined
-  let selectedRank = Number.POSITIVE_INFINITY
-  for (const sessionId in runs) {
-    const run = runs[sessionId]
-    if (!run || run.workspacePath !== workspacePath) continue
-    const presentation = agentPresentation(run)
-    const rank = presentation.inProgress ? 0 : presentation.needsAttention ? 1 : 2
-    if (rank < selectedRank || (rank === selectedRank && (!selected || run.updatedAt > selected.updatedAt))) {
-      selected = run
-      selectedRank = rank
-    }
-  }
-  return selected
 }
 
 /** Cycles only live input/permission waits within the selected project. */

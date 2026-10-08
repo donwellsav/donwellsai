@@ -223,17 +223,6 @@ export function compareArtifacts(left: ProjectionArtifact, right: ProjectionArti
   return left.attachedAt < right.attachedAt ? -1 : left.attachedAt > right.attachedAt ? 1 : 0
 }
 
-export function projectArtifact(artifact: ProjectionArtifact): VerificationArtifact {
-  return {
-    path: artifact.path,
-    sha256: artifact.sha256,
-    bytes: artifact.bytes,
-    attachedAt: artifact.attachedAt,
-    sourceFingerprint: artifact.sourceFingerprint,
-    relationship: artifact.relationship
-  }
-}
-
 /**
  * Projects one run member.
  *

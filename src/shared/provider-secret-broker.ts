@@ -1,4 +1,4 @@
-import { AGENT_PROVIDER_DRIVER_IDS, type AgentDriverId, type ProviderCatalogSnapshot } from './provider-authority'
+import type { AgentDriverId, ProviderCatalogSnapshot } from './provider-authority'
 
 /**
  * Versioned reverse-request broker between the daemon (which owns launch
@@ -163,24 +163,6 @@ export type ProviderCredentialEnvironment = Readonly<Record<string, readonly str
 
 export const PROVIDER_CREDENTIAL_ENVIRONMENTS: ProviderCredentialEnvironment = {}
 
-/** Parses a driver-environment declaration; an unknown driver or bad name is refused. */
-export function parseProviderCredentialEnvironment(value: unknown, label = 'credential environment'): ProviderCredentialEnvironment {
-  const record = wireRecord(value, label)
-  const parsed: Record<string, readonly string[]> = {}
-  for (const [driverId, names] of Object.entries(record)) {
-    if (!(AGENT_PROVIDER_DRIVER_IDS as readonly string[]).includes(driverId)) throw new Error(`${label} names an unknown driver: ${driverId}`)
-    if (!Array.isArray(names) || names.length === 0 || names.length > 4) throw new Error(`${label}.${driverId} must declare between one and four variables`)
-    const unique: string[] = []
-    for (const name of names) {
-      if (typeof name !== 'string' || !/^[A-Z][A-Z0-9_]{0,127}$/.test(name)) throw new Error(`${label}.${driverId} declares an invalid variable name`)
-      if (unique.includes(name)) throw new Error(`${label}.${driverId} repeats a variable name`)
-      unique.push(name)
-    }
-    parsed[driverId] = unique
-  }
-  return parsed
-}
-
 // ---------------------------------------------------------------------------
 // Parsing
 //
@@ -236,23 +218,6 @@ export function parseProviderSecret(value: unknown): string {
   return value
 }
 
-export function parseCredentialStatus(value: unknown, label = 'credential status'): CredentialStatus {
-  const record = wireRecord(value, label)
-  wireExact(record, ['state', 'revision', 'backend', 'updatedAt', 'problem'], label)
-  const state = record['state']
-  if (state !== 'present' && state !== 'absent' && state !== 'revoked' && state !== 'unavailable') throw new Error(`${label}.state must be a known credential state`)
-  const backend = record['backend']
-  if (backend !== 'keychain' && backend !== 'dpapi' && backend !== 'secret-service' && backend !== 'unprotected' && backend !== 'unavailable') throw new Error(`${label}.backend must be a known credential backend`)
-  const problem = record['problem'] === undefined ? undefined : wireString(record['problem'], `${label}.problem`, 512)
-  return {
-    state,
-    revision: wireInteger(record['revision'], `${label}.revision`),
-    backend,
-    updatedAt: wireTimestamp(record['updatedAt'], `${label}.updatedAt`),
-    ...(problem === undefined ? {} : { problem })
-  }
-}
-
 export function parseProviderCredentialWriteRequest(value: unknown, label = 'credential write request'): ProviderCredentialWriteRequest {
   const record = wireRecord(value, label)
   wireExact(record, ['providerInstanceId', 'accountId', 'expectedInstanceRevision', 'expectedAccountRevision', 'secret'], label)
@@ -281,20 +246,6 @@ export function parseProviderCredentialRevokeRequest(value: unknown, label = 'cr
     ...parseProviderCredentialStatusRequest(value, label),
     expectedInstanceRevision: wireInteger(record['expectedInstanceRevision'], `${label}.expectedInstanceRevision`, 1),
     expectedAccountRevision: wireInteger(record['expectedAccountRevision'], `${label}.expectedAccountRevision`, 1)
-  }
-}
-
-export function parseResolvedProviderCredentialPrincipal(value: unknown, label = 'credential principal'): ResolvedProviderCredentialPrincipal {
-  const record = wireRecord(value, label)
-  wireExact(record, ['driverId', 'providerInstanceId', 'instanceRevision', 'accountId', 'accountRevision', 'credentialRef', 'bindingGeneration'], label)
-  return {
-    driverId: wireDriverId(record['driverId'], `${label}.driverId`),
-    providerInstanceId: wireString(record['providerInstanceId'], `${label}.providerInstanceId`, 128),
-    instanceRevision: wireInteger(record['instanceRevision'], `${label}.instanceRevision`, 1),
-    accountId: wireString(record['accountId'], `${label}.accountId`, 128),
-    accountRevision: wireInteger(record['accountRevision'], `${label}.accountRevision`, 1),
-    credentialRef: asCredentialRef(record['credentialRef'], `${label}.credentialRef`),
-    bindingGeneration: wireInteger(record['bindingGeneration'], `${label}.bindingGeneration`, 1)
   }
 }
 

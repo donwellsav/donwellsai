@@ -11,11 +11,6 @@ export interface PluginLoaderOptions {
   pluginDir: string
   /** Recoverable destination for removed plugin folders (R1.4). */
   trashRoot?: string
-  /**
-   * @deprecated Kept for API compatibility. Activation is now user-consented:
-   * a discovered plugin executes only after the user enables it (R1.3).
-   */
-  autoActivate?: boolean
 }
 
 const ACTIVATION_FILE = '.donwells-activation.json'

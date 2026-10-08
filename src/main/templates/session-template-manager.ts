@@ -31,8 +31,6 @@ export interface SessionTemplate {
 export interface SessionTemplateManagerOptions {
   /** User templates directory. */
   userDir: string
-  /** Built-in templates directory. */
-  builtinDir?: string
 }
 
 /**
@@ -88,30 +86,10 @@ export class SessionTemplateManager {
   }
 
   /**
-   * Gets templates by category.
-   */
-  getByCategory(category: string): SessionTemplate[] {
-    return this.getAll().filter(t => t.category === category)
-  }
-
-  /**
    * Gets a template by ID.
    */
   get(id: string): SessionTemplate | undefined {
     return this.templates.get(id)
-  }
-
-  /**
-   * Searches templates by name, description, or tags.
-   */
-  search(query: string): SessionTemplate[] {
-    const lower = query.toLowerCase()
-    return this.getAll().filter(
-      t =>
-        t.name.toLowerCase().includes(lower) ||
-        t.description.toLowerCase().includes(lower) ||
-        t.tags?.some(tag => tag.toLowerCase().includes(lower))
-    )
   }
 
   /**
@@ -131,22 +109,6 @@ export class SessionTemplateManager {
   }
 
   /**
-   * Updates an existing user template.
-   */
-  async update(id: string, updates: Partial<SessionTemplate>): Promise<SessionTemplate> {
-    const existing = this.templates.get(id)
-    if (!existing) throw new Error(`Template ${id} not found`)
-    if (existing.builtin) throw new Error(`Cannot modify built-in template ${id}`)
-
-    const updated = { ...existing, ...updates, id }
-    await this.saveUserTemplate(updated)
-    this.templates.set(id, updated)
-
-    logger.info({ id }, 'session-templates: updated')
-    return updated
-  }
-
-  /**
    * Deletes a user template.
    */
   async delete(id: string): Promise<void> {
@@ -159,32 +121,6 @@ export class SessionTemplateManager {
     this.templates.delete(id)
 
     logger.info({ id }, 'session-templates: deleted')
-  }
-
-  /**
-   * Creates a session from a template.
-   */
-  async createSession(templateId: string): Promise<{
-    systemPrompt?: string
-    initialPrompt?: string
-    provider?: string
-    model?: string
-    allowedTools?: string[]
-    deniedTools?: string[]
-    env?: Record<string, string>
-  }> {
-    const template = this.get(templateId)
-    if (!template) throw new Error(`Template ${templateId} not found`)
-
-    return {
-      systemPrompt: template.systemPrompt,
-      initialPrompt: template.initialPrompt,
-      provider: template.provider,
-      model: template.model,
-      allowedTools: template.allowedTools,
-      deniedTools: template.deniedTools,
-      env: template.env,
-    }
   }
 
   private async loadBuiltinTemplates(): Promise<void> {
@@ -274,11 +210,4 @@ export class SessionTemplateManager {
   private templatePath(id: string): string {
     return join(this.options.userDir, `${assertTemplateId(id)}.json`)
   }
-}
-
-/**
- * Creates a session template manager.
- */
-export function createSessionTemplateManager(userDir: string): SessionTemplateManager {
-  return new SessionTemplateManager({ userDir })
 }

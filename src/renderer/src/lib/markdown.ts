@@ -30,7 +30,6 @@ export function scanNeeds(body: string): { mermaid: boolean; math: boolean } {
 }
 
 /** GitHub alert variants: > [!NOTE] … */
-export type CalloutKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
 export const CALLOUT_KINDS: ReadonlySet<string> = new Set(['note', 'tip', 'important', 'warning', 'caution'])
 
 /** heading id for TOC entries, 3-char collision suffix handled by caller */
