@@ -4,8 +4,8 @@ import type { GhosttyTheme } from '@shared/native-terminal'
 /**
  * The app's own ANSI palette, and the only one left: Ghostty's bundled catalog
  * already ships the palettes this module used to duplicate (Dracula, GitHub
- * Dark, Tomorrow Night, Solarized Dark) under those names, and a selected
- * Ghostty theme wins over an app palette. This palette therefore only backs the
+ * Dark, Tomorrow Night) under those exact names - Solarized Dark has no exact
+ * counterpart - and a selected Ghostty theme wins over an app palette. This palette therefore only backs the
  * blank/xterm path, where no Ghostty theme is chosen.
  */
 export const DONWELLS_TERMINAL_PALETTE: Record<string, string> = {
@@ -35,12 +35,25 @@ export const DONWELLS_TERMINAL_PALETTE: Record<string, string> = {
 export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'donwells'
 
 /**
- * A profile written before the app palettes were folded into Ghostty's catalog
- * can still name a retired palette; every app palette name now resolves to the
- * one fallback palette so the xterm path always gets colors.
+ * Retired app palette names, mapped to the catalog themes that ship the same
+ * palette. The app's own copies were duplicates and are gone, but a profile that
+ * still names one must keep rendering that palette rather than silently turning
+ * into the fallback. Three of the four have an exact catalog counterpart;
+ * `solarized-dark` does not, so it maps to the closest variant instead of
+ * pretending an exact match exists.
  */
-export const terminalThemeOf = (_name: TerminalThemeName | undefined): Record<string, string> =>
-  DONWELLS_TERMINAL_PALETTE
+export const RETIRED_PALETTE_THEMES: Record<string, string> = {
+  dracula: 'Dracula',
+  'github-dark': 'GitHub Dark',
+  'tomorrow-night': 'Tomorrow Night',
+  'solarized-dark': 'Solarized Dark Patched'
+}
+
+export function terminalThemeOf(name: TerminalThemeName | undefined, themes: readonly GhosttyTheme[] = []): Record<string, string> {
+  const catalogName = name ? RETIRED_PALETTE_THEMES[name] : undefined
+  const theme = catalogName ? themes.find((item) => item.name === catalogName) : undefined
+  return theme ? ghosttyPaletteOf(theme) : DONWELLS_TERMINAL_PALETTE
+}
 
 /** ANSI palette order shared with the native configuration builder. */
 const ANSI_ORDER = [
@@ -79,5 +92,5 @@ export function resolveTerminalPalette(
   const chosen = choice.terminalGhosttyTheme
     ? ghosttyThemes.find((theme) => theme.name === choice.terminalGhosttyTheme)
     : undefined
-  return chosen ? ghosttyPaletteOf(chosen) : terminalThemeOf(choice.terminalTheme)
+  return chosen ? ghosttyPaletteOf(chosen) : terminalThemeOf(choice.terminalTheme, ghosttyThemes)
 }

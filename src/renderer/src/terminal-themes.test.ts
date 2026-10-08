@@ -45,6 +45,13 @@ describe('terminal palette resolution', () => {
   it('degrades a retired app palette name to the fallback palette', () => {
     // A profile written before the app palettes were folded into Ghostty's
     // catalog can still carry a retired palette name.
+    // Without a catalog an unknown or retired name still gets a usable palette.
     expect(terminalThemeOf('tomorrow-night')).toEqual(terminalThemeOf('donwells'))
+    // With one, a retired palette resolves to the catalog theme that ships it
+    // instead of silently becoming the fallback.
+    expect(terminalThemeOf('tomorrow-night', [{ ...mocha, name: 'Tomorrow Night' }])).not.toEqual(terminalThemeOf('donwells'))
+    // Solarized Dark has no exact counterpart, so it stays on the fallback
+    // rather than pretending a different theme is the one that was chosen.
+    expect(terminalThemeOf('solarized-dark', [mocha])).toEqual(terminalThemeOf('donwells'))
   })
 })
