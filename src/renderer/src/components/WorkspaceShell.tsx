@@ -38,7 +38,6 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
   const runsOpen = useAppStore(state => state.runsOpen)
   const runsSection = useAppStore(state => state.runsSection)
   const rightOpen = useAppStore(state => state.rightSidebarOpen)
-  const rightTab = useAppStore(state => state.rightSidebarTab)
   const runningAgents = useAppStore(state => state.runningAgents)
   const panes = useAppStore(state => activePath ? state.panes[activePath] : undefined)
   const activePane = useAppStore(state => activePath ? state.activePane[activePath] : undefined)
@@ -50,14 +49,13 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
   const menuRepo = checkoutMenu && repos.find(repo => repo.repo.id === checkoutMenu.repo.repo.id)
   const menuWorktree = menuRepo?.worktrees.find(worktree => worktree.path === checkoutMenu?.path)
   const selectedRepo = repos.find(repo => repo.worktrees.some(worktree => worktree.path === activePath))
+  const projectSidebarOpen = sidebarOpen && repos.length > 0
   const agents = Object.values(runningAgents).filter(agent => selectedRepo?.worktrees.some(worktree => worktree.path === agent.workspacePath))
   const waiting = agents.filter(agent => agent.liveness === 'live' && (agent.activity === 'waiting' || agent.activity === 'permission'))
   const needsYou = Object.values(runningAgents)
     .filter(agent => repos.some(repo => repo.worktrees.some(worktree => worktree.path === agent.workspacePath)) && agentPresentation(agent).needsAttention)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
   const order = orderedWorkspacePaths(repos, navigation)
-  const status = activePath ? statuses[activePath] : undefined
-  const changed = status ? status.staged + status.modified + status.untracked : null
   const state = useAppStore.getState
 
   const openFolder = async (): Promise<void> => {
@@ -69,33 +67,23 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
     } catch (error) { state().setError(String(error)) }
     finally { setOpeningFolder(false) }
   }
-  const showTool = (tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions'): void => {
-    state().setRightSidebarTab(tab, true)
-  }
-  const toolVisible = (tab: Parameters<typeof showTool>[0]): boolean => !runsOpen && (
-    (rightOpen && rightTab === tab) || panes?.find(pane => pane.key === activePane)?.kind === (tab === 'git' ? 'git-status' : tab)
-  )
+  const toolsOpen = rightOpen && !runsOpen
 
   return <>
     <div className="workspace-frame" ref={frame}>
       <nav className={`workspace-rail${railCollapsed ? ' is-collapsed' : ''}`} aria-label="Workspace navigation">
         <button className="workspace-rail-toggle" aria-label={railCollapsed ? 'Expand navigation' : 'Collapse navigation'} title={railCollapsed ? 'Show workspace navigation' : 'Collapse the navigation rail; keep your panels open'} aria-expanded={!railCollapsed} onClick={() => state().setRailCollapsed(!railCollapsed)}><Icon name={railCollapsed ? 'right' : 'left'} size={16} /><span>Collapse</span></button>
-        <button aria-label="Projects" title="Show or hide projects and checkouts" aria-pressed={sidebarOpen} onClick={() => state().setSidebarOpen(!sidebarOpen)}><Icon name="projects" size={19} /><span>Projects</span></button>
-        <button aria-label="Search" title="Search files, code, documents and memory" disabled={!activePath} aria-pressed={toolVisible('search')} onClick={() => showTool('search')}><Icon name="search" size={19} /><span>Search</span></button>
-
-        <button aria-label="Files" title={activePath ? 'Browse and edit files in the selected checkout' : 'Select a checkout to browse its files'} disabled={!activePath} aria-pressed={toolVisible('explorer')} onClick={() => showTool('explorer')}><Icon name="dir" size={19} /><span>Files</span></button>
-        <button aria-label="Git" title={!activePath ? 'Select a project to use Git' : selectedRepo?.repo.kind === 'folder' ? 'This folder is not a Git repository' : `Git source control${changed ? ` · ${changed} changed files` : ''}`} disabled={!activePath || selectedRepo?.repo.kind === 'folder'} aria-pressed={toolVisible('git')} onClick={() => showTool('git')}><Icon name="git" size={19} /><span>Git</span></button>
+        {repos.length > 0 && <button aria-label="Projects" title="Show or hide projects and checkouts" aria-pressed={projectSidebarOpen} onClick={() => state().setSidebarOpen(!projectSidebarOpen)}><Icon name="projects" size={19} /><span>Projects</span></button>}
+        <button aria-label="Tools" title="Open search, files, Git, and project tools" disabled={!activePath} aria-pressed={toolsOpen} onClick={() => toolsOpen ? state().setRightSidebarOpen(false) : state().setRightSidebarTab(state().rightSidebarTab)}><Icon name="layout" size={19} /><span>Tools</span></button>
         <button aria-label="Agents" title="Start AI agents and return to their sessions" aria-pressed={runsOpen && runsSection === 'agents'} onClick={() => runsOpen && runsSection === 'agents' ? state().setRunsOpen(false) : dispatchAppCommand('show-agents')}><Icon name="robot" size={19} /><span>Agents</span>{waiting.length > 0 && <small className="workspace-attention-count" aria-label={`${waiting.length} sessions need attention`}>{waiting.length}</small>}</button>
-        <button aria-label="Sessions" title="Browse persistent workspaces and panes" aria-pressed={toolVisible('sessions')} onClick={() => showTool('sessions')}><Icon name="terminal" size={19} /><span>Sessions</span></button>
         <button aria-label="Automations" title="Run commands across projects or on a schedule" aria-pressed={runsOpen && runsSection !== 'agents'} onClick={() => runsOpen && runsSection !== 'agents' ? state().setRunsOpen(false) : dispatchAppCommand('show-scheduled-runs')}><Icon name="clock" size={19} /><span>Automations</span></button>
         <button aria-label="Browser" title="Open the project preview in the built-in browser" disabled={!activePath} aria-pressed={!runsOpen && panes?.some(pane => pane.key === activePane && pane.kind === 'browser') === true} onClick={() => { if (!activePath) return; state().setRunsOpen(false); void state().openBrowser(activePath).catch(error => state().setError(String(error))) }}><Icon name="globe" size={19} /><span>Browser</span></button>
         <div className="workspace-rail-spacer" />
         <button aria-label="Settings" title="Configure appearance, shortcuts, agents, and project tools" onClick={() => dispatchAppCommand('settings')}><Icon name="gear" size={18} /><span>Settings</span></button>
       </nav>
-      {sidebarOpen && <aside className={`workspace-projects${leftPanel ? ' workspace-projects-with-tool' : ''}`} aria-label="Projects and checkouts" style={{ width: navigationWidth, flexBasis: navigationWidth }}>
+      {projectSidebarOpen && <aside className={`workspace-projects${leftPanel ? ' workspace-projects-with-tool' : ''}`} aria-label="Projects and checkouts" style={{ width: navigationWidth, flexBasis: navigationWidth }}>
         <header><h2 className="workspace-tool-title">Projects</h2><button className="workspace-icon-control" aria-label="Add project" title="Open a folder or create a project" aria-haspopup="menu" aria-expanded={!!menu} onClick={event => setMenu(event.currentTarget)}><Icon name="plus" size={14} /></button></header>
         <div className="workspace-project-scroll" id="workspace-project-picker" style={leftPanel ? { maxHeight: `${projectListPercent}%` } : undefined}>
-          {repos.length === 0 && <button className="workspace-open-folder" disabled={openingFolder} onClick={() => void openFolder()}><Icon name="dir" size={15} />{openingFolder ? 'Opening…' : 'Open folder'}</button>}
           {needsYou.length > 0 && <section className="workspace-needs-you" aria-label="Needs you">
             <h3 className="workspace-section-label">Needs you <span>{needsYou.length}</span></h3>
             <div className="workspace-needs-you-list">{needsYou.map(agent => {
@@ -177,7 +165,7 @@ export function WorkspaceShell({ children, leftPanel }: { children: ReactNode; l
         <div className="modal-footer"><button type="button" className="btn btn-secondary btn-sm" onClick={() => setRename(null)}>Cancel</button><button type="submit" className="btn btn-primary btn-sm">Save label</button></div>
       </form></ModalDialog>}
       <div className="workspace-desk">
-        <div className="workspace-surfaces">{!sidebarOpen && leftPanel}{children}</div>
+        <div className="workspace-surfaces">{!projectSidebarOpen && leftPanel}{children}</div>
       </div>
     </div>
   </>

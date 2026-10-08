@@ -8,6 +8,8 @@ import './workspace-lifecycle.css'
 export function Landing() {
   const repos = useAppStore((state) => state.repos)
   const navigation = useAppStore((state) => state.workspaceNavigation)
+  const sidebarOpen = useAppStore((state) => state.sidebarOpen)
+  const projectSidebarOpen = sidebarOpen && repos.length > 0
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,11 +64,11 @@ export function Landing() {
     <main className="landing workspace-landing">
       <div className="workspace-home">
         <header className="workspace-home-header">
-          <div><h1>Projects</h1><p>Open a workspace or start something new.</p></div>
-          {actions}
+          <div><h1>{projectSidebarOpen ? 'Workspace' : 'Projects'}</h1><p>{projectSidebarOpen ? 'Choose a checkout from Projects on the left.' : 'Open a workspace or start something new.'}</p></div>
+          {!projectSidebarOpen && actions}
         </header>
         {error && <p className="field-error" role="alert">{error}</p>}
-        <section className="workspace-home-projects" aria-labelledby="workspace-projects-title">
+        {!projectSidebarOpen && <section className="workspace-home-projects" aria-labelledby="workspace-projects-title">
           <div className="workspace-home-section-heading"><h2 id="workspace-projects-title">On this computer</h2><span>{repos.length} {repos.length === 1 ? 'project' : 'projects'}</span></div>
           <div className="workspace-home-project-list">
             {repos.map((repo) => (
@@ -87,7 +89,7 @@ export function Landing() {
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
       </div>
     </main>

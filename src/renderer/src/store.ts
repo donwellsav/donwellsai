@@ -17,6 +17,7 @@ import {
   runWithEditorGuard
 } from './editor-models'
 import { deleteDocumentViewStates, moveDocumentViewStates } from './document-view-state'
+import { isLegacySessionsProfile } from './workspace-ui-migration'
 import { normalizeBrowserUrl } from './browser-routing'
 import type {
   AgentPreset,
@@ -640,16 +641,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       set(state)
       const ui = saved?.ui
       if (ui) {
+        const legacySessionsPanel = isLegacySessionsProfile(ui)
         set({
           railCollapsed: ui.railCollapsed === true,
           projectListPercent: typeof ui.projectListPercent === 'number' && Number.isFinite(ui.projectListPercent) ? Math.max(15, Math.min(75, ui.projectListPercent)) : 35,
           sidebarWidth: typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth) ? Math.max(220, Math.min(620, ui.sidebarWidth)) : get().sidebarWidth,
           rightSidebarWidth: ui.rightSidebarWidth ?? get().rightSidebarWidth,
           sidebarOpen: typeof ui.sidebarOpen === 'boolean' ? ui.sidebarOpen : get().sidebarOpen,
-          rightSidebarOpen: typeof ui.rightSidebarOpen === 'boolean' ? ui.rightSidebarOpen : get().rightSidebarOpen,
-          rightSidebarTab: ui.rightSidebarTab && ['explorer', 'git', 'memory', 'recovery', 'search', 'computer', 'sessions'].includes(ui.rightSidebarTab) ? ui.rightSidebarTab : get().rightSidebarTab,
-          runsOpen: typeof ui.runsOpen === 'boolean' ? ui.runsOpen : get().runsOpen,
-          runsSection: ui.runsSection && ['agents', 'automations', 'orchestration'].includes(ui.runsSection) ? ui.runsSection : get().runsSection,
+          rightSidebarOpen: legacySessionsPanel ? false : typeof ui.rightSidebarOpen === 'boolean' ? ui.rightSidebarOpen : get().rightSidebarOpen,
+          rightSidebarTab: legacySessionsPanel ? 'explorer' : ui.rightSidebarTab && ['explorer', 'git', 'memory', 'recovery', 'search', 'computer'].includes(ui.rightSidebarTab) ? ui.rightSidebarTab : get().rightSidebarTab,
+          runsOpen: legacySessionsPanel || (typeof ui.runsOpen === 'boolean' ? ui.runsOpen : get().runsOpen),
+          runsSection: legacySessionsPanel ? 'agents' : ui.runsSection && ['agents', 'automations', 'orchestration'].includes(ui.runsSection) ? ui.runsSection : get().runsSection,
         })
       }
       if (repos.length > 0) void get().refreshStatuses()
@@ -2059,6 +2061,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setRightSidebarTab(tab: 'explorer' | 'git' | 'memory' | 'recovery' | 'search' | 'computer' | 'sessions', toggle = false) {
     const state = get()
+    if (tab === 'sessions') {
+      set({ runsOpen: true, runsSection: 'agents', rightSidebarOpen: false, rightSidebarTab: 'explorer' })
+      persistSessionSoon()
+      return
+    }
     if (toggle && !state.runsOpen && state.rightSidebarOpen && state.rightSidebarTab === tab) {
       get().setRightSidebarOpen(false)
       return

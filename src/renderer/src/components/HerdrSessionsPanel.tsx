@@ -33,7 +33,7 @@ export function HerdrSessionsPanel() {
       <div><h2>Sessions</h2><small>Continue a running pane in Don</small></div>
       <button type="button" className="btn btn-secondary btn-sm herdr-action" onClick={() => void refresh()} disabled={loading} aria-label="Refresh sessions">{loading ? 'Refreshing…' : 'Refresh'}</button>
     </div>
-    <p className="herdr-sessions-note">Open a live view here. The original session keeps running and owns the full scrollback; switch to control when you need to type.</p>
+    <p className="herdr-sessions-note">Your session stays open in Ghostty. Open a pane here to keep working in Don.</p>
     {error && <div className="herdr-sessions-alert" role="alert"><strong>Couldn’t complete that action</strong><p>{error}</p></div>}
     {!snapshot && loading && <div className="herdr-sessions-empty" role="status"><strong>Checking for sessions…</strong></div>}
     {!snapshot && !loading && error && <div className="herdr-sessions-empty"><small>Make sure your session service is running, then refresh to try again.</small></div>}

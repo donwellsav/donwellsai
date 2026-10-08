@@ -558,6 +558,10 @@
 .agent-unavailable { margin: -3px 0 0; color: var(--muted-fg); font-size: 11px; }
 .agent-command-field { display: flex; flex-direction: column; gap: 6px; color: var(--muted-fg); font-size: 12px; font-weight: 600; }
 .agent-command-field .input { height: 36px; font: 13px var(--font-mono); }
+.agent-external-sessions { padding: 7px 0; border-block: 1px solid var(--border); color: var(--muted-fg); font-size: 12px; }
+.agent-external-sessions > summary { width: fit-content; cursor: pointer; color: var(--foreground); font-weight: 550; }
+.agent-external-sessions[open] > summary { margin-bottom: 8px; }
+.agent-external-sessions .herdr-sessions-panel { padding: 0; }
 .agent-launcher-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .agent-supervision-heading { margin-top: 0; padding-top: 0; }
 .agent-card-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }

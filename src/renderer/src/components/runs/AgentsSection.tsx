@@ -19,6 +19,7 @@ import { ModalDialog } from '../ModalDialog'
 import { formatRunTime } from './RunStatus'
 import { AcpSessions } from './AcpSessions'
 import { switchAgentMode } from '../../agent-mode-switch'
+import { HerdrSessionsPanel } from '../HerdrSessionsPanel'
 
 type PresentedAgent = { run: RunningAgent; presentation: AgentPresentation; provider: string }
 type AgentConfirmation = { kind: 'stop' | 'dismiss'; run: RunningAgent }
@@ -285,6 +286,10 @@ export function AgentsSection({ onReplaySession }: { onReplaySession?: (sessionI
         </div>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => useAppStore.setState({ agentComposerOpen: true })}><Icon name="plus" size={14} />New agent</button>
       </div>
+      <details className="agent-external-sessions">
+        <summary>Continue a Ghostty session</summary>
+        <HerdrSessionsPanel />
+      </details>
       {agents.length > 0 && <div className="op-toolbar agent-toolbar">
         <input className="input" type="search" aria-label="Search agent sessions" placeholder="Search sessions or projects" value={query} onChange={event => setQuery(event.target.value)} />
         <select className="input" aria-label="Filter agent sessions" value={filter} onChange={event => setFilter(event.target.value)}>
