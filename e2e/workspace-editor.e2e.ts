@@ -255,6 +255,22 @@ test('opens a terminal and runs a command, then stops it through the close dialo
   await expect(dialog).not.toBeVisible()
 })
 
+// Ghostty is the default terminal, so this asserts the default itself instead of
+// only the pane that happens to render. A missing or unloadable native module
+// fails here rather than silently degrading every pane to xterm.
+test('renders the native Ghostty terminal by default', async () => {
+  test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
+  const availability = await page.evaluate(() => window.donwells.nativeTerminalAvailability())
+  expect(availability.available).toBe(true)
+  await expect(page.getByLabel('Workspace tool', { exact: true })).toBeHidden()
+
+  await openFixtureProject()
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  const host = page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')
+  await expect(host).toBeVisible()
+  await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .xterm-helper-textarea')).toHaveCount(0)
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.
