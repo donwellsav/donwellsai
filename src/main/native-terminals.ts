@@ -9,7 +9,7 @@ import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { HerdrTerminalBridge, sessionErrorMessage } from './herdr-session'
-import { terminalThemeOf } from '../renderer/src/terminal-themes'
+import { nativeTerminalConfiguration } from './native-terminal-config'
 import { logger } from '@shared/logger'
 
 type Entry = { id: string; instance: string; sessionId: string; source?: HerdrTerminalSource; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
@@ -42,24 +42,6 @@ export function nativeTerminalAvailability(): NativeTerminalAvailability {
   } catch (cause) {
     return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
   }
-}
-
-export function nativeTerminalConfiguration(settings: AppSettings): string {
-  const theme = terminalThemeOf(settings.terminalTheme)
-  const colors = ['black','red','green','yellow','blue','magenta','cyan','white','brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightMagenta','brightCyan','brightWhite']
-  const font = settings.terminalFontFamily.split(',')[0].trim().replace(/^['"]|['"]$/g, '').replace(/[\r\n\0]/g, '') || 'Menlo'
-  return [
-    `font-family = ${JSON.stringify(font)}`, `font-size = ${settings.terminalFontSize}`,
-    `adjust-cell-height = ${Math.round((settings.terminalLineHeight - 1) * 100)}%`,
-    `scrollback-limit-lines = ${settings.scrollback}`,
-    `copy-on-select = ${settings.copyOnSelect ? 'clipboard' : 'false'}`,
-    `cursor-style = ${settings.cursorStyle}`, `cursor-style-blink = ${settings.cursorBlink}`,
-    `background = ${theme.background}`, `foreground = ${theme.foreground}`,
-    `cursor-color = ${theme.cursor}`, `cursor-text = ${theme.cursorAccent}`,
-    `selection-background = ${theme.selectionBackground}`,
-    ...colors.map((color, index) => `palette = ${index}=${theme[color]}`),
-    'clipboard-read = deny', 'clipboard-write = ask', 'window-padding-x = 0', 'window-padding-y = 0'
-  ].join('\n') + '\n'
 }
 
 /** Native surfaces are presentation only; the existing daemon owns every PTY. */
