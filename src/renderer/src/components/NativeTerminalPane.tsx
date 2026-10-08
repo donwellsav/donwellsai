@@ -38,7 +38,10 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
         nativeFocused.current = event.focused
         if (event.focused) {
           const state = useAppStore.getState(), path = state.terminals[sessionId]?.session.worktreePath
-          if (path) state.setActivePane(path, `term:${sessionId}`)
+          // The quick terminal has no pane by design, so activating it would
+          // leave activePane naming a pane that cannot exist - which makes the
+          // pane commands refuse with "Open a workspace tab first".
+          if (path && (state.panes[path] ?? []).some(pane => pane.key === `term:${sessionId}`)) state.setActivePane(path, `term:${sessionId}`)
           acknowledge(true)
         }
       }

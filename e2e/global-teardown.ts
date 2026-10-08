@@ -87,8 +87,12 @@ function clearOrphanedSockets(): number {
         // Prints a pid and exits 0 while some process still holds it.
         execFileSync('lsof', ['-t', candidate], { stdio: 'pipe' })
         continue
-      } catch {
-        // Nobody holds it: safe to unlink.
+      } catch (cause) {
+        // Only an exit status means "nobody holds it". If lsof itself is missing,
+        // restricted, or fails for another reason, we have learned nothing, and
+        // unlinking could take a live instance's socket with it.
+        const status = (cause as NodeJS.ErrnoException & { status?: number }).status
+        if (typeof status !== 'number') continue
       }
       rmSync(candidate, { force: true })
       cleared += 1

@@ -1992,7 +1992,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: 'Select a checkout before opening the quick terminal.' })
       return
     }
-    if (get().quickTerminalSessionId) return
+    // A session that has exited leaves its id behind, so "open" means the
+    // session still exists, not merely that an id was recorded.
+    const current = get().quickTerminalSessionId
+    if (current && get().terminals[current]) return
+    if (current) set({ quickTerminalSessionId: null })
     quickTerminalOpening = true
     try {
       const session = await window.donwells.openTerminal(worktreePath)

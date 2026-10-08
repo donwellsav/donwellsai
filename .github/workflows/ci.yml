@@ -47,7 +47,7 @@ jobs:
           path: |
             native/ghostty/.vendor
             native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac
+          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
 
       - name: Provision Zig 0.16.0
         shell: bash
@@ -119,7 +119,7 @@ jobs:
           path: |
             native/ghostty/.vendor
             native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac
+          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
 
       - name: Provision Zig 0.16.0
         if: matrix.platform == 'darwin'
@@ -229,7 +229,7 @@ jobs:
           path: |
             native/ghostty/.vendor
             native/ghostty/.build
-          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac
+          key: ghostty-${{ runner.os }}-${{ runner.arch }}-e47b20a860d464ac7ecb9c1eec01612cc6b178a5-c4e16970a803b170e352432424f44192cb59f3ac-${{ hashFiles('native/ghostty/*.patch', 'native/ghostty/bridge.c', 'native/ghostty/Package.local.swift', 'native/ghostty/Sources/**') }}
 
       - name: Provision Zig 0.16.0
         if: matrix.platform == 'darwin'

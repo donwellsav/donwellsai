@@ -83,8 +83,16 @@ function SettingControlView({
     }
   }
 
-  if (metadata.key === 'terminalFontWeight' && appCommandPlatform(navigator.platform) === 'mac') {
-    return <p role="note">Native Ghostty uses the selected font’s regular face. Numeric font weight applies on Windows and Linux.</p>
+  // Only the native surface ignores numeric weight; xterm applies it on every
+  // platform, so hiding the control whenever the platform is macOS was wrong.
+  const nativeTerminal = useAppStore((state) => state.nativeTerminal)
+  const ghosttyIsActive = resolveTerminalRenderer({
+    requested: settings.terminalRenderer,
+    nativeAvailable: nativeTerminal.available,
+    ...(nativeTerminal.reason === undefined ? {} : { nativeReason: nativeTerminal.reason })
+  }).renderer === 'ghostty'
+  if (metadata.key === 'terminalFontWeight' && ghosttyIsActive) {
+    return <p role="note">Ghostty uses the selected font’s regular face. Choose the xterm renderer, or set a font variation such as <code>wght=500</code>, to change the weight.</p>
   }
   if (metadata.key === 'keyboardShortcutOverrides') {
     return <ShortcutEditor settings={settings} revision={revision} onCommit={onCommit} />

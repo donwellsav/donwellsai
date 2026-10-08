@@ -4,9 +4,14 @@ import { homedir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
 const root = resolve(import.meta.dirname, '..')
+if (process.platform !== 'darwin') {
+  console.log('Native terminal is macOS-only; skipping this build.')
+  process.exit(0)
+}
+// Created only when there is something to stage, so a non-macOS run cannot leave
+// an empty resources/native behind for an existence check to mistake for a build.
 const output = join(root, 'resources/native')
 mkdirSync(output, { recursive: true })
-if (process.platform !== 'darwin') process.exit(0)
 const directory = join(root, 'native/ghostty'), vendor = join(directory, '.vendor/libghostty-spm')
 const revision = 'e47b20a860d464ac7ecb9c1eec01612cc6b178a5'
 const run = (command, args, cwd = directory) => execFileSync(command, args, { cwd, stdio: 'inherit' })

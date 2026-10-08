@@ -152,7 +152,19 @@ export class NativeTerminals {
     return this.call(entry, 'read')
   }
 
-  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true }) }
+  configure() {
+    // Per surface: a surface Ghostty rejects must not stop the others from being
+    // configured, and the failure must not escape into the settings IPC, where
+    // the value has already been persisted and would look like a save failure.
+    for (const entry of this.entries.values()) {
+      try {
+        this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true })
+      } catch (error) {
+        logger.warn({ err: error, session: entry.sessionId }, 'native terminal configuration rejected')
+        this.publish(entry, { error: `Native terminal configuration rejected: ${String(error)}` })
+      }
+    }
+  }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     if (entry.source) this.herdr.stop(entry.sessionId)

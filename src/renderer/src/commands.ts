@@ -296,10 +296,14 @@ export function dispatchAppCommand(action: string): void {
     case 'reset-terminal-font-size':
       void state.setSettings({ terminalFontSize: DEFAULT_SETTINGS.terminalFontSize })
       break
-    case 'toggle-quick-terminal':
-      if (state.quickTerminalSessionId) void state.closeQuickTerminal()
+    case 'toggle-quick-terminal': {
+      // Typing `exit` leaves the id behind, so the toggle must ask whether the
+      // session is still there rather than whether an id was recorded.
+      const session = state.quickTerminalSessionId
+      if (session && state.terminals[session]) void state.closeQuickTerminal()
       else void state.openQuickTerminal()
       break
+    }
     case 'settings':
       state.openSettings(state.settingsSection)
       break
