@@ -205,6 +205,12 @@ export type AppSettings = {
   terminalFontFamily: string
   terminalFontSize: number
   terminalFontWeight: 400 | 500 | 600 | 700
+  /** Ghostty renderer: let the font combine character sequences into one glyph. */
+  terminalLigatures: boolean
+  /** Ghostty renderer: OpenType features, e.g. `+ss01, cv01=2`. */
+  terminalFontFeatures: string
+  /** Ghostty renderer: OpenType axis values, e.g. `wght=500`. */
+  terminalFontVariations: string
   terminalLineHeight: number
   cursorStyle: 'block' | 'bar' | 'underline'
   cursorBlink: boolean

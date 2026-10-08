@@ -45,6 +45,37 @@ describe('native Ghostty configuration', () => {
     expect(config).toContain('clipboard-write = ask\n')
   })
 
+  it('asks for nothing about features when ligatures are on and none are set', () => {
+    const emitted = lines(nativeTerminalConfiguration(settings()))
+    expect(emitted.filter((line) => line.startsWith('font-feature'))).toHaveLength(0)
+    expect(emitted.filter((line) => line.startsWith('font-variation'))).toHaveLength(0)
+    expect(emitted).toHaveLength(32)
+  })
+
+  it('cannot add a configuration line through features or variations either', () => {
+    // A hand-edited profile bypasses settings validation, so the builder defends itself.
+    const hostile = 'wght=500\nclipboard-write = allow'
+    const config = nativeTerminalConfiguration(settings({ terminalFontFeatures: hostile, terminalFontVariations: hostile }))
+    const emitted = lines(config)
+    expect(emitted.filter((line) => line === 'clipboard-write = allow')).toHaveLength(0)
+    expect(emitted).toHaveLength(34)
+    expect(emitted.filter((line) => line.startsWith('clipboard-write'))).toEqual(['clipboard-write = ask'])
+  })
+
+  it('disables ligatures through the shared font-feature key', () => {
+    expect(nativeTerminalConfiguration(settings({ terminalLigatures: false }))).toContain('font-feature = -liga\n')
+  })
+
+  it('merges disabled ligatures with explicit features into one key', () => {
+    const config = nativeTerminalConfiguration(settings({ terminalLigatures: false, terminalFontFeatures: '+ss01,cv01=2' }))
+    expect(lines(config).filter((line) => line.startsWith('font-feature'))).toEqual(['font-feature = -liga, +ss01, cv01=2'])
+  })
+
+  it('emits variation axes on their own key', () => {
+    const config = nativeTerminalConfiguration(settings({ terminalFontVariations: 'wght=500, slnt=-10' }))
+    expect(lines(config).filter((line) => line.startsWith('font-variation'))).toEqual(['font-variation = wght=500, slnt=-10'])
+  })
+
   it('emits the whole palette with ANSI indices matching the theme', () => {
     const config = nativeTerminalConfiguration(settings({ terminalTheme: 'donwells' }))
     const palette = lines(config).filter((line) => line.startsWith('palette = '))

@@ -56,6 +56,9 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   terminalFontFamily: '',
   terminalFontSize: 13,
   terminalFontWeight: 400,
+  terminalLigatures: true,
+  terminalFontFeatures: '',
+  terminalFontVariations: '',
   terminalLineHeight: 1,
   cursorStyle: 'block',
   cursorBlink: true,
@@ -111,6 +114,24 @@ function isFontFamily(value: unknown): value is string {
 
 function isNullableFontFamily(value: unknown): value is string | null {
   return value === null || isFontFamily(value)
+}
+
+/**
+ * OpenType features: a comma-separated list of tags, each optionally signed or
+ * given a value (`+ss01`, `-liga`, `cv01=2`). Validated strictly because the
+ * value is written into the terminal's configuration file.
+ */
+function isFontFeatureList(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 256) return false
+  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return entries.every((entry) => /^[+-]?[A-Za-z0-9]{1,8}(=\d{1,2})?$/.test(entry))
+}
+
+/** OpenType variations: `axis=value` pairs, where the axis is a four-letter tag. */
+function isFontVariationList(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 256) return false
+  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return entries.every((entry) => /^[A-Za-z]{4}=-?\d{1,5}(\.\d{1,3})?$/.test(entry))
 }
 
 function isAgentCommand(value: unknown): value is string {
@@ -241,6 +262,24 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     default: DEFAULT_SETTINGS.terminalFontWeight, lifecycle: 'live', scope: 'global',
     control: { type: 'select', options: [{ value: 400, label: 'Regular' }, { value: 500, label: 'Medium' }, { value: 600, label: 'Semibold' }, { value: 700, label: 'Bold' }] },
     validate: oneOf([400, 500, 600, 700] as const)
+  },
+  terminalLigatures: {
+    key: 'terminalLigatures', section: 'terminal', label: 'Ligatures',
+    description: 'Let the font combine character sequences such as an arrow into a single glyph.',
+    default: DEFAULT_SETTINGS.terminalLigatures, lifecycle: 'live', scope: 'global',
+    control: { type: 'toggle' }, validate: booleanValue
+  },
+  terminalFontFeatures: {
+    key: 'terminalFontFeatures', section: 'terminal', label: 'Font features',
+    description: 'OpenType features such as +ss01 or cv01=2, comma separated. Leave blank for the font defaults.',
+    default: DEFAULT_SETTINGS.terminalFontFeatures, lifecycle: 'live', scope: 'global',
+    control: { type: 'text', maxLength: 256, placeholder: '+ss01, -calt' }, validate: isFontFeatureList
+  },
+  terminalFontVariations: {
+    key: 'terminalFontVariations', section: 'terminal', label: 'Font variations',
+    description: 'OpenType axis values such as wght=500 or slnt=-10, comma separated.',
+    default: DEFAULT_SETTINGS.terminalFontVariations, lifecycle: 'live', scope: 'global',
+    control: { type: 'text', maxLength: 256, placeholder: 'wght=500' }, validate: isFontVariationList
   },
   terminalLineHeight: {
     key: 'terminalLineHeight', section: 'terminal', label: 'Line height',

@@ -126,6 +126,9 @@ function SettingControlView({
   )
 }
 
+/** Settings that only the native Ghostty renderer acts on. */
+const FONT_RENDERER_KEYS = new Set(['terminalLigatures', 'terminalFontFeatures', 'terminalFontVariations'])
+
 function SettingsList({
   metadata,
   settings,
@@ -163,6 +166,7 @@ function SettingsList({
           }}
         >
           {item.key === 'terminalRenderer' && rendererFallback.fellBack && <p role="note">Terminals are using xterm because Ghostty is unavailable. {rendererFallback.reason}</p>}
+          {FONT_RENDERER_KEYS.has(item.key) && rendererFallback.renderer !== 'ghostty' && <p role="note">Applies to the native Ghostty renderer, which is not the active terminal here.</p>}
           {item.key === 'scrollback' && appCommandPlatform(navigator.platform) === 'mac' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
           <SettingControlView metadata={item} settings={settings} revision={revision} agents={agents} onCommit={onCommit} />
         </SettingsField>
