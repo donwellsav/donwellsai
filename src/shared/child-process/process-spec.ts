@@ -4,7 +4,6 @@ export type ExecutionHost =
   | { kind: 'local' }
   | { kind: 'remote'; id: string }
 
-export type ProcessLiveness = 'live' | 'unverifiable' | 'exited'
 
 export type RuntimeFamily = 'donwells-app' | 'terminal-daemon' | 'acp-agent'
 

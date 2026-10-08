@@ -1,16 +1,3 @@
-import {
-  parseProfileMaintenanceLease,
-  parseProfileMaintenanceReceipt,
-  type ProfileMaintenanceAbortInput,
-  type ProfileMaintenanceFailure,
-  type ProfileMaintenanceFenceReceipt,
-  type ProfileMaintenanceLease,
-  type ProfileMaintenanceParticipant,
-  type ProfileMaintenanceResumeInput,
-  type ProfileMaintenanceState,
-  type ProfileMaintenanceTransitionIntent,
-  type ProfileMaintenanceTransitionReceipt
-} from '@shared/profile-maintenance'
 import { ACP_DAEMON_CAPABILITY, parseAcpAgentSnapshot, parseAcpObservation, parseAcpPromptRecord, parseAgentModeSwitchReceipt, parseAgentTaskIntent, parseAgentExecutable, type AgentTaskIntent } from '@shared/agent-runtime'
 import { AGENT_PROVIDER_CATALOG_CAPABILITY, parseProviderSelection, parseCredentialBinding, parseCredentialOperation, parseCredentialScope, parseProviderCatalogSnapshot, parseProviderInstanceInput, type ProviderAccount, type ProviderCatalogSnapshot, type ProviderCredentialCatalog, type ProviderInstanceInput } from '@shared/provider-authority'
 import {
@@ -29,7 +16,7 @@ import { existsSync } from 'node:fs'
 import { RuntimeOwnershipStore } from '@shared/runtime-ownership'
 import { canonicalPrivateDirectory } from '@shared/runtime-file-security'
 import { runtimeIdentityAuthority } from './runtime-identity'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import type {
   AgentSessionCredential,
@@ -250,58 +237,6 @@ function requireRunningAgent(value: unknown): RunningAgent {
 }
 
 /** Parses the gate's persisted state; the client re-validates instead of trusting the wire. */
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex')
-}
-
-function parseWireState(value: unknown): ProfileMaintenanceState {
-  const record = parseWireRecord(value, 'maintenance state')
-  const phase = parseWireString(record['phase'], 'maintenance state.phase')
-  if (phase !== 'open' && phase !== 'freezing' && phase !== 'draining' && phase !== 'cutting-over' && phase !== 'failed') {
-    throw new Error('terminal daemon returned an invalid profile maintenance phase')
-  }
-  const participants = Array.isArray(record['participants'])
-    ? record['participants'].map((entry, index) => parseWireString(entry, `maintenance state.participants[${index}]`)) as ProfileMaintenanceParticipant[]
-    : []
-  const lease = record['lease'] === null || record['lease'] === undefined ? null : parseProfileMaintenanceLease(record['lease'])
-  return {
-    phase,
-    lease,
-    revision: parseWireInteger(record['revision'], 'maintenance state.revision'),
-    participants,
-    frozenSourceSetSha256: record['frozenSourceSetSha256'] === null || record['frozenSourceSetSha256'] === undefined ? null : parseWireString(record['frozenSourceSetSha256'], 'maintenance state.frozenSourceSetSha256'),
-    safePhase: parseWireSafePhase(record['safePhase']),
-    irreversible: record['irreversible'] === true,
-    failureCode: record['failureCode'] === null || record['failureCode'] === undefined ? null : parseWireString(record['failureCode'], 'maintenance state.failureCode')
-  }
-}
-
-/** The recorded safe phase a failed migration restores on resume. */
-function parseWireSafePhase(value: unknown): ProfileMaintenanceState['safePhase'] {
-  if (value === null || value === undefined) return null
-  if (value === 'freezing' || value === 'draining' || value === 'cutting-over') return value
-  throw new Error('terminal daemon returned an invalid profile maintenance safe phase')
-}
-
-function parseWireFenceReceipt(value: unknown): ProfileMaintenanceFenceReceipt {
-  const record = parseWireRecord(value, 'fence receipt')
-  const ownerStage = parseWireString(record['ownerStage'], 'fence receipt.ownerStage')
-  if (ownerStage !== 'stage-2' && ownerStage !== 'stage-3' && ownerStage !== 'stage-4' && ownerStage !== 'stage-5') {
-    throw new Error('terminal daemon returned an invalid migration owner stage')
-  }
-  const participant = parseWireString(record['participant'], 'fence receipt.participant') as ProfileMaintenanceParticipant
-  return {
-    id: parseWireString(record['id'], 'fence receipt.id'),
-    migrationId: parseWireString(record['migrationId'], 'fence receipt.migrationId'),
-    ownerStage,
-    epoch: parseWireInteger(record['epoch'], 'fence receipt.epoch'),
-    participant,
-    retiredPath: parseWireString(record['retiredPath'], 'fence receipt.retiredPath'),
-    fenceReceiptSha256: parseWireString(record['fenceReceiptSha256'], 'fence receipt.fenceReceiptSha256'),
-    fsynced: record['fsynced'] === true
-  }
-}
-
 function parseWireRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`terminal daemon returned an invalid ${label}`)
   return value as Record<string, unknown>
@@ -614,8 +549,6 @@ export class DaemonClient {
   private connecting: Promise<void> | null = null
   private spawnedChild: ChildProcess | null = null
   private capabilities = new Set<string>()
-  /** The lease this client acquired, retained so later calls act on the exact revision. */
-  private heldLease: ProfileMaintenanceLease | null = null
   private connectedEndpoint: string | null = null
   /** The live credential-broker registration, if this client is the broker. */
   private broker: BrokerRegistration | null = null
@@ -1552,178 +1485,6 @@ export class DaemonClient {
       ownerId: parseWireString(credential['ownerId'], 'credential.ownerId'),
       token: parseWireString(credential['token'], 'credential.token')
     }
-  }
-
-  // -- profile maintenance (stage-neutral gate) ------------------------------
-  // The daemon constructs every authenticated principal context from the
-  // authenticated connection; the client only names the migration id, stage,
-  // participant set, and revision it is acting on.
-
-  async maintenanceState(): Promise<ProfileMaintenanceState> {
-    await this.requireCapability(TASK_AUTHORITY, 'reading profile maintenance state')
-    const response = await this.request<{ state: unknown }>('maintenance.state', { ownerStage: 'stage-2' })
-    return parseWireState(response.state)
-  }
-
-  async maintenanceAcquire(input: Readonly<{ migrationId: string; participants: readonly ProfileMaintenanceParticipant[]; expectedRevision: number }>): Promise<ProfileMaintenanceLease> {
-    await this.requireCapability(TASK_AUTHORITY, 'acquiring the profile maintenance lease')
-    const response = await this.request<{ lease: unknown }>('maintenance.acquire', { ...input, ownerStage: 'stage-2' })
-    const lease = parseProfileMaintenanceLease(response.lease)
-    this.heldLease = lease
-    return lease
-  }
-
-  async maintenanceFreeze(lease: ProfileMaintenanceLease): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'freezing profile admissions')
-    await this.request('maintenance.freeze', { lease, ownerStage: lease.ownerStage })
-  }
-
-  async maintenanceAcknowledgeDrained(migrationId: string, participant: ProfileMaintenanceParticipant): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'acknowledging drained profile work')
-    await this.request('maintenance.drained', { migrationId, participant, ownerStage: 'stage-2' })
-  }
-
-  async maintenanceBeginCutover(lease: ProfileMaintenanceLease): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'beginning the profile cutover')
-    await this.request('maintenance.cutover', { lease, ownerStage: lease.ownerStage })
-  }
-
-  async maintenanceTransitions(lease: ProfileMaintenanceLease): Promise<readonly ProfileMaintenanceTransitionReceipt[]> {
-    await this.requireCapability(TASK_AUTHORITY, 'listing profile migration transitions')
-    const response = await this.request<{ receipts: unknown }>('maintenance.transitions', { lease, ownerStage: lease.ownerStage })
-    if (!Array.isArray(response.receipts)) throw new Error('terminal daemon returned an invalid migration transition list')
-    return response.receipts.map(entry => parseProfileMaintenanceReceipt(entry))
-  }
-
-  async maintenancePrepareTransition(lease: ProfileMaintenanceLease, intent: ProfileMaintenanceTransitionIntent): Promise<ProfileMaintenanceTransitionReceipt> {
-    await this.requireCapability(TASK_AUTHORITY, 'preparing a profile migration transition')
-    const response = await this.request<{ receipt: unknown }>('maintenance.transition.prepare', { lease, intent, ownerStage: lease.ownerStage })
-    return parseProfileMaintenanceReceipt(response.receipt)
-  }
-
-  async maintenanceCompleteTransition(lease: ProfileMaintenanceLease, receipt: ProfileMaintenanceTransitionReceipt, evidenceSha256: string): Promise<ProfileMaintenanceTransitionReceipt> {
-    await this.requireCapability(TASK_AUTHORITY, 'completing a profile migration transition')
-    const response = await this.request<{ receipt: unknown }>('maintenance.transition.complete', { lease, receipt, evidenceSha256, ownerStage: lease.ownerStage })
-    return parseProfileMaintenanceReceipt(response.receipt)
-  }
-
-  async maintenanceAcknowledgeVisibility(lease: ProfileMaintenanceLease, receipt: ProfileMaintenanceTransitionReceipt, input: Readonly<{ expectedRevision: number; localVisibleRevision: string; localVisibleEvidenceSha256: string }>): Promise<ProfileMaintenanceTransitionReceipt> {
-    await this.requireCapability(TASK_AUTHORITY, 'acknowledging external-WAL visibility')
-    const response = await this.request<{ receipt: unknown }>('maintenance.transition.visibility', { lease, receipt, ...input, ownerStage: lease.ownerStage })
-    return parseProfileMaintenanceReceipt(response.receipt)
-  }
-
-  async maintenanceRecordFence(lease: ProfileMaintenanceLease, retirement: Readonly<{ participant: ProfileMaintenanceParticipant; retiredPath: string; fenceReceiptSha256: string; fsynced: boolean }>): Promise<ProfileMaintenanceFenceReceipt> {
-    await this.requireCapability(TASK_AUTHORITY, 'publishing a retirement/fence receipt')
-    const response = await this.request<{ receipt: unknown }>('maintenance.fence', { lease, retirement, ownerStage: lease.ownerStage })
-    return parseWireFenceReceipt(response.receipt)
-  }
-
-  async maintenanceFail(lease: ProfileMaintenanceLease, failure: ProfileMaintenanceFailure): Promise<ProfileMaintenanceLease> {
-    await this.requireCapability(TASK_AUTHORITY, 'failing the profile migration')
-    const response = await this.request<{ lease: unknown }>('maintenance.fail', { lease, failure, ownerStage: lease.ownerStage })
-    return parseProfileMaintenanceLease(response.lease)
-  }
-
-  async maintenanceResume(input: Readonly<{ expectedRevision: number; expectedSourceSetSha256: string }>): Promise<ProfileMaintenanceLease> {
-    await this.requireCapability(TASK_AUTHORITY, 'resuming the profile migration')
-    const lease = this.requireHeldLease('resume')
-    const response = await this.request<{ lease: unknown }>('maintenance.resume', { input: { ...input, migrationId: lease.migrationId }, ownerStage: lease.ownerStage })
-    this.heldLease = parseProfileMaintenanceLease(response.lease)
-    return this.heldLease
-  }
-
-  async maintenanceAbort(input: Readonly<{ expectedRevision: number; observedSourceSetSha256: string }>): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'aborting the profile migration')
-    const lease = this.requireHeldLease('abort')
-    await this.request('maintenance.abort', { input: { ...input, migrationId: lease.migrationId }, ownerStage: lease.ownerStage })
-    this.heldLease = null
-  }
-
-  async maintenanceRelease(lease: ProfileMaintenanceLease): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'releasing the profile maintenance lease')
-    await this.request('maintenance.release', { lease, ownerStage: lease.ownerStage })
-  }
-
-  // -- migration drive (admin) ----------------------------------------------
-  // The daemon owns the migration instance, so the app never constructs one.
-
-  /**
-   * Registers one durable admission for affected work the app process performs.
-   *
-   * The participant name is chosen by the daemon from the operation the client
-   * asked for; the client cannot substitute its own participant identity.
-   */
-  async maintenanceAdmitAffected(operationId: string): Promise<{ participant: ProfileMaintenanceParticipant; operationId: string; epoch: number; ownerConnectionId: string }> {
-    await this.requireCapability(TASK_AUTHORITY, 'admitting affected work')
-    const response = await this.request<{ admission: unknown }>('maintenance.admit.affected', { operationId })
-    const record = response.admission as Record<string, unknown> | null
-    if (record === null || typeof record !== 'object') throw new Error('terminal daemon returned an invalid maintenance admission')
-    const participant = parseWireString(record['participant'], 'admission.participant') as ProfileMaintenanceParticipant
-    return {
-      participant,
-      operationId: parseWireString(record['operationId'], 'admission.operationId'),
-      epoch: parseWireInteger(record['epoch'], 'admission.epoch'),
-      ownerConnectionId: parseWireString(record['ownerConnectionId'], 'admission.ownerConnectionId')
-    }
-  }
-
-  /** Closes one admission this connection owns, exactly once. */
-  async maintenanceCompleteAffected(operationId: string, outcome: 'completed' | 'cancelled'): Promise<void> {
-    await this.requireCapability(TASK_AUTHORITY, 'closing affected work')
-    await this.request('maintenance.complete.affected', { operationId, outcome })
-  }
-
-  async maintenanceMigrationStatus(): Promise<unknown> {
-    await this.requireCapability(TASK_AUTHORITY, 'reading migration status')
-    return (await this.request<{ status: unknown }>('task.migration.status', {})).status
-  }
-
-  async maintenanceMigrationImport(): Promise<unknown> {
-    await this.requireCapability(TASK_AUTHORITY, 'importing legacy sources')
-    return (await this.request<{ result: unknown }>('task.migration.import', {})).result
-  }
-
-  async maintenanceMigrationShadow(): Promise<unknown> {
-    await this.requireCapability(TASK_AUTHORITY, 'comparing the migration in shadow mode')
-    return (await this.request<{ report: unknown }>('task.migration.shadow', {})).report
-  }
-
-  async maintenanceMigrationExport(repositoryId: string): Promise<unknown> {
-    await this.requireCapability(TASK_AUTHORITY, 'generating the read-only backlog export')
-    return (await this.request<{ export: unknown }>('task.migration.export', { repositoryId })).export
-  }
-
-  private requireHeldLease(operation: string): ProfileMaintenanceLease {
-    if (this.heldLease === null) throw new Error(`no profile maintenance lease is held by this client for ${operation}`)
-    return this.heldLease
-  }
-
-  async maintenanceFreezeHeldLease(): Promise<void> {
-    await this.maintenanceFreeze(this.requireHeldLease('freeze'))
-  }
-
-  async maintenanceAcknowledgeDrainedHeldLease(participant: ProfileMaintenanceParticipant): Promise<void> {
-    await this.maintenanceAcknowledgeDrained(this.requireHeldLease('drain acknowledgement').migrationId, participant)
-  }
-
-  async maintenanceBeginCutoverHeldLease(): Promise<void> {
-    await this.maintenanceBeginCutover(this.requireHeldLease('cutover'))
-  }
-
-  async maintenanceTransitionsHeldLease(): Promise<readonly ProfileMaintenanceTransitionReceipt[]> {
-    return this.maintenanceTransitions(this.requireHeldLease('transition listing'))
-  }
-
-  async maintenanceFailHeldLease(code: string): Promise<ProfileMaintenanceLease> {
-    const lease = await this.maintenanceFail(this.requireHeldLease('failure'), { code, evidenceSha256: sha256Hex(code) })
-    this.heldLease = lease
-    return lease
-  }
-
-  async maintenanceReleaseHeldLease(): Promise<void> {
-    await this.maintenanceRelease(this.requireHeldLease('release'))
-    this.heldLease = null
   }
 
   async taskQuery(input: Readonly<{ projectId?: string; status?: TaskStatus; runnableOnly?: boolean; cursor?: string; limit?: number }> = {}): Promise<TaskProjection> {

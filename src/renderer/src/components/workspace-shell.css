@@ -7,9 +7,7 @@
 .workspace-projects > header { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 4px 8px; }
 .workspace-icon-control { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; color: var(--muted-fg); border-radius: var(--radius-sm); }
 .workspace-icon-control:hover { color: var(--foreground); background: var(--accent); }
-.workspace-open-folder { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; min-height: 32px; padding: 6px; text-align: left; font-size: 12px; color: var(--muted-fg); }
-.workspace-open-folder:hover { color: var(--foreground); background: var(--ws-accent); }
-.workspace-open-folder span { margin-left: auto; }
+
 .workspace-project-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 12px; }
 .workspace-project-scroll[hidden] { display: none; }
 .workspace-tool-title { min-width: 0; flex: 1; margin: 0; padding: 4px; font-size: 13px; font-weight: 600; }
@@ -24,7 +22,7 @@
 .workspace-needs-you-title strong, .workspace-needs-you-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-needs-you-title strong { flex: 1; min-width: 0; font-weight: 550; }
 .workspace-needs-you-item small { margin-left: 19px; color: var(--muted-fg); font: 10px/1.5 var(--font-mono); }
-.workspace-help { margin: 4px 8px; color: var(--muted-fg); font-size: 12px; line-height: 1.6; }
+
 .workspace-project { margin: 0 0 8px; }
 .workspace-project-heading { display: flex; align-items: center; gap: 3px; }
 .workspace-project-heading > button:first-child { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 32px; padding: 4px 6px; text-align: left; font-size: 12px; }
@@ -53,7 +51,6 @@
 .workspace-rail-spacer { flex: 1; min-height: 12px; }
 .workspace-frame button:focus-visible, .workspace-frame summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .workspace-frame * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
-
 
 .computer-control-panel label { display: block; margin: 10px 0 4px; }
 .computer-control-panel label > :is(input:not([type=checkbox]), select) { display: block; width: 100%; max-width: 100%; box-sizing: border-box; }

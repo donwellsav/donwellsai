@@ -573,7 +573,6 @@ export interface PluginStateView {
     main: string
     apiVersion: string
     permissions?: string[]
-    commands?: Array<{ id: string; title: string; description?: string }>
   }
   /** User has consented to this plugin running (persisted activation). */
   enabled: boolean

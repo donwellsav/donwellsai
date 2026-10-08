@@ -32,8 +32,6 @@ export const DONWELLS_TERMINAL_PALETTE: Record<string, string> = {
   brightWhite: '#faf9f6'
 }
 
-export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'donwells'
-
 /**
  * Retired app palette names, mapped to the catalog themes that ship the same
  * colours. The app's own copies were duplicates and are gone, but a profile that

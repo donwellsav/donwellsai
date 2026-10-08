@@ -88,15 +88,6 @@
   line-height: 1.6;
 }
 
-.workspace-home-text-action {
-  color: var(--muted-fg);
-  font-size: 11px;
-}
-
-.workspace-home-text-action:hover {
-  color: var(--foreground);
-}
-
 .workspace-home {
   display: flex;
   flex-direction: column;
@@ -126,13 +117,6 @@
   color: var(--muted-fg);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.workspace-home-header-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 7px;
 }
 
 .workspace-home-projects {
@@ -184,8 +168,7 @@
 }
 
 .workspace-home-project-title > span:nth-child(2),
-.workspace-home-worktrees button > span:first-child,
-.workspace-home-shortcuts button > span:nth-child(2) {
+.workspace-home-worktrees button > span:first-child {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -193,8 +176,7 @@
 }
 
 .workspace-home-project-title strong,
-.workspace-home-worktrees strong,
-.workspace-home-shortcuts strong {
+.workspace-home-worktrees strong {
   overflow: hidden;
   color: var(--foreground);
   font-size: 11.5px;
@@ -204,8 +186,7 @@
 }
 
 .workspace-home-project-title small,
-.workspace-home-worktrees small,
-.workspace-home-shortcuts small {
+.workspace-home-worktrees small {
   overflow: hidden;
   color: var(--muted-fg);
   font: 9.5px var(--font-mono);
@@ -257,39 +238,6 @@
 .workspace-home-worktrees button:hover .workspace-home-open,
 .workspace-home-worktrees button:focus-visible .workspace-home-open {
   color: var(--foreground);
-}
-
-.workspace-home-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.workspace-home-shortcuts button {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 50px;
-  padding: 8px 11px;
-  color: var(--muted-fg);
-  background: color-mix(in srgb, var(--card) 66%, transparent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  text-align: left;
-}
-
-.workspace-home-shortcuts button:hover,
-.workspace-home-shortcuts button:focus-visible {
-  color: var(--foreground);
-  background: var(--card);
-  border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
-}
-
-.project-remove-trigger:hover,
-.project-remove-trigger:focus-visible {
-  color: var(--destructive);
-  background: color-mix(in srgb, var(--destructive) 9%, transparent);
 }
 
 .project-removal-modal {
@@ -357,12 +305,8 @@
     align-items: start;
   }
 
-  .workspace-home-header-actions {
-    justify-content: flex-start;
-  }
 
-  .workspace-home-project-list,
-  .workspace-home-shortcuts {
+  .workspace-home-project-list {
     grid-template-columns: 1fr;
   }
 }

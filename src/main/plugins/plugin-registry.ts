@@ -13,14 +13,10 @@ export interface PluginManifest {
   engines?: { donwells?: string }
   /** IPC channels this plugin needs access to. */
   permissions?: string[]
-  /** Commands this plugin registers. */
-  commands?: Array<{ id: string; title: string; description?: string }>
 }
 
 export interface PluginContext {
   manifest: PluginManifest
-  /** Send a command to the plugin. */
-  invoke(method: string, ...args: unknown[]): Promise<unknown>
   /** Log through the structured logger. */
   log: typeof logger
   /** Get a capability from the app. */
@@ -30,7 +26,6 @@ export interface PluginContext {
 export type PluginModule = {
   activate?: (ctx: PluginContext) => void | Promise<void>
   deactivate?: () => void | Promise<void>
-  commands?: Record<string, (...args: unknown[]) => Promise<unknown> | unknown>
 }
 
 export interface LoadedPlugin {
@@ -50,13 +45,6 @@ export class PluginRegistry {
     const context: PluginContext = {
       manifest,
       log: logger,
-      invoke: (method, ...args) => {
-        const handler = module.commands?.[method]
-        if (!handler) {
-          return Promise.reject(new Error(`Plugin ${manifest.id} has no command: ${method}`))
-        }
-        return Promise.resolve(handler(...args))
-      },
       getCapability: (capability: string) => {
         // Capability-based access control
         if (!manifest.permissions?.includes(capability)) {

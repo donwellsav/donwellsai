@@ -26,7 +26,7 @@ import type { AppMeta, AppSettings, BrowserCommand, IpcApi, MainEvents, Settings
 import { RuntimeRpcServer, newRpcToken } from './runtime-rpc'
 import { RendererCommandRouter } from './renderer-command-router'
 import packageMetadata from '../../package.json'
-import { Store, idFromPath } from './store'
+import { Store } from './store'
 import { GitWorktrees, verifyWorktreePath, verifyWorkspaceDirectory, resolveRegisteredProjectWorkspace } from './git'
 import { scanWorktree } from './ports'
 import { DaemonClient } from './daemon-client'
@@ -59,13 +59,8 @@ import { configureDesktopPath } from '@shared/child-process/process-environment'
 import { AgentRegistry } from './agents/registry'
 import * as Sentry from '@sentry/electron/main'
 import { logger } from '@shared/logger'
-import { initAutoUpdater, checkForUpdates } from './auto-updater'
 import { initServices, getServices } from './services'
-import type { AnalyticsEvent } from '@shared/analytics'
 import { getPerfStats, startIpcTimer } from '@shared/perf-monitor'
-import { AnalyticsCollector } from '@shared/analytics'
-import { SessionTemplateManager } from './templates/session-template-manager'
-import { AutonomousAgent } from './autonomous/autonomous-agent'
 import { createDaemonJobRunner, executeJobCommand } from './autonomous/daemon-job-runner'
 
 
@@ -722,7 +717,6 @@ function createWindow(): void {
   })
 
   const window = mainWindow
-  initAutoUpdater(window)
   if (saved?.maximized && process.env['DONWELLS_SMOKE'] !== '1') window.maximize()
   commandRouter.bind(window.webContents)
   browserViews = new BrowserViews(window, resolveRegisteredWorkspace, (key, url) => workspacePreview.resolveUrl(key, url))
@@ -1049,9 +1043,6 @@ void app.whenReady().then(async () => {
   ipcMain.handle('skillPackagesList', (_e, ...args: Parameters<IpcApi['skillPackagesList']>) => skills.list(...args))
   ipcMain.handle('skillPackagesPrepare', (_e, ...args: Parameters<IpcApi['skillPackagesPrepare']>) => skills.prepare(...args))
 
-  // Auto-updater — opt-in, throttled, preference-gated download
-  // Check for updates 30s after launch (throttled internally)
-  setTimeout(() => { void checkForUpdates() }, 30_000)
   ipcMain.handle('skillPackagesApply', (_e, ...args: Parameters<IpcApi['skillPackagesApply']>) => skills.apply(...args))
   ipcMain.handle('skillPackagesRead', (_e, ...args: Parameters<IpcApi['skillPackagesRead']>) => skills.read(...args))
   ipcMain.handle('skillPackagesPrepareUpdate', (_e, ...args: Parameters<IpcApi['skillPackagesPrepareUpdate']>) => skills.prepareUpdate(...args))

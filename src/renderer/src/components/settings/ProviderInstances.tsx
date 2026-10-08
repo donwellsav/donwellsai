@@ -271,7 +271,6 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
             const health = rowHealth(instance)
             const status = statuses[key]
             const draft = drafts[key] ?? freshCredentialDraft(instance.id)
-            const rowBusy = busy === key
             return (
               <li key={rowId} className={'provider-instances-row is-' + item.availability} data-instance-id={instance.id}>
                 <div className="provider-instances-row-head">

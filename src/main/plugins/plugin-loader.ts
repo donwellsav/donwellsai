@@ -29,9 +29,8 @@ const SAFE_PLUGIN_ID = /^[A-Za-z0-9._-]+$/
  * enables it; enabled ids persist in `.donwells-activation.json` beside the
  * plugin directories, so startup imports just the enabled set.
  *
- * Disabling calls the plugin's `deactivate` hook and unregisters its commands,
- * but Node's ESM import cache keeps the module in memory until app restart —
- * no false eviction promise.
+ * Disabling calls the plugin's `deactivate` hook, but Node's ESM import cache
+ * keeps the module in memory until app restart — no false eviction promise.
  */
 export class PluginLoader {
   constructor(private options: PluginLoaderOptions) {}
@@ -226,7 +225,6 @@ export class PluginLoader {
       apiVersion: '1.0.0',
       engines: pkg.engines as PluginManifest['engines'],
       permissions: (pkg as { permissions?: string[] }).permissions,
-      commands: (pkg as { commands?: PluginManifest['commands'] }).commands,
     }
   }
 

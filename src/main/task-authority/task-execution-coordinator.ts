@@ -16,7 +16,7 @@ import {
   type TaskSnapshot
 } from '@shared/task-authority'
 import type { ProviderCredentialMode, ProviderLaunchPreparation, ProviderSelection } from '@shared/provider-authority'
-import { SecretAuthorityError, type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
+import { type ProviderLaunchSecrets } from '@shared/provider-secret-broker'
 import { SequencedTaskOutputPump } from '@shared/terminal-stream'
 import { agentProviderForExecutable } from '@shared/agent-runtime'
 import { SqliteTaskAuthority, launchIntentFingerprint } from './task-authority'

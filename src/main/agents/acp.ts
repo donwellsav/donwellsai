@@ -11,8 +11,6 @@ import { sanitizedProcessEnv } from '@shared/child-process/process-environment'
 import type { ProcessIdentity, RuntimeIdentityAuthority } from '@shared/child-process/process-spec'
 import { version } from '../../../package.json'
 
-export type { AcpAgentSnapshot } from '@shared/agent-runtime'
-
 export type AcpAgentStartOptions = {
   id?: string
   signal?: AbortSignal

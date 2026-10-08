@@ -7,8 +7,6 @@
   padding: 6px 16px;
 }
 
-
-
 .op-eyebrow {
   color: var(--muted-fg);
   font-size: 11px;
@@ -131,7 +129,6 @@
 
 .op-switch,
 .op-hint,
-.op-count,
 .op-next {
   color: var(--muted-fg);
   font-size: 12px;
@@ -154,28 +151,6 @@
   justify-content: space-between;
   padding-bottom: 2px;
   border-bottom: 1px solid var(--border);
-}
-
-.op-search {
-  display: flex;
-  width: min(460px, 80%);
-  min-width: 0;
-}
-
-.op-search input {
-  width: 100%;
-  padding: 6px 0;
-  color: var(--foreground);
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  user-select: text;
-}
-
-.op-search input::placeholder {
-  color: color-mix(in srgb, var(--muted-fg) 78%, transparent);
 }
 
 .op-list,
@@ -509,20 +484,6 @@
   text-align: left;
 }
 
-.op-first-run-empty,
-.agent-empty {
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.op-first-run-empty strong,
-.agent-empty strong {
-  color: var(--foreground);
-  font-size: 14px;
-}
-
 .acp-sessions { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; }
 .acp-sessions > h3, .acp-sessions > p { margin: 0; }
 .acp-sessions > button { align-self: flex-start; }
@@ -536,21 +497,6 @@
   max-width: 640px;
 }
 
-.agent-launch-target {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.agent-launch-target > span { color: var(--muted-fg); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
-.agent-launch-target > div { display: flex; min-width: 0; align-items: baseline; gap: 10px; }
-.agent-launch-target strong { flex: 0 0 auto; font-size: 13px; }
-.agent-launch-target code,
-.agent-launch-target div > span { min-width: 0; overflow: hidden; color: var(--muted-fg); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .agent-launch-target.is-missing { color: var(--destructive); }
 
 .agent-launcher-note { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; color: var(--muted-fg); background: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; }
@@ -563,7 +509,7 @@
 .agent-external-sessions[open] > summary { margin-bottom: 8px; }
 .agent-external-sessions .herdr-sessions-panel { padding: 0; }
 .agent-launcher-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.agent-supervision-heading { margin-top: 0; padding-top: 0; }
+
 .agent-card-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
 
 .op-inline-error {
@@ -581,8 +527,6 @@
   line-height: 1.45;
 }
 
-.op-target-fact { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; padding: 9px 0; color: var(--muted-fg); border-block: 1px solid var(--border); font-size: 12px; }
-.op-target-fact strong { color: var(--foreground); }
 .op-confirm-command { max-height: 120px; margin: 12px 0 0; padding: 9px 10px; overflow: auto; color: var(--foreground); background: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .op-confirm .op-confirm-fact { margin-top: 8px; color: var(--foreground); font: 11px var(--font-mono); overflow-wrap: anywhere; }
 .agent-confirm-facts { display: grid; gap: 7px; margin: 12px 0 0; }
@@ -605,22 +549,6 @@
 
 .agent-toolbar .op-count {
   margin-left: auto;
-}
-
-.agent-filter select {
-  max-width: 180px;
-  padding: 5px 24px 5px 8px;
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--card);
-  font: inherit;
-  font-size: 13px;
-}
-
-.agent-filter select:focus-visible {
-  border-color: var(--ring);
 }
 
 .agent-list { display: flex; flex-direction: column; }
@@ -680,12 +608,6 @@
 .agent-status-attention { color: var(--agent-question); }
 .agent-status-done { color: var(--status-success); }
 .agent-status-failed { color: var(--destructive); }
-
-.agent-open-terminal {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 
 .agent-facts {
   display: grid;

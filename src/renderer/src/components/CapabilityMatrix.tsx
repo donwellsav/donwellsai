@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import './capability-matrix.css'
 import { Icon } from './Icon'
 import { useAppStore } from '../store'
 import { buildCapabilityRows } from '../../../shared/capability-matrix'

@@ -8,7 +8,7 @@ export type SettingsSectionPresentation = {
   id: SettingsSection
   label: string
   description: string
-  icon: 'robot' | 'file' | 'git' | 'globe' | 'eye' | 'terminal' | 'command' | 'bell' | 'shield' | 'dir' | 'gear'
+  icon: 'robot' | 'file' | 'git' | 'globe' | 'eye' | 'terminal' | 'command' | 'shield' | 'dir' | 'gear'
 }
 
 export const SETTINGS_SECTION_PRESENTATION: readonly SettingsSectionPresentation[] = Object.freeze([

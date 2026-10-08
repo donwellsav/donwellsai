@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { localRuntimePaths, parseRuntimeRecordBytes } from '../main/local-runtime.js'
 import { canonicalPrivateDirectory, readPrivateRuntimeFile, type RuntimeFileRead, type RuntimeFileReader } from '../shared/runtime-file-security.js'

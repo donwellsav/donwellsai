@@ -983,22 +983,6 @@ export type AgentRunProviderIdentity = {
   providerAccountRevision: number | null
 }
 
-/**
- * What a renderer (or a direct test) submits to start a provider-backed agent.
- *
- * Task 3 exposes this intent only to direct tests: the renderer never sees a
- * lease, preparation, broker frame, credential ref, binding generation, or
- * maintenance admission, and the daemon derives the authenticated worker
- * identity and the full lease itself. Until Task 4 migrates the production
- * callers, the legacy command path remains authoritative and this intent is
- * unreachable from any production caller.
- */
-export type AgentStartIntent = {
-  workspacePath: string
-  providerInstanceId: string
-  task?: AgentTaskIntent
-}
-
 export type AgentStartResult = {
   run: RunningAgent
   session: TerminalSession

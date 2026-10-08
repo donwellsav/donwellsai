@@ -1,7 +1,7 @@
 import {
   Folders, Maximize2, Minimize2, File, Folder, FilePlus, FolderPlus, Terminal, GitBranch, Minus, ChevronLeft, ChevronRight, House,
   Ellipsis, ExternalLink, History, BookOpen, PanelRightClose, PanelsTopLeft,
-  Command, Monitor, Plus, X, Search, RefreshCw, Settings, Bell, Shield, Square,
+  Command, Monitor, Plus, X, Search, RefreshCw, Settings, Shield, Square,
   Play, Columns2, Eye, Pencil, Activity, Check, CircleCheck, ChevronUp,
   ChevronDown, CircleHelp, Clock, PanelLeft, PanelRight, Globe, Bot, Zap,
   Smartphone, ChevronsRight, CircleAlert, Rows2, Grid2X2, type LucideIcon
@@ -13,7 +13,7 @@ const icons: Record<string, LucideIcon> = {
   left: ChevronLeft, right: ChevronRight, home: House, more: Ellipsis,
   external: ExternalLink, history: History, memory: BookOpen, dock: PanelRightClose,
   layout: PanelsTopLeft, command: Command, monitor: Monitor, plus: Plus, x: X,
-  search: Search, refresh: RefreshCw, gear: Settings, bell: Bell, shield: Shield,
+  search: Search, refresh: RefreshCw, gear: Settings, shield: Shield,
   stop: Square, play: Play, split: Columns2, eye: Eye, edit: Pencil,
   activity: Activity, check: Check, 'check-circle': CircleCheck, up: ChevronUp,
   down: ChevronDown, columns: Columns2, question: CircleHelp, clock: Clock,

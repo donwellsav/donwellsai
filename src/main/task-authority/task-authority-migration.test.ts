@@ -10,7 +10,7 @@ import { openTaskAuthorityDatabase, openTaskAuthorityRawConnection } from './sch
 import { importLegacyEntities, SqliteTaskAuthority } from './task-authority'
 import { SqliteProfileMaintenanceGate } from '../profile-maintenance-gate'
 import { migrationSourceSetSha256, normalizeOperationalSnapshot, readLegacyOperationalFile, TaskAuthorityMigration, TaskAuthorityMigrationError, type LegacyShadowReaders, type MigrationSourceRecord } from './task-authority-migration'
-import type { BacklogMigrationReadPort, BacklogWorkspaceIdentity } from './backlog-migration-reader'
+import type { BacklogMigrationReadPort } from './backlog-migration-reader'
 
 const PROFILE = 'profile-main'
 const PROJECT_ALPHA = 'project-alpha'

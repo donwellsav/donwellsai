@@ -3,7 +3,6 @@ import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
   AgentPreset,
-  AgentProviderId,
   AgentStartResult,
   RunningAgent
 } from '@shared/agent-runtime'

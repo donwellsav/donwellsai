@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import {
   AGENT_PROVIDER_DRIVER_IDS,
   type AgentDriverId,
-  isAgentDriverId,
   parseAgentDriverId,
   type ProviderCommandSpec,
   type ProviderCredentialMode
@@ -123,5 +122,3 @@ export function migrateLegacyToInstance(input: Readonly<{ command: string; crede
 function NullSpec(): null {
   return null
 }
-
-export { isAgentDriverId } // re-exported for the migration entry orchestration convenience

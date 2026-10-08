@@ -1,5 +1,4 @@
 import { artifactPath } from '@shared/project-export'
-export { artifactPath } from '@shared/project-export'
 import transferDecoder from './project-kit-transfer.py?raw'
 import { parseKnowledgeSelections } from '@shared/project-knowledge'
 import type { ProjectKitKnowledge } from '@shared/project-export'

@@ -65,7 +65,6 @@ function SettingControlView({
   const [failedPatch, setFailedPatch] = useState<Partial<AppSettings> | null>(null)
   const control = metadata.control
   const value = settings[metadata.key]
-  const availableAgents = agents.filter((agent) => agent.available)
   const ghosttyThemes = useAppStore((state) => state.ghosttyThemes)
 
   const commitChoice = async (patch: Partial<AppSettings>): Promise<void> => {

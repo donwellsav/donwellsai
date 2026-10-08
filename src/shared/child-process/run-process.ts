@@ -19,16 +19,8 @@ import { windowsSystem32Binary } from './windows-system-binary'
 import { buildWindowsCmdShimCommandLine, isCmdInterpretedProgram } from './windows-command-line'
 import { forceTerminateProcessTree } from './process-tree-termination'
 
-export type {
-  ExecutionHost,
-  ProcessFailureKind,
-  ProcessLiveness,
-  ProcessResult,
-  ProcessSpec,
-  ResolvedSpawn,
-  SpawnedProcess
-} from './process-spec'
-export { DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_PROCESS_TIMEOUT_MS, ProcessExecutionError } from './process-spec'
+export type { ProcessSpec } from './process-spec'
+export { ProcessExecutionError } from './process-spec'
 
 const PROCESS_EXIT_GRACE_MS = 3_000
 

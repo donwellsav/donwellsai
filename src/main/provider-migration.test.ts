@@ -7,7 +7,7 @@ import {
   migrateLegacyToInstance,
   PROVIDER_MIGRATION_VERSION
 } from './provider-migration'
-import type { ProviderCommandSpec, ProviderCredentialMode } from '@shared/provider-authority'
+import type { ProviderCommandSpec } from '@shared/provider-authority'
 
 /**
  * Failing migration tests for Task 4. These encode the exact legacy command →

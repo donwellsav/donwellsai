@@ -54,7 +54,6 @@
   flex: 1 1 auto;
 }
 
-
 .browser-design-error button:hover {
   color: var(--foreground);
   background: var(--secondary);
@@ -111,7 +110,6 @@
   font-size: 12px;
   font-weight: 650;
 }
-
 
 .design-capture-close:hover {
   color: var(--foreground);
@@ -321,10 +319,7 @@
   padding-top: 2px;
 }
 
-
 @media (max-width: 620px) {
-  .browser-design-toggle span { display: none; }
-  .browser-design-toggle { padding-inline: 0; }
   .design-capture-panel { inset: 8px; width: auto; }
 }
 

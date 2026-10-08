@@ -15,8 +15,6 @@ import { GitError } from './git'
  * Trash layout: <userData>/trash/<timestamp>-<dirname>-<uuid4-short>/
  */
 
-export type TrashResult = { trashedTo: string | null; adminRemoved: boolean }
-
 /** Fence 1: the path must still exist at removal time (witness check). */
 export function witnessPathExists(worktreePath: string): void {
   if (!existsSync(worktreePath)) {

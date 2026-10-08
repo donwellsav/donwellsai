@@ -289,6 +289,3 @@ export class ProviderMaintenanceMigration {
     await this.gate.release(COORDINATOR, lease, 'active')
   }
 }
-
-/** Re-exported For Test Alignment. */
-export { MIGRATED_CREDENTIAL_MODE }

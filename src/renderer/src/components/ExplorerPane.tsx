@@ -264,7 +264,7 @@ export function ExplorerPane({ worktreePath, active = true, location = 'sidebar'
                 aria-level={row.depth + 1}
                 aria-expanded={row.entry.type === 'dir' ? expanded : undefined}
                 aria-selected={workspace.selected === row.entry.path}
-                className={'explorer-row' + (row.entry.type === 'file' ? 'file' : '') + (expanded ? 'open' : '') + (workspace.selected === row.entry.path ? 'selected' : '')}
+                className={'explorer-row' + (row.entry.type === 'file' ? ' file' : '') + (expanded ? ' open' : '') + (workspace.selected === row.entry.path ? ' selected' : '')}
                 style={{ paddingInlineStart: 8 + row.depth * 14 }}
                 title={row.entry.path}
                 onClick={() => { treeRef.current?.focus(); activate(row.entry) }}

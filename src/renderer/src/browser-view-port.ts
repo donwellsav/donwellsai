@@ -1,4 +1,4 @@
-import type { BrowserViewRequest, BrowserViewIntent, BrowserViewState } from '@shared/browser-view'
+import type { BrowserViewIntent, BrowserViewState } from '@shared/browser-view'
 import type { WebviewPort, WebviewEvent } from './browser-routing'
 import { SNAPSHOT_JS } from './browser-routing'
 import { DESIGN_CAPTURE_BEGIN_SCRIPT, DESIGN_CAPTURE_CANCEL_SCRIPT, type DesignCaptureWebview } from './design-capture'

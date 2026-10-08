@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { resolveNativeRuntimeAddonPath } from './native-addon-path'
 
 export type RuntimeFileIdentity =

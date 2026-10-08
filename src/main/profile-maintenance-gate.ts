@@ -23,7 +23,6 @@ import {
   PROFILE_MAINTENANCE_MAX_BATCH,
   PROFILE_MAINTENANCE_MAX_IDENTIFIER,
   PROFILE_MAINTENANCE_MAX_PATH,
-  PROFILE_MAINTENANCE_PARTICIPANTS,
   PROFILE_MAINTENANCE_UNMIGRATED,
   type AuthenticatedAdministratorContext,
   type AuthenticatedCallerContext,
@@ -826,5 +825,3 @@ function boundedPathValue(value: string): string {
   }
   return value
 }
-
-export { PROFILE_MAINTENANCE_PARTICIPANTS as profileMaintenanceParticipants }

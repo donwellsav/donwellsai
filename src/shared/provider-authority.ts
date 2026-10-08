@@ -1,5 +1,4 @@
 import { AGENT_PROVIDER_DEFINITIONS, type AgentExecutable, type AgentHookSupport, type AgentMemorySupport, type AgentProviderId, type AgentSkillConsumer } from './agent-runtime'
-export type { AgentExecutable }
 
 /** Daemon protocol capability that activates the sanitized provider catalog surface. */
 export const AGENT_PROVIDER_CATALOG_CAPABILITY = 'provider-catalog-v1'
