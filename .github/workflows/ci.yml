@@ -52,6 +52,13 @@ jobs:
       - name: Build native terminal (Ghostty)
         run: pnpm run build:native-terminal
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build native history engine
+        run: pnpm run build:native-history
+
       - name: Verify packaged native terminal
         run: pnpm run package:check
 
@@ -160,6 +167,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build runtime identity addon
+        run: pnpm run build:native-identity
 
       - name: Task Authority race, migration, and recovery proofs
         run: >-
