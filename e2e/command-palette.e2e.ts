@@ -63,7 +63,8 @@ async function openCommandPalette(): Promise<void> {
 }
 
 test('run agent reflects the configured default provider instance', async () => {
-  await page.getByRole('button', { name: 'fixture-repository main Open', exact: true }).click()
+  // With a project registered the Projects sidebar owns the checkout entry.
+  await page.getByRole('button', { name: 'fixture-repository main', exact: true }).click()
   // No default yet: the command is disabled with the configuration hint.
   await openCommandPalette()
   const item = page.locator('dialog.palette-dialog .palette-item', { hasText: 'Run default agent' })

@@ -50,7 +50,9 @@ test.afterEach(async () => {
 })
 
 async function openMemory(): Promise<void> {
-  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Files', exact: true }).click()
+  // The rail exposes one Tools button; the tool panel's own selector picks the tool.
+  const tools = page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Tools', exact: true })
+  if ((await tools.getAttribute('aria-pressed')) !== 'true') await tools.click()
   await page.getByLabel('Workspace tool', { exact: true }).selectOption('memory')
   await expect(page.getByRole('region', { name: 'Project memory', exact: true })).toBeVisible()
 }

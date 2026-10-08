@@ -165,7 +165,8 @@ test('a custom-command instance carries no driver-owned arguments', async () => 
 
 test('Advanced opens an explicit local tool with separately supplied arguments', async () => {
   const marker = join(userData, 'native-tool-ui-marker')
-  await page.getByRole('button', { name: 'fixture-repository main Open', exact: true }).click()
+  // With a project registered the Projects sidebar owns the checkout entry.
+  await page.getByRole('button', { name: 'fixture-repository main', exact: true }).click()
   await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Agents', exact: true }).click()
   await page.getByRole('button', { name: 'New agent', exact: true }).click()
   const setup = page.getByRole('dialog', { name: 'New agent', exact: true })

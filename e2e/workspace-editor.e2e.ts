@@ -9,6 +9,19 @@ let app: ElectronApplication | undefined
 let page: Page
 let userData: string
 
+const workspaceNavigation = () => page.getByRole('navigation', { name: 'Workspace navigation' })
+
+/** The rail exposes one Tools button; the tool panel's own selector picks the tool. */
+async function openToolPanel(): Promise<void> {
+  const tools = workspaceNavigation().getByRole('button', { name: 'Tools', exact: true })
+  if ((await tools.getAttribute('aria-pressed')) !== 'true') await tools.click()
+  await expect(page.getByLabel('Workspace tool', { exact: true })).toBeVisible()
+}
+
+async function selectTool(tool: 'explorer' | 'git' | 'search' | 'memory' | 'recovery' | 'computer'): Promise<void> {
+  await page.getByLabel('Workspace tool', { exact: true }).selectOption(tool)
+}
+
 // Each scenario owns a fresh profile and all project files it can mutate.
 test.beforeEach(async () => {
   userData = realpathSync.native(mkdtempSync(join(tmpdir(), 'donwells-workspace-editor-e2e-')))
@@ -22,7 +35,8 @@ test.beforeEach(async () => {
   })
   page = await app.firstWindow()
   await page.bringToFront()
-  await expect(page.getByRole('button', { name: 'Add project', exact: true })).toBeVisible()
+  // A profile with no projects opens on the empty Landing surface.
+  await expect(page.getByRole('button', { name: 'New project', exact: true })).toBeVisible()
 })
 
 test.afterEach(async () => {
@@ -33,8 +47,7 @@ test.afterEach(async () => {
 
 test('creates a local Git project through the workspace controls', async () => {
   const projectPath = join(userData, 'created-workspace')
-  await page.getByRole('button', { name: 'Add project', exact: true }).click()
-  await page.getByText('Create project…', { exact: true }).click()
+  await page.getByRole('button', { name: 'New project', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Create a local project' })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Project name', { exact: true }).fill('created-workspace')
@@ -46,8 +59,12 @@ test('creates a local Git project through the workspace controls', async () => {
   await expect(dialog).not.toBeVisible()
   const checkout = page.locator('.workspace-checkout-open').filter({ hasText: 'created-workspace' })
   await expect(checkout).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
-  await expect(page.getByRole('button', { name: 'Git', exact: true })).toBeEnabled()
+  // The new project enables the workspace tool surface and offers both tools.
+  await expect(workspaceNavigation().getByRole('button', { name: 'Tools', exact: true })).toBeEnabled()
+  await openToolPanel()
+  const tool = page.getByLabel('Workspace tool', { exact: true })
+  await expect(tool.locator('option', { hasText: 'Files' })).toHaveCount(1)
+  await expect(tool.locator('option', { hasText: 'Git' })).toHaveCount(1)
   await expect.poll(() => existsSync(join(projectPath, '.git', 'HEAD'))).toBe(true)
   expect(readFileSync(join(projectPath, '.git', 'HEAD'), 'utf8')).toBe('ref: refs/heads/main\n')
 })
@@ -62,7 +79,9 @@ test('creates and opens a Git worktree through the lifecycle controls', async ()
   await page.evaluate(async path => { await window.donwells.addRepo(path) }, repository)
   await page.reload()
 
-  await page.getByRole('button', { name: 'New worktree', exact: true }).click()
+  // With the Projects sidebar visible, the checkout actions menu owns worktree creation.
+  await page.getByRole('button', { name: 'Actions for worktree-fixture', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'New worktree…', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Create worktree', exact: true })
   await dialog.getByLabel('Worktree name', { exact: true }).fill('feature-lifecycle')
   await dialog.getByRole('button', { name: 'Create worktree', exact: true }).click()
@@ -78,7 +97,7 @@ test('creates and opens a Git worktree through the lifecycle controls', async ()
 
 test('stages commits and reads history through the Git pane', async () => {
   const repository = await openFixtureProject()
-  await page.getByRole('button', { name: 'Git', exact: true }).click()
+  await selectTool('git')
   const changes = page.getByRole('listbox', { name: 'Changed files', exact: true })
   await expect(changes.getByRole('option', { name: /guide\.md/ })).toBeVisible()
   await changes.getByRole('checkbox', { name: 'Select guide.md', exact: true }).check()
@@ -108,7 +127,8 @@ async function openFixtureProject(): Promise<string> {
   const checkout = page.locator('.workspace-checkout-open').filter({ hasText: 'editor-fixture' })
   await checkout.click()
   await expect(checkout).toHaveAttribute('aria-current', 'page')
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  await openToolPanel()
+  await selectTool('explorer')
   await expect(page.getByRole('tree', { name: 'Workspace files' })).toBeVisible()
   return repository
 }
@@ -244,7 +264,7 @@ test('exercises workspace layout presets', async () => {
   await page.getByRole('menuitem', { name: 'Grid', exact: true }).click()
 
   // Verify editor survived layout changes.
-  await expect(page.getByRole('button', { name: 'Files', exact: true })).toBeVisible()
+  await expect(workspaceNavigation().getByRole('button', { name: 'Tools', exact: true })).toBeVisible()
 })
 
 test('project search finds content in the open workspace', async () => {
@@ -272,7 +292,8 @@ test('opens a diff pane for a Git-tracked file modified after a commit', async (
   await expect(checkout).toHaveAttribute('aria-current', 'page')
 
   // Edit the tracked file via the explorer.
-  await page.getByRole('button', { name: 'Files', exact: true }).click()
+  await openToolPanel()
+  await selectTool('explorer')
   await expect(page.getByRole('tree', { name: 'Workspace files' })).toBeVisible()
   await page.getByRole('treeitem', { name: 'tracked.txt', exact: true }).click()
   await expect(page.locator('.editor-host .monaco-editor:visible')).toBeVisible()
@@ -282,7 +303,7 @@ test('opens a diff pane for a Git-tracked file modified after a commit', async (
   await page.keyboard.press(`${modifier}+KeyS`)
 
   // Open the diff from the Git pane.
-  await page.getByRole('button', { name: 'Git', exact: true }).click()
+  await selectTool('git')
   await page.getByRole('option', { name: /tracked\.txt/ }).dblclick()
   await expect(page.locator('.diff-review-pane')).toBeVisible()
   await expect(page.locator('.diff-review-diff-host')).toContainText(/Modified content|Original committed/)
