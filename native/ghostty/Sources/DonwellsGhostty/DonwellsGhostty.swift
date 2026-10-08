@@ -42,6 +42,8 @@ private func emit(_ payload: [String: Any]) {
     var selected = -1
     var connected = false
     var shortcuts: [String: String] = [:]
+    /// Chords from the user's own Ghostty configuration that map to app commands.
+    var keybinds: [String: String] = [:]
 
     init(id: String, configuration: String) {
         self.id = id
@@ -88,7 +90,8 @@ private func emit(_ payload: [String: Any]) {
         let key = rawKey == "," ? "comma" : rawKey
         let flags = event.modifierFlags
         let modifiers = [(flags.contains(.command), "command"), (flags.contains(.control), "control"), (flags.contains(.option), "alt"), (flags.contains(.shift), "shift")].filter { $0.0 }.map { $0.1 }.sorted()
-        guard let command = shortcuts[(modifiers + [key]).joined(separator: "+")] else { return false }
+        let chord = (modifiers + [key]).joined(separator: "+")
+        guard let command = shortcuts[chord] ?? keybinds[chord] else { return false }
         if command == "find" { find() } else { emit(["id": id, "type": "shortcut", "command": command]) }
         return true
     }
@@ -145,6 +148,7 @@ private func emit(_ payload: [String: Any]) {
                 let container = Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()
                 let surface = Surface(id: id, configuration: configuration)
                 surface.shortcuts = req["shortcuts"] as? [String: String] ?? [:]
+                surface.keybinds = req["keybinds"] as? [String: String] ?? [:]
                 surface.isHidden = true
                 container.addSubview(surface, positioned: .above, relativeTo: nil)
                 surfaces[id] = surface
@@ -187,6 +191,7 @@ private func emit(_ payload: [String: Any]) {
                 case "find": surface.find()
                 case "configuration":
                     surface.shortcuts = req["shortcuts"] as? [String: String] ?? surface.shortcuts
+                    surface.keybinds = req["keybinds"] as? [String: String] ?? surface.keybinds
                     if let configuration = req["configuration"] as? String { result["ok"] = surface.controller.updateConfigSource(.generated(configuration)) }
                 case "bounds":
                     if let parent = surface.superview, let x = req["x"] as? Double, let y = req["y"] as? Double,

@@ -1,5 +1,5 @@
 import { appResourcesRoot } from './app-resources'
-import { resolveAppShortcuts } from '@shared/app-commands'
+import { appCommand, resolveAppShortcuts } from '@shared/app-commands'
 import { app, shell, type BrowserWindow } from 'electron'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
@@ -11,6 +11,7 @@ import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { HerdrTerminalBridge, sessionErrorMessage } from './herdr-session'
+import { ghosttyKeybindCommands } from './ghostty-keybinds'
 import { mergeGhosttyConfig, nativeTerminalConfiguration } from './native-terminal-config'
 import { resolveTerminalPalette } from '../renderer/src/terminal-themes'
 import { logger } from '@shared/logger'
@@ -111,6 +112,14 @@ export class NativeTerminals {
   }
   private shortcuts() { return Object.fromEntries(resolveAppShortcuts(this.settings().keyboardShortcutOverrides, 'mac').shortcuts.map(item => [item.normalized, item.command.id])) }
   /**
+   * Chords the user's own Ghostty keybinds ask for that map onto an app command.
+   * Terminal-level actions are handled by the embedded surface instead.
+   */
+  private keybinds() {
+    if (!this.settings().terminalUseGhosttyConfig) return {}
+    return ghosttyKeybindCommands(ghosttyUserConfig(), 'mac')
+  }
+  /**
    * The palette a surface renders with. Shares the renderer's resolver so the
    * native surface and the xterm fallback cannot drift apart.
    */
@@ -128,7 +137,7 @@ export class NativeTerminals {
     if (!this.settings().terminalUseGhosttyConfig) return generated
     return mergeGhosttyConfig(ghosttyUserConfig(), generated)
   }
-  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts() }) }
+  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     if (entry.source) this.herdr.stop(entry.sessionId)
@@ -190,7 +199,10 @@ export class NativeTerminals {
           else void this.startHerdr(entry)
         } else if (entry.connected) void this.daemon.resize(entry.sessionId, event.cols, event.rows).catch(error => this.disconnected(entry, String(error)))
       }
-      if (event.type === 'shortcut' && Object.values(this.shortcuts()).includes(event.command)) {
+      // The surface may resolve either an app shortcut or a user's Ghostty
+      // keybind, so validate against the command catalog rather than the current
+      // shortcut table.
+      if (event.type === 'shortcut' && typeof event.command === 'string' && appCommand(event.command)) {
         this.window.webContents.focus()
         this.window.webContents.send('menu:action', { action: event.command })
       }
@@ -206,7 +218,7 @@ export class NativeTerminals {
       if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
         const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
-        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts() })
+        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() })
         const bus = request.source ? this.herdrStream : this.stream
         next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next

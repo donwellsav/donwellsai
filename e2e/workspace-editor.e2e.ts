@@ -31,7 +31,7 @@ test.beforeEach(async () => {
     ...(packagedExecutable === undefined
       ? { args: [join(__dirname, '../out/main/index.js')] }
       : { executablePath: packagedExecutable }),
-    env: { ...process.env, DONWELLS_USER_DATA: userData }
+    env: { ...process.env, DONWELLS_USER_DATA: userData, XDG_CONFIG_HOME: join(userData, 'config') }
   })
   page = await app.firstWindow()
   await page.bringToFront()
@@ -299,6 +299,28 @@ test('reaches the Ghostty theme collection through the native module', async () 
   await expect(page.getByRole('switch', { name: 'Use my Ghostty config', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Font features', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Font variations', exact: true })).toBeVisible()
+})
+
+// A user's own Ghostty configuration now feeds the generated one, so a bad merge
+// would break every terminal. The file is read per surface, which this relies on.
+test('applies a real Ghostty config without breaking the surface', async () => {
+  test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
+  const directory = join(userData, 'config', 'ghostty')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, 'config'), [
+    '# preferences this app does not manage',
+    'keybind = cmd+t=new_tab',
+    'keybind = cmd+d=new_split:right',
+    'mouse-hide-while-typing = true',
+    '# managed keys must be dropped, not honoured',
+    'font-size = 99',
+    'theme = Catppuccin Mocha'
+  ].join('\n'))
+
+  await openFixtureProject()
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')).toBeVisible()
+  await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
 })
 
 test('exercises workspace layout presets', async () => {

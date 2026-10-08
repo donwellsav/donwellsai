@@ -148,6 +148,8 @@ const MODIFIER_ALIASES: Readonly<Record<string, 'mod' | 'command' | 'control' | 
   control: 'control',
   alt: 'alt',
   option: 'alt',
+  opt: 'alt',
+  super: 'mod',
   shift: 'shift'
 })
 
@@ -157,10 +159,18 @@ const KEY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   return: 'enter',
   esc: 'escape',
   spacebar: 'space',
-  ' ': 'space'
+  ' ': 'space',
+  up: 'arrowup',
+  down: 'arrowdown',
+  left: 'arrowleft',
+  right: 'arrowright',
+  arrow_up: 'arrowup',
+  arrow_down: 'arrowdown',
+  arrow_left: 'arrowleft',
+  arrow_right: 'arrowright'
 })
 
-function parseChord(value: string): ParsedChord | null {
+export function parseChord(value: string): ParsedChord | null {
   const parts = value.split('+').map((part) => part.trim()).filter(Boolean)
   if (parts.length === 0 || parts.length > 6) return null
   const parsed: ParsedChord = { key: '', mod: false, command: false, control: false, alt: false, shift: false }
@@ -181,7 +191,7 @@ function parseChord(value: string): ParsedChord | null {
   return parsed
 }
 
-function normalizedChord(parsed: ParsedChord, platform: AppCommandPlatform): string {
+export function normalizedChord(parsed: ParsedChord, platform: AppCommandPlatform): string {
   const modifiers = [
     parsed.mod ? (platform === 'mac' ? 'command' : 'control') : '',
     parsed.command ? 'command' : '',
