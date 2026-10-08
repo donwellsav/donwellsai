@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useAppStore } from '../store'
 import { ModalDialog } from './ModalDialog'
 import { TerminalPane } from './TerminalPane'
@@ -10,6 +11,20 @@ import { TerminalPane } from './TerminalPane'
  * and registers no global shortcut.
  */
 export function QuickTerminal() {
+  // Quitting with the overlay open used to orphan its daemon session. It has no
+  // pane and is not persisted, so nothing could list or close it - and because
+  // the daemon refuses to exit while it owns sessions, the orphan later blocked
+  // removing that worktree with no visible terminal to close. Disposing it as
+  // the window goes away is the teardown half of that; the alternative would be
+  // to persist and restore the overlay, which is a product decision.
+  useEffect(() => {
+    const dispose = (): void => {
+      const session = useAppStore.getState().quickTerminalSessionId
+      if (session) void window.donwells.closeTerminal(session).catch(() => undefined)
+    }
+    window.addEventListener('pagehide', dispose)
+    return () => window.removeEventListener('pagehide', dispose)
+  }, [])
   const sessionId = useAppStore((s) => s.quickTerminalSessionId)
   const terminal = useAppStore((s) => (sessionId ? s.terminals[sessionId] : undefined))
   if (!sessionId || !terminal) return null

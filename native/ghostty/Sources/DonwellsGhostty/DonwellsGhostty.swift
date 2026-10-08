@@ -153,6 +153,11 @@ private func emit(_ payload: [String: Any]) {
                 surface.isHidden = true
                 container.addSubview(surface, positioned: .above, relativeTo: nil)
                 surfaces[id] = surface
+                // A rejected configuration is a diagnostic, not a failure: the
+                // wrapper falls back to its own defaults, so the terminal works
+                // but the app's settings are not applied. Report it rather than
+                // letting the surface look configured.
+                if let issue = surface.controller.lastConfigurationIssue { result["configurationIssue"] = issue }
             } else if op == "themes" {
                 // Ghostty's own theme collection, compiled into the vendored wrapper.
                 result["themes"] = GhosttyThemeCatalog.allThemes.map { theme -> [String: Any] in
@@ -194,6 +199,7 @@ private func emit(_ payload: [String: Any]) {
                     surface.shortcuts = req["shortcuts"] as? [String: String] ?? surface.shortcuts
                     surface.keybinds = req["keybinds"] as? [String: String] ?? surface.keybinds
                     if let configuration = req["configuration"] as? String { result["ok"] = surface.controller.updateConfigSource(.generated(configuration)) }
+                    if let issue = surface.controller.lastConfigurationIssue { result["configurationIssue"] = issue }
                 case "bounds":
                     if let parent = surface.superview, let x = req["x"] as? Double, let y = req["y"] as? Double,
                         let width = req["width"] as? Double, let height = req["height"] as? Double,
@@ -208,6 +214,9 @@ private func emit(_ payload: [String: Any]) {
                 case "destroy": surface.removeFromSuperview(); surfaces.removeValue(forKey: id)
                 case "read":
                     result["text"] = surface.session.readViewportText() ?? ""
+                    result["shortcuts"] = surface.shortcuts
+                    result["keybinds"] = surface.keybinds
+                    if let issue = surface.controller.lastConfigurationIssue { result["configurationIssue"] = issue }
                     result["searchTotal"] = surface.total; result["searchSelected"] = surface.selected
                     result["visible"] = !surface.isHidden; result["finding"] = surface.finding
                 default: result = ["error": "Unknown native terminal operation"]

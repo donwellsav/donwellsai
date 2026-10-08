@@ -245,9 +245,18 @@ export class NativeTerminals {
       if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
         const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
-        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true })
+        const created = this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }, { requireAccepted: true })
+        // Reported, not fatal: the surface still renders with the wrapper's
+        // defaults, so failing the create would break a working terminal.
+        if (typeof created.configurationIssue === 'string') {
+          logger.warn({ session: next.sessionId, issue: created.configurationIssue }, 'native terminal configuration was rejected')
+        }
         const bus = request.source ? this.herdrStream : this.stream
-        next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
+        next.stream = bus.subscribe(request.sessionId, data => {
+          // Runs inside the daemon's frame dispatch: a throw here would skip the
+          // events that renderer terminals and run records depend on.
+          try { this.call(next, 'write', { data }) } catch (error) { logger.warn({ err: error, session: next.sessionId }, 'native terminal write failed') }
+        }, () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next
       }
     }

@@ -4,7 +4,16 @@ export type NativeTerminalRequest = { sessionId: string; instance: string } & (
   | { op: 'create' | 'reattach' | 'dispose' | 'focus' | 'find' | 'redraw' }
   | { op: 'bounds'; rect: { x: number; y: number; width: number; height: number } | null }
 ) & { source?: HerdrTerminalSource }
-export type NativeTerminalResult = { connected?: boolean; truncated?: boolean }
+export type NativeTerminalResult = {
+  connected?: boolean
+  truncated?: boolean
+  /**
+   * Set when Ghostty rejected the generated configuration. Not fatal: the
+   * surface falls back to its own defaults, so the terminal works but the app's
+   * settings were not applied.
+   */
+  configurationIssue?: string
+}
 
 /**
  * Whether the native Ghostty surface can render on this machine. `reason` is
@@ -37,4 +46,8 @@ export type NativeTerminalViewport = {
   searchSelected: number
   visible: boolean
   finding: boolean
+  /** Chords the surface currently resolves, so a keybind map can be asserted. */
+  shortcuts?: Record<string, string>
+  keybinds?: Record<string, string>
+  configurationIssue?: string
 }

@@ -12,6 +12,7 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
   const instance = useMemo(() => crypto.randomUUID(), [sessionId, sourceKey])
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [configurationIssue, setConfigurationIssue] = useState<string | null>(null)
   const [truncated, setTruncated] = useState(false)
   const [message, setMessage] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -22,7 +23,7 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
   const call = (request: Omit<NativeTerminalRequest, 'sessionId' | 'instance' | 'source'>) => window.donwells.nativeTerminal({ ...request, sessionId, instance, ...(source ? { source } : {}) } as NativeTerminalRequest)
   const reconnect = async () => {
     setConnecting(true)
-    try { const result = await call({ op: 'create' }); setReady(true); setTruncated(result.truncated === true); setError(null) }
+    try { const result = await call({ op: 'create' }); setReady(true); setTruncated(result.truncated === true); setConfigurationIssue(result.configurationIssue ?? null); setError(null) }
     catch (cause) { setError(String(cause)) }
     finally { setConnecting(false) }
   }
@@ -47,7 +48,7 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
       }
     })
     void call({ op: 'create' }).then(result => {
-      if (alive) { setReady(true); setTruncated(result.truncated === true) }
+      if (alive) { setReady(true); setTruncated(result.truncated === true); setConfigurationIssue(result.configurationIssue ?? null) }
     }).catch(cause => { if (alive) setError(String(cause)) })
     const find = (event: Event) => {
       if ((event as TerminalFindEvent).detail.sessionId === sessionId) void call({ op: 'find' }).catch(cause => setError(String(cause)))
@@ -100,6 +101,10 @@ export function NativeTerminalPane({ sessionId, isActive, source }: { sessionId:
     {error && <div className="terminal-replay-warning" role="alert"><strong>Native terminal unavailable</strong><p>{error}</p>
       <button className="btn btn-secondary btn-sm" disabled={connecting} onClick={() => void reconnect()}>{connecting ? 'Reattaching…' : 'Retry connection'}</button>
       <button className="btn btn-secondary btn-sm" onClick={() => useAppStore.getState().openSettings('terminal')}>Terminal settings</button>
+    </div>}
+    {configurationIssue && <div className="terminal-history-notice" role="status">
+      <details><summary title="Ghostty rejected the generated terminal options, so this surface is using its own defaults.">Terminal settings not applied</summary><p>{configurationIssue}</p></details>
+      <button className="icon-btn" aria-label="Dismiss setting notice" onClick={() => setConfigurationIssue(null)}><Icon name="x" size={14} /></button>
     </div>}
     {!error && truncated && <div className="terminal-history-notice" role="status">
       <details><summary title="Retained terminal history is incomplete. Expand for details.">History incomplete</summary><p>{message || 'Retained output was shortened. Request a redraw from the same running process.'}</p></details>

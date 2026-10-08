@@ -441,6 +441,30 @@ test('falls back to a usable xterm terminal when the native module is unavailabl
   await expect(page.getByText(/Ghostty is unavailable/)).toBeVisible()
 })
 
+// The OFF direction is the guard with teeth: without it the user's keybinds
+// keep running while Settings says they do not. Lifecycle is 'new-terminal', so
+// each direction needs a terminal created after the change.
+test('applies the user Ghostty config only while the toggle is on', async () => {
+  test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
+  const directory = join(userData, 'config', 'ghostty')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, 'config'), 'keybind = cmd+j=new_tab\n')
+  await openFixtureProject()
+
+  const chordKeys = async (): Promise<string[]> => {
+    const sessions = await page.evaluate(() => window.donwells.terminalSessions())
+    const id = sessions[sessions.length - 1]!.id
+    return page.evaluate(async (session) => Object.keys((await window.donwells.nativeTerminalRead(session)).keybinds ?? {}), id)
+  }
+
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await expect.poll(chordKeys).toContain('command+j')
+
+  await page.evaluate(() => window.donwells.setSettings({ terminalUseGhosttyConfig: false }))
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await expect.poll(chordKeys).not.toContain('command+j')
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.
