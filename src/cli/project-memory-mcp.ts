@@ -28,8 +28,7 @@ import {
   parseProjectMemoryListRequest,
   parseProjectMemoryUpdateRequest,
   parseProjectMemoryWorkspacePath,
-  type ProjectMemoryAttributionInput,
-  type ProjectMemoryRpcMethod
+  type ProjectMemoryAttributionInput
 } from '../shared/project-memory.js'
 
 export const PROJECT_MEMORY_MCP_PROTOCOL_VERSION = '2025-11-25' as const

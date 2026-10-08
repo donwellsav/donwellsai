@@ -160,7 +160,7 @@ export function ProviderInstances({ snapshot, onSnapshot, onEdit, onRemove, onSe
           setStatuses(current => ({ ...current, [key]: result.status }))
           setStatusErrors(current => withoutKey(current, key))
         },
-        cause => {
+        _cause => {
           if (!live) return
           setStatusErrors(current => withoutKey(current, key))
         }

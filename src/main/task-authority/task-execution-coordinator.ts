@@ -1,5 +1,4 @@
 import { realpathSync } from 'node:fs'
-import { join } from 'node:path'
 import type { AgentExecutable, AgentTaskIntent } from '@shared/agent-runtime'
 import type { ProcessIdentity, ProcessIdentityVerdict } from '@shared/child-process/process-spec'
 import { isolatedProviderEnvironment, sanitizedTemplateEnvironment } from '@shared/child-process/process-environment'
@@ -26,6 +25,9 @@ import { ProviderInvocationError, resolveProviderInvocation, type ResolvedProvid
 
 /** Task children bind runtime only as acp-agent today; Stage 5 widens the union. */
 export type TaskChildRuntime = 'finite-job' | 'acp-agent'
+
+/** Retained bytes one task child's output pump keeps for the evidence capture. */
+const OUTPUT_LIMIT_BYTES = 64 * 1024
 
 export type OpenedTaskChild = Readonly<{ sessionId: string; processIdentity: ProcessIdentity | null }>
 
@@ -265,9 +267,7 @@ export class TaskExecutionCoordinator {
   private readonly authority: SqliteTaskAuthority
   private readonly ports: TaskLaunchPorts
   private readonly evidence: DaemonTaskEvidencePort
-  private readonly resolveWorkspace: (root: string) => string
   private readonly verifyIdentity: ((identity: ProcessIdentity) => ProcessIdentityVerdict) | null
-  private readonly outputLimitBytes: number
   private readonly pumpPollMs: number
   private readonly cancelCheckMs: number
   private readonly deliveredStops = new Set<string>()
@@ -285,9 +285,7 @@ export class TaskExecutionCoordinator {
     authority: SqliteTaskAuthority
     ports: TaskLaunchPorts
     evidence: DaemonTaskEvidencePort
-    resolveWorkspace?: (root: string) => string
     verifyIdentity?: (identity: ProcessIdentity) => ProcessIdentityVerdict
-    outputLimitBytes?: number
     pumpPollMs?: number
     cancelCheckMs?: number
     /**
@@ -301,9 +299,7 @@ export class TaskExecutionCoordinator {
     this.ports = options.ports
     this.evidence = options.evidence
     this.provider = options.provider ?? null
-    this.resolveWorkspace = options.resolveWorkspace ?? ((root: string) => realpathSync.native(root))
     this.verifyIdentity = options.verifyIdentity ?? null
-    this.outputLimitBytes = options.outputLimitBytes ?? 64 * 1024
     this.pumpPollMs = options.pumpPollMs ?? 10
     this.cancelCheckMs = options.cancelCheckMs ?? 250
   }
@@ -552,7 +548,7 @@ export class TaskExecutionCoordinator {
     const ports = this.provider as ProviderLaunchPorts
     // Both streams share one bounded redactor but one combined pump, so the
     // retained output stays a single bounded view of the child's bytes.
-    const pump = new SequencedTaskOutputPump(this.outputLimitBytes)
+    const pump = new SequencedTaskOutputPump(OUTPUT_LIMIT_BYTES)
     let stdoutOffset = 0
     let stderrOffset = 0
     let exitCode: number | null = null
@@ -737,7 +733,7 @@ export class TaskExecutionCoordinator {
   prepareLaunch(claim: ClaimResult, specification: TaskExecutionSpecificationInput, connection: AuthenticatedAuthorityConnection, repositoryId?: string): PreparedTaskLaunch {
     if (specification.target.kind !== 'local') throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'task launches support local execution targets only')
     const token = claim.token
-    const workspaceRoot = this.resolveWorkspace(specification.command.cwd ?? specification.target.root)
+    const workspaceRoot = realpathSync.native(specification.command.cwd ?? specification.target.root)
     const preObservation = this.evidence.observePre(specification, workspaceRoot)
     const canonical = canonicalResourceKey(preObservation.workspaceRoot)
     this.authority.write({ kind: 'bind-worktree', connection, token, resourceKey: preObservation.workspaceRoot, worktreePath: preObservation.workspaceRoot, repositoryId: repositoryId ?? token.projectId })
@@ -781,7 +777,7 @@ export class TaskExecutionCoordinator {
       return this.handleBindLoss(prepared, child, owner, error, connection)
     }
 
-    const pump = new SequencedTaskOutputPump(this.outputLimitBytes)
+    const pump = new SequencedTaskOutputPump(OUTPUT_LIMIT_BYTES)
     let offset = 0
     let exitCode: number | null = null
     let lastCancelCheck = 0
@@ -1171,6 +1167,22 @@ export class TaskSchedulerPump {
     return `run-member:${member.projectId}:${member.taskId}`
   }
 
+  /**
+   * Claims one scope's task as the daemon worker and clears its reported-failure
+   * latch. Failure reporting stays with the caller: an execution only records it,
+   * while a run member also treats profile-wide capacity pressure as expected.
+   */
+  private claimScoped(scope: string, projectId: string, taskId: string, specification: TaskExecutionSpecificationInput): ClaimResult {
+    const claim = this.authority.claim({
+      connection: { connectionId: `${this.connectionId}-worker`, role: 'worker', ownerId: this.workerOwnerId, authorizedProjectIds: [projectId] },
+      projectId,
+      taskId,
+      specification
+    })
+    this.expectedSchedulingReported.delete(scope)
+    return claim
+  }
+
   tick(): TaskSchedulerTickResult {
     const enqueued: ScheduleExecutionSnapshot[] = []
     const claimed: Array<Readonly<{ claim: ClaimResult; specification: TaskExecutionSpecificationInput }>> = []
@@ -1202,16 +1214,7 @@ export class TaskSchedulerPump {
         // and a due execution whose claim failed in the enqueuing tick retries here.
         const schedule = this.authority.readSchedule(execution.projectId, execution.scheduleId)
         const specification: TaskExecutionSpecificationInput = { command: schedule.command, target: schedule.target, verification: schedule.verification }
-        claimed.push({
-          claim: this.authority.claim({
-            connection: { connectionId: `${this.connectionId}-worker`, role: 'worker', ownerId: this.workerOwnerId, authorizedProjectIds: [execution.projectId] },
-            projectId: execution.projectId,
-            taskId: execution.taskId,
-            specification
-          }),
-          specification
-        })
-        this.expectedSchedulingReported.delete(scope)
+        claimed.push({ claim: this.claimScoped(scope, execution.projectId, execution.taskId, specification), specification })
       } catch (error) {
         this.recordClaimFailure(scope, error, failures)
       }
@@ -1231,16 +1234,8 @@ export class TaskSchedulerPump {
       const scope = TaskSchedulerPump.memberScope(member)
       liveScopes.add(scope)
       try {
-        claimed.push({
-          claim: this.authority.claim({
-            connection: { connectionId: `${this.connectionId}-worker`, role: 'worker', ownerId: this.workerOwnerId, authorizedProjectIds: [member.projectId] },
-            projectId: member.projectId,
-            taskId: member.taskId,
-            specification: member.specification
-          }),
-          specification: member.specification
-        })
-        this.expectedSchedulingReported.delete(scope)
+        const specification = member.specification
+        claimed.push({ claim: this.claimScoped(scope, member.projectId, member.taskId, specification), specification })
       } catch (error) {
         if (TaskSchedulerPump.isCapacityExhausted(error)) {
           capacityBlockedGroups.add(member.runGroupId)

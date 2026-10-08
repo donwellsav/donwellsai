@@ -62,7 +62,6 @@ import {
   parseAgentTaskIntent,
   type AgentExecutable,
   normalizeAgentHookMessage,
-  type AgentProviderId,
   type AgentTaskIntent,
   type RunningAgent
 } from '@shared/agent-runtime'
@@ -228,6 +227,19 @@ function taskWireLeaseToken(value: unknown): LeaseToken {
 }
 
 const WORKER_TASK_OPS = new Set(['task.claim', 'task.write', 'task.handoff.offer', 'task.handoff.cancel', 'task.handoff.accept', 'task.takeover', 'task.mailbox.append'])
+
+/**
+ * Profile maintenance and task-migration ops, named once. `handleMaintenanceOp`
+ * dispatches this exact set; routing through the set keeps the outer switch from
+ * carrying a second, drift-prone copy of the list.
+ */
+const MAINTENANCE_OPS = new Set([
+  'maintenance.state', 'maintenance.admit.affected', 'maintenance.complete.affected',
+  'task.migration.status', 'task.migration.import', 'task.migration.shadow', 'task.migration.export',
+  'maintenance.acquire', 'maintenance.freeze', 'maintenance.drained', 'maintenance.cutover',
+  'maintenance.transition.prepare', 'maintenance.transition.complete', 'maintenance.transition.visibility', 'maintenance.transitions',
+  'maintenance.fence', 'maintenance.fail', 'maintenance.resume', 'maintenance.abort', 'maintenance.release'
+])
 
 function taskWireScheduleCadence(value: unknown): TaskScheduleCadence {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -1274,6 +1286,22 @@ export class TerminalDaemon {
     const op = String(message['op'] ?? '')
     const reply = (ok: boolean, result: Record<string, unknown>): void => this.reply(socket, id, ok, result)
     try {
+      if (MAINTENANCE_OPS.has(op)) {
+        void this.handleMaintenanceOp(socket, message).then(
+          result => reply(true, result as Record<string, unknown>),
+          error => reply(false, {
+            error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
+            ...(error instanceof ProviderCatalogError ? { code: error.code } : {}),
+            ...(error instanceof TaskAuthorityMigrationError ? { code: error.code } : {}),
+            ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {}),
+            // A malformed gate input is a coded maintenance failure, not an
+            // uncoded daemon error: callers branch on it like any other.
+            ...(error instanceof ProfileMaintenanceValidationError ? { code: 'GATE_INPUT_INVALID', field: error.field } : {})
+          })
+        )
+        return
+      }
       switch (op) {
         case 'agent.switch.get':
           reply(true, { receipt: this.acp.switchResult(String(message['workspacePath']), String(message['requestId'])) })
@@ -1754,41 +1782,6 @@ export class TerminalDaemon {
           reply(true, { stopped: true })
           setImmediate(() => void this.stopIfIdle())
           break
-        case 'maintenance.state':
-        case 'maintenance.admit':
-        case 'maintenance.admit.affected':
-        case 'maintenance.complete.affected':
-        case 'task.migration.status':
-        case 'task.migration.import':
-        case 'task.migration.shadow':
-        case 'task.migration.export':
-        case 'maintenance.acquire':
-        case 'maintenance.freeze':
-        case 'maintenance.drained':
-        case 'maintenance.cutover':
-        case 'maintenance.transition.prepare':
-        case 'maintenance.transition.complete':
-        case 'maintenance.transition.visibility':
-        case 'maintenance.transitions':
-        case 'maintenance.fence':
-        case 'maintenance.fail':
-        case 'maintenance.resume':
-        case 'maintenance.abort':
-        case 'maintenance.release':
-          void this.handleMaintenanceOp(socket, message).then(
-            result => reply(true, result as Record<string, unknown>),
-            error => reply(false, {
-              error: error instanceof Error ? error.message : String(error),
-              ...(error instanceof TaskAuthorityError ? { code: error.code } : {}),
-              ...(error instanceof ProviderCatalogError ? { code: error.code } : {}),
-              ...(error instanceof TaskAuthorityMigrationError ? { code: error.code } : {}),
-              ...(error instanceof ProfileMaintenanceError ? { code: error.code } : {}),
-              // A malformed gate input is a coded maintenance failure, not an
-              // uncoded daemon error: callers branch on it like any other.
-              ...(error instanceof ProfileMaintenanceValidationError ? { code: 'GATE_INPUT_INVALID', field: error.field } : {})
-            })
-          )
-          break
         case 'task.credential.issue':
         case 'task.query':
         case 'task.create':
@@ -2229,8 +2222,6 @@ export class TerminalDaemon {
         const repositoryId = taskWireRequiredString(message['repositoryId'], 'repositoryId')
         return { export: this.migration.exportBacklog(repositoryId) }
       }
-      case 'maintenance.admit':
-        throw new TaskAuthorityError('AUTHORIZATION_DENIED', 'the admission wire form is reserved; the daemon names the participant for each affected operation')
       case 'maintenance.admit.affected': {
         // The daemon maps the authenticated connection's operation onto the
         // participant that owns it; the caller never supplies a participant.

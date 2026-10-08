@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { basename, isAbsolute, relative, sep } from 'node:path'
 import type { DiffReviewRunState } from '@shared/diff-review'
 import { isObject } from '@shared/command-catalog'
 import { AgentRegistry } from './agents/registry'
@@ -87,7 +87,7 @@ export class OperationalRunService implements OperationalRunsApi {
   private readonly resolveProjectId: (path: string) => Promise<string>
   private readonly resolveWorkspacePath: (path: string) => Promise<string>
 
-  constructor(userDataDir: string, private readonly terminals: DaemonClient, resolveWorkspace: (path: string) => Promise<string>, private readonly verification?: { source: (path: string) => Promise<VerificationSource>; artifactRoots: (path: string) => Promise<string[]>; openArtifact?: (path: string, workspacePath: string, sha256: string) => Promise<void> }, resolveProjectId?: (path: string) => Promise<string>) {
+  constructor(userDataDir: string, private readonly terminals: DaemonClient, resolveWorkspace: (path: string) => Promise<string>, _verification?: { source: (path: string) => Promise<VerificationSource>; artifactRoots: (path: string) => Promise<string[]>; openArtifact?: (path: string, workspacePath: string, sha256: string) => Promise<void> }, resolveProjectId?: (path: string) => Promise<string>) {
     this.profileId = createHash('sha256').update(userDataDir, 'utf8').digest('hex').slice(0, 32)
     this.resolveWorkspacePath = resolveWorkspace
     this.resolveProjectId = resolveProjectId ?? (async path => path)

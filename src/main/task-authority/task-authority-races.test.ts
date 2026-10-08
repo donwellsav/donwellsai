@@ -3,7 +3,6 @@ import { mkdtempSync, realpathSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
-import { DatabaseSync } from 'node:sqlite'
 import type { RuntimeAuthorityLock } from '@shared/runtime-file-security'
 import {
   type AuthenticatedAuthorityConnection,

@@ -32,7 +32,6 @@ import {
   type ProfileMaintenanceAdmissionObservation,
   type ProfileMaintenanceFailure,
   type ProfileMaintenanceFenceReceipt,
-  type ProfileMaintenanceGate,
   type ProfileMaintenanceGateInternal,
   type ProfileMaintenanceLease,
   type ProfileMaintenanceOwnerStage,

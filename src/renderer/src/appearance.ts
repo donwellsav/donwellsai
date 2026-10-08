@@ -27,7 +27,6 @@ export function useAppearance(settings: AppSettings): void {
       const resolved = settings.theme === 'system' ? (media.matches ? 'dark' : 'light') : settings.theme
       root.dataset.theme = resolved
       root.dataset.themePreference = settings.theme
-      root.classList.toggle('dark', resolved === 'dark')
       root.style.colorScheme = resolved
       monaco.editor.setTheme(resolved === 'dark' ? 'donwells-dark' : 'donwells-light')
 

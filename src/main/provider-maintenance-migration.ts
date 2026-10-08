@@ -5,7 +5,6 @@ import {
   parseProfileMaintenanceParticipantSet,
   type ProfileMaintenanceLease,
   type ProfileMaintenanceParticipant,
-  type ProfileMaintenanceTransitionIntent,
   type ProfileMaintenanceTransitionReceipt,
   type AuthenticatedAdministratorContext,
   type AuthenticatedProfileMaintenanceMigrationContext,

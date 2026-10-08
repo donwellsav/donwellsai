@@ -28,7 +28,19 @@ if(pkg.name==='lazy-val'&&pkg.version==='1.0.5')notices=['NPM registry metadata 
  entries.push({name:pkg.name,version:pkg.version,text:`${pkg.name}@${pkg.version}\nDeclared license: ${typeof pkg.license==='string'?pkg.license:JSON.stringify(pkg.license)}\n${notices.join('\n\n')}`})
  for(const name of Object.keys({...pkg.dependencies,...pkg.optionalDependencies})){const found=locate(name,directory);if(found)visit(found);else assert(pkg.optionalDependencies?.[name],`Missing dependency ${pkg.name} -> ${name}`)}
 }
-for(const name of Object.keys(json(join(root,'package.json')).dependencies)){const directory=locate(name,root);assert(directory,`Missing installed dependency: ${name}`);visit(directory)}
+// Vite bundles these into out/renderer, so they ship inside the app even though
+// package.json lists them as development dependencies. Their license text must
+// stay in the notices; starting the walk only from `dependencies` would silently
+// drop 22 bundled libraries and their transitive trees.
+const RENDERER_BUNDLED = [
+  '@fontsource-variable/geist', '@fontsource-variable/geist-mono', '@pierre/diffs',
+  '@xterm/addon-fit', '@xterm/addon-search', '@xterm/addon-web-links', '@xterm/addon-webgl', '@xterm/xterm',
+  'dompurify', 'flexlayout-react', 'katex', 'lucide-react', 'marked', 'marked-footnote',
+  'marked-katex-extension', 'mermaid', 'monaco-editor', 'pdfjs-dist', 'react', 'react-dom',
+  'react-error-boundary', 'zustand'
+]
+const settings=json(join(root,'package.json'))
+for(const name of [...Object.keys(settings.dependencies??{}), ...RENDERER_BUNDLED]){const directory=locate(name,root);assert(directory,`Missing installed dependency: ${name}`);visit(directory)}
 entries.push({name:'agentsview',version:'0.42.0-donwells-cwd3',text:'AgentsView 0.42.0 with Donwells cwd3 modifications (bundled macOS ARM64 history engine)\n'+readFileSync(join(root,'native/history/LICENSE'),'utf8')})
 entries.sort((a,b)=>(a.name+'@'+a.version).localeCompare(b.name+'@'+b.version,'en'))
 const output='BUNDLED DEPENDENCY NOTICES\nGenerated from the installed production dependency graph. Includes bundled renderer dependencies.\nElectron and Chromium notices are supplied in the Electron distribution.\nNative CLI agents and optional project tools are separately installed, except the bundled AgentsView history engine.\nThe bundled native Ghostty terminal engine (libghostty-spm pin in scripts/build-native-terminal.mjs) carries its licenses and corresponding-source archive in Contents/Resources/native/ within the packaged app; see native/ghostty/README.md for the admitted list.\n\n'+entries.map(entry=>entry.text.replaceAll('\r\n','\n').trim()).join('\n\n'+'='.repeat(72)+'\n\n')+'\n'

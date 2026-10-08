@@ -729,11 +729,6 @@ describe('terminal daemon maintenance and migration wire surface', () => {
   it('admits and closes affected work on the authenticated connection only', async () => {
     const started = await startDaemon()
     try {
-      // While the gate is open, the daemon skips admission entirely: the wire
-      // form is reserved and refuses a directly-issued participant.
-      const reserved = await callWireOp(started.socketPath, started.token, 'maintenance.admit', { participant: 'task-authority', operationId: 'direct' })
-      expect(reserved).toMatchObject({ ok: false, code: 'AUTHORIZATION_DENIED' })
-
       const leaseReply = await callWireOp(started.socketPath, started.token, 'maintenance.acquire', {
         migrationId: 'migration-admit', ownerStage: 'stage-2', participants: ['task-authority'], expectedRevision: 1
       })

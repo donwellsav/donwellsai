@@ -1,16 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   DIFF_REVIEW_MAX_NOTES,
   DIFF_REVIEW_SCHEMA_VERSION,
@@ -21,6 +10,7 @@ import {
   type DiffReviewNote,
   type DiffReviewTarget
 } from '@shared/diff-review'
+import { atomicWriteFileSync } from './atomic-write'
 
 const FILE_NAME = 'diff-review-notes.json'
 
@@ -86,34 +76,7 @@ function readDocument(path: string): DiffReviewDocument {
 
 /** Fsync the complete next document before atomically publishing it. */
 function writeDocument(path: string, document: DiffReviewDocument): void {
-  const directory = dirname(path)
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  let descriptor: number | undefined
-  try {
-    descriptor = openSync(temporary, 'wx', 0o600)
-    writeFileSync(descriptor, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
-    fsyncSync(descriptor)
-    closeSync(descriptor)
-    descriptor = undefined
-    renameSync(temporary, path)
-  } catch (error) {
-    if (descriptor !== undefined) closeSync(descriptor)
-    rmSync(temporary, { force: true })
-    throw error
-  }
-
-  if (process.platform === 'win32') return
-  let directoryDescriptor: number | undefined
-  try {
-    directoryDescriptor = openSync(directory, 'r')
-    fsyncSync(directoryDescriptor)
-  } catch {
-    // Some Unix filesystems do not support directory fsync. The file itself
-    // was already flushed and atomically renamed.
-  } finally {
-    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor)
-  }
+  atomicWriteFileSync(path, `${JSON.stringify(document, null, 2)}\n`, { createDirectoryMode: 0o700 })
 }
 
 /** Main-process persistence authority for immutable, snapshot-bound review notes. */

@@ -20,7 +20,6 @@ import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import type {
   AgentSessionCredential,
-  AgentProviderId,
   AgentExecutable,
   AgentStartResult,
   RunningAgent
@@ -91,7 +90,11 @@ export type DaemonJobResult = {
 }
 
 export type DaemonStatus = {
-  pid: number
+  /**
+   * The daemon reports its own pid on every real reply; null only for the
+   * synthesized status of a daemon that answered none.
+   */
+  pid: number | null
   idle: boolean
   sessionCount: number
   liveSessionCount: number
@@ -133,18 +136,15 @@ const AGENT_RUNS = 'agent-runs-v1'
 const AGENT_INPUT = 'agent-input-v1'
 const MAX_TRANSPORT_BUFFER_BYTES = 2 * 1024 * 1024
 
-/** Sanitized liveness facts about an older daemon that blocks task authority activation. */
-export type SanitizedDaemonStatus = Readonly<{ pid: number | null; idle: boolean; sessionCount: number; liveSessionCount: number }>
-
 /** Daemon-issued per-session worker credential forwarded by worker clients. */
 export type TaskWorkerCredential = Readonly<{ credentialId: string; token: string }>
 
 /** Raised when an older authenticated daemon owns live sessions and must exit before task authority activation. */
 export class DaemonUpgradeRequiredError extends Error {
   readonly code = 'DAEMON_UPGRADE_REQUIRED'
-  readonly status: SanitizedDaemonStatus
+  readonly status: DaemonStatus
 
-  constructor(status: SanitizedDaemonStatus) {
+  constructor(status: DaemonStatus) {
     super(`terminal daemon owns live sessions and blocks task authority activation until they exit (pid=${status.pid ?? 'unknown'}, sessions=${status.sessionCount}, live=${status.liveSessionCount})`)
     this.name = 'DaemonUpgradeRequiredError'
     this.status = status
@@ -879,13 +879,13 @@ export class DaemonClient {
     }
     if (!status.idle || status.sessionCount !== 0 || status.liveSessionCount !== 0) {
       this.disconnect()
-      throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: false, sessionCount: status.sessionCount, liveSessionCount: status.liveSessionCount })
+      throw new DaemonUpgradeRequiredError({ pid: status.pid, idle: false, sessionCount: status.sessionCount, liveSessionCount: status.liveSessionCount })
     }
     const previousEndpoint = this.connectedEndpoint
     const stopped = await this.request<{ stopped: boolean }>('daemon.shutdown').catch(() => ({ stopped: false }))
     if (stopped.stopped !== true) {
       this.disconnect()
-      throw new DaemonUpgradeRequiredError({ pid: typeof status.pid === 'number' ? status.pid : null, idle: true, sessionCount: 0, liveSessionCount: 0 })
+      throw new DaemonUpgradeRequiredError({ pid: status.pid, idle: true, sessionCount: 0, liveSessionCount: 0 })
     }
     this.disconnect()
     await this.awaitDaemonEndpointCleanup(previousEndpoint)

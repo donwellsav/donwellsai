@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { AgentRuntime, TaskLinkedAgentOpenError } from './agent-runtime'
+import { AgentRuntime } from './agent-runtime'
 import type { AgentExecutable, AgentStartResult, AgentTaskIntent, RunningAgent } from '@shared/agent-runtime'
 import type { TerminalSession } from '@shared/types'
 import { AttentionInboxService } from './attention-inbox-service'
@@ -34,7 +34,7 @@ function tool(directory: string, name: string): string {
   return path
 }
 
-function harness(workspace: string, directory: string, onOpen: (launch: AgentExecutable, task?: AgentTaskIntent) => void) {
+function harness(workspace: string, _directory: string, onOpen: (launch: AgentExecutable, task?: AgentTaskIntent) => void) {
   return new AgentRuntime({
     openNativeTerminal: async (_cwd, launch, _cols, _rows, task) => {
       onOpen(launch, task)

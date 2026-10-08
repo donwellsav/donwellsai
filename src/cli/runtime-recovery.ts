@@ -49,10 +49,6 @@ export class RuntimeRecoveryError extends Error {
   }
 }
 
-function runtimeFileFor(options: RuntimeRecoveryOptions): string {
-  return localRuntimePaths(options.userDataDir, options.kind === 'donwells-app' ? 'app' : 'terminal').runtimeFile
-}
-
 function inspectWithBytes(options: RuntimeRecoveryOptions): { inspection: RuntimeRecoveryInspection; bytes: Buffer | null } {
   const canonicalProfile = canonicalPrivateDirectory(options.userDataDir, { requireCanonical: true })
   const runtimeFile = localRuntimePaths(canonicalProfile, options.kind === 'donwells-app' ? 'app' : 'terminal').runtimeFile

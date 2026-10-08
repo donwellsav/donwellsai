@@ -263,6 +263,76 @@ function sameOwner(left: RuntimeOwner, right: RuntimeOwner): boolean {
   return rowHash(left) === rowHash(right)
 }
 
+// ---------------------------------------------------------------------------
+// Schema DDL
+// ---------------------------------------------------------------------------
+
+/**
+ * DDL fragments shared by the bootstrap and the pre-v5 migration branches.
+ * Each fragment is emitted at the depth it has always had inside
+ * initializeSchema's templates, so the assembled statements stay byte-identical
+ * to the inline SQL they replace.
+ */
+const STATEMENT_INDENT = '      '
+const NESTED_INDENT = '        '
+
+function createTableDdl(name: string, columns: readonly string[], ifNotExists = false): string {
+  const header = `${STATEMENT_INDENT}CREATE TABLE ${ifNotExists ? 'IF NOT EXISTS ' : ''}${name} (`
+  return [header, ...columns.map((column) => `${NESTED_INDENT}${column}`), `${STATEMENT_INDENT});`].join('\n')
+}
+
+const RUNTIME_OWNER_GENERATION_COLUMNS: readonly string[] = [
+  'kind TEXT PRIMARY KEY,',
+  'last_generation INTEGER NOT NULL'
+]
+
+const RUNTIME_RECOVERY_OPERATION_COLUMNS: readonly string[] = [
+  'id TEXT PRIMARY KEY,',
+  'kind TEXT NOT NULL,',
+  'expected_fingerprint TEXT NOT NULL,',
+  'state TEXT NOT NULL,',
+  'detail_json TEXT NOT NULL,',
+  'created_at TEXT NOT NULL,',
+  'updated_at TEXT NOT NULL'
+]
+
+const RUNTIME_OWNER_ENDPOINT_HISTORY_COLUMNS: readonly string[] = [
+  'endpoint TEXT PRIMARY KEY,',
+  'kind TEXT NOT NULL,',
+  'owner_id TEXT NOT NULL,',
+  'generation INTEGER NOT NULL,',
+  'created_at TEXT NOT NULL'
+]
+
+const RUNTIME_ENDPOINT_CLEANUP_COLUMNS: readonly string[] = [
+  'id TEXT PRIMARY KEY,',
+  'kind TEXT NOT NULL,',
+  'successor_owner_id TEXT NOT NULL,',
+  'successor_generation INTEGER NOT NULL,',
+  'predecessor_owner_id TEXT NOT NULL,',
+  'predecessor_generation INTEGER NOT NULL,',
+  'endpoint TEXT NOT NULL UNIQUE,',
+  'quarantine_path TEXT NOT NULL UNIQUE,',
+  'expected_identity_json TEXT NOT NULL,',
+  'created_at TEXT NOT NULL'
+]
+
+const RUNTIME_OWNER_GENERATION_BACKFILL_DDL = `${STATEMENT_INDENT}INSERT INTO runtime_owner_generations(kind,last_generation)\n${NESTED_INDENT}SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;`
+const RUNTIME_OWNER_IDENTITY_INDEX_DDL = `${STATEMENT_INDENT}CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);`
+const RUNTIME_ENDPOINT_HISTORY_BACKFILL_DDL = `${STATEMENT_INDENT}INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)\n${NESTED_INDENT}SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;`
+const RUNTIME_ENDPOINT_IDENTITY_COLUMN_DDL = `${STATEMENT_INDENT}ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;`
+
+/** Tail shared by the v1, v2 and v3 branches; every statement in it is idempotent. */
+function preVersion5RecoveryDdl(): string {
+  return [
+    createTableDdl('runtime_recovery_operations', RUNTIME_RECOVERY_OPERATION_COLUMNS, true),
+    createTableDdl('runtime_owner_endpoint_history', RUNTIME_OWNER_ENDPOINT_HISTORY_COLUMNS),
+    RUNTIME_ENDPOINT_HISTORY_BACKFILL_DDL,
+    RUNTIME_ENDPOINT_IDENTITY_COLUMN_DDL,
+    `${STATEMENT_INDENT}PRAGMA user_version=5;`
+  ].join('\n')
+}
+
 function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
   const version = Number((db.prepare('PRAGMA user_version').get() as Record<string, unknown>)['user_version'])
   if (version === 0 && !readOnly) {
@@ -280,11 +350,8 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         claimed_at TEXT NOT NULL,
         activated_at TEXT
       );
-      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-      CREATE TABLE runtime_owner_generations (
-        kind TEXT PRIMARY KEY,
-        last_generation INTEGER NOT NULL
-      );
+${RUNTIME_OWNER_IDENTITY_INDEX_DDL}
+${createTableDdl('runtime_owner_generations', RUNTIME_OWNER_GENERATION_COLUMNS)}
       CREATE TABLE runtime_ownership_audit (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         kind TEXT NOT NULL,
@@ -295,116 +362,30 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
         detail_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
-      CREATE TABLE runtime_recovery_operations (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        expected_fingerprint TEXT NOT NULL,
-        state TEXT NOT NULL,
-        detail_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE runtime_owner_endpoint_history (
-        endpoint TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        owner_id TEXT NOT NULL,
-        generation INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE runtime_endpoint_cleanups (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        successor_owner_id TEXT NOT NULL,
-        successor_generation INTEGER NOT NULL,
-        predecessor_owner_id TEXT NOT NULL,
-        predecessor_generation INTEGER NOT NULL,
-        endpoint TEXT NOT NULL UNIQUE,
-        quarantine_path TEXT NOT NULL UNIQUE,
-        expected_identity_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
+${createTableDdl('runtime_recovery_operations', RUNTIME_RECOVERY_OPERATION_COLUMNS)}
+${createTableDdl('runtime_owner_endpoint_history', RUNTIME_OWNER_ENDPOINT_HISTORY_COLUMNS)}
+${createTableDdl('runtime_endpoint_cleanups', RUNTIME_ENDPOINT_CLEANUP_COLUMNS)}
       PRAGMA user_version=6;
     `)
   } else if (version === 1 && !readOnly) {
     db.exec(`
-      CREATE TABLE runtime_owner_generations (
-        kind TEXT PRIMARY KEY,
-        last_generation INTEGER NOT NULL
-      );
-      INSERT INTO runtime_owner_generations(kind,last_generation)
-        SELECT kind, MAX(generation) FROM runtime_owners GROUP BY kind;
-      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        expected_fingerprint TEXT NOT NULL,
-        state TEXT NOT NULL,
-        detail_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE runtime_owner_endpoint_history (
-        endpoint TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        owner_id TEXT NOT NULL,
-        generation INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-      );
-      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
-        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
-      PRAGMA user_version=5;
+${createTableDdl('runtime_owner_generations', RUNTIME_OWNER_GENERATION_COLUMNS)}
+${RUNTIME_OWNER_GENERATION_BACKFILL_DDL}
+${RUNTIME_OWNER_IDENTITY_INDEX_DDL}
+${preVersion5RecoveryDdl()}
     `)
   } else if (version === 2 && !readOnly) {
     db.exec(`
-      CREATE UNIQUE INDEX runtime_owner_identity_generation ON runtime_owners(owner_id, generation);
-      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        expected_fingerprint TEXT NOT NULL,
-        state TEXT NOT NULL,
-        detail_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE runtime_owner_endpoint_history (
-        endpoint TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        owner_id TEXT NOT NULL,
-        generation INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-      );
-      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
-        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
-      PRAGMA user_version=5;
+${RUNTIME_OWNER_IDENTITY_INDEX_DDL}
+${preVersion5RecoveryDdl()}
     `)
   } else if (version === 3 && !readOnly) {
     db.exec(`
-      CREATE TABLE IF NOT EXISTS runtime_recovery_operations (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        expected_fingerprint TEXT NOT NULL,
-        state TEXT NOT NULL,
-        detail_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE runtime_owner_endpoint_history (
-        endpoint TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        owner_id TEXT NOT NULL,
-        generation INTEGER NOT NULL,
-        created_at TEXT NOT NULL
-      );
-      INSERT INTO runtime_owner_endpoint_history(endpoint,kind,owner_id,generation,created_at)
-        SELECT endpoint, kind, owner_id, generation, claimed_at FROM runtime_owners;
-      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
-      PRAGMA user_version=5;
+${preVersion5RecoveryDdl()}
     `)
   } else if (version === 4 && !readOnly) {
     db.exec(`
-      ALTER TABLE runtime_owners ADD COLUMN endpoint_identity_json TEXT;
+${RUNTIME_ENDPOINT_IDENTITY_COLUMN_DDL}
       PRAGMA user_version=5;
     `)
   } else if (version !== 5 && version !== 6 && !(readOnly && (version === 3 || version === 4))) {
@@ -412,18 +393,7 @@ function initializeSchema(db: DatabaseSync, readOnly: boolean): void {
   }
   if (!readOnly && version >= 1 && version <= 5) {
     db.exec(`
-      CREATE TABLE runtime_endpoint_cleanups (
-        id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL,
-        successor_owner_id TEXT NOT NULL,
-        successor_generation INTEGER NOT NULL,
-        predecessor_owner_id TEXT NOT NULL,
-        predecessor_generation INTEGER NOT NULL,
-        endpoint TEXT NOT NULL UNIQUE,
-        quarantine_path TEXT NOT NULL UNIQUE,
-        expected_identity_json TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
+${createTableDdl('runtime_endpoint_cleanups', RUNTIME_ENDPOINT_CLEANUP_COLUMNS)}
       PRAGMA user_version=6;
     `)
   }

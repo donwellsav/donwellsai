@@ -11,8 +11,7 @@ import {
   type ScheduledExecution,
   type ScheduledExecutionStatus,
   type ScheduledRunDefinition,
-  type ScheduledRunSchedule,
-  type VerificationArtifact
+  type ScheduledRunSchedule
 } from '@shared/operational-runs'
 import type { ProjectTasksInspection } from '@shared/agent-runtime'
 import type {

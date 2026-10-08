@@ -3,7 +3,7 @@ import { useProjectMemoryEditor } from '../project-memory-editor'
 import { ProjectKitSettings } from './settings/ProjectKitSettings'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { appCommandPlatform } from '@shared/app-commands'
-import type { AgentPreset, AppSettings, SettingKey, SettingsResetRequest, SettingsSection } from '@shared/types'
+import type { AppSettings, SettingKey, SettingsResetRequest, SettingsSection } from '@shared/types'
 import {
   SETTINGS_METADATA,
   effectiveDiffFontFamily,
@@ -51,13 +51,11 @@ function SettingControlView({
   metadata,
   settings,
   revision,
-  agents,
   onCommit
 }: {
   metadata: SettingMetadata
   settings: AppSettings
   revision: number
-  agents: readonly AgentPreset[]
   onCommit(patch: Partial<AppSettings>): Promise<void>
 }) {
   const [saving, setSaving] = useState(false)
@@ -163,7 +161,6 @@ function SettingsList({
   onCommit(patch: Partial<AppSettings>): Promise<void>
   onReset(key: SettingKey): void
 }) {
-  const agents = useAppStore((state) => state.agents)
   const nativeTerminal = useAppStore((state) => state.nativeTerminal)
   // Never let a fall back to xterm be silent: explain it beside the control.
   const rendererFallback = resolveTerminalRenderer({
@@ -187,7 +184,7 @@ function SettingsList({
           {item.key === 'terminalRenderer' && rendererFallback.fellBack && <p role="note">Terminals are using xterm because Ghostty is unavailable. {rendererFallback.reason}</p>}
           {FONT_RENDERER_KEYS.has(item.key) && rendererFallback.renderer !== 'ghostty' && <p role="note">Applies to the native Ghostty renderer, which is not the active terminal here.</p>}
           {item.key === 'scrollback' && appCommandPlatform(navigator.platform) === 'mac' && <p role="note">Native Ghostty applies this approximate line limit to new surfaces; its separate byte cap can limit history sooner.</p>}
-          <SettingControlView metadata={item} settings={settings} revision={revision} agents={agents} onCommit={onCommit} />
+          <SettingControlView metadata={item} settings={settings} revision={revision} onCommit={onCommit} />
         </SettingsField>
       ))}
     </div>
@@ -213,7 +210,6 @@ function PrivacySection() {
     finally { operation.current = false; setBusy(false) }
   }
   return <section className="settings-preference-group" aria-label="Saved browser data">
-    <h3>Saved browser data</h3>
     <h3>Saved browser data</h3>
     <p>Clear saved addresses across this profile. Cookies, website sign-ins and project files are kept.</p>
     <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setError(''); setCleared(''); setConfirm({ kind: 'history' }) }}>Clear browsing history…</button>

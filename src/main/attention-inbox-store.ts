@@ -1,21 +1,11 @@
-import { randomUUID } from 'node:crypto'
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   ATTENTION_INBOX_SCHEMA_VERSION,
   parseAttentionInboxDocument,
   type AttentionInboxDocument
 } from '@shared/attention-inbox'
+import { atomicWriteFileSync } from './atomic-write'
 
 const FILE_NAME = 'attention-inbox.json'
 
@@ -71,33 +61,7 @@ function readDocument(path: string): AttentionInboxDocument {
 
 /** Flush the complete next document before publishing it with one atomic rename. */
 function writeDocument(path: string, document: AttentionInboxDocument): void {
-  const directory = dirname(path)
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  let descriptor: number | undefined
-  try {
-    descriptor = openSync(temporary, 'wx', 0o600)
-    writeFileSync(descriptor, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
-    fsyncSync(descriptor)
-    closeSync(descriptor)
-    descriptor = undefined
-    renameSync(temporary, path)
-  } catch (error) {
-    if (descriptor !== undefined) closeSync(descriptor)
-    rmSync(temporary, { force: true })
-    throw error
-  }
-
-  if (process.platform === 'win32') return
-  let directoryDescriptor: number | undefined
-  try {
-    directoryDescriptor = openSync(directory, 'r')
-    fsyncSync(directoryDescriptor)
-  } catch {
-    // The file itself is durable; not every Unix filesystem supports directory fsync.
-  } finally {
-    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor)
-  }
+  atomicWriteFileSync(path, `${JSON.stringify(document, null, 2)}\n`, { createDirectoryMode: 0o700 })
 }
 
 /** Single daemon-owned persistence authority. Invalid stores are never replaced implicitly. */

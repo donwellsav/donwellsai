@@ -2,8 +2,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import {
   AGENT_PROVIDER_DEFINITIONS,
-  type AgentPreset,
-  type AgentProviderDefinition
+  type AgentPreset
 } from '@shared/agent-runtime'
 
 export type AgentRegistryOptions = {

@@ -41,14 +41,6 @@ export type TaskEvidencePostCapture = Readonly<{
   artifacts: readonly VerificationArtifactInput[]
 }>
 
-export type TaskEvidencePortOptions = Readonly<{
-  /** Realpath-based workspace resolver; defaults to the native realpath. */
-  resolveWorkspace?: (root: string) => string
-  maxFileBytes?: number
-  outputLimitBytes?: number
-  now?: () => Date
-}>
-
 function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
@@ -81,32 +73,20 @@ function observeFile(path: string, absolutePath: string, relationship: ArtifactR
  * capture through this port asserts the canonical workspace identity.
  */
 export class DaemonTaskEvidencePort {
-  private readonly resolveWorkspace: (root: string) => string
-  private readonly maxFileBytes: number
-  private readonly outputLimitBytes: number
-  private readonly now: () => Date
-
-  constructor(options: TaskEvidencePortOptions = {}) {
-    this.resolveWorkspace = options.resolveWorkspace ?? ((root: string) => realpathSync.native(root))
-    this.maxFileBytes = options.maxFileBytes ?? TASK_EVIDENCE_MAX_FILE_BYTES
-    this.outputLimitBytes = options.outputLimitBytes ?? OPERATIONAL_OUTPUT_LIMIT
-    this.now = options.now ?? (() => new Date())
-  }
-
   observePre(specification: TaskExecutionSpecificationInput, workspaceRoot: string): TaskEvidencePreObservation {
     if (specification.target.kind !== 'local') {
       throw new Error('task evidence capture supports local execution targets only')
     }
-    const resolvedRoot = this.resolveWorkspace(workspaceRoot)
+    const resolvedRoot = realpathSync.native(workspaceRoot)
     const canonical = canonicalResourceKey(resolvedRoot)
     const artifacts = specification.verification.requiredArtifacts.map(required => {
       const absolute = isAbsolute(required.path) ? resolve(required.path) : resolve(join(resolvedRoot, required.path))
       if (!isInside(resolvedRoot, absolute)) {
         throw new Error(`required artifact path escapes the reserved workspace: ${required.path}`)
       }
-      return observeFile(required.path, absolute, required.relationship, this.maxFileBytes)
+      return observeFile(required.path, absolute, required.relationship, TASK_EVIDENCE_MAX_FILE_BYTES)
     })
-    return { workspaceRoot: resolvedRoot, canonicalResourceKey: canonical, capturedAt: this.now().toISOString(), artifacts }
+    return { workspaceRoot: resolvedRoot, canonicalResourceKey: canonical, capturedAt: new Date().toISOString(), artifacts }
   }
 
   /**
@@ -121,13 +101,13 @@ export class DaemonTaskEvidencePort {
   }
 
   capturePost(observation: TaskEvidencePreObservation, output: string, outputTruncated: boolean): TaskEvidencePostCapture {
-    const truncatedOutput = output.length > this.outputLimitBytes ? output.slice(output.length - this.outputLimitBytes) : output
+    const truncatedOutput = output.length > OPERATIONAL_OUTPUT_LIMIT ? output.slice(output.length - OPERATIONAL_OUTPUT_LIMIT) : output
     const artifacts: VerificationArtifactInput[] = []
     for (const pre of observation.artifacts) {
       let captured: { sha256: string; bytes: number } | null = null
       try {
         const metadata = statSync(pre.absolutePath)
-        if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.size <= this.maxFileBytes) {
+        if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.size <= TASK_EVIDENCE_MAX_FILE_BYTES) {
           captured = { sha256: sha256Hex(readFileSync(pre.absolutePath)), bytes: metadata.size }
         }
       } catch {
@@ -145,7 +125,7 @@ export class DaemonTaskEvidencePort {
     return {
       outputDigest: sha256Hex(Buffer.from(truncatedOutput, 'utf8')),
       outputBytes: Buffer.byteLength(truncatedOutput, 'utf8'),
-      outputTruncated: outputTruncated || output.length > this.outputLimitBytes,
+      outputTruncated: outputTruncated || output.length > OPERATIONAL_OUTPUT_LIMIT,
       artifacts
     }
   }

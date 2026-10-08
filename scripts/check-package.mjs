@@ -48,7 +48,9 @@ try {
 if (releaseTag) {
   assert(releaseTag.replace(/^v/, "") === pkg.version, `HEAD tag ${releaseTag} does not match package version ${pkg.version}`);
 }
-assert(pkg.dependencies?.["pdfjs-dist"], "pdfjs-dist must be a runtime dependency");
+// pdfjs-dist ships bundled into out/renderer by Vite, so it is declared as a
+// development dependency; what matters is that it is still a declared input.
+assert(pkg.dependencies?.["pdfjs-dist"] ?? pkg.devDependencies?.["pdfjs-dist"], "pdfjs-dist must be declared as a dependency");
 assert(pkg.devDependencies?.["electron-builder"], "electron-builder must be a development dependency");
 assert(pkg.scripts?.build === "electron-vite build && pnpm run build:cli", "desktop build must also compile the CLI");
 assert(config.appId === "ai.donwells.desktop", "unexpected application ID");

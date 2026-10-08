@@ -5,15 +5,13 @@ import {
   fstatSync,
   fsyncSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
-  rmSync,
   writeFileSync
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
+import { atomicWriteFileSync } from './atomic-write'
 import { withProjectMemoryWriteLock } from './project-memory-lock'
 import type { DatabaseSync } from 'node:sqlite'
 import { abortProjectMemoryMigration, reverseProjectMemoryMigration, migrateProjectMemory, openProjectMemoryDatabase, readProjectMemoryAuthority, type ProjectMemoryAuthority, upgradeProjectMemoryErasureSchema } from './project-memory-migration'
@@ -216,38 +214,18 @@ function writeDocument(path: string, document: ProjectMemoryDocument): void {
     )
   }
 
-  const directory = dirname(path)
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  atomicWriteFileSync(path, serialized, {
+    createDirectoryMode: 0o700,
+    beforeWrite: () => preserveSchema1Document(path)
+  })
+}
+
+/** Keep one owner-only copy of a schema-1 document before the current schema replaces it. */
+function preserveSchema1Document(path: string): void {
   const previous = readProjectMemorySnapshot(path).bytes
   if (previous && JSON.parse(previous.toString('utf8')).schemaVersion === 1) {
     const backup = openSync(`${path}.schema1-backup-${randomUUID()}`, 'wx', 0o600)
     try { writeFileSync(backup, previous); fsyncSync(backup) } finally { closeSync(backup) }
-  }
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  let descriptor: number | undefined
-  try {
-    descriptor = openSync(temporary, 'wx', 0o600)
-    writeFileSync(descriptor, serialized, 'utf8')
-    fsyncSync(descriptor)
-    closeSync(descriptor)
-    descriptor = undefined
-    renameSync(temporary, path)
-  } catch (error) {
-    if (descriptor !== undefined) closeSync(descriptor)
-    rmSync(temporary, { force: true })
-    throw error
-  }
-
-  if (process.platform === 'win32') return
-  let directoryDescriptor: number | undefined
-  try {
-    directoryDescriptor = openSync(directory, 'r')
-    fsyncSync(directoryDescriptor)
-  } catch {
-    // The file itself is already flushed and atomically renamed. Some Unix
-    // filesystems do not support directory fsync.
-  } finally {
-    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor)
   }
 }
 

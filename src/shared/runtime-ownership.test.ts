@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from './child-process/process-spec'
 import { runtimeAuthorityLock, type RuntimeAuthorityLock, type RuntimeFileIdentityReader } from './runtime-file-security'
-import { RuntimeOwnershipStore, type RuntimeOwner, type RuntimeOwnerObservation } from './runtime-ownership'
+import { RuntimeOwnershipStore, type RuntimeOwner } from './runtime-ownership'
 
 const identity: ProcessIdentity = {
   pid: 100,

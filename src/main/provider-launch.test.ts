@@ -574,16 +574,8 @@ describe('provider selection binding', () => {
     catalog.retireCredentialBindingForOperation({ providerInstanceId: first.id, accountId: account.id, expectedInstanceRevision: first.revision, expectedAccountRevision: account.revision, expectedBindingGeneration: 1, credentialOperationId: 'replace-op' })
     const rebound = catalog.bindCredential({ providerInstanceId: first.id, accountId: account.id, expectedInstanceRevision: catalog.snapshot().instances[0]!.revision, expectedAccountRevision: account.revision, credentialRef: 'ref-second', expectedBindingGeneration: 1 })
 
-    const maintenance = maintenancePort(new SqliteProfileMaintenanceGate({ database: authority.database, profileId: PROJECT }))
     const secrets = secretPort({ environment: { FAKE_PROVIDER_CREDENTIAL: MARKER_ALPHA }, credentialRevision: 1 })
     const child = childPort()
-    const coordinator = makeCoordinator(authority, entry, {
-      maintenance: maintenance.port,
-      catalog: { prepareLaunch: input => catalog.prepareLaunch(input) },
-      secrets: secrets.port,
-      boundary: new SecretOutputBoundary(),
-      child: child.port
-    })
 
     // The coordinator prepares a FRESH preparation against the live binding, so
     // drive the stale one directly through the authority to isolate the compare.

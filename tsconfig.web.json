@@ -4,6 +4,14 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    // noUnusedLocals only, deliberately NOT noUnusedParameters: the vendor
+    // package marked-katex-extension declares "types": "./src/index.ts", so its
+    // TypeScript source joins this program (skipLibCheck covers .d.ts only) and
+    // carries an unused `options` parameter that no repo edit can fix - pnpm
+    // restores the file. "exclude" cannot drop it either: TypeScript follows the
+    // renderer's import regardless of the file list. Every repo finding in this
+    // config was an unused local or import, which this flag covers.
+    "noUnusedLocals": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

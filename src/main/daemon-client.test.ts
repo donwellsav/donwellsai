@@ -290,7 +290,7 @@ describe('daemon task authority upgrade negotiation', () => {
   }
   const NEW_OWNER_ID = '55555555-5555-4555-8555-555555555555'
 
-  function oldDaemonServer(endpoint: string, token: string, status: { idle: boolean; sessionCount: number; liveSessionCount: number }, options: { onShutdown?: () => void; onShutdownReply?: () => void; handshake?: Record<string, unknown>; legacy?: boolean } = {}) {
+  function oldDaemonServer(_endpoint: string, token: string, status: { idle: boolean; sessionCount: number; liveSessionCount: number }, options: { onShutdown?: () => void; onShutdownReply?: () => void; handshake?: Record<string, unknown>; legacy?: boolean } = {}) {
     const requests: string[] = []
     const server = createServer(socket => {
       socket.setEncoding('utf8')
@@ -369,7 +369,7 @@ describe('daemon task authority upgrade negotiation', () => {
     }
   })
 
-  function newDaemonServer(endpoint: string, token: string) {
+  function newDaemonServer(_endpoint: string, token: string) {
     const requests: string[] = []
     const server = createServer(socket => {
       socket.setEncoding('utf8')
@@ -593,7 +593,7 @@ describe('provider catalog client surface', () => {
     return { server, requests }
   }
   const emptySnapshot = { revision: 1, defaultInstanceId: null, drivers: [], accounts: [], instances: [] }
-  const connection = (directory: string, token: string) => new DaemonClient(directory, events, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
+  const connection = (directory: string, _token: string) => new DaemonClient(directory, events, join(directory, 'must-not-spawn.js'), { handshakeTimeoutMs: 250, requestTimeoutMs: 250 })
 
   it.runIf(process.platform !== 'win32')('sends instance operations under the non-colliding instanceId field', async () => {
     const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'provider-client-wire-')))

@@ -1,17 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
   chmodSync,
-  closeSync,
   existsSync,
-  fsyncSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync
+  realpathSync
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { IpcMain } from 'electron'
@@ -32,6 +26,7 @@ import {
   type EditorRecoveryEntry,
   type EditorRecoveryTarget
 } from '@shared/editor-recovery'
+import { atomicWriteFileSync } from './atomic-write'
 
 const RECOVERY_DIRECTORY = 'recovery'
 const RECOVERY_FILE = 'editor-buffers.json'
@@ -122,33 +117,12 @@ function readDocument(path: string, root: string): EditorRecoveryDocument {
 /** Fsync the complete next document before atomically publishing it. */
 function writeDocument(path: string, root: string, document: EditorRecoveryDocument): void {
   const directory = dirname(path)
-  validatePrivateDirectory(root, directory)
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
-  let descriptor: number | undefined
-  try {
-    descriptor = openSync(temporary, 'wx', 0o600)
-    writeFileSync(descriptor, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
-    fsyncSync(descriptor)
-    closeSync(descriptor)
-    descriptor = undefined
-    renameSync(temporary, path)
-    if (process.platform !== 'win32') chmodSync(path, 0o600)
-  } catch (error) {
-    if (descriptor !== undefined) closeSync(descriptor)
-    rmSync(temporary, { force: true })
-    throw error
-  }
-
-  if (process.platform === 'win32') return
-  let directoryDescriptor: number | undefined
-  try {
-    directoryDescriptor = openSync(directory, 'r')
-    fsyncSync(directoryDescriptor)
-  } catch {
-    // The file itself was flushed and atomically renamed. Some filesystems do not permit directory fsync.
-  } finally {
-    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor)
-  }
+  atomicWriteFileSync(path, `${JSON.stringify(document, null, 2)}\n`, {
+    // Create the recovery directory when absent, then require it to stay a
+    // private regular directory inside userData before anything is written.
+    beforeWrite: () => validatePrivateDirectory(root, directory),
+    enforceModeAfterPublish: true
+  })
 }
 
 /** Atomic, owner-only and bounded main-process authority for unsaved editor text. */

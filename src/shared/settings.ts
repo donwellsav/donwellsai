@@ -145,13 +145,6 @@ function isGhosttyThemeName(value: unknown): value is string {
   return typeof value === 'string' && value.length <= 128 && !/[\0\r\n]/.test(value)
 }
 
-function isAgentCommand(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.trim().length > 0
-    && value.length <= 4096
-    && !/[\0\r\n]/.test(value)
-}
-
 function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 2048) return false
   try {

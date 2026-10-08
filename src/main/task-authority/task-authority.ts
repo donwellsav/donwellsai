@@ -636,7 +636,7 @@ function quarantineAttempt(db: DatabaseSync, projectId: string, taskId: string, 
 }
 
 /** True when the task holds a live attempt whose exit must be acknowledged before terminal close. */
-function taskAwaitingExitAck(db: DatabaseSync, projectId: string, taskId: string, attemptId: string | null): boolean {
+function taskAwaitingExitAck(db: DatabaseSync, projectId: string, _taskId: string, attemptId: string | null): boolean {
   if (attemptId === null) return false
   const attempt = db.prepare('SELECT state FROM attempts WHERE project_id = ? AND id = ?').get(projectId, attemptId) as Row | undefined
   return attempt !== undefined && CAPACITY_STATES[text(attempt['state']) as AttemptState] === true
@@ -765,7 +765,7 @@ function readScheduleSpec(definitionJson: string): TaskScheduleSpec {
   return parseScheduleSpec(parseJson(definitionJson), 'persisted schedule definition')
 }
 
-function scheduleSnapshot(db: DatabaseSync, row: Row): ScheduleSnapshot {
+function scheduleSnapshot(_db: DatabaseSync, row: Row): ScheduleSnapshot {
   const spec = readScheduleSpec(text(row['definition_json']))
   return {
     scheduleId: text(row['id']),
@@ -2188,7 +2188,7 @@ export class SqliteTaskAuthority implements TaskAuthority {
     const generation = entityVersion(input?.['generation'], 'generation')
     const reason = boundedText(input?.['reason'] ?? 'daemon-confirmed exit', 'reason', TASK_AUTHORITY_MAX_ERROR_TEXT)
     return this.database.withImmediate(db => {
-      const task = loadTaskRow(db, projectId, taskId)
+      loadTaskRow(db, projectId, taskId)
       const attempt = db.prepare('SELECT * FROM attempts WHERE project_id = ? AND id = ? AND task_id = ?').get(projectId, attemptId, taskId) as Row | undefined
       if (!attempt || textOrNull(attempt['current_lease_id']) !== leaseId) {
         throw new TaskAuthorityError('STALE_AUTHORITY', `lease ${leaseId} is not the current lease of attempt ${attemptId}`)

@@ -10,10 +10,9 @@ import {
   type CredentialBackend,
   type CredentialStatus,
   type ProviderLaunchAuthorization,
-  type ProviderLaunchSecrets,
   type ResolvedProviderCredentialPrincipal
 } from '@shared/provider-secret-broker'
-import { ProviderCatalogError, type ProviderCredentialCatalog, type ProviderCredentialOperation, type ProviderInstanceInput } from '@shared/provider-authority'
+import { ProviderCatalogError, type ProviderCredentialCatalog, type ProviderInstanceInput } from '@shared/provider-authority'
 import { AgentRegistry } from './agents/registry'
 import { SqliteProviderCatalog } from './provider-catalog'
 import { ProviderCredentialAuthority, ProviderSecretAuthority, localProviderCredentialCatalog, type ProviderSecretEncryption } from './provider-secret-authority'
@@ -113,11 +112,6 @@ function storeRecords(directory: string): Record<string, StoredRecord> {
 /** Refs whose sealed material still decrypts; a revoked ref is an inert tombstone. */
 function liveRefs(directory: string): string[] {
   return Object.entries(storeRecords(directory)).filter(([, record]) => record.ciphertext !== null).map(([ref]) => ref).sort()
-}
-
-/** The records of one captured store document, for observing state while it is unreadable. */
-function recordsOf(text: string): Record<string, StoredRecord> {
-  return (JSON.parse(text) as { records: Record<string, StoredRecord> }).records
 }
 
 /** Every serialized file in the profile, so a plaintext leak cannot hide. */

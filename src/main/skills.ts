@@ -141,23 +141,6 @@ type PendingPlan = {
   existing?: StoredSkillPackage
 }
 
-
-function cloneSource(source: SkillPackageSource): SkillPackageSource {
-  return structuredClone(source)
-}
-
-function cloneResolvedSource(source: ResolvedSkillPackageSource): ResolvedSkillPackageSource {
-  return { ...source }
-}
-
-function cloneManifest(manifest: SkillPackageManifest): SkillPackageManifest {
-  return { ...manifest }
-}
-
-function cloneFiles(files: readonly SkillPackageFile[]): SkillPackageFile[] {
-  return files.map((file) => ({ ...file }))
-}
-
 function normalizePackageName(name: string): string {
   const trimmed = name.trim()
   if (!PACKAGE_NAME.test(trimmed) || trimmed.length > 64) {
@@ -854,11 +837,11 @@ export class SkillPackagesManager {
   private viewForRecord(record: StoredSkillPackage): InstalledSkillPackage {
     const inspection = this.inspectRecord(record)
     return {
-      manifest: cloneManifest(record.manifest),
-      source: cloneSource(record.source),
-      resolvedSource: cloneResolvedSource(record.resolvedSource),
+      manifest: { ...record.manifest },
+      source: structuredClone(record.source),
+      resolvedSource: { ...record.resolvedSource },
       target: this.targetFor(record.workspacePath, record.providerId, record.manifest.name),
-      files: cloneFiles(record.files),
+      files: record.files.map((file) => ({ ...file })),
       totalBytes: record.totalBytes,
       installedAt: record.installedAt,
       updatedAt: record.updatedAt,
@@ -991,9 +974,9 @@ export class SkillPackagesManager {
 
       const now = new Date(this.now()).toISOString()
       const record: StoredSkillPackage = {
-        manifest: cloneManifest(acquired.manifest),
-        source: cloneSource(acquired.requestedSource),
-        resolvedSource: cloneResolvedSource(acquired.source),
+        manifest: { ...acquired.manifest },
+        source: structuredClone(acquired.requestedSource),
+        resolvedSource: { ...acquired.source },
         workspacePath: target.workspacePath,
         providerId: target.providerId,
         consumerRoot: skillPackageProvider(target.providerId).relativeRoot,

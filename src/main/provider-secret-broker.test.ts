@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProcessIdentity } from '@shared/child-process/process-spec'
-import { PROVIDER_SECRET_BROKER_PROTOCOL, SecretAuthorityError, asCredentialRef, type ProviderLaunchAuthorization, type ProviderLaunchSecrets, type SecretAuthority } from '@shared/provider-secret-broker'
+import { PROVIDER_SECRET_BROKER_PROTOCOL, SecretAuthorityError, asCredentialRef, type ProviderLaunchAuthorization } from '@shared/provider-secret-broker'
 import { localRuntimePaths, readRuntimeRecord } from './local-runtime'
 import { claimRuntimeOwner, publishRuntimeOwner } from './runtime-ownership'
 import { runtimeIdentityAuthority } from './runtime-identity'
@@ -274,7 +274,6 @@ describe('terminal daemon credential broker transport', () => {
     const { directory, daemon, locator } = await started('broker-answer-')
     // Stand in for the app process: publish its ownership row, then verify.
     const authority = runtimeIdentityAuthority()
-    const paths = localRuntimePaths(directory, 'app')
     const app = claimRuntimeOwner({
       userDataDir: directory,
       kind: 'donwells-app',

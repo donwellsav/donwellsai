@@ -35,6 +35,14 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # Dead CSS is this repo's largest silent-error surface: deleting the wrong
+      # rule breaks styling with no compiler error and no failing test, which is
+      # why 148 orphan blocks had to be removed by hand. Warn-only by default -
+      # it reports orphans and undefined classes, then exits 0. Promote it to a
+      # gate by adding --fail once the orphan list is empty.
+      - name: CSS orphan check (warn only)
+        run: node scripts/check-css-orphans.mjs
+
       - name: Build
         run: pnpm run build
 
