@@ -407,7 +407,7 @@ export function SettingsModal({ open }: { open: boolean }) {
         ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
         ['Layout', ['navigationLabels', 'toolPanelSide']]
       ] as const : [
-        ['Terminal surface', ['terminalRenderer']],
+        ['Terminal surface', ['terminalRenderer', 'terminalUseGhosttyConfig']],
         ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLigatures', 'terminalFontFeatures', 'terminalFontVariations', 'terminalLineHeight']],
         ['Colors and cursor', ['terminalTheme', 'terminalGhosttyTheme', 'cursorStyle', 'cursorBlink']],
         ['Behavior', ['scrollback', 'copyOnSelect']]

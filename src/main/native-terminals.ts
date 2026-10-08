@@ -2,6 +2,8 @@ import { appResourcesRoot } from './app-resources'
 import { resolveAppShortcuts } from '@shared/app-commands'
 import { app, shell, type BrowserWindow } from 'electron'
 import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AppSettings } from '@shared/types'
 import type { NativeTerminalRequest, NativeTerminalResult, NativeTerminalAvailability, GhosttyTheme } from '@shared/native-terminal'
@@ -9,7 +11,7 @@ import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { HerdrTerminalBridge, sessionErrorMessage } from './herdr-session'
-import { nativeTerminalConfiguration } from './native-terminal-config'
+import { mergeGhosttyConfig, nativeTerminalConfiguration } from './native-terminal-config'
 import { resolveTerminalPalette } from '../renderer/src/terminal-themes'
 import { logger } from '@shared/logger'
 
@@ -43,6 +45,19 @@ export function nativeTerminalAvailability(): NativeTerminalAvailability {
     return { available: true }
   } catch (cause) {
     return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
+  }
+}
+
+/**
+ * The user's own Ghostty configuration, if they keep one. Read per surface so
+ * edits show up in the next terminal rather than after a restart.
+ */
+function ghosttyUserConfig(): string {
+  try {
+    const base = process.env['XDG_CONFIG_HOME']?.trim() || join(homedir(), '.config')
+    return readFileSync(join(base, 'ghostty', 'config'), 'utf8')
+  } catch {
+    return ''
   }
 }
 
@@ -104,7 +119,16 @@ export class NativeTerminals {
     try { catalog = nativeTerminalThemes() } catch { catalog = [] }
     return resolveTerminalPalette(this.settings(), catalog)
   }
-  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: nativeTerminalConfiguration(this.settings(), this.palette()), shortcuts: this.shortcuts() }) }
+  /**
+   * Settings first, then the user's own Ghostty configuration for anything the
+   * app does not manage (see mergeGhosttyConfig for the precedence rule).
+   */
+  private configuration(): string {
+    const generated = nativeTerminalConfiguration(this.settings(), this.palette())
+    if (!this.settings().terminalUseGhosttyConfig) return generated
+    return mergeGhosttyConfig(ghosttyUserConfig(), generated)
+  }
+  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     if (entry.source) this.herdr.stop(entry.sessionId)
@@ -182,7 +206,7 @@ export class NativeTerminals {
       if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
         const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
-        this.call(next, 'create', { configuration: nativeTerminalConfiguration(this.settings(), this.palette()), shortcuts: this.shortcuts() })
+        this.call(next, 'create', { configuration: this.configuration(), shortcuts: this.shortcuts() })
         const bus = request.source ? this.herdrStream : this.stream
         next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next

@@ -9,6 +9,8 @@
 - **Ghostty (native)** — the default. Used only when the native module actually loads.
 - **xterm** — the previous renderer, for anyone who needs it.
 
+**An existing Ghostty configuration applies.** With **Settings → Terminal → Use my Ghostty config** on (the default), `~/.config/ghostty/config` (or `$XDG_CONFIG_HOME/ghostty/config`) is applied for everything Settings does not manage — keybinds, mouse behaviour, shell integration. Options the app manages — font, features and variations, colours, theme, cursor, scrollback, clipboard — come from Settings, so the UI stays authoritative and the file cannot silently override it. The file is re-read for each new terminal, so edits apply to the next one.
+
 If the native module is missing or cannot load (unsupported platform or architecture, a packaging gap, or a failed probe), panes fall back to **xterm automatically** rather than presenting a surface that cannot draw. The fallback is never silent: the Renderer setting shows the reason the pane fell back. Availability is decided once in the main process (`nativeTerminalAvailability`) and consumed through the pure resolver in `src/renderer/src/terminal-renderer.ts`.
 
 Build with `pnpm build:native-terminal` using Xcode command-line tools, Swift 6 and Zig 0.16.0. `package:prepare` includes this build, and `package:check` fails if the artifacts, resource bundle or their dynamic dependencies are missing or nonportable. Generated checkouts, caches and binaries are ignored. The build targets the host machine's architecture only; cross-architecture packaging needs a matching native build, so a universal macOS artifact is **not** produced today.

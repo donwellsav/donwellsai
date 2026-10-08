@@ -18,6 +18,42 @@ const openTypeList = (value: string): string =>
   oneLine(value).split(',').map((entry) => entry.trim()).filter(Boolean).join(', ')
 
 /**
+ * Keys this builder owns. The app's own Settings are authoritative for these,
+ * so an equivalent line in the user's Ghostty configuration is dropped rather
+ * than silently overriding the UI.
+ */
+const MANAGED_KEYS = new Set([
+  'font-family', 'font-size', 'adjust-cell-height', 'font-feature', 'font-variation',
+  'scrollback-limit-lines', 'copy-on-select', 'cursor-style', 'cursor-style-blink',
+  'background', 'foreground', 'cursor-color', 'cursor-text', 'selection-background',
+  'palette', 'clipboard-read', 'clipboard-write', 'window-padding-x', 'window-padding-y',
+  // Themes set those same color keys, and the app has its own theme picker.
+  'theme'
+])
+
+/** The key of a `key = value` configuration line, or undefined for anything else. */
+function configKey(line: string): string | undefined {
+  return /^\s*([A-Za-z0-9_-]+)\s*=/.exec(line)?.[1]?.toLowerCase()
+}
+
+/**
+ * Fold the user's own Ghostty configuration into the generated one.
+ *
+ * Someone with an existing `~/.config/ghostty/config` expects it to work here -
+ * keybinds, mouse behaviour, shell integration - so everything the app does not
+ * manage is kept. Anything the app manages is dropped, so Settings stays the
+ * single authority for it, and the generated values come last as a backstop.
+ */
+export function mergeGhosttyConfig(userConfig: string, generated: string): string {
+  const kept = userConfig.split('\n').filter((line) => {
+    const key = configKey(line)
+    return key === undefined || !MANAGED_KEYS.has(key)
+  })
+  while (kept.length > 0 && kept[kept.length - 1]!.trim() === '') kept.pop()
+  return kept.length === 0 ? generated : `${kept.join('\n')}\n${generated}`
+}
+
+/**
  * Build the Ghostty configuration for a native surface from app settings.
  *
  * The font family is free-form, so quotes and control characters are stripped

@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   terminalLigatures: true,
   terminalFontFeatures: '',
   terminalFontVariations: '',
+  terminalUseGhosttyConfig: true,
   terminalLineHeight: 1,
   cursorStyle: 'block',
   cursorBlink: true,
@@ -286,6 +287,12 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     description: 'OpenType axis values such as wght=500 or slnt=-10, comma separated.',
     default: DEFAULT_SETTINGS.terminalFontVariations, lifecycle: 'live', scope: 'global',
     control: { type: 'text', maxLength: 256, placeholder: 'wght=500' }, validate: isFontVariationList
+  },
+  terminalUseGhosttyConfig: {
+    key: 'terminalUseGhosttyConfig', section: 'terminal', label: 'Use my Ghostty config',
+    description: 'Apply ~/.config/ghostty/config for everything Settings does not manage, such as keybinds, mouse behaviour and shell integration. Settings stay authoritative for the options above.',
+    default: DEFAULT_SETTINGS.terminalUseGhosttyConfig, lifecycle: 'new-terminal', scope: 'global',
+    control: { type: 'toggle' }, validate: booleanValue
   },
   terminalLineHeight: {
     key: 'terminalLineHeight', section: 'terminal', label: 'Line height',

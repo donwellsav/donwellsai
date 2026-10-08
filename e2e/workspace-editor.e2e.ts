@@ -296,6 +296,7 @@ test('reaches the Ghostty theme collection through the native module', async () 
   // schema and still be missing from the UI. Guard the whole renderer surface.
   await expect(page.getByRole('combobox', { name: 'Renderer', exact: true })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Ligatures', exact: true })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Use my Ghostty config', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Font features', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Font variations', exact: true })).toBeVisible()
 })

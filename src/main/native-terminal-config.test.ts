@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { resolveSettings } from '@shared/settings'
 import type { AppSettings } from '@shared/types'
-import { nativeTerminalConfiguration } from './native-terminal-config'
+import { mergeGhosttyConfig, nativeTerminalConfiguration } from './native-terminal-config'
 
 const settings = (overrides: Partial<AppSettings> = {}): AppSettings => ({ ...resolveSettings(), ...overrides })
 const lines = (config: string): string[] => config.trimEnd().split('\n')
@@ -83,5 +83,40 @@ describe('native Ghostty configuration', () => {
     expect(palette[0]).toBe('palette = 0=#16161d')
     expect(palette[1]).toBe('palette = 1=#e28d89')
     expect(new Set(palette).size).toBe(16)
+  })
+})
+
+describe('user Ghostty configuration', () => {
+  const generated = nativeTerminalConfiguration(settings())
+
+  it('keeps the options the app does not manage', () => {
+    const merged = mergeGhosttyConfig('# my notes\nkeybind = cmd+t=new_tab\nmouse-hide-while-typing = true\n', generated)
+    expect(merged).toContain('keybind = cmd+t=new_tab')
+    expect(merged).toContain('mouse-hide-while-typing = true')
+    expect(merged).toContain('# my notes')
+  })
+
+  it('drops anything Settings is authoritative for, including themes', () => {
+    const merged = mergeGhosttyConfig(
+      'font-size = 22\ntheme = Catppuccin Mocha\nbackground = 000000\npalette = 1=ff0000\nwindow-padding-x = 9\nkeybind = cmd+k=clear_screen\n',
+      generated
+    )
+    for (const dropped of ['font-size = 22', 'theme = Catppuccin Mocha', 'background = 000000', 'palette = 1=ff0000', 'window-padding-x = 9']) {
+      expect(merged).not.toContain(dropped)
+    }
+    expect(merged).toContain('keybind = cmd+k=clear_screen')
+    // The generated block is unchanged and still authoritative.
+    expect(merged).toContain(`font-size = ${settings().terminalFontSize}`)
+  })
+
+  it('is a no-op when the user has nothing that applies', () => {
+    expect(mergeGhosttyConfig('', generated)).toBe(generated)
+    expect(mergeGhosttyConfig('font-size = 22\n\n', generated)).toBe(generated)
+  })
+
+  it('cannot smuggle a managed key past the filter with case or spacing', () => {
+    const merged = mergeGhosttyConfig('  FONT-SIZE   =  99  \nclipboard-read = allow\n', generated)
+    expect(merged).not.toContain('99')
+    expect(merged).not.toContain('clipboard-read = allow')
   })
 })

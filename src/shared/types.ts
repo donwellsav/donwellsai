@@ -211,6 +211,11 @@ export type AppSettings = {
   terminalFontFeatures: string
   /** Ghostty renderer: OpenType axis values, e.g. `wght=500`. */
   terminalFontVariations: string
+  /**
+   * Apply the user's own `~/.config/ghostty/config` for everything Settings does
+   * not manage; Settings stay authoritative for the options above.
+   */
+  terminalUseGhosttyConfig: boolean
   terminalLineHeight: number
   cursorStyle: 'block' | 'bar' | 'underline'
   cursorBlink: boolean
