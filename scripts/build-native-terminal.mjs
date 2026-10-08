@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, cpSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync, readdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -53,6 +53,34 @@ if (/libintl|bindtextdomain|gettext/.test(symbols)) throw new Error('Native libr
 run('clang', ['-shared', '-undefined', 'dynamic_lookup', '-I', headers, join(directory, 'bridge.c'), '-L', release, '-lDonwellsGhostty', '-Wl,-rpath,@loader_path', '-o', join(output, 'ghostty.node')])
 cpSync(join(release, 'libDonwellsGhostty.dylib'), join(output, 'libDonwellsGhostty.dylib'))
 cpSync(join(release, 'GhosttyKit_GhosttyTerminal.bundle'), join(output, 'GhosttyKit_GhosttyTerminal.bundle'), { recursive: true })
+// Shell integration for the remaining shells. Upstream's bash and zsh scripts
+// incorporate GPLv3 shell code, so those stay with the wrapper's MIT versions;
+// fish, elvish and nushell are Ghostty's own MIT code and can ship as they are.
+// The GPL scan below is what keeps that claim true as the pin moves.
+const integration = join(core, 'src/shell-integration')
+const shippedIntegration = join(output, 'GhosttyKit_GhosttyTerminal.bundle/Ghostty/shell-integration')
+for (const shell of ['fish', 'elvish', 'nushell']) {
+  const source = join(integration, shell)
+  if (!existsSync(source)) throw new Error('Missing upstream shell integration for ' + shell)
+  const destination = join(shippedIntegration, shell)
+  rmSync(destination, { recursive: true, force: true })
+  cpSync(source, destination, { recursive: true })
+}
+// Judge the licence, not the word: the wrapper's MIT bash and zsh scripts
+// mention GPLv3 when describing where their hooks came from. A real GPL file
+// carries the grant clause or an SPDX GPL identifier.
+const permissive = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC'])
+const violating = readdirSync(shippedIntegration, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile())
+  .map((entry) => resolve(entry.parentPath, entry.name))
+  .filter((file) => {
+    const text = readFileSync(file, 'utf8')
+    if (/under the terms of the GNU General Public License/i.test(text)) return true
+    const spdx = /SPDX-License-Identifier:\s*([A-Za-z0-9.+-]+)/i.exec(text)
+    return spdx !== null && !permissive.has(spdx[1])
+  })
+if (violating.length > 0) throw new Error('Non-permissive shell integration must not ship: ' + violating.join(', '))
+
 cpSync(join(vendor, 'LICENSE'), join(output, 'GhosttyTerminal-LICENSE.txt'))
 cpSync(join(directory, '.build/checkouts/MSDisplayLink/LICENSE'), join(output, 'MSDisplayLink-LICENSE.txt'))
 cpSync(join(directory, 'Ghostty-LICENSE.txt'), join(output, 'Ghostty-LICENSE.txt'))

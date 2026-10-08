@@ -29,7 +29,7 @@ The build pins:
 
 `host-integration.patch` forwards upstream search callbacks and resolves resources relative to the installed application. Remove those patch sections when the wrapper provides equivalent public hooks. The application supplies native view bounds, configuration, app shortcuts and daemon I/O; it does not implement a second PTY service.
 
-The wrapper's prebuilt XCFramework is **not used**: its linked library included gettext symbols. The source build passes Ghostty's existing `-Di18n=false` and rejects a final library exporting gettext symbols. This excludes Ghostty's gettext-based UI translations, not Unicode terminal input. The wrapper's own MIT shell resources are used; upstream GPL shell integration scripts are not copied into the application.
+The wrapper's prebuilt XCFramework is **not used**: its linked library included gettext symbols. The source build passes Ghostty's existing `-Di18n=false` and rejects a final library exporting gettext symbols. This excludes Ghostty's gettext-based UI translations, not Unicode terminal input. Shell integration ships for bash, zsh, fish, elvish and nushell. Bash and zsh use the wrapper's MIT implementations, because upstream's counterparts incorporate GPLv3 shell code; fish, elvish and nushell are taken from the pinned core, which is MIT. The native build and `package:check` both refuse to ship a script carrying a GPL grant clause or a non-permissive SPDX identifier, so the arrangement cannot drift with a new pin.
 
 ## Dependency admission
 

@@ -145,6 +145,17 @@ if (platform === 'darwin') {
     assert((await stat(resolve(native, name))).size > 0, `Missing or empty native resource: ${name}`);
   }
   assert((await readdir(resolve(native, 'GhosttyKit_GhosttyTerminal.bundle'))).length > 0, 'Native terminal resource bundle is empty');
+  // Shell integration ships for these shells. Bash and zsh come from the
+  // wrapper's MIT implementations because upstream's incorporate GPLv3 shell
+  // code; fish, elvish and nushell come from the pinned MIT core.
+  const integration = resolve(native, 'GhosttyKit_GhosttyTerminal.bundle/Ghostty/shell-integration');
+  for (const shell of ['bash', 'zsh', 'fish', 'elvish', 'nushell']) {
+    assert(existsSync(resolve(integration, shell)), `Missing shell integration for ${shell}`);
+  }
+  for (const entry of readdirSync(integration, { recursive: true, withFileTypes: true }).filter((item) => item.isFile())) {
+    const text = await readFile(resolve(entry.parentPath, entry.name), 'utf8');
+    assert(!/under the terms of the GNU General Public License/i.test(text), `Non-permissive shell integration shipped: ${entry.name}`);
+  }
   assert((await readdir(resolve(native, 'notices/z2d-source'))).length > 2, 'z2d covered source is missing');
   const build = JSON.parse(await readFile(resolve(native, 'build.json'), 'utf8'));
   assert(/^[a-f0-9]{40}$/.test(build.wrapper) && /^[a-f0-9]{40}$/.test(build.core) && typeof build.z2dHash === 'string' && build.z2dHash.startsWith('z2d-'), 'Invalid native source provenance');
