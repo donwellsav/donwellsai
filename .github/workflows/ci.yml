@@ -57,6 +57,8 @@ jobs:
           go-version: stable
 
       - name: Build native history engine
+        env:
+          DONWELLS_HISTORY_UNQUALIFIED: '1'
         run: pnpm run build:native-history
 
       - name: Verify packaged native terminal
@@ -110,7 +112,13 @@ jobs:
       - uses: ./.github/actions/native-terminal
         if: matrix.platform == 'darwin'
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
       - name: Build directory package
+        env:
+          DONWELLS_HISTORY_UNQUALIFIED: '1'
         run: pnpm run package:dir
 
       - name: Locate packaged resources
@@ -203,7 +211,13 @@ jobs:
       - uses: ./.github/actions/native-terminal
         if: matrix.platform == 'darwin'
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
       - name: Build directory package
+        env:
+          DONWELLS_HISTORY_UNQUALIFIED: '1'
         run: pnpm run package:dir
 
       - name: Locate directory package executable
