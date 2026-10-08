@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, isAbsolute } from 'node:path'
 import type { HerdrAgentStatus, HerdrPaneSummary, HerdrSnapshot, HerdrTerminalSource, HerdrWorkspaceSummary } from '@shared/herdr-session'
@@ -16,11 +16,23 @@ export function sessionErrorMessage(error: unknown): string {
   return message.replace(/\bherdr\b/gi, 'session service')
 }
 
+/**
+ * Reject a candidate any other local account could replace.
+ *
+ * The session service is discovered on `PATH` and spawned inside the privileged
+ * main process, so a group- or world-writable binary must never be executed.
+ * Windows has no comparable mode bits, so the check only applies elsewhere.
+ */
+export function isTrustedExecutable(path: string): boolean {
+  if (process.platform === 'win32') return true
+  try { return (statSync(path).mode & 0o022) === 0 } catch { return false }
+}
+
 function executable(): string {
   const found = new AgentRegistry().findExecutable('herdr')
-  if (found) return found
+  if (found && isTrustedExecutable(found)) return found
   for (const path of [join(homedir(), '.local', 'bin', 'herdr'), '/opt/homebrew/bin/herdr', '/usr/local/bin/herdr']) {
-    try { accessSync(path, constants.X_OK); return path } catch { /* continue */ }
+    try { accessSync(path, constants.X_OK); if (isTrustedExecutable(path)) return path } catch { /* continue */ }
   }
   throw new Error('The session service was not found. Install it, then refresh.')
 }
