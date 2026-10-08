@@ -15,6 +15,9 @@ export type AppCommandId =
   | 'new-terminal'
   | 'split-terminal'
   | 'find'
+  | 'increase-terminal-font-size'
+  | 'decrease-terminal-font-size'
+  | 'reset-terminal-font-size'
   | 'focus-next-pane'
   | 'focus-previous-pane'
   | 'close-active-pane'
@@ -110,6 +113,10 @@ export const APP_COMMANDS: readonly AppCommand[] = Object.freeze([
   { id: 'select-tab-7', label: 'Select tab 7', category: 'View', defaultAccelerators: ['Mod+7'], palette: false },
   { id: 'select-tab-8', label: 'Select tab 8', category: 'View', defaultAccelerators: ['Mod+8'], palette: false },
   { id: 'select-tab-9', label: 'Select tab 9', category: 'View', defaultAccelerators: ['Mod+9'], palette: false },
+  // Driven by Ghostty keybinds (`increase_font_size:1`), so they claim no accelerator.
+  { id: 'increase-terminal-font-size', label: 'Increase terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'decrease-terminal-font-size', label: 'Decrease terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
+  { id: 'reset-terminal-font-size', label: 'Reset terminal font size', category: 'Terminal', defaultAccelerators: [], palette: true, rendererOnly: true },
   { id: 'settings', label: 'Settings…', category: 'View', defaultAccelerators: ['Mod+Comma'], palette: true },
   { id: 'show-agents', label: 'Show agent sessions', category: 'Agent', defaultAccelerators: [], palette: true },
   { id: 'show-project-memory', label: 'Show project memory', category: 'Workspace', defaultAccelerators: [], palette: true },
@@ -160,6 +167,12 @@ const KEY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   esc: 'escape',
   spacebar: 'space',
   ' ': 'space',
+  equal: 'equal',
+  '=': 'equal',
+  plus: 'plus',
+  '+': 'plus',
+  minus: 'minus',
+  '-': 'minus',
   up: 'arrowup',
   down: 'arrowdown',
   left: 'arrowleft',
@@ -184,7 +197,7 @@ export function parseChord(value: string): ParsedChord | null {
     }
     if (parsed.key) return null
     const key = KEY_ALIASES[part] ?? part
-    if (!/^(?:[a-z0-9]|f(?:[1-9]|1[0-2])|enter|escape|comma|space|tab|backspace|delete|arrow(?:up|down|left|right))$/.test(key)) return null
+    if (!/^(?:[a-z0-9]|f(?:[1-9]|1[0-2])|enter|escape|comma|equal|plus|minus|space|tab|backspace|delete|arrow(?:up|down|left|right))$/.test(key)) return null
     parsed.key = key
   }
   if (!parsed.key || (parsed.mod && (parsed.command || parsed.control))) return null

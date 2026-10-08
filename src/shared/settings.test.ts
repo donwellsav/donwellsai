@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSettings } from './settings'
+import { DEFAULT_SETTINGS, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN, resolveSettings, steppedTerminalFontSize } from './settings'
 
 describe('terminal font settings', () => {
   it('accepts the OpenType feature and variation syntax the renderer writes out', () => {
@@ -29,5 +29,25 @@ describe('terminal font settings', () => {
     expect(defaults.terminalLigatures).toBe(true)
     expect(defaults.terminalFontFeatures).toBe('')
     expect(defaults.terminalFontVariations).toBe('')
+  })
+})
+
+describe('terminal font size steps', () => {
+  it('steps by one and stays inside the bounds the setting accepts', () => {
+    expect(steppedTerminalFontSize(13, 1)).toBe(14)
+    expect(steppedTerminalFontSize(13, -1)).toBe(12)
+    expect(steppedTerminalFontSize(TERMINAL_FONT_SIZE_MAX, 1)).toBe(TERMINAL_FONT_SIZE_MAX)
+    expect(steppedTerminalFontSize(TERMINAL_FONT_SIZE_MIN, -1)).toBe(TERMINAL_FONT_SIZE_MIN)
+  })
+
+  it('produces values the setting itself validates', () => {
+    for (let step = 0; step < 40; step += 1) {
+      const next = steppedTerminalFontSize(TERMINAL_FONT_SIZE_MIN, step)
+      expect(resolveSettings({ terminalFontSize: next }).terminalFontSize).toBe(next)
+    }
+  })
+
+  it('falls back to the default when the current size is unusable', () => {
+    expect(steppedTerminalFontSize(Number.NaN, 0)).toBe(DEFAULT_SETTINGS.terminalFontSize)
   })
 })

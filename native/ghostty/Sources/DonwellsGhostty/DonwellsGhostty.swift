@@ -87,7 +87,8 @@ private func emit(_ payload: [String: Any]) {
     func shortcut(_ event: NSEvent) -> Bool {
         let special: [UInt16: String] = [36: "enter", 48: "tab", 49: "space", 51: "backspace", 53: "escape", 123: "arrowleft", 124: "arrowright", 125: "arrowdown", 126: "arrowup"]
         let rawKey = special[event.keyCode] ?? (event.charactersIgnoringModifiers ?? "").lowercased()
-        let key = rawKey == "," ? "comma" : rawKey
+        let punctuation: [String: String] = [",": "comma", "=": "equal", "-": "minus", "+": "plus"]
+        let key = punctuation[rawKey] ?? rawKey
         let flags = event.modifierFlags
         let modifiers = [(flags.contains(.command), "command"), (flags.contains(.control), "control"), (flags.contains(.option), "alt"), (flags.contains(.shift), "shift")].filter { $0.0 }.map { $0.1 }.sorted()
         let chord = (modifiers + [key]).joined(separator: "+")

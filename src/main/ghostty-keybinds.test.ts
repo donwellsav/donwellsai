@@ -32,10 +32,27 @@ describe('Ghostty keybind passthrough', () => {
 
   it('leaves terminal-level actions to the embedded surface', () => {
     const commands = ghosttyKeybindCommands(
-      ['keybind = cmd+c=copy_to_clipboard', 'keybind = cmd+v=paste_from_clipboard', 'keybind = cmd+a=select_all', 'keybind = cmd+plus=increase_font_size:1'].join('\n'),
+      ['keybind = cmd+c=copy_to_clipboard', 'keybind = cmd+v=paste_from_clipboard', 'keybind = cmd+a=select_all'].join('\n'),
       'mac'
     )
     expect(commands).toEqual({})
+  })
+
+  it('maps the font-size actions, including the punctuation chords they are bound to', () => {
+    const commands = ghosttyKeybindCommands(
+      [
+        'keybind = cmd+plus=increase_font_size:1',
+        'keybind = cmd+minus=decrease_font_size:1',
+        'keybind = cmd+equal=increase_font_size:2',
+        'keybind = cmd+0=reset_font_size'
+      ].join('\n'),
+      'mac'
+    )
+    // The surface reports shift+equal for `plus`, so that is the chord it matches.
+    expect(commands['command+shift+equal']).toBe('increase-terminal-font-size')
+    expect(commands['command+minus']).toBe('decrease-terminal-font-size')
+    expect(commands['command+equal']).toBe('increase-terminal-font-size')
+    expect(commands['command+0']).toBe('reset-terminal-font-size')
   })
 
   it('ignores prefixed triggers, comments and unrelated configuration', () => {

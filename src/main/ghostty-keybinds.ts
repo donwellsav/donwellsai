@@ -25,6 +25,10 @@ const ACTION_COMMANDS: Readonly<Record<string, string>> = Object.freeze({
 function actionCommand(action: string): string | undefined {
   const direct = ACTION_COMMANDS[action]
   if (direct) return direct
+  // Ghostty accepts an optional step, e.g. `increase_font_size:2`.
+  if (/^increase_font_size(?::\d+)?$/.test(action)) return 'increase-terminal-font-size'
+  if (/^decrease_font_size(?::\d+)?$/.test(action)) return 'decrease-terminal-font-size'
+  if (action === 'reset_font_size') return 'reset-terminal-font-size'
   const tab = /^goto_tab:(\d+)$/.exec(action)
   if (!tab) return undefined
   const command = `select-tab-${tab[1]}`
@@ -54,7 +58,12 @@ export function ghosttyKeybindCommands(userConfig: string, platform: AppCommandP
     if (trigger.includes(':')) continue
     const command = actionCommand(action)
     if (!command) continue
-    const parsed = parseChord(trigger)
+    // Ghostty's `plus` is what a US layout produces for shift+equal, and the
+    // surface reports the unshifted character, so translate before parsing.
+    const chord = trigger.split('+').map((part) => part.trim().toLowerCase()).includes('plus')
+      ? trigger.replace(/plus/i, 'shift+equal')
+      : trigger
+    const parsed = parseChord(chord)
     if (!parsed) continue
     commands[normalizedChord(parsed, platform)] = command
   }

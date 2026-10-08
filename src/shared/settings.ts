@@ -178,6 +178,10 @@ function isShortcutOverrides(value: unknown): value is Record<string, string> {
 const booleanValue = (value: unknown): value is boolean => typeof value === 'boolean'
 const stringOptions = (values: readonly string[]): readonly SettingOption[] => values.map((value) => ({ value, label: value }))
 
+/** Terminal font size bounds, shared by the setting and the keyboard commands. */
+export const TERMINAL_FONT_SIZE_MIN = 9
+export const TERMINAL_FONT_SIZE_MAX = 24
+
 export const SETTING_DEFINITIONS: SettingDefinitions = {
   theme: {
     key: 'theme', section: 'appearance', label: 'Theme',
@@ -261,7 +265,7 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     key: 'terminalFontSize', section: 'terminal', label: 'Font size',
     description: 'Terminal text size in pixels.',
     default: DEFAULT_SETTINGS.terminalFontSize, lifecycle: 'live', scope: 'global',
-    control: { type: 'number', min: 9, max: 24, step: 1 }, validate: (value): value is number => boundedNumber(value, 9, 24, true)
+    control: { type: 'number', min: TERMINAL_FONT_SIZE_MIN, max: TERMINAL_FONT_SIZE_MAX, step: 1 }, validate: (value): value is number => boundedNumber(value, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, true)
   },
   terminalFontWeight: {
     key: 'terminalFontWeight', section: 'terminal', label: 'Font weight',
@@ -473,6 +477,15 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     },
     validate: oneOf(statusPollIntervals)
   }
+}
+
+/**
+ * Step the terminal font size, clamped to what the setting accepts. Ghostty
+ * keybinds (`increase_font_size:1`) land here, so the bounds must not drift.
+ */
+export function steppedTerminalFontSize(current: number, delta: number): number {
+  const base = Number.isFinite(current) ? current : DEFAULT_SETTINGS.terminalFontSize
+  return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, Math.round(base) + delta))
 }
 
 export const SETTING_KEYS = Object.freeze(Object.keys(SETTING_DEFINITIONS) as SettingKey[])

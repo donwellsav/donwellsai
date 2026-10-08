@@ -5,6 +5,7 @@ import {
   type AppCommand,
   type AppCommandId
 } from '@shared/app-commands'
+import { DEFAULT_SETTINGS, steppedTerminalFontSize } from '@shared/settings'
 import { isMarkdownFile, useAppStore } from './store'
 import { requestTerminalFind } from './terminal-ui'
 import { requestPaletteFileScope } from './global-navigator'
@@ -285,6 +286,15 @@ export function dispatchAppCommand(action: string): void {
       break
     case 'show-attention-inbox':
       openAttentionInbox()
+      break
+    case 'increase-terminal-font-size':
+      void state.setSettings({ terminalFontSize: steppedTerminalFontSize(state.settings.terminalFontSize, 1) })
+      break
+    case 'decrease-terminal-font-size':
+      void state.setSettings({ terminalFontSize: steppedTerminalFontSize(state.settings.terminalFontSize, -1) })
+      break
+    case 'reset-terminal-font-size':
+      void state.setSettings({ terminalFontSize: DEFAULT_SETTINGS.terminalFontSize })
       break
     case 'settings':
       state.openSettings(state.settingsSection)
