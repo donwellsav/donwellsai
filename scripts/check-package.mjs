@@ -36,6 +36,18 @@ assert(pkg.name === "donwells.ai", "package name must be donwells.ai");
 assert(pkg.license === "UNLICENSED", "the private project must not advertise a blanket open-source license");
 assert(pkg.packageManager === "pnpm@12.0.0", "package manager must remain pinned to pnpm 12");
 assert(pkg.bin?.donwells === "./cli/donwells.mjs", "donwells CLI bin mapping is missing");
+assert(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version), `package version must be semver, got ${pkg.version}`);
+// Two different builds must never share one version identity. Untagged work
+// (local packaging, CI runs) skips this; a tagged release must agree.
+let releaseTag = "";
+try {
+  releaseTag = execFileSync("git", ["describe", "--tags", "--exact-match"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+} catch {
+  releaseTag = "";
+}
+if (releaseTag) {
+  assert(releaseTag.replace(/^v/, "") === pkg.version, `HEAD tag ${releaseTag} does not match package version ${pkg.version}`);
+}
 assert(pkg.dependencies?.["pdfjs-dist"], "pdfjs-dist must be a runtime dependency");
 assert(pkg.devDependencies?.["electron-builder"], "electron-builder must be a development dependency");
 assert(pkg.scripts?.build === "electron-vite build && pnpm run build:cli", "desktop build must also compile the CLI");

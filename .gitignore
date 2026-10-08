@@ -8,3 +8,5 @@ resources/native/
 storybook-static
 test-results
 playwright-report/
+.graphflow/
+graphflow-out/
