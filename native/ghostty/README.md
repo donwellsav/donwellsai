@@ -2,6 +2,8 @@
 
 **Ghostty is the default terminal on macOS.** The pane renders the vendored libghostty surface (`resources/native/ghostty.node`), and the existing daemon continues to own the PTY: moving a panel, changing renderer, or restarting the GUI never starts a replacement agent.
 
+**A package cannot ship a dead terminal.** `package:check` loads the built module and requires its `request`/`listen` entry points, so a present-but-uninitializable Ghostty fails packaging instead of reaching users (loading also resolves `libDonwellsGhostty.dylib` through dyld, which proves the whole native stack is usable). CI provisions the pinned Zig toolchain via `scripts/install-zig.mjs`, builds the native surface on macOS, and runs `package:check` plus an E2E case that asserts the default renderer really is Ghostty.
+
 **Settings → Terminal → Renderer** selects the surface:
 
 - **Ghostty (native)** — the default. Used only when the native module actually loads.
