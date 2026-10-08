@@ -219,7 +219,11 @@ export class Store {
       // field is not the migration's source and is retired with the envelope.
     } else {
       // This store owns removal of settings retired from its schema.
-      const RETIRED_AND_REMOVED_HERE = ['language', 'terminalRenderer'] as const
+      // `language` is genuinely retired. `terminalRenderer` was retired by an
+      // earlier change and then re-used as the name of a live setting, so it
+      // must NOT stay here: doing so deleted the user's renderer choice from the
+      // profile on every launch and silently reverted them to the default.
+      const RETIRED_AND_REMOVED_HERE = ['language'] as const
       // `agentCommand` is different: the daemon removes it as the provider
       // migration's settings publication, and that migration reads the persisted
       // file. Trimming it here would delete the migration's own source before it
@@ -286,7 +290,7 @@ export class Store {
     for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
       // Anything this version defines is the store's own business; only the
       // remainder belongs to another authority.
-      if (!Object.hasOwn(SETTING_DEFINITIONS, key) && key !== 'language' && key !== 'terminalRenderer') foreign[key] = value
+      if (!Object.hasOwn(SETTING_DEFINITIONS, key) && key !== 'language') foreign[key] = value
     }
     return foreign
   }

@@ -51,7 +51,10 @@ jobs:
 
       - name: Provision Zig 0.16.0
         shell: bash
-        run: echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+        run: |
+          node scripts/install-zig.mjs
+          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+          zig version
 
       - name: Install Electron headers for the native terminal build
         run: pnpm run rebuild:native
@@ -121,7 +124,10 @@ jobs:
       - name: Provision Zig 0.16.0
         if: matrix.platform == 'darwin'
         shell: bash
-        run: echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+        run: |
+          node scripts/install-zig.mjs
+          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+          zig version
 
       - name: Install Electron headers for the native terminal build
         if: matrix.platform == 'darwin'
@@ -228,7 +234,10 @@ jobs:
       - name: Provision Zig 0.16.0
         if: matrix.platform == 'darwin'
         shell: bash
-        run: echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+        run: |
+          node scripts/install-zig.mjs
+          echo "$(node scripts/install-zig.mjs --print-path)" >> "$GITHUB_PATH"
+          zig version
 
       - name: Install Electron headers for the native terminal build
         if: matrix.platform == 'darwin'

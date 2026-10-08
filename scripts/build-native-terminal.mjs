@@ -36,6 +36,11 @@ let replayPatched = false
 try { execFileSync('git', ['apply', '--reverse', '--check', join(directory, 'replay-grid.patch')], { cwd: core, stdio: 'ignore' }); replayPatched = true } catch {}
 if (replayPatched) run('git', ['apply', '--reverse', join(directory, 'replay-grid.patch')], core)
 // Use upstream's external-I/O patch stack, but never its gettext-linked prebuilt binary.
+// The patch stack is version-keyed, so building with some other Zig is not a
+// supported configuration even when it happens to work.
+const zigVersion = execFileSync('zig', ['version'], { encoding: 'utf8' }).trim()
+if (zigVersion !== '0.16.0') throw new Error(`Native terminal requires Zig 0.16.0, found ${zigVersion}`)
+
 execFileSync('./Script/build-ghostty.sh', [core, target, coreOutput], {
   cwd: vendor, stdio: 'inherit', env: { ...process.env, ZIG_BUILD_EXTRA_ARGS: '-Di18n=false' },
 })

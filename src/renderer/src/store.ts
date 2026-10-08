@@ -566,6 +566,8 @@ function activateTerminalSession(state: AppState, session: TerminalSession): Par
 }
 
 const pendingInitialTerminals = new Set<string>()
+/** Set while a quick-terminal session is being created, before it has an id. */
+let quickTerminalOpening = false
 
 export const useAppStore = create<AppState>((set, get) => ({
   repos: [],
@@ -1981,12 +1983,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async openQuickTerminal() {
+    // Guard before awaiting: the check below only sees finished opens, so two
+    // triggers would both create a session and the first would be live while
+    // nothing renders it.
+    if (quickTerminalOpening) return
     const worktreePath = get().activeWorktreePath
     if (!worktreePath) {
       set({ error: 'Select a checkout before opening the quick terminal.' })
       return
     }
     if (get().quickTerminalSessionId) return
+    quickTerminalOpening = true
     try {
       const session = await window.donwells.openTerminal(worktreePath)
       set((state) => ({
@@ -1999,6 +2006,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
     } catch (error) {
       set({ error: 'Quick terminal failed: ' + String(error) })
+    } finally {
+      quickTerminalOpening = false
     }
   },
 
