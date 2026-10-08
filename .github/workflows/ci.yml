@@ -62,6 +62,8 @@ jobs:
         run: pnpm run build:native-history
 
       - name: Verify packaged native terminal
+        env:
+          DONWELLS_HISTORY_UNQUALIFIED: '1'
         run: pnpm run package:check
 
       - name: Test
