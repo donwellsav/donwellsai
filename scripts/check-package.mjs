@@ -149,6 +149,10 @@ if (platform === 'darwin') {
   const build = JSON.parse(await readFile(resolve(native, 'build.json'), 'utf8'));
   assert(/^[a-f0-9]{40}$/.test(build.wrapper) && /^[a-f0-9]{40}$/.test(build.core) && typeof build.z2dHash === 'string' && build.z2dHash.startsWith('z2d-'), 'Invalid native source provenance');
   assert(build.flags?.includes('-Di18n=false'), 'Native build must disable gettext');
+  // Ghostty ships feature areas that a size-conscious embedder can compile out.
+  // Trimming them would silently drop terminal capabilities this app advertises,
+  // notably the kitty graphics protocol, so the manifest must record no trimming.
+  assert(!(build.flags ?? []).some((flag) => String(flag).startsWith('-Dvt-features')), 'Native build must not trim VT features (kitty graphics and other terminal capabilities would be compiled out)');
   const targetArch = { 'aarch64-macos.13.0': 'arm64', 'x86_64-macos.13.0': 'x86_64' }[build.target];
   assert(targetArch, 'Unsupported native target');
   const expected = values.arch ?? (!values.resources ? process.arch : undefined);
