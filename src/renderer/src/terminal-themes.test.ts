@@ -50,8 +50,9 @@ describe('terminal palette resolution', () => {
     // With one, a retired palette resolves to the catalog theme that ships it
     // instead of silently becoming the fallback.
     expect(terminalThemeOf('tomorrow-night', [{ ...mocha, name: 'Tomorrow Night' }])).not.toEqual(terminalThemeOf('donwells'))
-    // Solarized Dark has no exact counterpart, so it stays on the fallback
-    // rather than pretending a different theme is the one that was chosen.
+    // Solarized Dark has no exact counterpart; the closest variant is used so
+    // the choice still means something, and an absent catalog still falls back.
+    expect(terminalThemeOf('solarized-dark', [{ ...mocha, name: 'Solarized Dark Patched' }])).not.toEqual(terminalThemeOf('donwells'))
     expect(terminalThemeOf('solarized-dark', [mocha])).toEqual(terminalThemeOf('donwells'))
   })
 })

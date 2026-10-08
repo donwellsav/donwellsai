@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN, resolveSettings, steppedTerminalFontSize } from './settings'
+import { DEFAULT_SETTINGS, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN, resolveSettings, steppedTerminalFontSize, validateSettingsPatch } from './settings'
 
 describe('terminal font settings', () => {
   it('accepts the OpenType feature and variation syntax the renderer writes out', () => {
@@ -49,5 +49,16 @@ describe('terminal font size steps', () => {
 
   it('falls back to the default when the current size is unusable', () => {
     expect(steppedTerminalFontSize(Number.NaN, 0)).toBe(DEFAULT_SETTINGS.terminalFontSize)
+  })
+})
+
+describe('retired terminal palettes', () => {
+  it('keeps accepting every palette name an older profile could hold', () => {
+    // The renderer maps these to catalog themes. Removing one from the accepted
+    // list would make a profile still holding it fail to load as corrupt, so
+    // this pins the list against a future tidy-up.
+    for (const terminalTheme of ['donwells', 'tomorrow-night', 'dracula', 'solarized-dark', 'github-dark']) {
+      expect(validateSettingsPatch({ terminalTheme })).toEqual({ terminalTheme })
+    }
   })
 })

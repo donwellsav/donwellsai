@@ -30,6 +30,12 @@ type SettingDefinition<K extends SettingKey> = SettingMetadata<K> & {
 
 type SettingDefinitions = { [K in SettingKey]: SettingDefinition<K> }
 
+// Retired names stay accepted on purpose. The app's own copies of these palettes
+// were folded into Ghostty's catalog, and terminal-themes.ts maps each retired
+// name to the catalog theme that ships the same colours - but a profile written
+// before that still stores the old name, and validateSettingsPatch throws on a
+// value outside this list. Narrowing it to the surviving palette would make
+// those profiles fail to load as corrupt.
 const terminalThemes = ['donwells', 'tomorrow-night', 'dracula', 'solarized-dark', 'github-dark'] as const
 const themeOptions = ['system', 'dark', 'light'] as const
 const cursorStyles = ['block', 'bar', 'underline'] as const

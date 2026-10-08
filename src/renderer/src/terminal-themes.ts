@@ -36,16 +36,17 @@ export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'donwells'
 
 /**
  * Retired app palette names, mapped to the catalog themes that ship the same
- * palette. The app's own copies were duplicates and are gone, but a profile that
+ * colours. The app's own copies were duplicates and are gone, but a profile that
  * still names one must keep rendering that palette rather than silently turning
- * into the fallback. Three of the four have an exact catalog counterpart;
- * `solarized-dark` does not, so it maps to the closest variant instead of
- * pretending an exact match exists.
+ * into the fallback. `solarized-dark` is the one inexact entry.
  */
 export const RETIRED_PALETTE_THEMES: Record<string, string> = {
   dracula: 'Dracula',
   'github-dark': 'GitHub Dark',
   'tomorrow-night': 'Tomorrow Night',
+  // No exact "Solarized Dark" ships in the catalog. A near-match is the better
+  // failure: the user chose a Solarized dark palette, and handing them the
+  // unrelated donwells palette is less honest than the closest variant.
   'solarized-dark': 'Solarized Dark Patched'
 }
 
