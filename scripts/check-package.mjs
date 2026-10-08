@@ -166,6 +166,20 @@ if (platform === 'darwin') {
     }
   }
   if (packagedMac) assert(execFileSync('lipo', ['-archs', resolve(values.resources, '../MacOS/donwells')], { encoding: 'utf8' }).trim().split(/\s+/).includes(targetArch), 'App executable does not support native library architecture');
+
+  // Ghostty is the terminal, so a present-but-dead module must fail packaging
+  // rather than ship and silently degrade every pane to xterm. Loading resolves
+  // libDonwellsGhostty through dyld and runs the N-API initializer, so a
+  // successful require proves the whole native stack is usable.
+  if (targetArch === process.arch) {
+    process.env.GHOSTTY_RESOURCE_BUNDLE = resolve(native, 'GhosttyKit_GhosttyTerminal.bundle');
+    const nativeTerminal = createRequire(import.meta.url)(resolve(native, 'ghostty.node'));
+    for (const name of ['request', 'listen']) {
+      assert(typeof nativeTerminal?.[name] === 'function', `Native terminal module does not expose ${name}; Ghostty could not initialize`);
+    }
+  } else {
+    console.log(`Skipping native terminal load check: built for ${targetArch}, running on ${process.arch}.`);
+  }
 }
 const notices = await readFile(resolve(root, "resources/THIRD_PARTY_NOTICES.txt"), "utf8");
 for (const required of ["Copyright (c) 2026 Lovecast Inc.", "Permission is hereby granted", "THE SOFTWARE IS PROVIDED \"AS IS\""]) {
