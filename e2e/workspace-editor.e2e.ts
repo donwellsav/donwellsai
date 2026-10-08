@@ -234,10 +234,18 @@ test('opens a terminal and runs a command, then stops it through the close dialo
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()
   const host = page.locator('.pane-body-terminal:not(.terminal-hidden) .terminal-host')
   await expect(host).toBeVisible()
-  await host.locator('.xterm-helper-textarea').focus()
-  await page.keyboard.type('echo terminal-through-keyboard')
-  await page.keyboard.press('Enter')
-  await expect(host).toContainText('terminal-through-keyboard')
+  // macOS renders the native terminal surface (see TerminalPane): it paints PTY
+  // output outside the DOM and exposes no read-back, so only the xterm surface
+  // used on other platforms can prove the echoed command reached the terminal.
+  if (process.platform === 'darwin') {
+    await expect(host).toHaveClass(/native-terminal-host/)
+    await host.focus()
+  } else {
+    await host.locator('.xterm-helper-textarea').focus()
+    await page.keyboard.type('echo terminal-through-keyboard')
+    await page.keyboard.press('Enter')
+    await expect(host).toContainText('terminal-through-keyboard')
+  }
   const activeTerminalTab = page.getByRole('tab', { name: 'Terminal 2' })
   await activeTerminalTab.hover()
   await activeTerminalTab.getByRole('button', { name: /Close .*Terminal/ }).click()
