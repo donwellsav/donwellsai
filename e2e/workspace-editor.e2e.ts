@@ -269,6 +269,13 @@ test('renders the native Ghostty terminal by default', async () => {
   const host = page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')
   await expect(host).toBeVisible()
   await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .xterm-helper-textarea')).toHaveCount(0)
+  // The native surface reports failures through this banner: create, configuration
+  // and focus must all have round-tripped through the C bridge without error.
+  await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
+  // A second surface proves create/config are repeatable, not one-shot.
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await expect(host).toBeVisible()
+  await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
 })
 
 test('exercises workspace layout presets', async () => {

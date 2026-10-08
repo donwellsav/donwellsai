@@ -36,4 +36,12 @@ The files in `notices/` were taken from the exact core dependency archives, exce
 
 ## Focused check
 
-The native path is verified by dispatching AppKit events through the actual native view: search, app shortcuts, switching and recovery, plus a real agent run without submitting a model request, on disposable projects and a separate app profile. It does not establish physical keyboard/pointing behavior or rendered Metal pixel quality on a locked desktop. The previous automated acceptance harness (`tests/acceptance/native-terminal.mjs`) was deleted on 2026-09-11 with the rest of `tests/` and `docs/`; no replacement exists yet.
+The native path was historically verified by dispatching AppKit events through the actual native view: search, app shortcuts, switching and recovery, plus a real agent run without submitting a model request, on disposable projects and a separate app profile. The previous acceptance harness (`tests/acceptance/native-terminal.mjs`) was deleted on 2026-09-11 with the rest of `tests/` and `docs/`.
+
+Automated coverage now lives in:
+
+- `src/main/native-terminal-config.test.ts` — the settings→Ghostty configuration contract, including that a hostile font family cannot add a configuration line.
+- `scripts/check-package.mjs` — the built module must load and expose `request`/`listen`.
+- `e2e/workspace-editor.e2e.ts` → `renders the native Ghostty terminal by default` — availability, the native surface, no xterm fallback, repeated create, and no native error banner.
+
+Still not covered: physical keyboard and pointing behaviour, rendered Metal pixel quality on a locked desktop, and the native search field, which is an AppKit view outside the DOM.
