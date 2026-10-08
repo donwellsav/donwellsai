@@ -112,7 +112,9 @@ export async function executeUiCommand(cmd: UiCommand): Promise<unknown> {
       s.setRightSidebarOpen(open)
       if (cmd.tab) s.setRightSidebarTab(cmd.tab)
       if (cmd.width !== undefined) s.setRightSidebarWidth(cmd.width)
-      return { open }
+      // A retired tab can redirect the panel elsewhere, so report the state that
+      // actually resulted rather than the requested one.
+      return { open: useAppStore.getState().rightSidebarOpen }
     }
     case 'palette': {
       const open = cmd.open === 'toggle' || cmd.open === undefined ? !s.paletteOpen : cmd.open
