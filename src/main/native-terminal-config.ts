@@ -24,8 +24,8 @@ const openTypeList = (value: string): string =>
  * and the result is JSON-encoded: a family containing a newline must never
  * become a second configuration line.
  */
-export function nativeTerminalConfiguration(settings: AppSettings): string {
-  const theme = terminalThemeOf(settings.terminalTheme)
+export function nativeTerminalConfiguration(settings: AppSettings, palette?: Record<string, string>): string {
+  const theme = palette ?? terminalThemeOf(settings.terminalTheme)
   const font = settings.terminalFontFamily.split(',')[0]!.trim().replace(/^['"]|['"]$/g, '').replace(/[\r\n\0]/g, '') || 'Menlo'
   // Ligatures and explicit features share one key, so they are merged rather
   // than emitted twice.

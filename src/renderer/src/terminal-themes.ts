@@ -1,4 +1,5 @@
 import type { TerminalThemeName } from '@shared/types'
+import type { GhosttyTheme } from '@shared/native-terminal'
 
 /**
  * Terminal ANSI palettes. `swatch` drives the settings picker preview; `xterm`
@@ -154,3 +155,43 @@ export const DEFAULT_TERMINAL_THEME: TerminalThemeName = 'donwells'
 
 export const terminalThemeOf = (name: TerminalThemeName | undefined): Record<string, string> =>
   TERMINAL_THEMES[name ?? DEFAULT_TERMINAL_THEME].xterm
+
+/** ANSI palette order shared with the native configuration builder. */
+const ANSI_ORDER = [
+  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'
+] as const
+
+/**
+ * Convert one of Ghostty's themes into the palette shape both renderers read.
+ * Ghostty stores bare `RRGGBB`; the app's palettes carry the `#`.
+ */
+export function ghosttyPaletteOf(theme: GhosttyTheme): Record<string, string> {
+  const palette: Record<string, string> = {
+    background: `#${theme.background}`,
+    foreground: `#${theme.foreground}`,
+    cursor: `#${theme.cursor ?? theme.foreground}`,
+    cursorAccent: `#${theme.cursorText ?? theme.background}`,
+    selectionBackground: `#${theme.selectionBackground ?? theme.foreground}`
+  }
+  for (const [index, color] of Object.entries(theme.palette)) {
+    const name = ANSI_ORDER[Number(index)]
+    if (name) palette[name] = `#${color}`
+  }
+  return palette
+}
+
+/**
+ * The palette a terminal actually renders with: a chosen Ghostty theme when one
+ * is selected, otherwise the app's own palette. The native surface and the
+ * xterm fallback both read this, so a theme looks the same either way.
+ */
+export function resolveTerminalPalette(
+  choice: { terminalTheme?: TerminalThemeName; terminalGhosttyTheme?: string },
+  ghosttyThemes: readonly GhosttyTheme[]
+): Record<string, string> {
+  const chosen = choice.terminalGhosttyTheme
+    ? ghosttyThemes.find((theme) => theme.name === choice.terminalGhosttyTheme)
+    : undefined
+  return chosen ? ghosttyPaletteOf(chosen) : terminalThemeOf(choice.terminalTheme)
+}

@@ -65,6 +65,7 @@ function SettingControlView({
   const control = metadata.control
   const value = settings[metadata.key]
   const availableAgents = agents.filter((agent) => agent.available)
+  const ghosttyThemes = useAppStore((state) => state.ghosttyThemes)
 
   const commitChoice = async (patch: Partial<AppSettings>): Promise<void> => {
     if (saving) return
@@ -107,7 +108,12 @@ function SettingControlView({
     if (typeof value !== 'boolean') return <SettingsState kind="error" title="Invalid setting definition" detail={metadata.key} />
     rendered = <SettingsSwitch checked={value} label={metadata.label} disabled={saving} onChange={(next) => void commitChoice(validateSettingsPatch({ [metadata.key]: next }))} />
   } else if (control.type === 'select') {
-    rendered = <SettingsSelect metadata={metadata} value={value} control={control} disabled={saving} onChange={(patch) => void commitChoice(patch)} />
+    // Ghostty's catalog lives in the native module, so this list cannot be part
+    // of the static descriptor. An empty catalog leaves the app palette alone.
+    const options = metadata.key === 'terminalGhosttyTheme'
+      ? [{ value: '', label: 'App palette' }, ...ghosttyThemes.map((theme) => ({ value: theme.name, label: theme.name }))]
+      : control.options
+    rendered = <SettingsSelect metadata={metadata} value={value} control={{ ...control, options }} disabled={saving} onChange={(patch) => void commitChoice(patch)} />
   } else {
     return <SettingsState kind="error" title="Unsupported setting control" detail={metadata.key} />
   }
@@ -401,8 +407,9 @@ export function SettingsModal({ open }: { open: boolean }) {
         ['Interface', ['interfaceFont', 'uiScale', 'interfaceDensity', 'interfaceMotion']],
         ['Layout', ['navigationLabels', 'toolPanelSide']]
       ] as const : [
-        ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLineHeight']],
-        ['Colors and cursor', ['terminalTheme', 'cursorStyle', 'cursorBlink']],
+        ['Terminal surface', ['terminalRenderer']],
+        ['Text', ['terminalFontFamily', 'terminalFontSize', 'terminalFontWeight', 'terminalLigatures', 'terminalFontFeatures', 'terminalFontVariations', 'terminalLineHeight']],
+        ['Colors and cursor', ['terminalTheme', 'terminalGhosttyTheme', 'cursorStyle', 'cursorBlink']],
         ['Behavior', ['scrollback', 'copyOnSelect']]
       ] as const).map(([label, keys]) => {
         const fields = keys.flatMap(key => metadata.filter(field => field.key === key))

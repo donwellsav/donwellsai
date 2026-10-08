@@ -278,6 +278,28 @@ test('renders the native Ghostty terminal by default', async () => {
   await expect(page.getByText('Native terminal unavailable')).toHaveCount(0)
 })
 
+// The theme catalog is compiled into the vendored wrapper, so reaching it proves
+// the native module exposes Ghostty's own set rather than an app-side imitation.
+test('reaches the Ghostty theme collection through the native module', async () => {
+  test.skip(process.platform !== 'darwin', 'the theme catalog comes from the native module')
+  const themes = await page.evaluate(() => window.donwells.nativeTerminalThemes())
+  expect(themes.length).toBeGreaterThan(400)
+  const mocha = themes.find((theme) => theme.name === 'Catppuccin Mocha')
+  expect(mocha?.background).toMatch(/^[0-9A-Fa-f]{6}$/)
+  expect(Object.keys(mocha?.palette ?? {})).toHaveLength(16)
+
+  // The Settings picker is populated from the same catalog, plus the app palette.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Terminal', exact: true }).click()
+  await expect(page.getByLabel('Ghostty theme', { exact: true }).locator('option')).toHaveCount(themes.length + 1)
+  // This section renders from a curated group list, so a setting can exist in the
+  // schema and still be missing from the UI. Guard the whole renderer surface.
+  await expect(page.getByRole('combobox', { name: 'Renderer', exact: true })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Ligatures', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Font features', exact: true })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Font variations', exact: true })).toBeVisible()
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.

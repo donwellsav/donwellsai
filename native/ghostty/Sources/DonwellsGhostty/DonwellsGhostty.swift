@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyTerminal
+import GhosttyTheme
 
 private let callbackLock = NSLock()
 nonisolated(unsafe) private var callback: (@convention(c) (UnsafePointer<CChar>) -> Void)?
@@ -147,6 +148,20 @@ private func emit(_ payload: [String: Any]) {
                 surface.isHidden = true
                 container.addSubview(surface, positioned: .above, relativeTo: nil)
                 surfaces[id] = surface
+            } else if op == "themes" {
+                // Ghostty's own theme collection, compiled into the vendored wrapper.
+                result["themes"] = GhosttyThemeCatalog.allThemes.map { theme -> [String: Any] in
+                    var palette: [String: String] = [:]
+                    for (index, color) in theme.palette { palette[String(index)] = color }
+                    var entry: [String: Any] = [
+                        "name": theme.name, "background": theme.background, "foreground": theme.foreground, "palette": palette
+                    ]
+                    if let cursor = theme.cursorColor { entry["cursor"] = cursor }
+                    if let text = theme.cursorText { entry["cursorText"] = text }
+                    if let selection = theme.selectionBackground { entry["selectionBackground"] = selection }
+                    if let selectionText = theme.selectionForeground { entry["selectionForeground"] = selectionText }
+                    return entry
+                }
             } else if let surface = surfaces[id] {
                 switch op {
                 case "write":

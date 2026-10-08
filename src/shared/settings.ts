@@ -65,6 +65,7 @@ export const DEFAULT_SETTINGS: Readonly<AppSettings> = Object.freeze({
   scrollback: 10000,
   copyOnSelect: false,
   terminalTheme: 'donwells',
+  terminalGhosttyTheme: '',
   terminalRenderer: 'ghostty',
   editorFontFamily: null,
   editorFontSize: null,
@@ -132,6 +133,11 @@ function isFontVariationList(value: unknown): value is string {
   if (typeof value !== 'string' || value.length > 256) return false
   const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
   return entries.every((entry) => /^[A-Za-z]{4}=-?\d{1,5}(\.\d{1,3})?$/.test(entry))
+}
+
+/** A Ghostty theme name: matched against the native catalog at render time. */
+function isGhosttyThemeName(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 128 && !/[\0\r\n]/.test(value)
 }
 
 function isAgentCommand(value: unknown): value is string {
@@ -317,6 +323,12 @@ export const SETTING_DEFINITIONS: SettingDefinitions = {
     description: 'ANSI color palette used by terminal sessions.',
     default: DEFAULT_SETTINGS.terminalTheme, lifecycle: 'live', scope: 'global',
     control: { type: 'select', options: stringOptions(terminalThemes) }, validate: oneOf(terminalThemes)
+  },
+  terminalGhosttyTheme: {
+    key: 'terminalGhosttyTheme', section: 'terminal', label: 'Ghostty theme',
+    description: 'Use one of Ghostty’s own themes instead of the app palette. Leave blank to keep the palette above.',
+    default: DEFAULT_SETTINGS.terminalGhosttyTheme, lifecycle: 'live', scope: 'global',
+    control: { type: 'select', options: [] }, validate: isGhosttyThemeName
   },
   editorFontFamily: {
     key: 'editorFontFamily', section: 'editor', label: 'Editor font family',

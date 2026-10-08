@@ -3,7 +3,7 @@ import { resolveExistingEntry } from './worktree-files'
 import { isObject } from '@shared/command-catalog'
 import { appCommand, electronAccelerator, type AppCommandId } from '@shared/app-commands'
 import { appResourcesRoot } from './app-resources'
-import { NativeTerminals, nativeTerminalAvailability } from './native-terminals'
+import { NativeTerminals, nativeTerminalAvailability, nativeTerminalThemes } from './native-terminals'
 import { readHerdrSnapshot } from './herdr-session'
 import { ProjectExport } from './project-export'
 import { ProjectTaskCoordination } from './project-task-coordination'
@@ -392,6 +392,11 @@ function registerIpc(): void {
   ipcMain.handle('native-terminal:availability', (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Native terminal availability has no authorized owner')
     return nativeTerminalAvailability()
+  })
+
+  ipcMain.handle('native-terminal:themes', (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Native terminal themes have no authorized owner')
+    return nativeTerminalThemes()
   })
 
   ipcMain.handle('herdr:snapshot', (event) => {

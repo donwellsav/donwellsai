@@ -8,7 +8,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon, type ISearchOptions, type ISearchResultChangeEvent } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useAppStore } from '../store'
-import { terminalThemeOf } from '../terminal-themes'
+import { resolveTerminalPalette } from '../terminal-themes'
 import { terminalBus } from '../terminal-bus'
 import { Icon } from './Icon'
 import { TERMINAL_FIND_EVENT, type TerminalFindEvent } from '../terminal-ui'
@@ -60,6 +60,14 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
   const cursorStyle = useAppStore((s) => s.settings.cursorStyle)
   const cursorBlink = useAppStore((s) => s.settings.cursorBlink)
   const terminalTheme = useAppStore((s) => s.settings.terminalTheme)
+  const terminalGhosttyTheme = useAppStore((s) => s.settings.terminalGhosttyTheme)
+  const ghosttyThemes = useAppStore((s) => s.ghosttyThemes)
+  // A chosen Ghostty theme wins over the app palette, and the native surface uses
+  // the same resolver, so both renderers agree on what a terminal looks like.
+  const palette = useMemo(
+    () => resolveTerminalPalette({ terminalTheme, terminalGhosttyTheme }, ghosttyThemes),
+    [terminalTheme, terminalGhosttyTheme, ghosttyThemes]
+  )
   const runsOpen = useAppStore((s) => s.runsOpen)
   const exited = useAppStore((s) => s.terminals[sessionId]?.session.exited ?? false)
   const attentionInbox = useAttentionInboxState()
@@ -99,7 +107,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
         fontWeight: settings.terminalFontWeight,
         lineHeight: settings.terminalLineHeight,
         fontFamily: settings.terminalFontFamily || "'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-        theme: terminalThemeOf(settings.terminalTheme),
+        theme: resolveTerminalPalette(settings, useAppStore.getState().ghosttyThemes),
         scrollback: settings.scrollback ?? 10000,
         scrollOnUserInput: true,
         rightClickSelectsWord: false,
@@ -390,14 +398,14 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
       if (!replaying.current) fitRef.current?.fit()
       term.options.cursorStyle = cursorStyle === 'bar' || cursorStyle === 'underline' ? cursorStyle : 'block'
       term.options.cursorBlink = cursorBlink ?? true
-      const theme = terminalThemeOf(terminalTheme)
+      const theme = palette
       term.options.theme = theme
       // xterm paints the overscroll viewport once at open and never refreshes it
       // on live theme swaps — keep it in sync ourselves.
       const viewport = hostRef.current?.querySelector<HTMLElement>('.xterm-viewport')
       if (viewport) viewport.style.backgroundColor = theme.background
     } catch { /* mid-dispose */ }
-  }, [fontSize, fontFamily, fontWeight, lineHeight, cursorStyle, cursorBlink, terminalTheme])
+  }, [fontSize, fontFamily, fontWeight, lineHeight, cursorStyle, cursorBlink, palette])
 
   // Programmatic resize requests from the store that did not originate in a fit round-trip.
   useEffect(() => {
@@ -412,7 +420,7 @@ function XtermPane({ sessionId, cols, rows, isActive }: Props) {
     }
   }, [cols, rows, isActive])
 
-  const wrapStyle = { backgroundColor: terminalThemeOf(terminalTheme).background }
+  const wrapStyle = { backgroundColor: palette['background'] }
 
   const closeSearch = (): void => {
     searchRef.current?.clearDecorations()

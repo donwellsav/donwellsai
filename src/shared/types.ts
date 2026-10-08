@@ -218,6 +218,12 @@ export type AppSettings = {
   copyOnSelect: boolean
   terminalTheme: TerminalThemeName
   /**
+   * One of Ghostty's own themes, by name. Empty uses `terminalTheme`. The
+   * catalog comes from the native module, so the value is validated as a name
+   * rather than against a static list.
+   */
+  terminalGhosttyTheme: string
+  /**
    * Requested terminal surface. Ghostty is the default; the pane falls back to
    * xterm whenever the native module is unavailable on this platform.
    */
@@ -468,6 +474,7 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   /** Reattach to a daemon-owned session: returns live state + scrollback replay. */
   nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
   nativeTerminalAvailability(): Promise<import('./native-terminal').NativeTerminalAvailability>
+  nativeTerminalThemes(): Promise<import('./native-terminal').GhosttyTheme[]>
   onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
   herdrSnapshot(): Promise<import('./herdr-session').HerdrSnapshot>
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean; replay?: import('./terminal-stream').TerminalReplayChunk[] } | null>

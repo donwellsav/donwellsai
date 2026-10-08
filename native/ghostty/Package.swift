@@ -4,5 +4,8 @@ let package = Package(
     name: "DonwellsGhostty", platforms: [.macOS(.v13)],
     products: [.library(name: "DonwellsGhostty", type: .dynamic, targets: ["DonwellsGhostty"])],
     dependencies: [.package(path: ".vendor/libghostty-spm")],
-    targets: [.target(name: "DonwellsGhostty", dependencies: [.product(name: "GhosttyTerminal", package: "libghostty-spm")])]
+    targets: [.target(name: "DonwellsGhostty", dependencies: [
+        .product(name: "GhosttyTerminal", package: "libghostty-spm"),
+        .product(name: "GhosttyTheme", package: "libghostty-spm")
+    ])]
 )

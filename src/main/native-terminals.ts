@@ -4,18 +4,20 @@ import { app, shell, type BrowserWindow } from 'electron'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { AppSettings } from '@shared/types'
-import type { NativeTerminalRequest, NativeTerminalResult, NativeTerminalAvailability } from '@shared/native-terminal'
+import type { NativeTerminalRequest, NativeTerminalResult, NativeTerminalAvailability, GhosttyTheme } from '@shared/native-terminal'
 import type { HerdrTerminalSource } from '@shared/herdr-session'
 import type { DaemonClient } from './daemon-client'
 import { TerminalBus, type TerminalSubscription } from '@shared/terminal-stream'
 import { HerdrTerminalBridge, sessionErrorMessage } from './herdr-session'
 import { nativeTerminalConfiguration } from './native-terminal-config'
+import { resolveTerminalPalette } from '../renderer/src/terminal-themes'
 import { logger } from '@shared/logger'
 
 type Entry = { id: string; instance: string; sessionId: string; source?: HerdrTerminalSource; connected: boolean; stream: TerminalSubscription; generation: number; cols: number; rows: number; measured?: boolean; boundsReady?: boolean; snapshot?: Awaited<ReturnType<DaemonClient['attach']>> }
 type Binding = { request(json: string, handle?: Buffer): string; listen(callback: (json: string) => void): void }
 let binding: Binding | undefined
 let receive: ((json: string) => void) | undefined
+let themes: GhosttyTheme[] | undefined
 
 function native(): Binding {
   if (process.platform !== 'darwin') throw new Error('Native Ghostty is available only on macOS.')
@@ -42,6 +44,20 @@ export function nativeTerminalAvailability(): NativeTerminalAvailability {
   } catch (cause) {
     return { available: false, reason: cause instanceof Error ? cause.message : String(cause) }
   }
+}
+
+/**
+ * Ghostty's bundled theme collection, read once from the native module.
+ *
+ * This is the same catalog `ghostty +list-themes` reports, so a theme chosen
+ * here behaves like the upstream one rather than an app-specific imitation.
+ */
+export function nativeTerminalThemes(): GhosttyTheme[] {
+  if (themes) return themes
+  const response = JSON.parse(native().request(JSON.stringify({ id: 'catalog', op: 'themes' }))) as { error?: string; themes?: GhosttyTheme[] }
+  if (response.error) throw new Error(String(response.error))
+  themes = response.themes ?? []
+  return themes
 }
 
 /** Native surfaces are presentation only; the existing daemon owns every PTY. */
@@ -79,7 +95,16 @@ export class NativeTerminals {
     if (entry) { entry.connected = false; entry.generation++; this.call(entry, 'connected', { value: false }) }
   }
   private shortcuts() { return Object.fromEntries(resolveAppShortcuts(this.settings().keyboardShortcutOverrides, 'mac').shortcuts.map(item => [item.normalized, item.command.id])) }
-  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: nativeTerminalConfiguration(this.settings()), shortcuts: this.shortcuts() }) }
+  /**
+   * The palette a surface renders with. Shares the renderer's resolver so the
+   * native surface and the xterm fallback cannot drift apart.
+   */
+  private palette(): Record<string, string> {
+    let catalog: GhosttyTheme[] = []
+    try { catalog = nativeTerminalThemes() } catch { catalog = [] }
+    return resolveTerminalPalette(this.settings(), catalog)
+  }
+  configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: nativeTerminalConfiguration(this.settings(), this.palette()), shortcuts: this.shortcuts() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()
     if (entry.source) this.herdr.stop(entry.sessionId)
@@ -157,7 +182,7 @@ export class NativeTerminals {
       if (entry?.instance !== request.instance || !this.sameSource(entry?.source, request.source)) {
         if (entry) this.dispose(entry)
         const next: Entry = { id: request.sessionId + "/" + request.instance, instance: request.instance, sessionId: request.sessionId, source: request.source, connected: false, generation: 0, cols: 100, rows: 30, stream: null! }
-        this.call(next, 'create', { configuration: nativeTerminalConfiguration(this.settings()), shortcuts: this.shortcuts() })
+        this.call(next, 'create', { configuration: nativeTerminalConfiguration(this.settings(), this.palette()), shortcuts: this.shortcuts() })
         const bus = request.source ? this.herdrStream : this.stream
         next.stream = bus.subscribe(request.sessionId, data => this.call(next, 'write', { data }), () => this.disconnected(next, 'Connection to the terminal service was lost. Reattach to check this session.'))
         this.entries.set(request.sessionId, next); entry = next
