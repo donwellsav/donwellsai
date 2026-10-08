@@ -480,6 +480,8 @@ export type IpcApi = ProjectTemporalKnowledgeApi & ProjectLanguageApi & ProjectK
   nativeTerminal(request: import('./native-terminal').NativeTerminalRequest): Promise<import('./native-terminal').NativeTerminalResult>
   nativeTerminalAvailability(): Promise<import('./native-terminal').NativeTerminalAvailability>
   nativeTerminalThemes(): Promise<import('./native-terminal').GhosttyTheme[]>
+  /** Rendered state of a native surface; the surface draws outside the DOM. */
+  nativeTerminalRead(sessionId: string): Promise<import('./native-terminal').NativeTerminalViewport>
   onNativeTerminal(callback: (event: import('./native-terminal').NativeTerminalEvent) => void): () => void
   herdrSnapshot(): Promise<import('./herdr-session').HerdrSnapshot>
   attachTerminal(sessionId: string): Promise<{ session: TerminalSession; scrollback: string; sequence?: number; truncated?: boolean; replay?: import('./terminal-stream').TerminalReplayChunk[] } | null>

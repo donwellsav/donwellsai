@@ -29,6 +29,7 @@ const api: IpcApi = {
   nativeTerminal: request => ipcRenderer.invoke('native-terminal:request', request),
   nativeTerminalAvailability: () => ipcRenderer.invoke('native-terminal:availability'),
   nativeTerminalThemes: () => ipcRenderer.invoke('native-terminal:themes'),
+  nativeTerminalRead: sessionId => ipcRenderer.invoke('native-terminal:read', sessionId),
   onNativeTerminal: callback => { const listener = (_event: Electron.IpcRendererEvent, message: import('@shared/native-terminal').NativeTerminalEvent) => callback(message); ipcRenderer.on('native-terminal:event', listener); return () => ipcRenderer.removeListener('native-terminal:event', listener) },
   herdrSnapshot: () => ipcRenderer.invoke('herdr:snapshot'),
   projectKitExport: (...args) => ipcRenderer.invoke('projectKitExport', ...args),

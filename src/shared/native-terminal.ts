@@ -28,3 +28,13 @@ export type GhosttyTheme = {
   palette: Record<string, string>
 }
 export type NativeTerminalEvent = { sessionId: string; instance: string; error?: string; focused?: boolean }
+
+/** What a native surface currently has on screen. */
+export type NativeTerminalViewport = {
+  /** Visible text, as the surface has actually rendered it. */
+  text: string
+  searchTotal: number
+  searchSelected: number
+  visible: boolean
+  finding: boolean
+}

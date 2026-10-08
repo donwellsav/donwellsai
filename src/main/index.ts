@@ -394,6 +394,11 @@ function registerIpc(): void {
     return nativeTerminalAvailability()
   })
 
+  ipcMain.handle('native-terminal:read', (event, sessionId) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !nativeTerminals) throw new Error('Native terminal read has no authorized owner')
+    return nativeTerminals.read(String(sessionId))
+  })
+
   ipcMain.handle('native-terminal:themes', (event) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Native terminal themes have no authorized owner')
     return nativeTerminalThemes()

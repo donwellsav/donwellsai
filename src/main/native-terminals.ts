@@ -137,6 +137,18 @@ export class NativeTerminals {
     if (!this.settings().terminalUseGhosttyConfig) return generated
     return mergeGhosttyConfig(ghosttyUserConfig(), generated)
   }
+  /**
+   * What the native surface currently has on screen. The embedded surface is
+   * the only place rendered output exists - it draws outside the DOM - so this
+   * is the app's read-back for it, and the only way a test can assert that a
+   * terminal actually rendered something.
+   */
+  read(sessionId: string): Record<string, unknown> {
+    const entry = this.entries.get(sessionId)
+    if (!entry) throw new Error('No native surface is attached to that session')
+    return this.call(entry, 'read')
+  }
+
   configure() { for (const entry of this.entries.values()) this.call(entry, 'configuration', { configuration: this.configuration(), shortcuts: this.shortcuts(), keybinds: this.keybinds() }) }
   private dispose(entry: Entry) {
     entry.generation++; entry.connected = false; entry.stream.dispose()

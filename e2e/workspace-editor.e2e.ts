@@ -344,6 +344,33 @@ test('summons and disposes the quick terminal', async () => {
   await expect(page.getByRole('button', { name: 'New terminal', exact: true })).toBeVisible()
 })
 
+// The native surface draws outside the DOM, so rendered output is only
+// observable through the surface's own read-back. This drives a real command
+// through the PTY and asserts the surface rendered its output - the closest
+// available replacement for the deleted acceptance harness, which dispatched
+// events into the real view.
+test('renders command output in the native Ghostty surface', async () => {
+  test.skip(process.platform !== 'darwin', 'the native Ghostty surface ships on macOS')
+  await openFixtureProject()
+  await page.getByRole('button', { name: 'New terminal', exact: true }).click()
+  await expect(page.locator('.pane-body-terminal:not(.terminal-hidden) .native-terminal-host')).toBeVisible()
+
+  const marker = 'ghostty-rendered-marker'
+  const sessionId = await page.evaluate(async () => {
+    const sessions = await window.donwells.terminalSessions()
+    return sessions[sessions.length - 1]?.id ?? null
+  })
+  expect(sessionId).toBeTruthy()
+  await page.evaluate(async ({ id, command }) => window.donwells.terminalWrite(id, command), { id: sessionId!, command: `echo ${marker}\n` })
+
+  await expect.poll(
+    () => page.evaluate(async (id) => {
+      try { return (await window.donwells.nativeTerminalRead(id)).text } catch { return '' }
+    }, sessionId!),
+    { timeout: 20_000 }
+  ).toContain(marker)
+})
+
 test('exercises workspace layout presets', async () => {
   await openFixtureProject()
   // Open a terminal to get 2+ panes for multi-pane presets.
